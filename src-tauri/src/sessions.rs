@@ -68,9 +68,7 @@ pub fn encode_session_dir_name(cwd: &str) -> String {
     let stripped = text.trim_start_matches(['/', '\\']);
     format!(
         "--{}--",
-        stripped
-            .replace(['/', '\\', ':'], "-")
-            .trim_matches('-')
+        stripped.replace(['/', '\\', ':'], "-").trim_matches('-')
     )
 }
 
@@ -92,8 +90,12 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
         return Err(format!("Файл сессии не найден: {path}"));
     }
 
-    let metadata = fs::metadata(file_path)
-        .map_err(|error| format!("Не удалось прочитать метаданные {}: {error}", file_path.display()))?;
+    let metadata = fs::metadata(file_path).map_err(|error| {
+        format!(
+            "Не удалось прочитать метаданные {}: {error}",
+            file_path.display()
+        )
+    })?;
     let previous = read_session_title(file_path).ok().flatten();
     let now = now_iso();
     let slot = serialize_title_slot(&title, Some("user"), &now)?;
@@ -152,11 +154,7 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn import_session(
-    path: &str,
-    target_cwd: &str,
-    session_root: &Path,
-) -> Result<String, String> {
+pub fn import_session(path: &str, target_cwd: &str, session_root: &Path) -> Result<String, String> {
     let source = Path::new(path);
     if !source.is_file() {
         return Err(format!("Файл сессии не найден: {path}"));
@@ -232,14 +230,12 @@ fn import_omp_session(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or_else(|| {
-            serde_json::from_str::<Value>(first)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("title")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
+            serde_json::from_str::<Value>(first).ok().and_then(|value| {
+                value
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
         })
         .unwrap_or_else(|| "Imported session".to_owned());
 
@@ -270,11 +266,7 @@ fn import_omp_session(
         .unwrap_or("imported-session.jsonl");
     let mut dest = dest_dir.join(file_name);
     if dest.exists() {
-        dest = dest_dir.join(format!(
-            "imported-{}-{}",
-            now.replace(':', "-"),
-            file_name
-        ));
+        dest = dest_dir.join(format!("imported-{}-{}", now.replace(':', "-"), file_name));
     }
     fs::write(&dest, body)
         .map_err(|error| format!("Не удалось записать {}: {error}", dest.display()))?;
@@ -345,10 +337,7 @@ fn import_codex_session(
         match event_type {
             "response_item" => {
                 let payload = value.get("payload").cloned().unwrap_or(Value::Null);
-                let role = payload
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let role = payload.get("role").and_then(Value::as_str).unwrap_or("");
                 let content = extract_text_content(payload.get("content"));
                 if content.trim().is_empty() {
                     continue;
@@ -492,24 +481,35 @@ fn collect_jsonl_files(
     Ok(())
 }
 
-fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
+pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
     let mut reader = std::io::BufReader::new(file);
     let mut line = String::with_capacity(1024);
+    let mut line_index = 0_usize;
     let mut id = None;
     let mut cwd = None;
     let mut title = None;
     let mut session_title = None;
     let mut created_at = None;
     let mut model = None;
+    let mut thinking_level = None;
 
-    for _ in 0..12 {
+    loop {
         line.clear();
         let bytes = std::io::BufRead::read_line(&mut reader, &mut line)
             .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
         if bytes == 0 {
             break;
+        }
+
+        let parse_prefix = line_index < 12;
+        line_index += 1;
+        if !parse_prefix
+            && !line.contains("\"model_change\"")
+            && !line.contains("\"thinking_level_change\"")
+        {
+            continue;
         }
 
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
@@ -540,11 +540,13 @@ fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
                     .and_then(Value::as_str)
                     .map(str::to_owned);
             }
+            Some("thinking_level_change") => {
+                thinking_level = value
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+            }
             _ => {}
-        }
-
-        if id.is_some() && cwd.is_some() && title.is_some() && model.is_some() {
-            break;
         }
     }
 
@@ -564,6 +566,7 @@ fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
         created_at: created_at.unwrap_or_default(),
         updated_at,
         model,
+        thinking_level,
         source: "omp".to_owned(),
     }))
 }
@@ -896,7 +899,10 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{encode_session_dir_name, parse_session, path_key, serialize_title_slot};
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn path_key_normalizes_separators_and_trailing_slash() {
@@ -919,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn session_header_exposes_resume_metadata() {
+    fn session_parser_reads_latest_runtime_state() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -928,14 +934,26 @@ mod tests {
             "omp-desktop-session-{}-{nonce}.jsonl",
             std::process::id()
         ));
-        let contents = concat!(
+        let mut contents = concat!(
             r#"{"type":"title","v":1,"title":"Resume this work","updatedAt":"2026-07-18T10:00:00Z","pad":""}"#,
             "\n",
             r#"{"type":"session","version":3,"id":"session-id","timestamp":"2026-07-18T10:00:00Z","cwd":"/tmp/project"}"#,
             "\n",
-            r#"{"type":"model_change","model":"provider/model"}"#,
+            r#"{"type":"model_change","model":"provider/initial"}"#,
             "\n"
-        );
+        )
+        .to_owned();
+        for index in 0..16 {
+            contents.push_str(&format!(
+                "{{\"type\":\"custom_message\",\"content\":\"filler-{index}\"}}\n"
+            ));
+        }
+        contents.push_str(concat!(
+            r#"{"type":"model_change","model":"provider/latest"}"#,
+            "\n",
+            r#"{"type":"thinking_level_change","thinkingLevel":"xhigh"}"#,
+            "\n"
+        ));
         fs::write(&path, contents).expect("fixture should be writable");
 
         let session = parse_session(&path)
@@ -947,7 +965,8 @@ mod tests {
         assert_eq!(session.title, "Resume this work");
         assert_eq!(session.cwd, "/tmp/project");
         assert_eq!(session.created_at, "2026-07-18T10:00:00Z");
-        assert_eq!(session.model.as_deref(), Some("provider/model"));
+        assert_eq!(session.model.as_deref(), Some("provider/latest"));
+        assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
         assert!(session.updated_at > 0);
     }
 }

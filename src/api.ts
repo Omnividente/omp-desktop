@@ -36,6 +36,16 @@ export function startTerminal(
   });
 }
 
+export function restartTerminal(
+  terminalId: string,
+  modelSelector: string,
+  thinkingLevel: string | null,
+): Promise<TerminalStarted> {
+  return invoke("restart_terminal", {
+    request: { terminalId, modelSelector, thinkingLevel },
+  });
+}
+
 export function attachTerminal(
   terminalId: string,
 ): Promise<TerminalAttachment> {

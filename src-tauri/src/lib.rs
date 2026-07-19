@@ -116,11 +116,9 @@ async fn load_omp_config(
     settings: State<'_, SettingsState>,
 ) -> Result<OmpConfigSnapshot, String> {
     let snapshot = settings_snapshot(&settings)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        omp_bridge::load_config_snapshot(&app, &snapshot)
-    })
-    .await
-    .map_err(|error| format!("Не удалось дождаться загрузки настроек OMP: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || omp_bridge::load_config_snapshot(&app, &snapshot))
+        .await
+        .map_err(|error| format!("Не удалось дождаться загрузки настроек OMP: {error}"))?
 }
 
 #[tauri::command]
@@ -176,6 +174,7 @@ pub fn run() {
             save_omp_config,
             check_omp_update,
             terminal::start_terminal,
+            terminal::restart_terminal,
             terminal::attach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,

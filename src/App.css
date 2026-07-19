@@ -1930,6 +1930,14 @@ button:disabled {
   opacity: 1;
 }
 
+.tab-close:disabled,
+.tab-close:disabled:hover {
+  color: #5f6862;
+  background: transparent;
+  cursor: wait;
+  opacity: 0.28;
+}
+
 .tab-close:hover {
   color: #d5dbd7;
   background: #242925;
@@ -1955,11 +1963,71 @@ button:disabled {
 .terminal-meta {
   display: flex;
   align-items: center;
-  min-width: 80px;
-  padding: 0 12px;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
   color: #535c56;
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 8px;
+}
+
+.session-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-controls select {
+  height: 25px;
+  min-width: 0;
+  padding: 0 24px 0 8px;
+  color: #b7c0ba;
+  border: 1px solid #303732;
+  border-radius: 4px;
+  outline: none;
+  background: #111512;
+  color-scheme: dark;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 9px;
+}
+
+.session-controls select:hover:not(:disabled) {
+  color: #dce4de;
+  border-color: #465048;
+}
+
+.session-controls select:focus-visible {
+  border-color: rgba(185, 242, 124, 0.7);
+  box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.1);
+}
+
+.session-controls select:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.session-controls option,
+.session-controls optgroup {
+  color: #c8d0ca;
+  background: #171b18;
+}
+
+.session-model-select {
+  width: min(190px, 24vw);
+}
+
+.session-thinking-select {
+  width: 132px;
+}
+
+.session-switching {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.terminal-meta > span:last-child {
+  white-space: nowrap;
 }
 
 .terminal-stack {

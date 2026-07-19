@@ -1,5 +1,6 @@
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -10,11 +11,14 @@ import {
   errorMessage,
   importSession,
   listCodexSessions,
+  loadOmpConfig,
   renameSession,
+  restartTerminal,
   startTerminal,
 } from "./api";
 import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
+import { matchesSelector, splitSelector } from "./ModelPicker";
+import { thinkingLevelLabel, t, type Lang } from "./i18n";
 import { SettingsPanel } from "./SettingsPanel";
 import { TerminalView } from "./TerminalView";
 import type {
@@ -22,6 +26,8 @@ import type {
   CodexSessionSummary,
   OmpUpdateInfo,
   PtyExitEvent,
+  PtySessionEvent,
+  OmpConfigSnapshot,
   RuntimeInfo,
   SessionSummary,
   TerminalTab,
@@ -212,12 +218,135 @@ function WorkspaceHome({
   );
 }
 
+function SessionControls({
+  tab,
+  ompConfig,
+  lang,
+  onSwitch,
+}: {
+  tab: TerminalTab;
+  ompConfig: OmpConfigSnapshot | null;
+  lang: Lang;
+  onSwitch: (tabId: string, model: string, thinking: string | null) => void;
+}) {
+  if (!ompConfig || tab.status !== "running" || tab.kind !== "agent") return null;
+
+  const defaultSelector =
+    ompConfig.roles.find((role) => role.role === "default")?.selector ?? "";
+  const configured = splitSelector(tab.currentModel ?? defaultSelector);
+  const selectedModel = ompConfig.models.find((model) =>
+    matchesSelector(model, configured.base),
+  );
+  const baseModel = selectedModel
+    ? splitSelector(selectedModel.selector).base
+    : configured.base;
+  const supportedThinking = selectedModel?.thinking ?? [];
+  const preferredThinking =
+    tab.currentThinking ?? configured.thinking ?? ompConfig.defaultThinkingLevel;
+  const currentThinking =
+    preferredThinking && supportedThinking.includes(preferredThinking)
+      ? preferredThinking
+      : (supportedThinking[0] ?? null);
+
+  const modelsByProvider = ompConfig.models.reduce<
+    Record<string, typeof ompConfig.models>
+  >((providers, model) => {
+    const provider = model.provider || "unknown";
+    (providers[provider] ??= []).push(model);
+    return providers;
+  }, {});
+
+  const switchSelection = (model: string, thinking: string | null) => {
+    if (!model || tab.switching) return;
+    onSwitch(tab.id, model, thinking);
+  };
+
+  const handleModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextBase = event.target.value;
+    if (nextBase === baseModel) return;
+    const nextModel = ompConfig.models.find((model) =>
+      matchesSelector(model, nextBase),
+    );
+    if (!nextModel?.available) return;
+    const defaultThinking = ompConfig.defaultThinkingLevel;
+    const nextThinking =
+      currentThinking && nextModel.thinking.includes(currentThinking)
+        ? currentThinking
+        : defaultThinking && nextModel.thinking.includes(defaultThinking)
+          ? defaultThinking
+          : (nextModel.thinking[0] ?? null);
+    switchSelection(splitSelector(nextModel.selector).base, nextThinking);
+  };
+
+  const handleThinkingChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextThinking = event.target.value;
+    if (
+      nextThinking === currentThinking ||
+      !selectedModel?.thinking.includes(nextThinking)
+    ) {
+      return;
+    }
+    switchSelection(baseModel, nextThinking);
+  };
+
+  return (
+    <div aria-busy={tab.switching} className="session-controls">
+      <select
+        aria-label={t(lang, "sessionModel")}
+        className="session-model-select"
+        disabled={tab.switching}
+        onChange={handleModelChange}
+        title={t(lang, "sessionModel")}
+        value={baseModel}
+      >
+        {!selectedModel && baseModel && <option value={baseModel}>{baseModel}</option>}
+        {Object.entries(modelsByProvider).map(([provider, models]) => (
+          <optgroup label={provider} key={provider}>
+            {models.map((model) => {
+              const selector = splitSelector(model.selector).base;
+              return (
+                <option disabled={!model.available} key={model.selector} value={selector}>
+                  {model.name}
+                </option>
+              );
+            })}
+          </optgroup>
+        ))}
+      </select>
+      <select
+        aria-label={t(lang, "sessionThinking")}
+        className="session-thinking-select"
+        disabled={tab.switching || supportedThinking.length === 0}
+        onChange={handleThinkingChange}
+        title={t(lang, "sessionThinking")}
+        value={currentThinking ?? ""}
+      >
+        {supportedThinking.length === 0 ? (
+          <option value="">{t(lang, "thinkingUnavailable")}</option>
+        ) : (
+          supportedThinking.map((level) => (
+            <option key={level} value={level}>
+              {thinkingLevelLabel(lang, level)}
+            </option>
+          ))
+        )}
+      </select>
+      {tab.switching && (
+        <span aria-live="polite" className="session-switching">
+          {t(lang, "switchingSession")}
+        </span>
+      )}
+    </div>
+  );
+}
 function App() {
+
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
+  const discoveredSessionsRef = useRef(new Map<string, SessionSummary>());
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
@@ -233,6 +362,12 @@ function App() {
   const [codexLoading, setCodexLoading] = useState(false);
   const [importing, setImporting] = useState(false);
 
+  const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!payload?.runtime.ompAvailable) return;
+    void loadOmpConfig().then(setOmpConfig).catch(console.error);
+  }, [payload?.runtime.ompAvailable]);
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru";
 
   const showError = useCallback((message: string) => {
@@ -274,6 +409,57 @@ function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unlisten = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
+      if (disposed) return;
+      const { session } = event;
+      discoveredSessionsRef.current.set(event.terminalId, session);
+      setPayload((current) => {
+        if (!current) return current;
+        const sessionPath = normalizedPath(session.filePath, current.runtime.platform);
+        const sessions = [
+          session,
+          ...current.sessions.filter(
+            (candidate) =>
+              candidate.id !== session.id &&
+              normalizedPath(candidate.filePath, current.runtime.platform) !== sessionPath,
+          ),
+        ].sort((left, right) => right.updatedAt - left.updatedAt);
+        return { ...current, sessions };
+      });
+      setSelectedSessionId(session.id);
+      setSearch("");
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === event.terminalId
+            ? {
+                ...tab,
+                label: session.title,
+                sessionId: session.id,
+                sessionPath: session.filePath,
+              }
+            : tab,
+        ),
+      );
+      void loadBootstrap()
+        .then((next) => {
+          if (!disposed) applyPayload(next);
+        })
+        .catch((error) => {
+          if (!disposed) showError(errorMessage(error));
+        });
+    }).catch((error) => {
+      if (!disposed) showError(errorMessage(error));
+      return null;
+    });
+
+    return () => {
+      disposed = true;
+      void unlisten.then((stop) => stop?.());
+    };
+  }, [applyPayload, showError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -371,16 +557,35 @@ function App() {
       setLaunching(launchKey);
       try {
         const started = await startTerminal(cwd, session?.filePath ?? null);
+        const defaultSelector =
+          ompConfig?.roles.find((role) => role.role === "default")?.selector ?? "";
+        const initialSelector = splitSelector(session?.model ?? defaultSelector);
+        const initialModel = ompConfig?.models.find((model) =>
+          matchesSelector(model, initialSelector.base),
+        );
+        const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null;
         const tab: TerminalTab = {
           id: started.terminalId,
           label:
             session?.title ??
+            discoveredSession?.title ??
             `${lang === "en" ? "New" : "Новая"} · ${selectedWorkspace?.name ?? "OMP"}`,
           cwd: started.cwd,
           processId: started.processId,
-          sessionId: session?.id ?? null,
+          sessionId: session?.id ?? discoveredSession?.id ?? null,
+          sessionPath: session?.filePath ?? discoveredSession?.filePath ?? null,
           status: "running",
           exitCode: null,
+          kind: "agent",
+          switching: false,
+          currentModel: initialModel
+            ? splitSelector(initialModel.selector).base
+            : initialSelector.base || undefined,
+          currentThinking:
+            initialSelector.thinking ??
+            session?.thinkingLevel ??
+            ompConfig?.defaultThinkingLevel ??
+            null,
           success: null,
         };
         setTabs((current) => [...current, tab]);
@@ -391,7 +596,7 @@ function App() {
         setLaunching(null);
       }
     },
-    [lang, launching, payload, selectedWorkspace, showError, tabs],
+    [lang, launching, ompConfig, payload, selectedWorkspace, showError, tabs],
   );
 
   const launchUpdate = useCallback(async () => {
@@ -405,9 +610,12 @@ function App() {
         cwd: started.cwd,
         processId: started.processId,
         sessionId: null,
+        sessionPath: null,
         status: "running",
         exitCode: null,
         success: null,
+        kind: "utility",
+        switching: false,
       };
       setTabs((current) => [...current, tab]);
       setActiveTabId(tab.id);
@@ -476,8 +684,62 @@ function App() {
     }
   }, [applyPayload, lang, selectedWorkspace?.path, showError]);
 
+  const switchTerminalRuntime = useCallback(
+    async (terminalId: string, model: string, thinking: string | null) => {
+      const tab = tabs.find((candidate) => candidate.id === terminalId);
+      if (!tab || tab.kind !== "agent" || tab.status !== "running" || tab.switching) return;
+
+      setTabs((current) =>
+        current.map((candidate) =>
+          candidate.id === terminalId ? { ...candidate, switching: true } : candidate,
+        ),
+      );
+      try {
+        const started = await restartTerminal(terminalId, model, thinking);
+        const discoveredSession = discoveredSessionsRef.current.get(terminalId);
+        if (discoveredSession) {
+          discoveredSessionsRef.current.delete(terminalId);
+          discoveredSessionsRef.current.set(started.terminalId, discoveredSession);
+        }
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId
+              ? {
+                  ...candidate,
+                  id: started.terminalId,
+                  cwd: started.cwd,
+                  processId: started.processId,
+                  status: "running",
+                  exitCode: null,
+                  success: null,
+                  switching: false,
+                  currentModel: model,
+                  currentThinking: thinking,
+                }
+              : candidate,
+          ),
+        );
+        setActiveTabId((current) =>
+          current === terminalId ? started.terminalId : current,
+        );
+        window.setTimeout(() => void refresh(), 750);
+      } catch (error) {
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId ? { ...candidate, switching: false } : candidate,
+          ),
+        );
+        showError(errorMessage(error));
+      }
+    },
+    [refresh, showError, tabs],
+  );
+
   const closeTab = useCallback(
     (terminalId: string) => {
+      const target = tabs.find((tab) => tab.id === terminalId);
+      if (!target || target.switching) return;
+      discoveredSessionsRef.current.delete(terminalId);
       void closeTerminal(terminalId).catch((error) => showError(errorMessage(error)));
       setTabs((current) => {
         const index = current.findIndex((tab) => tab.id === terminalId);
@@ -489,7 +751,7 @@ function App() {
         return remaining;
       });
     },
-    [showError],
+    [showError, tabs],
   );
 
   const handleExit = useCallback(
@@ -502,6 +764,7 @@ function App() {
                 status: "exited",
                 exitCode: event.exitCode,
                 success: event.success,
+                switching: false,
               }
             : tab,
         ),
@@ -847,6 +1110,7 @@ function App() {
                       </button>
                       <button
                         className="tab-close"
+                        disabled={tab.switching}
                         onClick={() => closeTab(tab.id)}
                         title={tab.status === "running" ? t(lang, "stopAndClose") : t(lang, "close")}
                         type="button"
@@ -866,6 +1130,21 @@ function App() {
                   </button>
                 </div>
                 <div className="terminal-meta">
+                  {(() => {
+                    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+                    if (!activeTab) return null;
+                    return (
+                      <SessionControls
+                        key={activeTab.id}
+                        tab={activeTab}
+                        ompConfig={ompConfig}
+                        lang={lang}
+                        onSwitch={(tabId, model, thinking) =>
+                          void switchTerminalRuntime(tabId, model, thinking)
+                        }
+                      />
+                    );
+                  })()}
                   {tabs.find((tab) => tab.id === activeTabId)?.processId && (
                     <span>PID {tabs.find((tab) => tab.id === activeTabId)?.processId}</span>
                   )}

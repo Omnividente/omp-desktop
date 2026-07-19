@@ -40,6 +40,7 @@ const PROVIDER_ENV_KEYS: &[&str] = &[
     "OPENCODE_API_KEY",
     "KILO_API_KEY",
     "RDSH_API_KEY",
+    "A6API_KEY",
 ];
 
 pub fn load_config_snapshot(
@@ -73,7 +74,10 @@ pub fn load_config_snapshot(
         advisor_enabled: extract_bool(&raw, "advisor.enabled").unwrap_or(false),
         auto_resume: extract_bool(&raw, "autoResume").unwrap_or(false),
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
-        provider_env_keys: PROVIDER_ENV_KEYS.iter().map(|key| (*key).to_owned()).collect(),
+        provider_env_keys: PROVIDER_ENV_KEYS
+            .iter()
+            .map(|key| (*key).to_owned())
+            .collect(),
         raw,
     })
 }
@@ -195,7 +199,9 @@ pub fn check_update(
                 .find_map(|line| extract_version(line).map(str::to_owned))
         });
 
-    let has_update = output.to_ascii_lowercase().contains("new version available")
+    let has_update = output
+        .to_ascii_lowercase()
+        .contains("new version available")
         || match (&current, &latest) {
             (Some(current), Some(latest)) => current != latest,
             _ => false,
@@ -288,10 +294,7 @@ fn load_usage(
         };
         if let Some(limits) = report.get("limits").and_then(Value::as_array) {
             for limit in limits {
-                let status = limit
-                    .get("status")
-                    .and_then(Value::as_str)
-                    .unwrap_or("ok");
+                let status = limit.get("status").and_then(Value::as_str).unwrap_or("ok");
                 let label = limit
                     .get("label")
                     .and_then(Value::as_str)
@@ -430,8 +433,7 @@ fn extract_string(raw: &Value, key: &str) -> Option<String> {
 
 fn strip_thinking(selector: &str) -> String {
     match selector.rsplit_once(':') {
-        Some((base, "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "auto")) =>
-        {
+        Some((base, "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "auto")) => {
             base.to_owned()
         }
         _ => selector.to_owned(),
@@ -439,8 +441,9 @@ fn strip_thinking(selector: &str) -> String {
 }
 
 fn extract_version(text: &str) -> Option<&str> {
-    text.split_whitespace()
-        .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()) && part.contains('.'))
+    text.split_whitespace().find(|part| {
+        part.chars().next().is_some_and(|ch| ch.is_ascii_digit()) && part.contains('.')
+    })
 }
 
 fn set_omp_config(

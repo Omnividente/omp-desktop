@@ -24,6 +24,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: number;
   model: string | null;
+  thinkingLevel: string | null;
   source: string;
 }
 
@@ -119,6 +120,11 @@ export interface TerminalAttachment {
   error: string | null;
 }
 
+export interface PtySessionEvent {
+  terminalId: string;
+  session: SessionSummary;
+}
+
 export interface PtyOutputEvent {
   terminalId: string;
   data: string;
@@ -139,7 +145,12 @@ export interface TerminalTab {
   cwd: string;
   processId: number | null;
   sessionId: string | null;
+  sessionPath: string | null;
   status: TerminalStatus;
   exitCode: number | null;
   success: boolean | null;
+  kind: "agent" | "utility";
+  switching: boolean;
+  currentModel?: string;
+  currentThinking?: string | null;
 }

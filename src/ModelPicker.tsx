@@ -20,7 +20,7 @@ interface ModelPickerProps {
 
 const THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/i;
 
-function splitSelector(selector: string): { base: string; thinking: string | null } {
+export function splitSelector(selector: string): { base: string; thinking: string | null } {
   const match = selector.match(THINKING_SUFFIX);
   if (!match || match.index === undefined) {
     return { base: selector, thinking: null };
@@ -39,7 +39,7 @@ function selectorForModel(model: OmpModelInfo, current: string): string {
   return model.selector;
 }
 
-function matchesSelector(model: OmpModelInfo, selector: string): boolean {
+export function matchesSelector(model: OmpModelInfo, selector: string): boolean {
   const base = splitSelector(selector).base.toLowerCase();
   return (
     model.selector.toLowerCase() === base ||

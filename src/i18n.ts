@@ -92,6 +92,10 @@ export const UI_TEXT = {
     thinkingXhigh: "Очень высокий",
     thinkingMax: "Максимальный",
     thinkingAuto: "Автоматически",
+    sessionModel: "Модель текущей сессии",
+    sessionThinking: "Рассуждение текущей сессии",
+    thinkingUnavailable: "Не поддерживается",
+    switchingSession: "Переключаем…",
     modelRoles: "Роли моделей",
     modelRolesHelp:
       "Роль определяет, для каких задач OMP использует модель. Нажмите на поле модели, чтобы открыть встроенный тёмный список; выбор сохраняется только после кнопки «Сохранить».",
@@ -252,6 +256,10 @@ export const UI_TEXT = {
     thinkingXhigh: "Extra high",
     thinkingMax: "Maximum",
     thinkingAuto: "Automatic",
+    sessionModel: "Current session model",
+    sessionThinking: "Current session reasoning",
+    thinkingUnavailable: "Not supported",
+    switchingSession: "Switching…",
     modelRoles: "Model roles",
     modelRolesHelp:
       "A role determines which tasks use a model. Click the model field to open the built-in dark list; changes apply only after Save.",
