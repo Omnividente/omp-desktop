@@ -158,6 +158,7 @@ pub fn runtime_info(app: &AppHandle, settings: &AppSettings) -> Result<RuntimeIn
         omp_executable: omp.executable,
         omp_version: omp.version,
         session_root: root.to_string_lossy().into_owned(),
+        language: settings.language.clone(),
     })
 }
 

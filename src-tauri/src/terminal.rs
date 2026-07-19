@@ -59,6 +59,8 @@ impl TerminalState {
 pub struct LaunchRequest {
     pub cwd: String,
     pub resume_path: Option<String>,
+    #[serde(default)]
+    pub args: Option<Vec<String>>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -139,15 +141,24 @@ pub fn start_terminal(
 
     let mut command = CommandBuilder::new(&omp.executable);
     command.cwd(cwd);
-    command.arg("--cwd");
-    command.arg(cwd);
-    if let Some(resume_path) = request.resume_path.as_deref() {
-        command.arg("--resume");
-        command.arg(resume_path);
+    if let Some(args) = request.args.as_ref().filter(|items| !items.is_empty()) {
+        for arg in args {
+            command.arg(arg);
+        }
+    } else {
+        command.arg("--cwd");
+        command.arg(cwd);
+        if let Some(resume_path) = request.resume_path.as_deref() {
+            command.arg("--resume");
+            command.arg(resume_path);
+        }
     }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "OMP Desktop");
+    for (key, value) in &settings.provider_env {
+        command.env(key, value);
+    }
 
     let mut child = pair
         .slave

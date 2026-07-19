@@ -2,11 +2,14 @@ export interface AppSettings {
   ompExecutable: string | null;
   sessionRoot: string | null;
   recentWorkspaces: string[];
+  language: "ru" | "en";
+  providerEnv: Record<string, string>;
 }
 
 export interface RuntimeInfo {
   platform: string;
   arch: string;
+  language: string;
   ompAvailable: boolean;
   ompExecutable: string;
   ompVersion: string | null;
@@ -21,6 +24,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: number;
   model: string | null;
+  source: string;
 }
 
 export interface WorkspaceSummary {
@@ -41,6 +45,64 @@ export interface BootstrapPayload {
 export interface SettingsUpdate {
   ompExecutable: string | null;
   sessionRoot: string | null;
+  language: "ru" | "en" | null;
+  providerEnv?: Record<string, string> | null;
+}
+
+export interface OmpModelInfo {
+  provider: string;
+  id: string;
+  selector: string;
+  name: string;
+  available: boolean;
+  status: string;
+  detail: string | null;
+  thinking: string[];
+}
+
+export interface OmpRoleInfo {
+  role: string;
+  selector: string;
+  model: OmpModelInfo | null;
+  available: boolean;
+  status: string;
+  detail: string | null;
+}
+
+export interface OmpConfigSnapshot {
+  roles: OmpRoleInfo[];
+  models: OmpModelInfo[];
+  advisorEnabled: boolean;
+  autoResume: boolean;
+  defaultThinkingLevel: string | null;
+  providerEnvKeys: string[];
+  raw: Record<string, unknown>;
+}
+
+export interface OmpConfigSaveRequest {
+  roles: Record<string, string>;
+  advisorEnabled?: boolean | null;
+  autoResume?: boolean | null;
+  defaultThinkingLevel?: string | null;
+  providerEnv?: Record<string, string> | null;
+}
+
+export interface OmpUpdateInfo {
+  hasUpdate: boolean;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  message: string;
+}
+
+export interface CodexSessionSummary {
+  id: string;
+  title: string;
+  cwd: string;
+  filePath: string;
+  createdAt: string;
+  updatedAt: number;
+  model: string | null;
+  preview: string;
 }
 
 export interface TerminalStarted {

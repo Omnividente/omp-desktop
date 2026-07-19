@@ -1,9 +1,13 @@
 mod models;
+mod omp_bridge;
 mod sessions;
 mod settings;
 mod terminal;
 
-use models::{AppSettings, BootstrapPayload, SettingsUpdate};
+use models::{
+    AppSettings, BootstrapPayload, CodexSessionSummary, OmpConfigSaveRequest, OmpConfigSnapshot,
+    OmpUpdateInfo, SettingsUpdate,
+};
 use sessions::{build_bootstrap, path_key};
 use settings::{load_settings, normalize_optional, save_settings, SettingsState};
 use std::path::PathBuf;
@@ -60,10 +64,86 @@ fn update_settings(
             .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?;
         settings.omp_executable = normalize_optional(update.omp_executable);
         settings.session_root = normalize_optional(update.session_root);
+        if let Some(language) = normalize_optional(update.language) {
+            settings.language = language;
+        }
+        if let Some(provider_env) = update.provider_env {
+            settings.provider_env = provider_env
+                .into_iter()
+                .filter(|(key, value)| !key.trim().is_empty() && !value.trim().is_empty())
+                .map(|(key, value)| (key.trim().to_owned(), value))
+                .collect();
+        }
         settings.clone()
     };
     save_settings(&app, &snapshot)?;
     build_bootstrap(&app, &snapshot)
+}
+
+#[tauri::command]
+fn rename_session(
+    path: String,
+    title: String,
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+) -> Result<BootstrapPayload, String> {
+    sessions::rename_session(&path, &title)?;
+    let snapshot = settings_snapshot(&settings)?;
+    build_bootstrap(&app, &snapshot)
+}
+
+#[tauri::command]
+fn import_session(
+    path: String,
+    target_cwd: String,
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+) -> Result<BootstrapPayload, String> {
+    let snapshot = settings_snapshot(&settings)?;
+    let root = settings::session_root(&app, &snapshot)?;
+    sessions::import_session(&path, &target_cwd, &root)?;
+    build_bootstrap(&app, &snapshot)
+}
+
+#[tauri::command]
+fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
+    sessions::list_codex_sessions()
+}
+
+#[tauri::command]
+async fn load_omp_config(
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+) -> Result<OmpConfigSnapshot, String> {
+    let snapshot = settings_snapshot(&settings)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        omp_bridge::load_config_snapshot(&app, &snapshot)
+    })
+    .await
+    .map_err(|error| format!("Не удалось дождаться загрузки настроек OMP: {error}"))?
+}
+
+#[tauri::command]
+async fn save_omp_config(
+    request: OmpConfigSaveRequest,
+    app: AppHandle,
+) -> Result<OmpConfigSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = app.state::<SettingsState>();
+        omp_bridge::save_config(&app, &settings, request)
+    })
+    .await
+    .map_err(|error| format!("Не удалось дождаться сохранения настроек OMP: {error}"))?
+}
+
+#[tauri::command]
+async fn check_omp_update(app: AppHandle) -> Result<OmpUpdateInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = app.state::<SettingsState>();
+        omp_bridge::check_update(&app, &settings)
+    })
+    .await
+    .map_err(|error| format!("Не удалось дождаться проверки обновлений OMP: {error}"))?
 }
 
 fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
@@ -89,6 +169,12 @@ pub fn run() {
             bootstrap,
             add_workspace,
             update_settings,
+            rename_session,
+            import_session,
+            list_codex_sessions,
+            load_omp_config,
+            save_omp_config,
+            check_omp_update,
             terminal::start_terminal,
             terminal::attach_terminal,
             terminal::write_terminal,

@@ -8,6 +8,7 @@ export type IconName =
   | "clock"
   | "close"
   | "command"
+  | "edit"
   | "external"
   | "folder"
   | "folderOpen"
@@ -35,6 +36,7 @@ const paths: Record<Exclude<IconName, "logo">, string[]> = {
   clock: ["M12 6v6l4 2", "M22 12a10 10 0 1 1-10-10 10 10 0 0 1 10 10Z"],
   close: ["m6 6 12 12", "m18 6-12 12"],
   command: ["M18 9a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12Z"],
+  edit: ["m16.5 3.5 4 4L7 21H3v-4L16.5 3.5Z", "m14.5 5.5 4 4"],
   external: ["M15 3h6v6", "m10 11 11-11", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
   folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"],
   folderOpen: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1", "M3 17.5 5.2 11h17.3l-2.2 6.5A2 2 0 0 1 18.4 19H4.9A2 2 0 0 1 3 17.5Z"],
