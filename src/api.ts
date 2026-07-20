@@ -8,6 +8,7 @@ import type {
   SettingsUpdate,
   TerminalAttachment,
   TerminalStarted,
+  TerminalRuntime,
 } from "./types";
 
 export function bootstrap(): Promise<BootstrapPayload> {
@@ -36,13 +37,25 @@ export function startTerminal(
   });
 }
 
-export function restartTerminal(
+export function switchTerminal(
   terminalId: string,
   modelSelector: string,
   thinkingLevel: string | null,
-): Promise<TerminalStarted> {
-  return invoke("restart_terminal", {
-    request: { terminalId, modelSelector, thinkingLevel },
+  supportedThinking: string[],
+  currentModel: string | null,
+  currentThinking: string | null,
+  currentThinkingConfigured: string | null,
+): Promise<TerminalRuntime> {
+  return invoke("switch_terminal", {
+    request: {
+      terminalId,
+      modelSelector,
+      thinkingLevel,
+      supportedThinking,
+      currentModel,
+      currentThinking,
+      currentThinkingConfigured,
+    },
   });
 }
 

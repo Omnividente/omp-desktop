@@ -1402,11 +1402,15 @@ button:disabled {
   border-radius: 10px;
   background: #121512;
 }
+.codex-item > span {
+  min-width: 0;
+}
 
 .codex-item strong {
   display: block;
   color: #e7ece8;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .codex-item small,
@@ -1416,6 +1420,19 @@ button:disabled {
   color: #7b857e;
   font-size: 10px;
   font-style: normal;
+}
+
+.codex-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-item em {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .mini-loader {

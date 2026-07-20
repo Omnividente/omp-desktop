@@ -182,9 +182,14 @@ pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
 
     let mut files = Vec::new();
     collect_jsonl_files(&root, 0, 8, &mut files)?;
+    let thread_names = load_codex_thread_names();
     let mut sessions = files
         .into_iter()
-        .filter_map(|path| parse_codex_session(&path).ok().flatten())
+        .filter_map(|path| {
+            parse_codex_session_with_names(&path, &thread_names)
+                .ok()
+                .flatten()
+        })
         .collect::<Vec<_>>();
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
     Ok(sessions)
@@ -434,9 +439,14 @@ fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
 
     let mut files = Vec::new();
     collect_jsonl_files(root, 0, 3, &mut files)?;
+    let thread_names = load_codex_thread_names();
     Ok(files
         .into_iter()
-        .filter_map(|path| parse_session(&path).ok().flatten())
+        .filter_map(|path| {
+            parse_session_with_names(&path, &thread_names)
+                .ok()
+                .flatten()
+        })
         .collect())
 }
 
@@ -482,6 +492,25 @@ fn collect_jsonl_files(
 }
 
 pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
+    let thread_names = load_codex_thread_names();
+    parse_session_with_names(path, &thread_names)
+}
+
+fn restorable_session_model(
+    models: &HashMap<String, String>,
+    last_role: Option<&str>,
+) -> Option<String> {
+    let default_model = models.get("default");
+    match last_role {
+        None | Some("default" | "fallback") => default_model.cloned(),
+        Some(role) => models.get(role).or(default_model).cloned(),
+    }
+}
+
+fn parse_session_with_names(
+    path: &Path,
+    thread_names: &HashMap<String, String>,
+) -> Result<Option<SessionSummary>, String> {
     let file = fs::File::open(path)
         .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
     let mut reader = std::io::BufReader::new(file);
@@ -491,9 +520,12 @@ pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, Strin
     let mut cwd = None;
     let mut title = None;
     let mut session_title = None;
+    let mut codex_parent_id = None;
     let mut created_at = None;
-    let mut model = None;
+    let mut models = HashMap::new();
+    let mut last_model_role = None;
     let mut thinking_level = None;
+    let mut configured_thinking_level = None;
 
     loop {
         line.clear();
@@ -533,33 +565,55 @@ pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, Strin
                     .get("title")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-            }
-            Some("model_change") => {
-                model = value
-                    .get("model")
+                codex_parent_id = value
+                    .get("parentSession")
                     .and_then(Value::as_str)
+                    .and_then(|parent| parent.strip_prefix("codex:"))
                     .map(str::to_owned);
             }
+            Some("model_change") => {
+                if let Some(model) = value.get("model").and_then(Value::as_str) {
+                    let role = value
+                        .get("role")
+                        .and_then(Value::as_str)
+                        .unwrap_or("default")
+                        .to_owned();
+                    models.insert(role.clone(), model.to_owned());
+                    last_model_role = Some(role);
+                }
+            }
             Some("thinking_level_change") => {
-                thinking_level = value
+                let effective = value
                     .get("thinkingLevel")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                configured_thinking_level = value
+                    .get("configured")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| effective.clone());
+                thinking_level = effective;
             }
             _ => {}
         }
     }
 
+    let model = restorable_session_model(&models, last_model_role.as_deref());
+
     let (Some(id), Some(cwd)) = (id, cwd) else {
         return Ok(None);
     };
     let updated_at = modified_millis(path);
+    let local_title = title
+        .or(session_title)
+        .filter(|value| !value.trim().is_empty())
+        .filter(|value| !is_synthetic_codex_text(value));
+    let indexed_title = codex_parent_id.and_then(|id| thread_names.get(&id).cloned());
 
     Ok(Some(SessionSummary {
         id,
-        title: title
-            .or(session_title)
-            .filter(|title| !title.trim().is_empty())
+        title: local_title
+            .or(indexed_title)
             .unwrap_or_else(|| "Новая сессия".to_owned()),
         cwd,
         file_path: path.to_string_lossy().into_owned(),
@@ -567,11 +621,20 @@ pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, Strin
         updated_at,
         model,
         thinking_level,
+        configured_thinking_level,
         source: "omp".to_owned(),
     }))
 }
 
 fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, String> {
+    let thread_names = load_codex_thread_names();
+    parse_codex_session_with_names(path, &thread_names)
+}
+
+fn parse_codex_session_with_names(
+    path: &Path,
+    thread_names: &HashMap<String, String>,
+) -> Result<Option<CodexSessionSummary>, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
     if !looks_like_codex_session(&text) {
@@ -634,11 +697,13 @@ fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, Strin
                 let payload = value.get("payload").cloned().unwrap_or(Value::Null);
                 if payload.get("type").and_then(Value::as_str) == Some("user_message") {
                     if let Some(message) = payload.get("message").and_then(Value::as_str) {
-                        if title.is_none() {
-                            title = Some(truncate_title(message));
-                        }
-                        if preview.is_empty() {
-                            preview = message.chars().take(160).collect();
+                        if !is_synthetic_codex_text(message) {
+                            if title.is_none() {
+                                title = Some(truncate_title(message));
+                            }
+                            if preview.is_empty() {
+                                preview = truncate_preview(message);
+                            }
                         }
                     }
                 }
@@ -647,12 +712,12 @@ fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, Strin
                 let payload = value.get("payload").cloned().unwrap_or(Value::Null);
                 if payload.get("role").and_then(Value::as_str) == Some("user") {
                     let content = extract_text_content(payload.get("content"));
-                    if !content.trim().is_empty() {
+                    if !content.trim().is_empty() && !is_synthetic_codex_text(&content) {
                         if title.is_none() {
                             title = Some(truncate_title(&content));
                         }
                         if preview.is_empty() {
-                            preview = content.chars().take(160).collect();
+                            preview = truncate_preview(&content);
                         }
                     }
                 }
@@ -668,10 +733,11 @@ fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, Strin
             .to_owned()
     });
     let cwd = cwd.unwrap_or_else(|| "?".to_owned());
+    let indexed_title = thread_names.get(&id).cloned();
     Ok(Some(CodexSessionSummary {
         id,
-        title: title
-            .filter(|value| !value.trim().is_empty())
+        title: indexed_title
+            .or(title)
             .unwrap_or_else(|| "Codex session".to_owned()),
         cwd,
         file_path: path.to_string_lossy().into_owned(),
@@ -682,6 +748,32 @@ fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, Strin
     }))
 }
 
+fn is_synthetic_codex_text(value: &str) -> bool {
+    let normalized = value.trim_start().to_ascii_lowercase();
+    [
+        "# agents.md",
+        "agents.md instructions",
+        "<instructions>",
+        "<permissions instructions>",
+        "<collaboration_mode>",
+        "<multi_agent_mode>",
+        "<system-reminder>",
+        "<environment_context>",
+        "<developer>",
+    ]
+    .iter()
+    .any(|prefix| normalized.starts_with(prefix))
+}
+
+fn truncate_preview(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(160)
+        .collect()
+}
 fn looks_like_codex_session(text: &str) -> bool {
     text.contains("\"type\":\"session_meta\"")
         || text.contains("\"originator\":\"codex")
@@ -875,6 +967,30 @@ fn now_iso() -> String {
         })
 }
 
+fn load_codex_thread_names() -> HashMap<String, String> {
+    let Some(index_path) = codex_sessions_root()
+        .parent()
+        .map(|directory| directory.join("session_index.jsonl"))
+    else {
+        return HashMap::new();
+    };
+    let Ok(text) = fs::read_to_string(index_path) else {
+        return HashMap::new();
+    };
+
+    text.lines()
+        .filter_map(|line| {
+            let value = serde_json::from_str::<Value>(line).ok()?;
+            let id = value.get("id").and_then(Value::as_str)?.trim();
+            let thread_name = value.get("thread_name").and_then(Value::as_str)?.trim();
+            if id.is_empty() || thread_name.is_empty() {
+                return None;
+            }
+            Some((id.to_owned(), thread_name.to_owned()))
+        })
+        .collect()
+}
+
 fn codex_sessions_root() -> PathBuf {
     if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
         return PathBuf::from(home).join(".codex").join("sessions");
@@ -898,8 +1014,12 @@ impl IfEmpty for String {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_session_dir_name, parse_session, path_key, serialize_title_slot};
+    use super::{
+        encode_session_dir_name, parse_codex_session_with_names, parse_session,
+        parse_session_with_names, path_key, restorable_session_model, serialize_title_slot,
+    };
     use std::{
+        collections::HashMap,
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -951,7 +1071,9 @@ mod tests {
         contents.push_str(concat!(
             r#"{"type":"model_change","model":"provider/latest"}"#,
             "\n",
-            r#"{"type":"thinking_level_change","thinkingLevel":"xhigh"}"#,
+            r#"{"type":"thinking_level_change","thinkingLevel":"xhigh","configured":"auto"}"#,
+            "\n",
+            r#"{"type":"model_change","model":"provider/fallback","role":"fallback"}"#,
             "\n"
         ));
         fs::write(&path, contents).expect("fixture should be writable");
@@ -967,6 +1089,125 @@ mod tests {
         assert_eq!(session.created_at, "2026-07-18T10:00:00Z");
         assert_eq!(session.model.as_deref(), Some("provider/latest"));
         assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
+        assert_eq!(session.configured_thinking_level.as_deref(), Some("auto"));
         assert!(session.updated_at > 0);
+    }
+
+    #[test]
+    fn restorable_model_preserves_temporary_but_not_fallback() {
+        let models = HashMap::from([
+            ("default".to_owned(), "provider/default".to_owned()),
+            ("fallback".to_owned(), "provider/fallback".to_owned()),
+            ("temporary".to_owned(), "provider/temporary".to_owned()),
+        ]);
+
+        assert_eq!(
+            restorable_session_model(&models, Some("fallback")).as_deref(),
+            Some("provider/default")
+        );
+        assert_eq!(
+            restorable_session_model(&models, Some("temporary")).as_deref(),
+            Some("provider/temporary")
+        );
+    }
+    #[test]
+    fn codex_title_prefers_index_and_skips_instruction_turns() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-session-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let lines = [
+            serde_json::json!({
+                "timestamp": "2026-07-19T13:51:32.094Z",
+                "type": "session_meta",
+                "payload": {
+                    "session_id": "codex-test-session",
+                    "cwd": "/tmp/project",
+                    "model_provider": "codex-lb"
+                }
+            }),
+            serde_json::json!({
+                "type": "response_item",
+                "payload": {
+                    "role": "user",
+                    "content": [{"input_text": "# AGENTS.md instructions\n<INSTRUCTIONS>"}]
+                }
+            }),
+            serde_json::json!({
+                "type": "event_msg",
+                "payload": {
+                    "type": "user_message",
+                    "message": "Настоящая задача пользователя"
+                }
+            }),
+        ];
+        let contents = lines
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        fs::write(&path, contents).expect("fixture should be writable");
+
+        let mut thread_names = HashMap::new();
+        thread_names.insert("codex-test-session".to_owned(), "Имя из Codex".to_owned());
+        let indexed = parse_codex_session_with_names(&path, &thread_names)
+            .expect("fixture should be readable")
+            .expect("fixture should contain a Codex session");
+        let fallback = parse_codex_session_with_names(&path, &HashMap::new())
+            .expect("fixture should be readable")
+            .expect("fixture should contain a Codex session");
+        fs::remove_file(&path).expect("fixture should be removable");
+
+        assert_eq!(indexed.title, "Имя из Codex");
+        assert_eq!(indexed.preview, "Настоящая задача пользователя");
+        assert_eq!(fallback.title, "Настоящая задача пользователя");
+    }
+    #[test]
+    fn imported_session_keeps_local_title_over_codex_index() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-imported-session-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let contents = concat!(
+            r##"{"type":"title","v":1,"title":"Переименовано вручную","source":"user","updatedAt":"2026-07-20T10:00:00Z","pad":""}"##,
+            "\n",
+            r##"{"type":"session","version":3,"id":"imported-session","timestamp":"2026-07-20T10:00:00Z","cwd":"/tmp/project","title":"# AGENTS.md instructions","parentSession":"codex:codex-test-session"}"##,
+            "\n"
+        );
+        fs::write(&path, contents).expect("fixture should be writable");
+
+        let mut thread_names = HashMap::new();
+        thread_names.insert("codex-test-session".to_owned(), "Имя из Codex".to_owned());
+        let renamed = parse_session_with_names(&path, &thread_names)
+            .expect("fixture should be readable")
+            .expect("fixture should contain a session header");
+
+        let synthetic_path = std::env::temp_dir().join(format!(
+            "omp-desktop-imported-synthetic-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let synthetic_contents = concat!(
+            r##"{"type":"title","v":1,"title":"# AGENTS.md instructions","updatedAt":"2026-07-20T10:00:00Z","pad":""}"##,
+            "\n",
+            r##"{"type":"session","version":3,"id":"imported-synthetic","timestamp":"2026-07-20T10:00:00Z","cwd":"/tmp/project","title":"# AGENTS.md instructions","parentSession":"codex:codex-test-session"}"##,
+            "\n"
+        );
+        fs::write(&synthetic_path, synthetic_contents).expect("fixture should be writable");
+        let recovered = parse_session_with_names(&synthetic_path, &thread_names)
+            .expect("fixture should be readable")
+            .expect("fixture should contain a session header");
+
+        fs::remove_file(&path).expect("fixture should be removable");
+        fs::remove_file(&synthetic_path).expect("fixture should be removable");
+
+        assert_eq!(renamed.title, "Переименовано вручную");
+        assert_eq!(recovered.title, "Имя из Codex");
     }
 }

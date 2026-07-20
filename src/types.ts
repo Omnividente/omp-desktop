@@ -25,6 +25,7 @@ export interface SessionSummary {
   updatedAt: number;
   model: string | null;
   thinkingLevel: string | null;
+  configuredThinkingLevel: string | null;
   source: string;
 }
 
@@ -112,6 +113,14 @@ export interface TerminalStarted {
   cwd: string;
 }
 
+export interface TerminalRuntime {
+  terminalId: string;
+  model: string;
+  modelRole: string | null;
+  thinkingLevel: string | null;
+  configuredThinkingLevel: string | null;
+}
+
 export interface TerminalAttachment {
   data: string;
   exited: boolean;
@@ -123,6 +132,14 @@ export interface TerminalAttachment {
 export interface PtySessionEvent {
   terminalId: string;
   session: SessionSummary;
+}
+
+export interface PtyRuntimeEvent {
+  terminalId: string;
+  model: string | null;
+  modelRole: string | null;
+  thinkingLevel: string | null;
+  configuredThinkingLevel: string | null;
 }
 
 export interface PtyOutputEvent {
@@ -152,5 +169,7 @@ export interface TerminalTab {
   kind: "agent" | "utility";
   switching: boolean;
   currentModel?: string;
+  currentModelRole?: string | null;
   currentThinking?: string | null;
+  currentThinkingConfigured?: string | null;
 }

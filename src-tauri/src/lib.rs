@@ -156,6 +156,7 @@ fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let settings = load_settings(app.handle()).unwrap_or_default();
@@ -174,7 +175,7 @@ pub fn run() {
             save_omp_config,
             check_omp_update,
             terminal::start_terminal,
-            terminal::restart_terminal,
+            terminal::switch_terminal,
             terminal::attach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,

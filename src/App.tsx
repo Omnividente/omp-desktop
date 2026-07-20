@@ -13,7 +13,7 @@ import {
   listCodexSessions,
   loadOmpConfig,
   renameSession,
-  restartTerminal,
+  switchTerminal,
   startTerminal,
 } from "./api";
 import { Icon } from "./Icon";
@@ -26,6 +26,7 @@ import type {
   CodexSessionSummary,
   OmpUpdateInfo,
   PtyExitEvent,
+  PtyRuntimeEvent,
   PtySessionEvent,
   OmpConfigSnapshot,
   RuntimeInfo,
@@ -241,12 +242,23 @@ function SessionControls({
     ? splitSelector(selectedModel.selector).base
     : configured.base;
   const supportedThinking = selectedModel?.thinking ?? [];
+  const thinkingOptions =
+    supportedThinking.length === 0
+      ? []
+      : [
+          "off",
+          "auto",
+          ...supportedThinking.filter((level) => level !== "off" && level !== "auto"),
+        ];
   const preferredThinking =
-    tab.currentThinking ?? configured.thinking ?? ompConfig.defaultThinkingLevel;
+    tab.currentThinkingConfigured ??
+    tab.currentThinking ??
+    configured.thinking ??
+    ompConfig.defaultThinkingLevel;
   const currentThinking =
-    preferredThinking && supportedThinking.includes(preferredThinking)
+    preferredThinking && thinkingOptions.includes(preferredThinking)
       ? preferredThinking
-      : (supportedThinking[0] ?? null);
+      : (thinkingOptions[0] ?? null);
 
   const modelsByProvider = ompConfig.models.reduce<
     Record<string, typeof ompConfig.models>
@@ -269,21 +281,26 @@ function SessionControls({
     );
     if (!nextModel?.available) return;
     const defaultThinking = ompConfig.defaultThinkingLevel;
+    const nextOptions =
+      nextModel.thinking.length === 0
+        ? []
+        : [
+            "off",
+            "auto",
+            ...nextModel.thinking.filter((level) => level !== "off" && level !== "auto"),
+          ];
     const nextThinking =
-      currentThinking && nextModel.thinking.includes(currentThinking)
+      currentThinking && nextOptions.includes(currentThinking)
         ? currentThinking
-        : defaultThinking && nextModel.thinking.includes(defaultThinking)
+        : defaultThinking && nextOptions.includes(defaultThinking)
           ? defaultThinking
-          : (nextModel.thinking[0] ?? null);
+          : (nextOptions[0] ?? null);
     switchSelection(splitSelector(nextModel.selector).base, nextThinking);
   };
 
   const handleThinkingChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextThinking = event.target.value;
-    if (
-      nextThinking === currentThinking ||
-      !selectedModel?.thinking.includes(nextThinking)
-    ) {
+    if (nextThinking === currentThinking || !thinkingOptions.includes(nextThinking)) {
       return;
     }
     switchSelection(baseModel, nextThinking);
@@ -316,15 +333,15 @@ function SessionControls({
       <select
         aria-label={t(lang, "sessionThinking")}
         className="session-thinking-select"
-        disabled={tab.switching || supportedThinking.length === 0}
+        disabled={tab.switching || thinkingOptions.length === 0}
         onChange={handleThinkingChange}
         title={t(lang, "sessionThinking")}
         value={currentThinking ?? ""}
       >
-        {supportedThinking.length === 0 ? (
+        {thinkingOptions.length === 0 ? (
           <option value="">{t(lang, "thinkingUnavailable")}</option>
         ) : (
-          supportedThinking.map((level) => (
+          thinkingOptions.map((level) => (
             <option key={level} value={level}>
               {thinkingLevelLabel(lang, level)}
             </option>
@@ -412,7 +429,7 @@ function App() {
 
   useEffect(() => {
     let disposed = false;
-    const unlisten = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
+    const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
       if (disposed) return;
       const { session } = event;
       discoveredSessionsRef.current.set(event.terminalId, session);
@@ -439,6 +456,12 @@ function App() {
                 label: session.title,
                 sessionId: session.id,
                 sessionPath: session.filePath,
+                currentModel: session.model ?? tab.currentModel,
+                currentThinking: session.thinkingLevel ?? tab.currentThinking,
+                currentThinkingConfigured:
+                  session.configuredThinkingLevel ??
+                  session.thinkingLevel ??
+                  tab.currentThinkingConfigured,
               }
             : tab,
         ),
@@ -455,9 +478,34 @@ function App() {
       return null;
     });
 
+    const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
+      if (disposed) return;
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === event.terminalId
+            ? {
+                ...tab,
+                currentModel: event.model ?? tab.currentModel,
+                currentModelRole:
+                  event.model !== null
+                    ? (event.modelRole ?? "default")
+                    : tab.currentModelRole,
+                currentThinking: event.thinkingLevel ?? tab.currentThinking,
+                currentThinkingConfigured:
+                  event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
+              }
+            : tab,
+        ),
+      );
+    }).catch((error) => {
+      if (!disposed) showError(errorMessage(error));
+      return null;
+    });
+
     return () => {
       disposed = true;
-      void unlisten.then((stop) => stop?.());
+      void unlistenSession.then((stop) => stop?.());
+      void unlistenRuntime.then((stop) => stop?.());
     };
   }, [applyPayload, showError]);
 
@@ -557,13 +605,21 @@ function App() {
       setLaunching(launchKey);
       try {
         const started = await startTerminal(cwd, session?.filePath ?? null);
+        const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null;
+        const runtimeSession = session ?? discoveredSession;
         const defaultSelector =
           ompConfig?.roles.find((role) => role.role === "default")?.selector ?? "";
-        const initialSelector = splitSelector(session?.model ?? defaultSelector);
+        const initialSelector = splitSelector(runtimeSession?.model ?? defaultSelector);
         const initialModel = ompConfig?.models.find((model) =>
           matchesSelector(model, initialSelector.base),
         );
-        const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null;
+        const initialConfiguredThinking =
+          initialSelector.thinking ??
+          runtimeSession?.configuredThinkingLevel ??
+          runtimeSession?.thinkingLevel ??
+          ompConfig?.defaultThinkingLevel ??
+          null;
+        const initialThinking = runtimeSession?.thinkingLevel ?? initialConfiguredThinking;
         const tab: TerminalTab = {
           id: started.terminalId,
           label:
@@ -581,11 +637,9 @@ function App() {
           currentModel: initialModel
             ? splitSelector(initialModel.selector).base
             : initialSelector.base || undefined,
-          currentThinking:
-            initialSelector.thinking ??
-            session?.thinkingLevel ??
-            ompConfig?.defaultThinkingLevel ??
-            null,
+          currentModelRole: null,
+          currentThinking: initialThinking,
+          currentThinkingConfigured: initialConfiguredThinking,
           success: null,
         };
         setTabs((current) => [...current, tab]);
@@ -688,6 +742,9 @@ function App() {
     async (terminalId: string, model: string, thinking: string | null) => {
       const tab = tabs.find((candidate) => candidate.id === terminalId);
       if (!tab || tab.kind !== "agent" || tab.status !== "running" || tab.switching) return;
+      const targetModel = ompConfig?.models.find((candidate) =>
+        matchesSelector(candidate, model),
+      );
 
       setTabs((current) =>
         current.map((candidate) =>
@@ -695,34 +752,30 @@ function App() {
         ),
       );
       try {
-        const started = await restartTerminal(terminalId, model, thinking);
-        const discoveredSession = discoveredSessionsRef.current.get(terminalId);
-        if (discoveredSession) {
-          discoveredSessionsRef.current.delete(terminalId);
-          discoveredSessionsRef.current.set(started.terminalId, discoveredSession);
-        }
+        const runtime = await switchTerminal(
+          terminalId,
+          model,
+          thinking,
+          targetModel?.thinking ?? [],
+          tab.currentModel ?? null,
+          tab.currentThinking ?? null,
+          tab.currentThinkingConfigured ?? tab.currentThinking ?? null,
+        );
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
               ? {
                   ...candidate,
-                  id: started.terminalId,
-                  cwd: started.cwd,
-                  processId: started.processId,
-                  status: "running",
-                  exitCode: null,
-                  success: null,
                   switching: false,
-                  currentModel: model,
-                  currentThinking: thinking,
+                  currentModel: runtime.model,
+                  currentModelRole: runtime.modelRole,
+                  currentThinking: runtime.thinkingLevel,
+                  currentThinkingConfigured: runtime.configuredThinkingLevel,
                 }
               : candidate,
           ),
         );
-        setActiveTabId((current) =>
-          current === terminalId ? started.terminalId : current,
-        );
-        window.setTimeout(() => void refresh(), 750);
+        void refresh();
       } catch (error) {
         setTabs((current) =>
           current.map((candidate) =>
@@ -732,7 +785,7 @@ function App() {
         showError(errorMessage(error));
       }
     },
-    [refresh, showError, tabs],
+    [ompConfig, refresh, showError, tabs],
   );
 
   const closeTab = useCallback(

@@ -53,6 +53,7 @@ pub struct SessionSummary {
     pub updated_at: u64,
     pub model: Option<String>,
     pub thinking_level: Option<String>,
+    pub configured_thinking_level: Option<String>,
     pub source: String,
 }
 

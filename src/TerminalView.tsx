@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -103,6 +104,25 @@ export function TerminalView({
     terminal.open(container);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      const copyShortcut =
+        event.type === "keydown" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.code === "KeyC";
+      if (!copyShortcut || !terminal.hasSelection()) {
+        return true;
+      }
+
+      const selection = terminal.getSelection();
+      if (!selection) {
+        return true;
+      }
+      void writeText(selection).catch((error) => {
+        onErrorRef.current(errorMessage(error));
+      });
+      return false;
+    });
 
     let disposed = false;
     let lastCols = 0;
