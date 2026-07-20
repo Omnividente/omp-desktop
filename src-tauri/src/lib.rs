@@ -93,6 +93,18 @@ fn rename_session(
 }
 
 #[tauri::command]
+fn delete_session(
+    path: String,
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+) -> Result<BootstrapPayload, String> {
+    let snapshot = settings_snapshot(&settings)?;
+    let root = settings::session_root(&app, &snapshot)?;
+    sessions::delete_session(&path, &root)?;
+    build_bootstrap(&app, &snapshot)
+}
+
+#[tauri::command]
 fn import_session(
     path: String,
     target_cwd: String,
@@ -169,6 +181,7 @@ pub fn run() {
             add_workspace,
             update_settings,
             rename_session,
+            delete_session,
             import_session,
             list_codex_sessions,
             load_omp_config,

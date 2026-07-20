@@ -1,13 +1,14 @@
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   addWorkspace,
   bootstrap as loadBootstrap,
   checkOmpUpdate,
   closeTerminal,
+  deleteSession,
   errorMessage,
   importSession,
   listCodexSessions,
@@ -43,6 +44,16 @@ function localeTag(lang: Lang): string {
 function normalizedPath(path: string, platform: string): string {
   const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
   return platform === "windows" ? normalized.toLocaleLowerCase("en-US") : normalized;
+}
+
+function tabMatchesSession(tab: TerminalTab, session: SessionSummary, platform: string): boolean {
+  return (
+    tab.sessionId === session.id ||
+    Boolean(
+      tab.sessionPath &&
+        normalizedPath(tab.sessionPath, platform) === normalizedPath(session.filePath, platform),
+    )
+  );
 }
 
 function formatRelative(timestamp: number, lang: Lang): string {
@@ -372,6 +383,7 @@ function App() {
   const [startupError, setStartupError] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([]);
@@ -807,6 +819,42 @@ function App() {
     [showError, tabs],
   );
 
+  const deleteOmpSession = useCallback(
+    async (session: SessionSummary) => {
+      const platform = payload?.runtime.platform ?? "windows";
+      const matchingTabs = tabs.filter((tab) => tabMatchesSession(tab, session, platform));
+      if (matchingTabs.some((tab) => tab.status === "running")) {
+        showError(t(lang, "closeSessionBeforeDelete"));
+        return;
+      }
+      try {
+        const accepted = await confirm(
+          t(lang, "deleteSessionConfirm").replace("{title}", session.title),
+          { title: t(lang, "deleteSession"), kind: "warning" },
+        );
+        if (!accepted) return;
+        setDeletingSessionId(session.id);
+        const next = await deleteSession(session.filePath);
+        for (const tab of matchingTabs) closeTab(tab.id);
+        applyPayload(next, selectedWorkspace?.path);
+        setToast(t(lang, "sessionDeleted"));
+      } catch (error) {
+        showError(errorMessage(error));
+      } finally {
+        setDeletingSessionId(null);
+      }
+    },
+    [
+      applyPayload,
+      closeTab,
+      lang,
+      payload?.runtime.platform,
+      selectedWorkspace?.path,
+      showError,
+      tabs,
+    ],
+  );
+
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
       setTabs((current) =>
@@ -1049,6 +1097,12 @@ function App() {
               const selected = session.id === selectedSessionId;
               const busy = launching === session.id;
               const renaming = session.id === renamingSessionId;
+              const sessionRunning = tabs.some(
+                (tab) =>
+                  tab.status === "running" &&
+                  tabMatchesSession(tab, session, payload.runtime.platform),
+              );
+              const deleting = deletingSessionId === session.id;
 
               const submitRename = () => {
                 if (!renaming) return;
@@ -1073,7 +1127,12 @@ function App() {
 
               return (
                 <article className={`session-item${selected ? " is-selected" : ""}`} key={session.id}>
-                  <div className="session-select" onDoubleClick={() => void launchSession(session)}>
+                  <div
+                    className="session-select"
+                    onDoubleClick={() => {
+                      if (deletingSessionId === null) void launchSession(session);
+                    }}
+                  >
                     <span className="session-icon">
                       <Icon name="history" size={16} />
                     </span>
@@ -1105,6 +1164,7 @@ function App() {
                   {!renaming && (
                     <button
                       className="session-play"
+                      disabled={deletingSessionId !== null}
                       onClick={(event) => {
                         event.stopPropagation();
                         setRenameValue(session.title);
@@ -1118,8 +1178,28 @@ function App() {
                   )}
                   {!renaming && (
                     <button
+                      className="session-play session-delete"
+                      disabled={deletingSessionId !== null || sessionRunning}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteOmpSession(session);
+                      }}
+                      title={
+                        sessionRunning
+                          ? t(lang, "closeSessionBeforeDelete")
+                          : t(lang, "deleteSession")
+                      }
+                      type="button"
+                    >
+                      {deleting ? <span className="mini-loader" /> : <Icon name="trash" size={14} />}
+                    </button>
+                  )}
+                  {!renaming && (
+                    <button
                       className="session-play"
-                      disabled={launching !== null || !payload.runtime.ompAvailable}
+                      disabled={
+                        deletingSessionId !== null || launching !== null || !payload.runtime.ompAvailable
+                      }
                       onClick={() => void launchSession(session)}
                       title={t(lang, "resumeSession")}
                       type="button"

@@ -98,6 +98,10 @@ export function renameSession(
   return invoke("rename_session", { path, title });
 }
 
+export function deleteSession(path: string): Promise<BootstrapPayload> {
+  return invoke("delete_session", { path });
+}
+
 export function importSession(
   path: string,
   targetCwd: string,

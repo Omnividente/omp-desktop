@@ -1,7 +1,7 @@
 {
   "name": "omp-desktop",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Cross-platform desktop GUI for Oh My Pi projects, sessions, and native PTY terminals",
   "repository": {
     "type": "git",

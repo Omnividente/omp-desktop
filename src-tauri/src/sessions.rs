@@ -6,7 +6,7 @@ use crate::{
 };
 use serde_json::Value;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -45,15 +45,31 @@ pub fn path_key(path: &str) -> String {
     }
 }
 
+fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {
+    if !cfg!(windows) {
+        return path;
+    }
+    let normalized = {
+        let text = path.to_string_lossy();
+        text.strip_prefix(r"\\?\UNC\")
+            .map(|stripped| PathBuf::from(format!(r"\\{stripped}")))
+            .or_else(|| text.strip_prefix(r"\\?\").map(PathBuf::from))
+    };
+    normalized.unwrap_or(path)
+}
+
 pub fn encode_session_dir_name(cwd: &str) -> String {
     let resolved = PathBuf::from(cwd);
-    let resolved = resolved
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(cwd));
+    let resolved = normalize_windows_verbatim_path(
+        resolved
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(cwd)),
+    );
     let home = env::var_os("USERPROFILE")
         .or_else(|| env::var_os("HOME"))
-        .map(PathBuf::from);
-    let temp = env::temp_dir();
+        .map(PathBuf::from)
+        .map(normalize_windows_verbatim_path);
+    let temp = normalize_windows_verbatim_path(env::temp_dir());
 
     if let Some(home) = home.as_ref() {
         if let Ok(rel) = resolved.strip_prefix(home) {
@@ -154,6 +170,44 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
+    let root = session_root.canonicalize().map_err(|error| {
+        format!(
+            "Не удалось открыть папку сессий {}: {error}",
+            session_root.display()
+        )
+    })?;
+    let file = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("Файл сессии не найден: {path}: {error}"))?;
+    if !file.starts_with(&root)
+        || file.extension().and_then(|value| value.to_str()) != Some("jsonl")
+    {
+        return Err("Можно удалять только JSONL-файлы из папки сессий OMP".to_owned());
+    }
+
+    let artifact_dir = file.with_extension("");
+    if let Ok(metadata) = fs::symlink_metadata(&artifact_dir) {
+        if metadata.file_type().is_symlink() {
+            fs::remove_file(&artifact_dir).map_err(|error| {
+                format!(
+                    "Не удалось удалить ссылку на артефакты {}: {error}",
+                    artifact_dir.display()
+                )
+            })?;
+        } else if metadata.is_dir() {
+            fs::remove_dir_all(&artifact_dir).map_err(|error| {
+                format!(
+                    "Не удалось удалить артефакты {}: {error}",
+                    artifact_dir.display()
+                )
+            })?;
+        }
+    }
+    fs::remove_file(&file)
+        .map_err(|error| format!("Не удалось удалить сессию {}: {error}", file.display()))
+}
+
 pub fn import_session(path: &str, target_cwd: &str, session_root: &Path) -> Result<String, String> {
     let source = Path::new(path);
     if !source.is_file() {
@@ -183,7 +237,7 @@ pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
     let mut files = Vec::new();
     collect_jsonl_files(&root, 0, 8, &mut files)?;
     let thread_names = load_codex_thread_names();
-    let mut sessions = files
+    let sessions = files
         .into_iter()
         .filter_map(|path| {
             parse_codex_session_with_names(&path, &thread_names)
@@ -191,8 +245,14 @@ pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
                 .flatten()
         })
         .collect::<Vec<_>>();
+    Ok(deduplicate_codex_sessions(sessions))
+}
+
+fn deduplicate_codex_sessions(mut sessions: Vec<CodexSessionSummary>) -> Vec<CodexSessionSummary> {
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-    Ok(sessions)
+    let mut seen = HashSet::with_capacity(sessions.len());
+    sessions.retain(|session| seen.insert(session.id.clone()));
+    sessions
 }
 
 fn import_omp_session(
@@ -328,6 +388,11 @@ fn import_codex_session(
         body.push('\n');
     }
 
+    let model_selector = summary.model.as_deref().unwrap_or("openai/codex");
+    let (assistant_provider, assistant_model) = model_selector
+        .split_once('/')
+        .unwrap_or(("openai", model_selector));
+
     let mut parent = Value::Null;
     for line in text.lines() {
         let Ok(value) = serde_json::from_str::<Value>(line) else {
@@ -351,16 +416,44 @@ fn import_codex_session(
                     continue;
                 }
                 let id = format!("{:08x}", rand::random::<u32>());
+                let message_timestamp = codex_message_timestamp(&timestamp);
+                let message = if role == "assistant" {
+                    serde_json::json!({
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": content}],
+                        "api": "openai-codex-responses",
+                        "provider": assistant_provider,
+                        "model": assistant_model,
+                        "usage": {
+                            "input": 0,
+                            "output": 0,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "totalTokens": 0,
+                            "cost": {
+                                "input": 0,
+                                "output": 0,
+                                "cacheRead": 0,
+                                "cacheWrite": 0,
+                                "total": 0
+                            }
+                        },
+                        "stopReason": "stop",
+                        "timestamp": message_timestamp
+                    })
+                } else {
+                    serde_json::json!({
+                        "role": if role == "developer" { "user" } else { role },
+                        "content": [{"type": "text", "text": content}],
+                        "timestamp": message_timestamp
+                    })
+                };
                 let entry = serde_json::json!({
                     "type": "message",
                     "id": id,
                     "parentId": parent,
                     "timestamp": timestamp,
-                    "message": {
-                        "role": if role == "developer" { "user" } else { role },
-                        "content": [{"type": "text", "text": content}],
-                        "timestamp": timestamp
-                    }
+                    "message": message
                 });
                 body.push_str(&serde_json::to_string(&entry).unwrap_or_default());
                 body.push('\n');
@@ -386,7 +479,7 @@ fn import_codex_session(
                         "message": {
                             "role": "user",
                             "content": [{"type": "text", "text": message}],
-                            "timestamp": timestamp
+                            "timestamp": codex_message_timestamp(&timestamp)
                         }
                     });
                     body.push_str(&serde_json::to_string(&entry).unwrap_or_default());
@@ -645,6 +738,7 @@ fn parse_codex_session_with_names(
     let mut cwd = None;
     let mut created_at = None;
     let mut model = None;
+    let mut model_provider = None;
     let mut title = None;
     let mut preview = String::new();
 
@@ -671,11 +765,11 @@ fn parse_codex_session_with_names(
                     .and_then(Value::as_str)
                     .map(str::to_owned)
                     .or(created_at);
-                model = payload
+                model_provider = payload
                     .get("model_provider")
                     .and_then(Value::as_str)
                     .map(str::to_owned)
-                    .or(model);
+                    .or(model_provider);
             }
             Some("turn_context") => {
                 let payload = value.get("payload").cloned().unwrap_or(Value::Null);
@@ -685,7 +779,7 @@ fn parse_codex_session_with_names(
                     .map(str::to_owned)
                     .or(cwd);
                 if let Some(m) = payload.get("model").and_then(Value::as_str) {
-                    let provider = model.clone().unwrap_or_default();
+                    let provider = model_provider.as_deref().unwrap_or_default();
                     model = Some(if provider.is_empty() || m.contains('/') {
                         m.to_owned()
                     } else {
@@ -743,7 +837,7 @@ fn parse_codex_session_with_names(
         file_path: path.to_string_lossy().into_owned(),
         created_at: created_at.unwrap_or_default(),
         updated_at: modified_millis(path),
-        model,
+        model: model.or(model_provider),
         preview,
     }))
 }
@@ -956,6 +1050,19 @@ fn modified_millis(path: &Path) -> u64 {
         .unwrap_or_default()
 }
 
+fn codex_message_timestamp(timestamp: &str) -> u64 {
+    OffsetDateTime::parse(timestamp, &Rfc3339)
+        .ok()
+        .and_then(|parsed| u64::try_from(parsed.unix_timestamp_nanos() / 1_000_000).ok())
+        .or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|duration| duration.as_millis() as u64)
+        })
+        .unwrap_or_default()
+}
+
 fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -1015,8 +1122,9 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_session_dir_name, parse_codex_session_with_names, parse_session,
-        parse_session_with_names, path_key, restorable_session_model, serialize_title_slot,
+        deduplicate_codex_sessions, delete_session, encode_session_dir_name, import_session,
+        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
+        restorable_session_model, serialize_title_slot, CodexSessionSummary,
     };
     use std::{
         collections::HashMap,
@@ -1042,6 +1150,7 @@ mod tests {
     fn encode_absolute_windows_path() {
         let name = encode_session_dir_name(r"D:\Projects\OMP");
         assert!(name.starts_with("--") || name.starts_with('-'));
+        assert!(!name.contains('?'));
     }
 
     #[test]
@@ -1111,6 +1220,58 @@ mod tests {
         );
     }
     #[test]
+    fn delete_session_removes_jsonl_and_artifacts_but_rejects_external_files() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-delete-session-{}-{nonce}",
+            std::process::id()
+        ));
+        let session = root.join("project").join("session.jsonl");
+        let artifacts = session.with_extension("");
+        fs::create_dir_all(&artifacts).expect("artifact fixture should be creatable");
+        fs::write(&session, "{}\n").expect("session fixture should be writable");
+        fs::write(artifacts.join("tool.log"), "artifact").expect("artifact should be writable");
+
+        delete_session(session.to_string_lossy().as_ref(), &root)
+            .expect("session should be deletable");
+        assert!(!session.exists());
+        assert!(!artifacts.exists());
+
+        let external = root.with_extension("external.jsonl");
+        fs::write(&external, "{}\n").expect("external fixture should be writable");
+        assert!(delete_session(external.to_string_lossy().as_ref(), &root).is_err());
+        assert!(external.exists());
+        fs::remove_file(external).expect("external fixture should be removable");
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn codex_sessions_keep_only_newest_file_for_each_id() {
+        let summary = |id: &str, file_path: &str, updated_at: u64| CodexSessionSummary {
+            id: id.to_owned(),
+            title: id.to_owned(),
+            cwd: "/tmp/project".to_owned(),
+            file_path: file_path.to_owned(),
+            created_at: String::new(),
+            updated_at,
+            model: None,
+            preview: String::new(),
+        };
+        let sessions = deduplicate_codex_sessions(vec![
+            summary("same", "older.jsonl", 10),
+            summary("other", "other.jsonl", 20),
+            summary("same", "newer.jsonl", 30),
+        ]);
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].file_path, "newer.jsonl");
+        assert_eq!(sessions[1].file_path, "other.jsonl");
+    }
+
+    #[test]
     fn codex_title_prefers_index_and_skips_instruction_turns() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1129,6 +1290,14 @@ mod tests {
                     "cwd": "/tmp/project",
                     "model_provider": "codex-lb"
                 }
+            }),
+            serde_json::json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.6-sol" }
+            }),
+            serde_json::json!({
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.6-sol" }
             }),
             serde_json::json!({
                 "type": "response_item",
@@ -1164,6 +1333,7 @@ mod tests {
         assert_eq!(indexed.title, "Имя из Codex");
         assert_eq!(indexed.preview, "Настоящая задача пользователя");
         assert_eq!(fallback.title, "Настоящая задача пользователя");
+        assert_eq!(indexed.model.as_deref(), Some("codex-lb/gpt-5.6-sol"));
     }
     #[test]
     fn imported_session_keeps_local_title_over_codex_index() {
@@ -1209,5 +1379,108 @@ mod tests {
 
         assert_eq!(renamed.title, "Переименовано вручную");
         assert_eq!(recovered.title, "Имя из Codex");
+    }
+    #[test]
+    fn codex_import_writes_complete_assistant_messages() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-import-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).expect("project fixture should be creatable");
+        let lines = [
+            serde_json::json!({
+                "timestamp": "2026-07-20T11:10:00.000Z",
+                "type": "session_meta",
+                "payload": {
+                    "session_id": "codex-import-test",
+                    "cwd": "/tmp/source",
+                    "model_provider": "codex-lb"
+                }
+            }),
+            serde_json::json!({
+                "timestamp": "2026-07-20T11:10:00.100Z",
+                "type": "turn_context",
+                "payload": { "model": "gpt-5.6-sol" }
+            }),
+            serde_json::json!({
+                "timestamp": "2026-07-20T11:10:01.000Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Imported answer"}]
+                }
+            }),
+        ];
+        let contents = lines
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>();
+        fs::write(&source, contents).expect("Codex fixture should be writable");
+        let project_path = project
+            .to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_owned();
+
+        let imported_path = import_session(
+            source.to_string_lossy().as_ref(),
+            &project_path,
+            &session_root,
+        )
+        .expect("Codex fixture should import");
+        let imported = fs::read_to_string(imported_path).expect("import should be readable");
+        let assistant = imported
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|entry| {
+                entry
+                    .pointer("/message/role")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("assistant")
+            })
+            .expect("import should contain an assistant message");
+        fs::remove_dir_all(&root).expect("fixture should be removable");
+
+        assert_eq!(
+            assistant
+                .pointer("/message/usage/cacheRead")
+                .and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            assistant
+                .pointer("/message/usage/cost/total")
+                .and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            assistant
+                .pointer("/message/provider")
+                .and_then(serde_json::Value::as_str),
+            Some("codex-lb")
+        );
+        assert_eq!(
+            assistant
+                .pointer("/message/model")
+                .and_then(serde_json::Value::as_str),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(
+            assistant
+                .pointer("/message/stopReason")
+                .and_then(serde_json::Value::as_str),
+            Some("stop")
+        );
+        assert!(assistant
+            .pointer("/message/timestamp")
+            .and_then(serde_json::Value::as_u64)
+            .is_some());
     }
 }

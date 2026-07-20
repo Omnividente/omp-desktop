@@ -45,6 +45,11 @@ export const UI_TEXT = {
     requireOmp: "OMP не найден — укажите исполняемый файл в настройках",
     launching: "Запускаем…",
     rename: "Переименовать",
+    deleteSession: "Удалить сессию",
+    deleteSessionConfirm:
+      "Удалить сессию «{title}»? JSONL и связанные артефакты будут удалены без возможности восстановления.",
+    sessionDeleted: "Сессия удалена",
+    closeSessionBeforeDelete: "Сначала остановите открытую сессию",
     resumeSession: "Продолжить сессию",
     importSession: "Импорт Codex/OMP",
     importCodex: "Импорт из Codex",
@@ -210,6 +215,11 @@ export const UI_TEXT = {
     requireOmp: "OMP not found — specify executable path in settings",
     launching: "Launching…",
     rename: "Rename",
+    deleteSession: "Delete session",
+    deleteSessionConfirm:
+      "Delete session “{title}”? Its JSONL file and related artifacts will be permanently removed.",
+    sessionDeleted: "Session deleted",
+    closeSessionBeforeDelete: "Stop the open session before deleting it",
     resumeSession: "Resume session",
     importSession: "Import Codex/OMP",
     importCodex: "Import from Codex",

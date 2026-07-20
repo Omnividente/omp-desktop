@@ -571,7 +571,7 @@ button:disabled {
 
  .session-item {
    display: grid;
-   grid-template-columns: minmax(0, 1fr) 28px 28px;
+   grid-template-columns: minmax(0, 1fr) 28px 28px 28px;
    align-items: center;
    min-height: 55px;
    margin-bottom: 2px;
@@ -694,6 +694,16 @@ button:disabled {
 .session-play:hover {
   color: var(--accent);
   background: rgba(185, 242, 124, 0.08);
+}
+
+.session-delete:hover {
+  color: #ef7070;
+  background: rgba(239, 112, 112, 0.09);
+}
+
+.session-play:disabled {
+  cursor: not-allowed;
+  opacity: 0.25;
 }
 
 .session-header-actions {
