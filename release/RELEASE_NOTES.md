@@ -2,32 +2,29 @@
 
 ## Русский
 
-Релиз с улучшениями UX и обновлённой маршрутизацией моделей.
+Релиз с улучшениями интерфейса.
 
 ### Что изменилось
 
-- Thinking/activity состояние теперь отображается во вкладках терминалов и в списке сессий (пульсация, точки, метки).
-- Объединённая левая панель: project rail + collapsible sessions list (ширина 250-320px, grid, chevron).
-- Клик по строке сессии переключает на соответствующую вкладку (приоритет runningTab).
-- Маршрутизация: A6 primary (качество), Grok Build 0.1 для задач/инструментов, Grok Reasoning для консультаций, advisor только read-only/transcript, XAI fallback на 403.
-- Версия поднята до 0.1.4.
-- Windows: MSI + NSIS installer.
-- Linux: AppImage + DEB + RPM.
+- Добавлены визуальные индикаторы состояния thinking во вкладках терминалов и в списке сессий.
+- Объединена левая панель: project rail и раскрывающийся список сессий.
+- Клик по строке сессии переключает на соответствующую вкладку.
+- Версия обновлена до 0.1.4.
+- Для Windows доступны MSI и NSIS, для Linux — AppImage, DEB и RPM.
 
 Рекомендуется `OMP-Desktop_0.1.4_x64-setup.exe` (Windows) и `OMP-Desktop_0.1.4_amd64.AppImage` (Linux).
 
 ## English
 
-Release with UX improvements and updated model routing.
+Release with user-interface improvements.
 
 ### Changes
 
-- Thinking/activity state shown in terminal tabs and session list (pulse, dots, labels).
-- Merged left panel: project rail + expandable sessions (250-320px width, grid layout, chevron).
-- Clicking a session row switches to its running tab.
-- Routing: A6 primary, Grok Build for tasks/tools, advisor read-only, XAI fallback on 403.
+- Added visual thinking-state indicators in terminal tabs and the session list.
+- Merged the project rail and expandable session list into one left panel.
+- Clicking a session row switches to the corresponding running tab.
 - Version bumped to 0.1.4.
-- Windows MSI/NSIS, Linux AppImage/DEB/RPM.
+- MSI and NSIS packages are available for Windows; AppImage, DEB, and RPM packages are available for Linux.
 
 Recommended: `OMP-Desktop_0.1.4_x64-setup.exe` (Windows), `OMP-Desktop_0.1.4_amd64.AppImage` (Linux).
 
