@@ -101,6 +101,10 @@ export const UI_TEXT = {
     sessionThinking: "Рассуждение текущей сессии",
     thinkingUnavailable: "Не поддерживается",
     switchingSession: "Переключаем…",
+    thinkingShort: "Думает",
+    sessionOpenShort: "Открыта",
+    sessionOpenTitle: "Сессия открыта в терминале",
+    sessionThinkingTitle: "Сессия сейчас думает",
     modelRoles: "Роли моделей",
     modelRolesHelp:
       "Роль определяет, для каких задач OMP использует модель. Нажмите на поле модели, чтобы открыть встроенный тёмный список; выбор сохраняется только после кнопки «Сохранить».",
@@ -270,6 +274,10 @@ export const UI_TEXT = {
     sessionThinking: "Current session reasoning",
     thinkingUnavailable: "Not supported",
     switchingSession: "Switching…",
+    thinkingShort: "Thinking",
+    sessionOpenShort: "Open",
+    sessionOpenTitle: "Session is open in a terminal",
+    sessionThinkingTitle: "Session is thinking now",
     modelRoles: "Model roles",
     modelRolesHelp:
       "A role determines which tasks use a model. Click the model field to open the built-in dark list; changes apply only after Save.",

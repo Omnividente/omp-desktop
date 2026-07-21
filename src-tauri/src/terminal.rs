@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     env, fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufRead, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -154,6 +154,7 @@ struct PtyRuntimeEvent {
     model_role: Option<String>,
     thinking_level: Option<String>,
     configured_thinking_level: Option<String>,
+    activity: Option<String>,
 }
 
 #[tauri::command]
@@ -925,6 +926,19 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
             let mut offset = fs::metadata(&path)
                 .map(|metadata| metadata.len())
                 .unwrap_or(0);
+            if let Some(activity) = read_latest_activity(&path) {
+                let _ = app.emit(
+                    "pty-runtime",
+                    PtyRuntimeEvent {
+                        terminal_id: terminal_id.clone(),
+                        model: None,
+                        model_role: None,
+                        thinking_level: None,
+                        configured_thinking_level: None,
+                        activity: Some(activity),
+                    },
+                );
+            }
             let mut line = Vec::with_capacity(1024);
             let mut line_overflow = false;
 
@@ -1021,8 +1035,67 @@ fn feed_runtime_lines<F>(
     }
 }
 
+fn read_latest_activity(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    let mut latest = None;
+    for line in reader.lines().map_while(Result::ok) {
+        if let Some(activity) = activity_from_line(line.as_bytes()) {
+            latest = Some(activity.to_owned());
+        }
+    }
+    latest
+}
+
+fn activity_from_line(line: &[u8]) -> Option<&'static str> {
+    let value = serde_json::from_slice::<Value>(line).ok()?;
+    activity_from_value(&value)
+}
+
+fn activity_from_value(value: &Value) -> Option<&'static str> {
+    match value.get("type").and_then(Value::as_str)? {
+        "message" => {
+            let message = value.get("message").unwrap_or(value);
+            match message.get("role").and_then(Value::as_str) {
+                Some("user" | "toolResult" | "tool") => Some("thinking"),
+                Some("assistant") => {
+                    let has_tool_call = message
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| {
+                            items.iter().any(|item| {
+                                matches!(
+                                    item.get("type").and_then(Value::as_str),
+                                    Some("toolCall" | "tool_use" | "function_call")
+                                )
+                            })
+                        });
+                    let tool_stop = message
+                        .get("stopReason")
+                        .and_then(Value::as_str)
+                        .is_some_and(|reason| {
+                            matches!(reason, "toolUse" | "tool_call" | "function_call")
+                        });
+                    Some(if has_tool_call || tool_stop {
+                        "thinking"
+                    } else {
+                        "idle"
+                    })
+                }
+                _ => None,
+            }
+        }
+        "custom" => match value.get("customType").and_then(Value::as_str) {
+            Some("tool_execution_start") => Some("thinking"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeEvent> {
     let value = serde_json::from_slice::<Value>(line).ok()?;
+    let activity = activity_from_value(&value).map(str::to_owned);
     match value.get("type").and_then(Value::as_str)? {
         "model_change" => Some(PtyRuntimeEvent {
             terminal_id: terminal_id.to_owned(),
@@ -1033,6 +1106,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             model_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
             thinking_level: None,
             configured_thinking_level: None,
+            activity: None,
         }),
         "thinking_level_change" => {
             let thinking_level = value
@@ -1050,8 +1124,17 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 model_role: None,
                 thinking_level,
                 configured_thinking_level,
+                activity: None,
             })
         }
+        "message" | "custom" => activity.map(|activity| PtyRuntimeEvent {
+            terminal_id: terminal_id.to_owned(),
+            model: None,
+            model_role: None,
+            thinking_level: None,
+            configured_thinking_level: None,
+            activity: Some(activity),
+        }),
         _ => None,
     }
 }
@@ -1340,6 +1423,24 @@ mod tests {
         assert_eq!(events[0].model_role.as_deref(), Some("fallback"));
         assert_eq!(events[1].thinking_level.as_deref(), Some("high"));
         assert_eq!(events[1].configured_thinking_level.as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn runtime_lines_report_thinking_activity() {
+        let lines: &[&[u8]] = &[
+            br#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}"#,
+            br#"{"type":"custom","customType":"tool_execution_start"}"#,
+            br#"{"type":"message","message":{"role":"toolResult","content":[{"type":"text","text":"result"}]}}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}}"#,
+        ];
+
+        let activities = lines
+            .iter()
+            .filter_map(|line| runtime_event_from_line("terminal-1", line))
+            .filter_map(|event| event.activity)
+            .collect::<Vec<_>>();
+
+        assert_eq!(activities, ["thinking", "thinking", "thinking", "idle"]);
     }
 
     #[test]

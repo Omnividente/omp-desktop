@@ -223,7 +223,7 @@ button:disabled {
 
 .workbench {
   display: grid;
-  grid-template-columns: 220px 326px minmax(0, 1fr);
+  grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
 }
@@ -236,9 +236,11 @@ button:disabled {
 }
 
 .project-rail {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(78px, 0.7fr) minmax(0, 1.85fr) auto auto;
+  min-height: 0;
   padding: 14px 10px 10px;
+  overflow: hidden;
   border-right: 1px solid var(--line);
   background: #0f1210;
 }
@@ -272,13 +274,11 @@ button:disabled {
   color: var(--accent);
   background: rgba(185, 242, 124, 0.06);
 }
-
 .project-list {
   display: flex;
-  flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: 3px;
-  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -353,6 +353,62 @@ button:disabled {
 .project-copy small {
   color: var(--muted);
   font-size: 10px;
+}
+
+.project-expand-marker {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  color: #657068;
+  transition: color 120ms ease, transform 120ms ease;
+}
+
+.project-item:hover .project-expand-marker,
+.project-item.is-expanded .project-expand-marker {
+  color: var(--accent);
+}
+
+.project-item.is-expanded .project-expand-marker {
+  transform: rotate(90deg);
+}
+
+.project-sessions {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  margin-top: 10px;
+  padding-top: 10px;
+  overflow: hidden;
+  border-top: 1px solid #202721;
+}
+
+.project-sessions .session-header {
+  padding: 0 0 8px;
+  border-bottom: 0;
+}
+
+.project-sessions .session-project-row {
+  margin-bottom: 8px;
+}
+
+.project-sessions .session-project-row h2 {
+  font-size: 13px;
+}
+
+.project-sessions .new-session-button {
+  height: 30px;
+  margin-bottom: 7px;
+  font-size: 10px;
+}
+
+.project-sessions .session-list {
+  padding: 6px 0 8px;
+}
+
+.project-sessions .session-footer {
+  padding: 7px 1px 0;
 }
 
 .pin-dot {
@@ -594,13 +650,21 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   min-width: 0;
   height: 100%;
   padding: 7px 5px 7px 9px;
   color: var(--text-soft);
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   cursor: pointer;
   text-align: left;
+}
+
+.session-select:focus-visible {
+  outline: 2px solid rgba(185, 242, 124, 0.65);
+  outline-offset: -2px;
 }
 
 .session-icon {
@@ -669,6 +733,37 @@ button:disabled {
 .session-copy small i {
   color: #444b46;
   font-style: normal;
+}
+
+.session-live-marker {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.session-live-marker > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #69736c;
+}
+
+.session-live-marker.is-running > span {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(129, 201, 149, 0.1);
+}
+
+.session-live-marker.is-thinking > span {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
+  animation: pulse 1.15s ease-in-out infinite;
+}
+
+.session-item.is-thinking {
+  border-color: rgba(185, 242, 124, 0.22);
 }
 
 .session-play {
@@ -1917,10 +2012,31 @@ button:disabled {
   color: #c8cfcb;
 }
 
-.terminal-tab > button:first-child > span:last-child {
+.terminal-tab-label {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.terminal-tab-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.thinking-pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
+  animation: pulse 1.15s ease-in-out infinite;
 }
 
 .status-dot {
@@ -1937,6 +2053,16 @@ button:disabled {
 
 .status-dot.is-exited {
   background: #69716c;
+}
+
+.status-dot.is-thinking {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
+  animation: pulse 1.15s ease-in-out infinite;
+}
+
+.terminal-tab.is-thinking {
+  border-bottom-color: rgba(185, 242, 124, 0.42);
 }
 
 .tab-close {
@@ -2446,7 +2572,7 @@ button:disabled {
   }
 
   .workbench {
-    grid-template-columns: 190px 300px minmax(0, 1fr);
+    grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
   }
 
   .hero-card {

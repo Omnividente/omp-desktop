@@ -505,6 +505,7 @@ function App() {
                 currentThinking: event.thinkingLevel ?? tab.currentThinking,
                 currentThinkingConfigured:
                   event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
+                activity: event.activity ?? tab.activity,
               }
             : tab,
         ),
@@ -569,6 +570,33 @@ function App() {
   const selectedSession =
     workspaceSessions.find((session) => session.id === selectedSessionId) ?? null;
 
+  const focusTab = useCallback(
+    (tabId: string) => {
+      const target = tabs.find((tab) => tab.id === tabId);
+      if (!target) return;
+      setActiveTabId(target.id);
+      if (target.sessionId) {
+        setSelectedSessionId(target.sessionId);
+      }
+    },
+    [tabs],
+  );
+
+  const selectSession = useCallback(
+    (session: SessionSummary) => {
+      setSelectedSessionId(session.id);
+      setSearch("");
+      const platform = payload?.runtime.platform ?? "windows";
+      const target =
+        tabs.find((tab) => tab.status === "running" && tabMatchesSession(tab, session, platform)) ??
+        tabs.find((tab) => tabMatchesSession(tab, session, platform));
+      if (target) {
+        focusTab(target.id);
+      }
+    },
+    [focusTab, payload?.runtime.platform, tabs],
+  );
+
   const openFolder = useCallback(async () => {
     try {
       const selected = await open({
@@ -609,7 +637,7 @@ function App() {
       if (session) {
         const existing = tabs.find((tab) => tab.sessionId === session.id && tab.status === "running");
         if (existing) {
-          setActiveTabId(existing.id);
+          focusTab(existing.id)
           return;
         }
       }
@@ -643,6 +671,7 @@ function App() {
           sessionId: session?.id ?? discoveredSession?.id ?? null,
           sessionPath: session?.filePath ?? discoveredSession?.filePath ?? null,
           status: "running",
+          activity: "idle",
           exitCode: null,
           kind: "agent",
           switching: false,
@@ -662,7 +691,7 @@ function App() {
         setLaunching(null);
       }
     },
-    [lang, launching, ompConfig, payload, selectedWorkspace, showError, tabs],
+    [focusTab, lang, launching, ompConfig, payload, selectedWorkspace, showError, tabs],
   );
 
   const launchUpdate = useCallback(async () => {
@@ -678,6 +707,7 @@ function App() {
         sessionId: null,
         sessionPath: null,
         status: "running",
+        activity: "idle",
         exitCode: null,
         success: null,
         kind: "utility",
@@ -862,6 +892,7 @@ function App() {
           tab.id === event.terminalId
             ? {
                 ...tab,
+                activity: "idle",
                 status: "exited",
                 exitCode: event.exitCode,
                 success: event.success,
@@ -995,7 +1026,8 @@ function App() {
                 : false;
               return (
                 <button
-                  className={`project-item${active ? " is-active" : ""}`}
+                  aria-expanded={active}
+                  className={`project-item${active ? " is-active is-expanded" : ""}`}
                   key={normalizedPath(workspace.path, payload.runtime.platform)}
                   onClick={() => {
                     setSelectedWorkspacePath(workspace.path);
@@ -1014,23 +1046,15 @@ function App() {
                       {workspace.sessionCount} {t(lang, "sessShort")}
                     </small>
                   </span>
+                  <span aria-hidden="true" className="project-expand-marker">
+                    <Icon name="chevron" size={13} />
+                  </span>
                   {workspace.pinned && <span className="pin-dot" title="pinned" />}
                 </button>
               );
             })}
           </nav>
-          <button className="open-project-button" onClick={() => void openFolder()} type="button">
-            <Icon name="folderOpen" size={16} />
-            {t(lang, "btnOpenFolder")}
-          </button>
-          <div className="rail-footer">
-            <Icon name="command" size={15} />
-            <span>Ctrl + N</span>
-            <small>{t(lang, "newSessionShortcut")}</small>
-          </div>
-        </aside>
-
-        <aside className="session-sidebar">
+          <section className="project-sessions">
           <div className="session-header">
             <div className="session-project-row">
               <div>
@@ -1097,11 +1121,17 @@ function App() {
               const selected = session.id === selectedSessionId;
               const busy = launching === session.id;
               const renaming = session.id === renamingSessionId;
-              const sessionRunning = tabs.some(
+              const sessionTab = tabs.find((tab) =>
+                tabMatchesSession(tab, session, payload.runtime.platform),
+              );
+              const runningTab = tabs.find(
                 (tab) =>
                   tab.status === "running" &&
                   tabMatchesSession(tab, session, payload.runtime.platform),
               );
+              const sessionOpen = Boolean(sessionTab);
+              const sessionRunning = Boolean(runningTab);
+              const sessionThinking = runningTab?.activity === "thinking";
               const deleting = deletingSessionId === session.id;
 
               const submitRename = () => {
@@ -1126,19 +1156,32 @@ function App() {
               };
 
               return (
-                <article className={`session-item${selected ? " is-selected" : ""}`} key={session.id}>
+                <article
+                  className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}`}
+                  key={session.id}
+                >
                   <div
+                    aria-pressed={selected}
                     className="session-select"
+                    onClick={() => selectSession(session)}
                     onDoubleClick={() => {
                       if (deletingSessionId === null) void launchSession(session);
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        selectSession(session);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <span className="session-icon">
                       <Icon name="history" size={16} />
                     </span>
                     <span
                       className="session-copy"
-                      onClick={() => setSelectedSessionId(session.id)}
+                      onClick={() => selectSession(session)}
                       role="presentation"
                     >
                       {renaming ? (
@@ -1160,6 +1203,27 @@ function App() {
                         {session.source !== "omp" ? <i>· {session.source}</i> : null}
                       </small>
                     </span>
+                    {sessionOpen && (
+                      <span
+                        aria-label={
+                          sessionThinking
+                            ? t(lang, "sessionThinkingTitle")
+                            : sessionRunning
+                              ? t(lang, "sessionOpenTitle")
+                              : t(lang, "sessionOpenShort")
+                        }
+                        className={`session-live-marker${sessionRunning ? " is-running" : ""}${sessionThinking ? " is-thinking" : ""}`}
+                        title={
+                          sessionThinking
+                            ? t(lang, "sessionThinkingTitle")
+                            : sessionRunning
+                              ? t(lang, "sessionOpenTitle")
+                              : t(lang, "sessionOpenShort")
+                        }
+                      >
+                        <span />
+                      </span>
+                    )}
                   </div>
                   {!renaming && (
                     <button
@@ -1224,6 +1288,16 @@ function App() {
             </span>
             <small>{t(lang, "jsonlNative")}</small>
           </div>
+          </section>
+          <button className="open-project-button" onClick={() => void openFolder()} type="button">
+            <Icon name="folderOpen" size={16} />
+            {t(lang, "btnOpenFolder")}
+          </button>
+          <div className="rail-footer">
+            <Icon name="command" size={15} />
+            <span>Ctrl + N</span>
+            <small>{t(lang, "newSessionShortcut")}</small>
+          </div>
         </aside>
 
         <main className="main-stage">
@@ -1233,13 +1307,24 @@ function App() {
                 <div className="terminal-tabs-scroll">
                   {tabs.map((tab) => (
                     <div
-                      className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""}`}
+                      className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""}${tab.activity === "thinking" ? " is-thinking" : " is-idle"}`}
                       key={tab.id}
                     >
-                      <button onClick={() => setActiveTabId(tab.id)} type="button">
-                        <span className={`status-dot is-${tab.status}`} />
+                      <button
+                        aria-label={`${tab.label} — ${tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.status === "running" ? t(lang, "sessionOpenTitle") : t(lang, "close")}`}
+                        onClick={() => focusTab(tab.id)}
+                        title={tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : undefined}
+                        type="button"
+                      >
+                        <span className={`status-dot is-${tab.status} is-${tab.activity}`} />
                         <Icon name="terminal" size={14} />
-                        <span>{tab.label}</span>
+                        <span className="terminal-tab-label">{tab.label}</span>
+                        {tab.activity === "thinking" && (
+                          <span aria-live="polite" className="terminal-tab-thinking">
+                            <span className="thinking-pulse" />
+                            {t(lang, "thinkingShort")}
+                          </span>
+                        )}
                       </button>
                       <button
                         className="tab-close"

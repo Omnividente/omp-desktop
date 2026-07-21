@@ -140,6 +140,7 @@ export interface PtyRuntimeEvent {
   modelRole: string | null;
   thinkingLevel: string | null;
   configuredThinkingLevel: string | null;
+  activity: TerminalActivity | null;
 }
 
 export interface PtyOutputEvent {
@@ -155,6 +156,7 @@ export interface PtyExitEvent {
 }
 
 export type TerminalStatus = "running" | "exited";
+export type TerminalActivity = "idle" | "thinking";
 
 export interface TerminalTab {
   id: string;
@@ -164,6 +166,7 @@ export interface TerminalTab {
   sessionId: string | null;
   sessionPath: string | null;
   status: TerminalStatus;
+  activity: TerminalActivity;
   exitCode: number | null;
   success: boolean | null;
   kind: "agent" | "utility";
