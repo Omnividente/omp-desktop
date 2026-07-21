@@ -31,9 +31,15 @@ Release with UX improvements and updated model routing.
 
 Recommended: `OMP-Desktop_0.1.4_x64-setup.exe` (Windows), `OMP-Desktop_0.1.4_amd64.AppImage` (Linux).
 
-## SHA-256 (excerpt for 0.1.4)
+## SHA-256 (0.1.4)
 
-See full `SHA256SUMS.txt`.
+```text
+74da288e29e757a6bc488fc8ec05f1c3fd0e9bdb9a1ea0c72ad3cc43c93d19af  windows/OMP-Desktop_0.1.4_x64_en-US.msi
+5c1971c8a873cc6bd91bbab456a4a2f182c47924e7705b103cd0b3268bf76119  windows/OMP-Desktop_0.1.4_x64-setup.exe
+62ae39d164ef3c2f4ee4138eb51f3c978e59ca0ac4295baf36198101faed16e6  linux/OMP-Desktop_0.1.4_amd64.AppImage
+33cfdef3f79b966d2b76f8a361351f3f777475d44bb174a71565c90ad8c0144a  linux/OMP-Desktop_0.1.4_amd64.deb
+7d79f5dba635a7c2968d52d5929b39a6e6404c1aef11de841a44294fe2263911  linux/OMP-Desktop-0.1.4-1.x86_64.rpm
+```
 
 # OMP Desktop 0.1.3 — Windows и Linux
 
