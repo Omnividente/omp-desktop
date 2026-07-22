@@ -55,6 +55,7 @@ pub struct SessionSummary {
     pub thinking_level: Option<String>,
     pub configured_thinking_level: Option<String>,
     pub source: String,
+    pub has_messages: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,4 +143,23 @@ pub struct CodexSessionSummary {
     pub updated_at: u64,
     pub model: Option<String>,
     pub preview: String,
+}
+ 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptEntry {
+    pub id: String,
+    pub timestamp: String,
+    pub role: String,
+    pub text: String,
+    pub kind: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTranscript {
+    pub session: SessionSummary,
+    pub entries: Vec<TranscriptEntry>,
+    pub updated_at: u64,
 }

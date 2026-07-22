@@ -5,6 +5,7 @@ import type {
   OmpConfigSaveRequest,
   OmpConfigSnapshot,
   OmpUpdateInfo,
+  SessionTranscript,
   SettingsUpdate,
   TerminalAttachment,
   TerminalStarted,
@@ -100,6 +101,10 @@ export function renameSession(
 
 export function deleteSession(path: string): Promise<BootstrapPayload> {
   return invoke("delete_session", { path });
+}
+
+export function readSessionTranscript(path: string): Promise<SessionTranscript> {
+  return invoke("read_session_transcript", { path });
 }
 
 export function importSession(

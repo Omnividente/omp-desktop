@@ -4,6 +4,11 @@ import { listen } from "@tauri-apps/api/event";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import {
   addWorkspace,
   bootstrap as loadBootstrap,
   checkOmpUpdate,
@@ -14,8 +19,10 @@ import {
   listCodexSessions,
   loadOmpConfig,
   renameSession,
+  readSessionTranscript,
   switchTerminal,
   startTerminal,
+  writeTerminal,
 } from "./api";
 import { Icon } from "./Icon";
 import { matchesSelector, splitSelector } from "./ModelPicker";
@@ -32,6 +39,7 @@ import type {
   OmpConfigSnapshot,
   RuntimeInfo,
   SessionSummary,
+  SessionTranscript,
   TerminalTab,
   WorkspaceSummary,
 } from "./types";
@@ -72,6 +80,61 @@ function formatRelative(timestamp: number, lang: Lang): string {
   if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour");
   if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day");
   return calendarDate.format(timestamp);
+}
+
+function formatTimestamp(timestamp: string | number, lang: Lang): string {
+  const numericTimestamp = typeof timestamp === "number" && timestamp < 10_000_000_000
+    ? timestamp * 1_000
+    : timestamp;
+  const date = new Date(numericTimestamp);
+  if (Number.isNaN(date.getTime())) return String(timestamp);
+  return new Intl.DateTimeFormat(localeTag(lang), {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(date);
+}
+
+function transcriptRoleLabel(role: string, lang: Lang): string {
+  switch (role.trim().toLocaleLowerCase("en-US")) {
+    case "user":
+      return t(lang, "transcriptRoleUser");
+    case "assistant":
+      return t(lang, "transcriptRoleAssistant");
+    case "system":
+      return t(lang, "transcriptRoleSystem");
+    case "tool":
+      return t(lang, "transcriptRoleTool");
+    default:
+      return role.trim() || t(lang, "transcriptRoleOther");
+  }
+}
+
+async function notifyTerminalCompletion(
+  tab: TerminalTab,
+  event: PtyExitEvent,
+  lang: Lang,
+): Promise<void> {
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      granted = (await requestPermission()) === "granted";
+    }
+    if (!granted) return;
+
+    const title = t(
+      lang,
+      event.success ? "notificationSuccessTitle" : "notificationFailureTitle",
+    );
+    const body = t(
+      lang,
+      event.success ? "notificationSuccessBody" : "notificationFailureBody",
+    )
+      .replace("{title}", tab.label)
+      .replace("{code}", event.error || String(event.exitCode ?? "?"));
+    sendNotification({ title, body });
+  } catch {
+    // Notifications are optional and must never interfere with terminal cleanup.
+  }
 }
 
 interface WorkspaceHomeProps {
@@ -375,6 +438,8 @@ function App() {
   const [search, setSearch] = useState("");
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>());
+  const completionNotifiedRef = useRef(new Set<string>());
+  const transcriptRequestRef = useRef(0);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
@@ -385,6 +450,12 @@ function App() {
   const [renameValue, setRenameValue] = useState("");
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateNoticeVisible, setUpdateNoticeVisible] = useState(false);
+  const [transcriptSession, setTranscriptSession] = useState<SessionSummary | null>(null);
+  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([]);
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({});
@@ -528,15 +599,28 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  const checkForUpdates = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      const info = await checkOmpUpdate();
+      setUpdateInfo(info);
+      setUpdateNoticeVisible(info.hasUpdate);
+    } catch {
+      setUpdateInfo(null);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
       setUpdateInfo(null);
+      setUpdateNoticeVisible(false);
+      setCheckingUpdate(false);
       return;
     }
-    void checkOmpUpdate()
-      .then(setUpdateInfo)
-      .catch(() => setUpdateInfo(null));
-  }, [payload?.runtime.ompAvailable, payload?.runtime.ompVersion]);
+    void checkForUpdates();
+  }, [checkForUpdates, payload?.runtime.ompAvailable, payload?.runtime.ompVersion]);
 
   const selectedWorkspace = useMemo(() => {
     if (!payload || !selectedWorkspacePath) return null;
@@ -597,6 +681,38 @@ function App() {
     [focusTab, payload?.runtime.platform, tabs],
   );
 
+  const loadTranscript = useCallback(async (session: SessionSummary) => {
+    const requestId = transcriptRequestRef.current + 1;
+    transcriptRequestRef.current = requestId;
+    setTranscriptSession(session);
+    setTranscript(null);
+    setTranscriptError(null);
+    setTranscriptLoading(true);
+    try {
+      const next = await readSessionTranscript(session.filePath);
+      if (transcriptRequestRef.current === requestId) {
+        setTranscript(next);
+        setTranscriptSession(next.session);
+      }
+    } catch (error) {
+      if (transcriptRequestRef.current === requestId) {
+        setTranscriptError(errorMessage(error));
+      }
+    } finally {
+      if (transcriptRequestRef.current === requestId) {
+        setTranscriptLoading(false);
+      }
+    }
+  }, []);
+
+  const closeTranscript = useCallback(() => {
+    transcriptRequestRef.current += 1;
+    setTranscriptSession(null);
+    setTranscript(null);
+    setTranscriptError(null);
+    setTranscriptLoading(false);
+  }, []);
+
   const openFolder = useCallback(async () => {
     try {
       const selected = await open({
@@ -622,7 +738,7 @@ function App() {
   );
 
   const launchSession = useCallback(
-    async (session?: SessionSummary) => {
+    async (session?: SessionSummary, initialInput?: string) => {
       if (!payload || launching !== null) return;
       const cwd = session?.cwd ?? selectedWorkspace?.path;
       if (!cwd) {
@@ -635,9 +751,20 @@ function App() {
         return;
       }
       if (session) {
-        const existing = tabs.find((tab) => tab.sessionId === session.id && tab.status === "running");
+        const platform = payload.runtime.platform;
+        const existing = tabs.find(
+          (tab) =>
+            tab.status === "running" && tabMatchesSession(tab, session, platform),
+        );
         if (existing) {
-          focusTab(existing.id)
+          focusTab(existing.id);
+          if (initialInput) {
+            try {
+              await writeTerminal(existing.id, initialInput);
+            } catch (error) {
+              showError(errorMessage(error));
+            }
+          }
           return;
         }
       }
@@ -685,6 +812,7 @@ function App() {
         };
         setTabs((current) => [...current, tab]);
         setActiveTabId(tab.id);
+        if (initialInput) await writeTerminal(tab.id, initialInput);
       } catch (error) {
         showError(errorMessage(error));
       } finally {
@@ -692,6 +820,15 @@ function App() {
       }
     },
     [focusTab, lang, launching, ompConfig, payload, selectedWorkspace, showError, tabs],
+  );
+
+  const openAndRereadSession = useCallback(
+    async (session: SessionSummary) => {
+      const prompt = `${t(lang, "transcriptRereadPrompt").replace("{path}", session.filePath)}\r`;
+      await launchSession(session, prompt);
+      closeTranscript();
+    },
+    [closeTranscript, lang, launchSession],
   );
 
   const launchUpdate = useCallback(async () => {
@@ -887,6 +1024,10 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      if (completionNotifiedRef.current.has(event.terminalId)) return;
+      completionNotifiedRef.current.add(event.terminalId);
+
+      const target = tabs.find((tab) => tab.id === event.terminalId);
       setTabs((current) =>
         current.map((tab) =>
           tab.id === event.terminalId
@@ -901,18 +1042,30 @@ function App() {
             : tab,
         ),
       );
+
+      const viewingCompletedTab =
+        activeTabId === event.terminalId &&
+        document.visibilityState === "visible" &&
+        document.hasFocus();
+      if (target?.kind === "agent" && !viewingCompletedTab) {
+        void notifyTerminalCompletion(target, event, lang);
+      }
+
       if (event.success) {
-        void checkOmpUpdate()
-          .then(setUpdateInfo)
-          .catch(() => undefined);
+        void checkForUpdates();
         void refresh();
       }
     },
-    [refresh],
+    [activeTabId, checkForUpdates, lang, refresh, tabs],
   );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && transcriptSession) {
+        event.preventDefault();
+        closeTranscript();
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
       const modifier = event.ctrlKey || event.metaKey;
@@ -929,7 +1082,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTabId, closeTab, launchSession, openFolder]);
+  }, [activeTabId, closeTab, closeTranscript, launchSession, openFolder, transcriptSession]);
 
   if (!payload) {
     return (
@@ -978,6 +1131,12 @@ function App() {
             <span />
             {payload.runtime.ompVersion ?? t(lang, "notFound")}
           </button>
+          {checkingUpdate && (
+            <span aria-live="polite" className="update-check-pill">
+              <span className="mini-loader" />
+              {t(lang, "updateChecking")}
+            </span>
+          )}
           {updateInfo?.hasUpdate && (
             <button
               className="button secondary update-pill"
@@ -1227,6 +1386,20 @@ function App() {
                   </div>
                   {!renaming && (
                     <button
+                      className="session-play session-transcript"
+                      disabled={deletingSessionId !== null}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void loadTranscript(session);
+                      }}
+                      title={t(lang, "openTranscript")}
+                      type="button"
+                    >
+                      <Icon name="history" size={14} />
+                    </button>
+                  )}
+                  {!renaming && (
+                    <button
                       className="session-play"
                       disabled={deletingSessionId !== null}
                       onClick={(event) => {
@@ -1406,6 +1579,106 @@ function App() {
         />
       )}
 
+      {transcriptSession && (
+        <div className="settings-backdrop" onMouseDown={closeTranscript} role="presentation">
+          <section
+            aria-labelledby="transcript-title"
+            aria-modal="true"
+            className="settings-panel transcript-panel"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <header className="settings-header transcript-header">
+              <div>
+                <span className="eyebrow">{t(lang, "transcript")}</span>
+                <h2 id="transcript-title">{transcript?.session.title ?? transcriptSession.title}</h2>
+                <small title={transcript?.session.filePath ?? transcriptSession.filePath}>
+                  {transcript?.session.filePath ?? transcriptSession.filePath}
+                </small>
+              </div>
+              <div className="transcript-header-actions">
+                <button
+                  className="button secondary transcript-reread-button"
+                  disabled={launching !== null || !payload.runtime.ompAvailable}
+                  onClick={() => void openAndRereadSession(transcriptSession)}
+                  type="button"
+                >
+                  <Icon name="terminal" size={14} />
+                  {t(lang, "transcriptOpenAndReread")}
+                </button>
+                <button
+                  className={`icon-button${transcriptLoading ? " is-spinning" : ""}`}
+                  disabled={transcriptLoading}
+                  onClick={() => void loadTranscript(transcriptSession)}
+                  title={t(lang, "transcriptRefresh")}
+                  type="button"
+                >
+                  <Icon name="refresh" />
+                </button>
+                <button
+                  className="icon-button"
+                  onClick={closeTranscript}
+                  title={t(lang, "close")}
+                  type="button"
+                >
+                  <Icon name="close" />
+                </button>
+              </div>
+            </header>
+            <div className="transcript-scroll">
+              {transcriptLoading ? (
+                <div aria-live="polite" className="transcript-state">
+                  <span className="mini-loader" />
+                  <strong>{t(lang, "transcriptLoading")}</strong>
+                </div>
+              ) : transcriptError ? (
+                <div className="transcript-state is-error" role="alert">
+                  <Icon name="alert" size={22} />
+                  <strong>{t(lang, "transcriptError")}</strong>
+                  <span>{transcriptError}</span>
+                  <button
+                    className="button secondary"
+                    onClick={() => void loadTranscript(transcriptSession)}
+                    type="button"
+                  >
+                    <Icon name="refresh" size={14} />
+                    {t(lang, "retry")}
+                  </button>
+                </div>
+              ) : !transcript || transcript.entries.length === 0 ? (
+                <div className="transcript-state">
+                  <Icon name="history" size={24} />
+                  <strong>{t(lang, "transcriptEmpty")}</strong>
+                </div>
+              ) : (
+                <div className="transcript-entries">
+                  {transcript.entries.map((entry) => (
+                    <article className="transcript-entry" data-role={entry.role} key={entry.id}>
+                      <header>
+                        <strong>{transcriptRoleLabel(entry.role, lang)}</strong>
+                        <span className="transcript-entry-meta">
+                          {entry.kind && <span>{entry.kind}</span>}
+                          {entry.model && <span>{entry.model}</span>}
+                          <time dateTime={entry.timestamp}>
+                            {formatTimestamp(entry.timestamp, lang)}
+                          </time>
+                        </span>
+                      </header>
+                      <pre>{entry.text}</pre>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+            {transcript && (
+              <footer className="transcript-footer">
+                {t(lang, "transcriptUpdated")}: {formatTimestamp(transcript.updatedAt, lang)}
+              </footer>
+            )}
+          </section>
+        </div>
+      )}
+
       {codexOpen && (
         <div className="settings-backdrop" onMouseDown={() => setCodexOpen(false)} role="presentation">
           <section
@@ -1476,6 +1749,36 @@ function App() {
               </button>
             </footer>
           </section>
+        </div>
+      )}
+
+      {updateNoticeVisible && updateInfo?.hasUpdate && (
+        <div className="update-toast" role="status">
+          <Icon name="spark" size={18} />
+          <div>
+            <strong>{t(lang, "updateToastTitle")}</strong>
+            <span>
+              {t(lang, "updateToastBody")
+                .replace("{current}", updateInfo.currentVersion ?? t(lang, "notFound"))
+                .replace("{latest}", updateInfo.latestVersion ?? t(lang, "updateAvailable"))}
+            </span>
+          </div>
+          <button
+            className="button primary"
+            disabled={launching !== null}
+            onClick={() => void launchUpdate()}
+            type="button"
+          >
+            {t(lang, "updateNow")}
+          </button>
+          <button
+            className="update-toast-close"
+            onClick={() => setUpdateNoticeVisible(false)}
+            title={t(lang, "close")}
+            type="button"
+          >
+            <Icon name="close" size={14} />
+          </button>
         </div>
       )}
 

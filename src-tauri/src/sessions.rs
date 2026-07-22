@@ -1,6 +1,7 @@
 use crate::{
     models::{
-        AppSettings, BootstrapPayload, CodexSessionSummary, SessionSummary, WorkspaceSummary,
+        AppSettings, BootstrapPayload, CodexSessionSummary, SessionSummary, SessionTranscript,
+        TranscriptEntry, WorkspaceSummary,
     },
     settings::runtime_info,
 };
@@ -226,6 +227,209 @@ pub fn import_session(path: &str, target_cwd: &str, session_root: &Path) -> Resu
     } else {
         import_omp_session(source, &bytes, target_cwd, session_root)
     }
+}
+
+pub fn read_session_transcript(path: &str, session_root: &Path) -> Result<SessionTranscript, String> {
+    let root = session_root.canonicalize().map_err(|error| {
+        format!(
+            "Не удалось открыть папку сессий {}: {error}",
+            session_root.display()
+        )
+    })?;
+    let path = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("Файл сессии не найден: {path}: {error}"))?;
+    if !path.starts_with(&root)
+        || path.extension().and_then(|extension| extension.to_str()) != Some("jsonl")
+    {
+        return Err("Можно читать только JSONL-файлы из папки сессий OMP".to_owned());
+    }
+
+    let session = parse_session(&path)?
+        .ok_or_else(|| format!("Не удалось найти session header в {}", path.display()))?;
+    let file = fs::File::open(&path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let reader = std::io::BufReader::new(file);
+    let mut entries = Vec::new();
+
+    for (line_index, line) in std::io::BufRead::lines(reader).enumerate() {
+        let line = line
+            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if let Some(entry) = transcript_entry_from_value(&value, line_index) {
+            entries.push(entry);
+        }
+    }
+
+    Ok(SessionTranscript {
+        session,
+        entries,
+        updated_at: modified_millis(&path),
+    })
+}
+
+fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<TranscriptEntry> {
+    let event_type = value.get("type").and_then(Value::as_str)?;
+    let id = value
+        .get("id")
+        .and_then(value_to_string)
+        .unwrap_or_else(|| format!("transcript-{line_index}"));
+    let timestamp = value
+        .get("timestamp")
+        .and_then(value_to_string)
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| message.get("timestamp"))
+                .and_then(value_to_string)
+        })
+        .unwrap_or_default();
+
+    match event_type {
+        "message" => {
+            let message = value.get("message").unwrap_or(value);
+            let role = message.get("role").and_then(Value::as_str)?.to_owned();
+            let mut text = transcript_content_text(message.get("content"));
+            if text.trim().is_empty() {
+                if let Some(error) = message.get("errorMessage").and_then(Value::as_str) {
+                    text = format!("Ошибка: {error}");
+                }
+            }
+            if text.trim().is_empty() {
+                return None;
+            }
+            Some(TranscriptEntry {
+                id,
+                timestamp,
+                role,
+                text,
+                kind: Some(event_type.to_owned()),
+                model: message
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| value.get("model").and_then(Value::as_str).map(str::to_owned)),
+            })
+        }
+        "model_change" => {
+            let model = value.get("model").and_then(Value::as_str)?.to_owned();
+            Some(TranscriptEntry {
+                id,
+                timestamp,
+                role: "system".to_owned(),
+                text: format!("Модель: {model}"),
+                kind: Some(event_type.to_owned()),
+                model: Some(model),
+            })
+        }
+        "thinking_level_change" => {
+            let level = value
+                .get("thinkingLevel")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("configured").and_then(Value::as_str))?;
+            Some(TranscriptEntry {
+                id,
+                timestamp,
+                role: "system".to_owned(),
+                text: format!("Уровень рассуждений: {level}"),
+                kind: Some(event_type.to_owned()),
+                model: None,
+            })
+        }
+        "custom" | "custom_message" => {
+            let custom_type = value
+                .get("customType")
+                .and_then(Value::as_str)
+                .unwrap_or(event_type);
+            let text = value
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| value.get("data").map(render_json_value))
+                .filter(|text| !text.trim().is_empty())?;
+            Some(TranscriptEntry {
+                id,
+                timestamp,
+                role: "event".to_owned(),
+                text,
+                kind: Some(custom_type.to_owned()),
+                model: None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn transcript_content_text(content: Option<&Value>) -> String {
+    let Some(content) = content else {
+        return String::new();
+    };
+    if let Some(text) = content.as_str() {
+        return text.to_owned();
+    }
+    let Some(items) = content.as_array() else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for item in items {
+        let Some(item_type) = item.get("type").and_then(Value::as_str) else {
+            if let Some(text) = item.as_str() {
+                parts.push(text.to_owned());
+            }
+            continue;
+        };
+        match item_type {
+            "text" | "input_text" | "output_text" => {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    parts.push(text.to_owned());
+                }
+            }
+            "thinking" => {
+                if let Some(text) = item
+                    .get("thinking")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.get("text").and_then(Value::as_str))
+                {
+                    parts.push(text.to_owned());
+                }
+            }
+            "toolCall" | "tool_use" | "function_call" => {
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tool");
+                let arguments = item
+                    .get("arguments")
+                    .or_else(|| item.get("input"))
+                    .map(render_json_value)
+                    .unwrap_or_default();
+                if arguments.is_empty() {
+                    parts.push(format!("Инструмент: {name}"));
+                } else {
+                    parts.push(format!("Инструмент: {name}\n{arguments}"));
+                }
+            }
+            _ => {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    parts.push(text.to_owned());
+                }
+            }
+        }
+    }
+    parts.join("\n\n")
+}
+
+fn value_to_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| value.as_number().map(ToString::to_string))
+}
+
+fn render_json_value(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
 pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
@@ -533,14 +737,26 @@ fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
     let mut files = Vec::new();
     collect_jsonl_files(root, 0, 3, &mut files)?;
     let thread_names = load_codex_thread_names();
-    Ok(files
+    let mut sessions = files
         .into_iter()
         .filter_map(|path| {
             parse_session_with_names(&path, &thread_names)
                 .ok()
                 .flatten()
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+    let mut seen_empty_cwd = HashSet::new();
+    sessions.retain(|session| {
+        let is_empty = !session.has_messages && (session.title == "Новая сессия" || session.title.trim().is_empty());
+        if !is_empty {
+            true
+        } else {
+            seen_empty_cwd.insert(session.cwd.clone())
+        }
+    });
+    Ok(sessions)
 }
 
 fn collect_jsonl_files(
@@ -619,6 +835,7 @@ fn parse_session_with_names(
     let mut last_model_role = None;
     let mut thinking_level = None;
     let mut configured_thinking_level = None;
+    let mut has_messages = false;
 
     loop {
         line.clear();
@@ -633,6 +850,8 @@ fn parse_session_with_names(
         if !parse_prefix
             && !line.contains("\"model_change\"")
             && !line.contains("\"thinking_level_change\"")
+            && !line.contains("\"title_change\"")
+            && !line.contains("\"message\"")
         {
             continue;
         }
@@ -641,11 +860,14 @@ fn parse_session_with_names(
             continue;
         };
         match value.get("type").and_then(Value::as_str) {
-            Some("title") => {
-                title = value
+            Some("title" | "title_change") => {
+                let candidate = value
                     .get("title")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                if candidate.as_ref().is_some_and(|t| !t.trim().is_empty()) {
+                    title = candidate;
+                }
             }
             Some("session") => {
                 id = value.get("id").and_then(Value::as_str).map(str::to_owned);
@@ -687,10 +909,12 @@ fn parse_session_with_names(
                     .or_else(|| effective.clone());
                 thinking_level = effective;
             }
+            Some("message" | "custom_message") => {
+                has_messages = true;
+            }
             _ => {}
         }
     }
-
     let model = restorable_session_model(&models, last_model_role.as_deref());
 
     let (Some(id), Some(cwd)) = (id, cwd) else {
@@ -716,6 +940,7 @@ fn parse_session_with_names(
         thinking_level,
         configured_thinking_level,
         source: "omp".to_owned(),
+        has_messages,
     }))
 }
 
@@ -1124,7 +1349,8 @@ mod tests {
     use super::{
         deduplicate_codex_sessions, delete_session, encode_session_dir_name, import_session,
         parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
-        restorable_session_model, serialize_title_slot, CodexSessionSummary,
+        read_session_transcript, restorable_session_model, scan_sessions, serialize_title_slot,
+        CodexSessionSummary,
     };
     use std::{
         collections::HashMap,
@@ -1200,6 +1426,96 @@ mod tests {
         assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
         assert_eq!(session.configured_thinking_level.as_deref(), Some("auto"));
         assert!(session.updated_at > 0);
+    }
+
+    #[test]
+    fn transcript_reader_returns_complete_messages_and_rejects_external_files() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-transcript-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = root.join("project").join("session.jsonl");
+        fs::create_dir_all(path.parent().expect("fixture parent should exist"))
+            .expect("fixture directory should be writable");
+        let contents = concat!(
+            r#"{"type":"title","title":"Full transcript"}"#,
+            "\n",
+            r#"{"type":"session","id":"session-id","timestamp":"2026-07-22T00:00:00Z","cwd":"/tmp/project"}"#,
+            "\n",
+            r#"{"type":"message","id":"user-1","timestamp":"2026-07-22T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"First line\nSecond line"}]}}"#,
+            "\n",
+            r#"{"type":"message","id":"assistant-1","timestamp":"2026-07-22T00:00:02Z","message":{"role":"assistant","model":"model-a","content":[{"type":"toolCall","name":"read","arguments":{"path":"history.jsonl"}},{"type":"text","text":"Complete answer"}]}}"#,
+            "\n"
+        );
+        fs::write(&path, contents).expect("fixture should be writable");
+
+        let transcript = read_session_transcript(path.to_string_lossy().as_ref(), &root)
+            .expect("transcript should be readable");
+        assert_eq!(transcript.session.id, "session-id");
+        assert_eq!(transcript.entries.len(), 2);
+        assert_eq!(transcript.entries[0].text, "First line\nSecond line");
+        assert!(transcript.entries[1].text.contains("Инструмент: read"));
+        assert!(transcript.entries[1].text.contains("Complete answer"));
+        assert_eq!(transcript.entries[1].model.as_deref(), Some("model-a"));
+
+        let external = root.with_extension("external.jsonl");
+        fs::write(&external, contents).expect("external fixture should be writable");
+        assert!(read_session_transcript(external.to_string_lossy().as_ref(), &root).is_err());
+        fs::remove_file(external).expect("external fixture should be removable");
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+    #[test]
+    fn scan_sessions_retains_titled_and_deduplicates_empty_untitled_sessions() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("omp-desktop-dedupe-{}-{nonce}", std::process::id()));
+        let project_dir = root.join("project");
+        fs::create_dir_all(&project_dir).expect("project dir should be writable");
+
+        let empty1 = project_dir.join("empty1.jsonl");
+        let empty2 = project_dir.join("empty2.jsonl");
+        let untitled_msg = project_dir.join("untitled_msg.jsonl");
+        let titled = project_dir.join("titled.jsonl");
+
+        let empty_content = concat!(
+            r#"{"type":"session","id":"s-empty-1","timestamp":"2026-07-22T00:00:00Z","cwd":"/tmp/project"}"#,
+            "\n"
+        );
+        let empty_content2 = concat!(
+            r#"{"type":"session","id":"s-empty-2","timestamp":"2026-07-22T00:00:10Z","cwd":"/tmp/project"}"#,
+            "\n"
+        );
+        let untitled_msg_content = concat!(
+            r#"{"type":"session","id":"s-untitled-msg","timestamp":"2026-07-22T00:00:08Z","cwd":"/tmp/project"}"#,
+            "\n",
+            r#"{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"text","text":"Untitled chat in progress"}]}}"#,
+            "\n"
+        );
+        let titled_content = concat!(
+            r#"{"type":"title","title":"Real work session"}"#,
+            "\n",
+            r#"{"type":"session","id":"s-titled","timestamp":"2026-07-22T00:00:05Z","cwd":"/tmp/project"}"#,
+            "\n"
+        );
+
+        fs::write(&empty1, empty_content).expect("empty1 fixture should be writable");
+        fs::write(&empty2, empty_content2).expect("empty2 fixture should be writable");
+        fs::write(&untitled_msg, untitled_msg_content).expect("untitled_msg fixture should be writable");
+        fs::write(&titled, titled_content).expect("titled fixture should be writable");
+
+        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        assert_eq!(sessions.len(), 3);
+        assert!(sessions.iter().any(|s| s.title == "Real work session"));
+        assert!(sessions.iter().any(|s| s.id == "s-untitled-msg" && s.has_messages));
+        assert_eq!(sessions.iter().filter(|s| !s.has_messages && s.title == "Новая сессия").count(), 1);
+
+        fs::remove_dir_all(root).expect("test root should be removable");
     }
 
     #[test]

@@ -27,6 +27,22 @@ export interface SessionSummary {
   thinkingLevel: string | null;
   configuredThinkingLevel: string | null;
   source: string;
+  hasMessages: boolean;
+}
+
+export interface TranscriptEntry {
+  id: string;
+  timestamp: string;
+  role: string;
+  text: string;
+  kind?: string;
+  model?: string;
+}
+
+export interface SessionTranscript {
+  session: SessionSummary;
+  entries: TranscriptEntry[];
+  updatedAt: number;
 }
 
 export interface WorkspaceSummary {

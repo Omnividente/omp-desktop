@@ -6,13 +6,14 @@ mod terminal;
 
 use models::{
     AppSettings, BootstrapPayload, CodexSessionSummary, OmpConfigSaveRequest, OmpConfigSnapshot,
-    OmpUpdateInfo, SettingsUpdate,
+    OmpUpdateInfo, SessionTranscript, SettingsUpdate,
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{load_settings, normalize_optional, save_settings, SettingsState};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 use terminal::TerminalState;
+use semver::Version;
 
 #[tauri::command]
 fn bootstrap(
@@ -123,6 +124,19 @@ fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
 }
 
 #[tauri::command]
+async fn read_session_transcript(
+    path: String,
+    app: AppHandle,
+    settings: State<'_, SettingsState>,
+) -> Result<SessionTranscript, String> {
+    let snapshot = settings_snapshot(&settings)?;
+    let root = settings::session_root(&app, &snapshot)?;
+    tauri::async_runtime::spawn_blocking(move || sessions::read_session_transcript(&path, &root))
+        .await
+        .map_err(|error| format!("Не удалось дождаться чтения транскрипта: {error}"))?
+}
+
+#[tauri::command]
 async fn load_omp_config(
     app: AppHandle,
     settings: State<'_, SettingsState>,
@@ -150,10 +164,100 @@ async fn save_omp_config(
 async fn check_omp_update(app: AppHandle) -> Result<OmpUpdateInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let settings = app.state::<SettingsState>();
-        omp_bridge::check_update(&app, &settings)
+        let raw = omp_bridge::check_update(&app, &settings)?;
+        let installed = settings_snapshot(&settings)
+            .ok()
+            .and_then(|settings| settings::resolve_omp(&app, &settings).version);
+        Ok(normalize_update_info(raw, installed.as_deref()))
     })
     .await
     .map_err(|error| format!("Не удалось дождаться проверки обновлений OMP: {error}"))?
+}
+fn normalize_update_info(raw: OmpUpdateInfo, installed_version: Option<&str>) -> OmpUpdateInfo {
+    let output = raw.message.trim();
+    let lower = output.to_ascii_lowercase();
+    let no_update = [
+        "already up to date",
+        "up-to-date",
+        "no update available",
+        "no updates available",
+        "latest version is installed",
+        "using the latest version",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    let advertised_update = ["new version", "update available", "upgrade available"]
+        .iter()
+        .any(|marker| lower.contains(marker));
+
+    let current = raw
+        .current_version
+        .as_deref()
+        .and_then(parse_version)
+        .or_else(|| version_from_matching_line(output, &["current version", "installed version"]))
+        .or_else(|| installed_version.and_then(parse_version));
+    let explicit_latest = version_from_matching_line(
+        output,
+        &[
+            "latest version",
+            "new version",
+            "update available",
+            "upgrade available",
+        ],
+    );
+    let latest = explicit_latest.or_else(|| {
+        if no_update {
+            current.clone()
+        } else {
+            None
+        }
+    });
+
+    let has_update = match (&current, &latest) {
+        (Some(current), Some(latest)) => latest > current,
+        _ => advertised_update && !no_update,
+    };
+    let message = match (has_update, current.as_ref(), latest.as_ref()) {
+        (true, Some(current), Some(latest)) => {
+            format!("Доступна новая версия OMP {latest} (установлена {current}).")
+        }
+        (true, _, Some(latest)) => format!("Доступна новая версия OMP {latest}."),
+        (true, _, None) => "Доступна новая версия OMP.".to_owned(),
+        (false, Some(current), _) => format!("Установлена актуальная версия OMP {current}."),
+        (false, None, _) => "Обновления OMP не найдены.".to_owned(),
+    };
+
+    OmpUpdateInfo {
+        has_update,
+        current_version: current.map(|version| version.to_string()),
+        latest_version: latest.map(|version| version.to_string()),
+        message,
+    }
+}
+
+fn version_from_matching_line(output: &str, markers: &[&str]) -> Option<Version> {
+    output.lines().find_map(|line| {
+        let lower = line.to_ascii_lowercase();
+        markers
+            .iter()
+            .any(|marker| lower.contains(marker))
+            .then(|| parse_version(line))
+            .flatten()
+    })
+}
+
+fn parse_version(text: &str) -> Option<Version> {
+    text.split(|character: char| {
+        !character.is_ascii_alphanumeric() && !matches!(character, '.' | '-' | '+')
+    })
+    .filter_map(|token| {
+        let token = token
+            .strip_prefix('v')
+            .or_else(|| token.strip_prefix('V'))
+            .unwrap_or(token);
+        Version::parse(token).ok()
+    })
+    .next()
 }
 
 fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
@@ -170,6 +274,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let settings = load_settings(app.handle()).unwrap_or_default();
             app.manage(SettingsState::new(settings));
@@ -184,6 +289,7 @@ pub fn run() {
             delete_session,
             import_session,
             list_codex_sessions,
+            read_session_transcript,
             load_omp_config,
             save_omp_config,
             check_omp_update,
@@ -203,4 +309,52 @@ pub fn run() {
             app_handle.state::<TerminalState>().shutdown_all();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_update_info;
+    use crate::models::OmpUpdateInfo;
+
+    #[test]
+    fn ordinary_no_update_output_is_not_a_false_positive() {
+        let info = normalize_update_info(
+            OmpUpdateInfo {
+                has_update: true,
+                current_version: None,
+                latest_version: Some("17.0.7".to_owned()),
+                message: "Current version: 17.0.7\n✔ Already up to date".to_owned(),
+            },
+            Some("omp/17.0.7"),
+        );
+
+        assert!(!info.has_update);
+        assert_eq!(info.current_version.as_deref(), Some("17.0.7"));
+        assert_eq!(info.latest_version.as_deref(), Some("17.0.7"));
+        assert_eq!(
+            info.message,
+            "Установлена актуальная версия OMP 17.0.7."
+        );
+    }
+
+    #[test]
+    fn newer_semantic_version_is_reported_as_an_update() {
+        let info = normalize_update_info(
+            OmpUpdateInfo {
+                has_update: false,
+                current_version: None,
+                latest_version: None,
+                message: "Current version: 17.0.7\nNew version available: 17.1.0".to_owned(),
+            },
+            None,
+        );
+
+        assert!(info.has_update);
+        assert_eq!(info.current_version.as_deref(), Some("17.0.7"));
+        assert_eq!(info.latest_version.as_deref(), Some("17.1.0"));
+        assert_eq!(
+            info.message,
+            "Доступна новая версия OMP 17.1.0 (установлена 17.0.7)."
+        );
+    }
 }

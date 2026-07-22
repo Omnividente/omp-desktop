@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     env, fs,
-    io::{BufRead, Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
+const RUNTIME_FILE_ANCHOR: usize = 64;
 const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;
 const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
@@ -47,6 +48,7 @@ struct TerminalProcess {
     exit_code: Option<u32>,
     exit_success: bool,
     exit_error: Option<String>,
+    thinking: bool,
     restartable: bool,
     switch_pending: bool,
 }
@@ -740,6 +742,7 @@ fn spawn_terminal_process(
         exit_code: None,
         exit_success: false,
         exit_error: None,
+        thinking: false,
         restartable,
         switch_pending: false,
     };
@@ -918,87 +921,267 @@ fn spawn_session_watcher(app: AppHandle, terminal_id: String) {
         .expect("failed to spawn OMP session watcher thread");
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RuntimeFileIdentity {
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(not(unix))]
+    created_at: Option<u128>,
+}
+
+impl RuntimeFileIdentity {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+
+            Self {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                created_at: metadata
+                    .created()
+                    .ok()
+                    .and_then(|created| created.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_nanos()),
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct RuntimeWatchCursor {
+    offset: u64,
+    identity: Option<RuntimeFileIdentity>,
+    anchor: Vec<u8>,
+    line: Vec<u8>,
+    line_overflow: bool,
+}
+
+impl RuntimeWatchCursor {
+    fn at_end(path: &Path) -> Self {
+        let mut cursor = Self {
+            line: Vec::with_capacity(1024),
+            anchor: Vec::with_capacity(RUNTIME_FILE_ANCHOR),
+            ..Self::default()
+        };
+        let Ok(mut file) = fs::File::open(path) else {
+            return cursor;
+        };
+        let Ok(metadata) = file.metadata() else {
+            return cursor;
+        };
+        cursor.identity = Some(RuntimeFileIdentity::from_metadata(&metadata));
+        cursor.offset = metadata.len();
+        let anchor_start = cursor
+            .offset
+            .saturating_sub(RUNTIME_FILE_ANCHOR as u64);
+        let anchor_length = (cursor.offset - anchor_start) as usize;
+        if anchor_length > 0
+            && file.seek(SeekFrom::Start(anchor_start)).is_ok()
+            && {
+                cursor.anchor.resize(anchor_length, 0);
+                file.read_exact(&mut cursor.anchor).is_ok()
+            }
+        {
+            return cursor;
+        }
+        cursor.anchor.clear();
+        cursor
+    }
+
+    fn reset(&mut self, identity: Option<RuntimeFileIdentity>) {
+        self.offset = 0;
+        self.identity = identity;
+        self.anchor.clear();
+        self.line.clear();
+        self.line_overflow = false;
+    }
+
+    fn anchor_matches(&self, file: &mut fs::File) -> bool {
+        if self.anchor.is_empty() {
+            return true;
+        }
+        let Ok(anchor_length) = u64::try_from(self.anchor.len()) else {
+            return false;
+        };
+        let Some(anchor_start) = self.offset.checked_sub(anchor_length) else {
+            return false;
+        };
+        if file.seek(SeekFrom::Start(anchor_start)).is_err() {
+            return false;
+        }
+        let mut actual = [0_u8; RUNTIME_FILE_ANCHOR];
+        file.read_exact(&mut actual[..self.anchor.len()]).is_ok()
+            && actual[..self.anchor.len()] == self.anchor
+    }
+
+    fn record_anchor(&mut self, data: &[u8]) {
+        if data.len() >= RUNTIME_FILE_ANCHOR {
+            self.anchor.clear();
+            self.anchor
+                .extend_from_slice(&data[data.len() - RUNTIME_FILE_ANCHOR..]);
+            return;
+        }
+        let overflow = self
+            .anchor
+            .len()
+            .saturating_add(data.len())
+            .saturating_sub(RUNTIME_FILE_ANCHOR);
+        if overflow > 0 {
+            self.anchor.drain(..overflow);
+        }
+        self.anchor.extend_from_slice(data);
+    }
+}
+
+fn poll_runtime_file<F, R>(
+    path: &Path,
+    cursor: &mut RuntimeWatchCursor,
+    mut on_reset: R,
+    mut on_line: F,
+) where
+    F: FnMut(&[u8]),
+    R: FnMut(),
+{
+    let Ok(mut file) = fs::File::open(path) else {
+        if cursor.identity.is_some()
+            || cursor.offset != 0
+            || !cursor.line.is_empty()
+            || cursor.line_overflow
+        {
+            cursor.reset(None);
+            on_reset();
+        }
+        return;
+    };
+    let Ok(metadata) = file.metadata() else {
+        return;
+    };
+    let identity = RuntimeFileIdentity::from_metadata(&metadata);
+    let length = metadata.len();
+    let reset = cursor
+        .identity
+        .is_some_and(|known| known != identity)
+        || length < cursor.offset
+        || !cursor.anchor_matches(&mut file);
+    if reset {
+        cursor.reset(Some(identity));
+        on_reset();
+    } else if cursor.identity.is_none() {
+        cursor.identity = Some(identity);
+    }
+    if length <= cursor.offset || file.seek(SeekFrom::Start(cursor.offset)).is_err() {
+        return;
+    }
+
+    let mut remaining = length - cursor.offset;
+    let mut buffer = [0_u8; 8192];
+    while remaining > 0 {
+        let chunk = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let Ok(read) = file.read(&mut buffer[..chunk]) else {
+            return;
+        };
+        if read == 0 {
+            return;
+        }
+        let data = &buffer[..read];
+        cursor.offset = cursor.offset.saturating_add(read as u64);
+        remaining = remaining.saturating_sub(read as u64);
+        cursor.record_anchor(data);
+        feed_runtime_lines(
+            data,
+            &mut cursor.line,
+            &mut cursor.line_overflow,
+            &mut on_line,
+        );
+    }
+}
+
+fn emit_activity_event(app: &AppHandle, terminal_id: &str, activity: &str) {
+    let _ = app.emit(
+        "pty-runtime",
+        PtyRuntimeEvent {
+            terminal_id: terminal_id.to_owned(),
+            model: None,
+            model_role: None,
+            thinking_level: None,
+            configured_thinking_level: None,
+            activity: Some(activity.to_owned()),
+        },
+    );
+}
+
+fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
+    let should_emit = {
+        let state = app.state::<TerminalState>();
+        let Ok(mut processes) = state.processes.lock() else {
+            return;
+        };
+        let Some(process) = processes.get_mut(terminal_id) else {
+            return;
+        };
+        let thinking = activity == "thinking";
+        let changed = process.thinking != thinking;
+        process.thinking = thinking;
+        changed || !thinking
+    };
+    if should_emit {
+        emit_activity_event(app, terminal_id, activity);
+    }
+}
+
 fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: String) {
     thread::Builder::new()
         .name(format!("runtime-watcher-{terminal_id}"))
         .spawn(move || {
             let path = PathBuf::from(&session_path);
-            let mut offset = fs::metadata(&path)
-                .map(|metadata| metadata.len())
-                .unwrap_or(0);
+            let mut cursor = RuntimeWatchCursor::at_end(&path);
             if let Some(activity) = read_latest_activity(&path) {
-                let _ = app.emit(
-                    "pty-runtime",
-                    PtyRuntimeEvent {
-                        terminal_id: terminal_id.clone(),
-                        model: None,
-                        model_role: None,
-                        thinking_level: None,
-                        configured_thinking_level: None,
-                        activity: Some(activity),
-                    },
-                );
+                emit_activity(&app, &terminal_id, &activity);
             }
-            let mut line = Vec::with_capacity(1024);
-            let mut line_overflow = false;
 
             loop {
-                thread::sleep(SESSION_DISCOVERY_INTERVAL);
                 let active = {
                     let state = app.state::<TerminalState>();
                     let Ok(processes) = state.processes.lock() else {
+                        emit_activity(&app, &terminal_id, "idle");
                         return;
                     };
-                    processes.get(&terminal_id).is_some_and(|process| {
-                        !process.exited
-                            && process.resume_path.as_deref() == Some(session_path.as_str())
-                    })
+                    let Some(process) = processes.get(&terminal_id) else {
+                        return;
+                    };
+                    if process.resume_path.as_deref() != Some(session_path.as_str()) {
+                        return;
+                    }
+                    !process.exited
                 };
                 if !active {
+                    emit_activity(&app, &terminal_id, "idle");
                     return;
                 }
 
-                let Ok(metadata) = fs::metadata(&path) else {
-                    continue;
-                };
-                let length = metadata.len();
-                if length < offset {
-                    offset = length;
-                    line.clear();
-                    line_overflow = false;
-                    continue;
-                }
-                if length == offset {
-                    continue;
-                }
-
-                let Ok(mut file) = fs::File::open(&path) else {
-                    continue;
-                };
-                if file.seek(SeekFrom::Start(offset)).is_err() {
-                    continue;
-                }
-                let mut buffer = [0_u8; 8192];
-                loop {
-                    let Ok(read) = file.read(&mut buffer) else {
-                        break;
-                    };
-                    if read == 0 {
-                        break;
-                    }
-                    offset = offset.saturating_add(read as u64);
-                    feed_runtime_lines(
-                        &buffer[..read],
-                        &mut line,
-                        &mut line_overflow,
-                        |runtime_line| {
-                            if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line)
-                            {
+                poll_runtime_file(
+                    &path,
+                    &mut cursor,
+                    || emit_activity(&app, &terminal_id, "idle"),
+                    |runtime_line| {
+                        if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
+                            if let Some(activity) = event.activity.as_deref() {
+                                emit_activity(&app, &terminal_id, activity);
+                            } else {
                                 let _ = app.emit("pty-runtime", event);
                             }
-                        },
-                    );
-                }
+                        }
+                    },
+                );
+                thread::sleep(SESSION_DISCOVERY_INTERVAL);
             }
         })
         .expect("failed to spawn OMP runtime watcher thread");
@@ -1036,11 +1219,29 @@ fn feed_runtime_lines<F>(
 }
 
 fn read_latest_activity(path: &Path) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
-    let reader = std::io::BufReader::new(file);
+    let mut file = fs::File::open(path).ok()?;
     let mut latest = None;
-    for line in reader.lines().map_while(Result::ok) {
-        if let Some(activity) = activity_from_line(line.as_bytes()) {
+    let mut buffer = [0_u8; 8192];
+    let mut line = Vec::with_capacity(1024);
+    let mut line_overflow = false;
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        feed_runtime_lines(
+            &buffer[..read],
+            &mut line,
+            &mut line_overflow,
+            |candidate| {
+                if let Some(activity) = activity_from_line(candidate) {
+                    latest = Some(activity.to_owned());
+                }
+            },
+        );
+    }
+    if !line_overflow && !line.is_empty() {
+        if let Some(activity) = activity_from_line(&line) {
             latest = Some(activity.to_owned());
         }
     }
@@ -1059,6 +1260,7 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
             match message.get("role").and_then(Value::as_str) {
                 Some("user" | "toolResult" | "tool") => Some("thinking"),
                 Some("assistant") => {
+                    let stop_reason = message.get("stopReason").and_then(Value::as_str);
                     let has_tool_call = message
                         .get("content")
                         .and_then(Value::as_array)
@@ -1070,13 +1272,10 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
                                 )
                             })
                         });
-                    let tool_stop = message
-                        .get("stopReason")
-                        .and_then(Value::as_str)
-                        .is_some_and(|reason| {
-                            matches!(reason, "toolUse" | "tool_call" | "function_call")
-                        });
-                    Some(if has_tool_call || tool_stop {
+                    let continues_with_tool = stop_reason.is_some_and(|reason| {
+                        matches!(reason, "toolUse" | "tool_call" | "function_call")
+                    }) || (stop_reason.is_none() && has_tool_call);
+                    Some(if continues_with_tool {
                         "thinking"
                     } else {
                         "idle"
@@ -1087,6 +1286,7 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
         }
         "custom" => match value.get("customType").and_then(Value::as_str) {
             Some("tool_execution_start") => Some("thinking"),
+            Some("tool_execution_end") => Some("idle"),
             _ => None,
         },
         _ => None,
@@ -1294,6 +1494,7 @@ where
                 should_emit
             };
 
+            emit_activity(&app, &terminal_id, "idle");
             if should_emit {
                 let _ = app.emit("pty-exit", event);
             }
@@ -1303,7 +1504,7 @@ where
 
 fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
     cache_resume_path(app, terminal_id);
-    let payload = {
+    let (payload, clear_activity) = {
         let state = app.state::<TerminalState>();
         let Ok(mut processes) = state.processes.lock() else {
             return;
@@ -1311,8 +1512,10 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
         let Some(process) = processes.get_mut(terminal_id) else {
             return;
         };
+        let clear_activity = process.thinking;
+        process.thinking = false;
 
-        if process.attached {
+        let payload = if process.attached {
             Some(PtyOutputEvent {
                 terminal_id: terminal_id.to_owned(),
                 data: BASE64.encode(data),
@@ -1320,11 +1523,15 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
         } else {
             append_pending(&mut process.pending_output, data);
             None
-        }
+        };
+        (payload, clear_activity)
     };
 
     if let Some(payload) = payload {
         let _ = app.emit("pty-output", payload);
+    }
+    if clear_activity {
+        emit_activity_event(app, terminal_id, "idle");
     }
 }
 
@@ -1348,8 +1555,9 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        discover_session, feed_runtime_lines, initial_agent_args, runtime_event_from_line,
-        thinking_cycle, validate_switch_request, SwitchRequest,
+        discover_session, feed_runtime_lines, initial_agent_args, poll_runtime_file,
+        read_latest_activity, runtime_event_from_line, thinking_cycle, validate_switch_request,
+        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
     };
     use std::{
         collections::HashMap,
@@ -1431,7 +1639,9 @@ mod tests {
             br#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}"#,
             br#"{"type":"custom","customType":"tool_execution_start"}"#,
             br#"{"type":"message","message":{"role":"toolResult","content":[{"type":"text","text":"result"}]}}"#,
-            br#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"done"}],"stopReason":"stop"}}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"next"}],"stopReason":"toolUse"}}"#,
+            br#"{"type":"custom","customType":"tool_execution_end"}"#,
         ];
 
         let activities = lines
@@ -1440,7 +1650,108 @@ mod tests {
             .filter_map(|event| event.activity)
             .collect::<Vec<_>>();
 
-        assert_eq!(activities, ["thinking", "thinking", "thinking", "idle"]);
+        assert_eq!(
+            activities,
+            ["thinking", "thinking", "thinking", "idle", "thinking", "idle"]
+        );
+    }
+    
+    #[test]
+    fn runtime_watcher_resets_and_replays_rewritten_or_rotated_files() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-watcher-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("initial runtime fixture should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut resets = 0;
+        let mut activities = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
+        assert_eq!(resets, 0);
+        assert!(activities.is_empty());
+
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"name\":\"finished\"}],\"stopReason\":\"stop\"}}\n",
+        )
+        .expect("runtime fixture should be rewritable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
+        assert_eq!(resets, 1);
+        assert_eq!(activities, ["idle"]);
+
+        fs::rename(&path, directory.join("rotated.jsonl"))
+            .expect("runtime fixture should be rotatable");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("rotated runtime fixture should be replaceable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("fixture directory should be removable");
+
+        assert_eq!(resets, 2);
+        assert_eq!(activities, ["idle", "thinking"]);
+    }
+
+    #[test]
+    fn latest_activity_skips_oversized_lines_and_accepts_final_line_without_newline() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-activity-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let mut contents = vec![b'x'; MAX_RUNTIME_EVENT_LINE + 1];
+        contents.push(b'\n');
+        contents.extend_from_slice(
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}",
+        );
+        fs::write(&path, contents).expect("activity fixture should be writable");
+
+        let activity = read_latest_activity(&path);
+        fs::remove_file(&path).expect("activity fixture should be removable");
+
+        assert_eq!(activity.as_deref(), Some("idle"));
     }
 
     #[test]
