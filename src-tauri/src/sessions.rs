@@ -910,7 +910,14 @@ fn parse_session_with_names(
                 thinking_level = effective;
             }
             Some("message" | "custom_message") => {
-                has_messages = true;
+                let role = value
+                    .get("message")
+                    .and_then(|m| m.get("role"))
+                    .and_then(Value::as_str)
+                    .or_else(|| value.get("role").and_then(Value::as_str));
+                if role == Some("user") || role == Some("assistant") {
+                    has_messages = true;
+                }
             }
             _ => {}
         }
@@ -1514,6 +1521,49 @@ mod tests {
         assert!(sessions.iter().any(|s| s.title == "Real work session"));
         assert!(sessions.iter().any(|s| s.id == "s-untitled-msg" && s.has_messages));
         assert_eq!(sessions.iter().filter(|s| !s.has_messages && s.title == "Новая сессия").count(), 1);
+
+        fs::remove_dir_all(root).expect("test root should be removable");
+    }
+    #[test]
+    fn scan_sessions_ignores_system_only_and_roleless_custom_messages_and_deduplicates_them() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("omp-desktop-system-{}-{nonce}", std::process::id()));
+        let project_dir = root.join("project");
+        fs::create_dir_all(&project_dir).expect("project dir should be writable");
+
+        let system_only = project_dir.join("system_only.jsonl");
+        let system_content = concat!(
+            r#"{"type":"session","id":"s-system-only","timestamp":"2026-07-22T00:00:00Z","cwd":"/tmp/project"}"#,
+            "\n",
+            r#"{"type":"message","id":"m-sys","message":{"role":"system","content":[{"type":"text","text":"System prompt only"}]}}"#,
+            "\n"
+        );
+        fs::write(&system_only, system_content).expect("system_only fixture should be writable");
+
+        let roleless_custom = project_dir.join("roleless_custom.jsonl");
+        let roleless_content = concat!(
+            r#"{"type":"session","id":"s-roleless","timestamp":"2026-07-22T00:00:05Z","cwd":"/tmp/project"}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"cm-1","content":"Internal system hook without role"}"#,
+            "\n"
+        );
+        fs::write(&roleless_custom, roleless_content).expect("roleless_custom fixture should be writable");
+
+        let parsed_sys = parse_session_with_names(&system_only, &HashMap::new())
+            .expect("parse should succeed")
+            .expect("session summary should be returned");
+        assert!(!parsed_sys.has_messages, "System-only message must not set has_messages to true");
+
+        let parsed_roleless = parse_session_with_names(&roleless_custom, &HashMap::new())
+            .expect("parse should succeed")
+            .expect("session summary should be returned");
+        assert!(!parsed_roleless.has_messages, "Roleless custom message must not set has_messages to true");
+
+        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        assert_eq!(sessions.len(), 1, "Multiple empty/system-only sessions must deduplicate to 1");
 
         fs::remove_dir_all(root).expect("test root should be removable");
     }

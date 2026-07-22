@@ -1,6 +1,6 @@
 [package]
 name = "omp-desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "Cross-platform desktop client for Oh My Pi"
 authors = ["OMP Desktop contributors"]
 edition = "2021"
