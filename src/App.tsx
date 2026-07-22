@@ -1,5 +1,6 @@
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -43,6 +44,7 @@ import type {
   TerminalTab,
   WorkspaceSummary,
 } from "./types";
+import packageMetadata from "../package.json";
 import "./App.css";
 
 function localeTag(lang: Lang): string {
@@ -433,6 +435,7 @@ function SessionControls({
 function App() {
 
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
+  const [appVersion, setAppVersion] = useState(packageMetadata.version);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -456,6 +459,8 @@ function App() {
   const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [transcriptSearch, setTranscriptSearch] = useState("");
+  const [transcriptMode, setTranscriptMode] = useState<"dialogue" | "all">("all");
   const [codexOpen, setCodexOpen] = useState(false);
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([]);
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({});
@@ -469,6 +474,28 @@ function App() {
     void loadOmpConfig().then(setOmpConfig).catch(console.error);
   }, [payload?.runtime.ompAvailable]);
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru";
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => undefined);
+  }, []);
+
+  const visibleTranscriptEntries = useMemo(() => {
+    const query = transcriptSearch.trim().toLocaleLowerCase(localeTag(lang));
+    return (transcript?.entries ?? []).filter((entry) => {
+      const visibleText = transcriptMode === "dialogue" ? entry.dialogueText : entry.text;
+      if (!visibleText) return false;
+      if (!query) return true;
+      return [
+        visibleText,
+        entry.kind ?? "",
+        entry.model ?? "",
+        transcriptRoleLabel(entry.role, lang),
+      ]
+        .join("\n")
+        .toLocaleLowerCase(localeTag(lang))
+        .includes(query);
+    });
+  }, [lang, transcript, transcriptMode, transcriptSearch]);
 
   const showError = useCallback((message: string) => {
     setToast(message);
@@ -711,6 +738,8 @@ function App() {
     setTranscript(null);
     setTranscriptError(null);
     setTranscriptLoading(false);
+    setTranscriptSearch("");
+    setTranscriptMode("all");
   }, []);
 
   const openFolder = useCallback(async () => {
@@ -1115,7 +1144,10 @@ function App() {
             <Icon name="logo" size={26} />
           </span>
           <strong>OMP</strong>
-          <span>Desktop</span>
+          <span className="brand-product">Desktop</span>
+          <span className="app-version" title={`OMP Desktop ${appVersion}`}>
+            v{appVersion}
+          </span>
         </div>
         <div className="topbar-context">
           <Icon name="folder" size={15} />
@@ -1625,6 +1657,53 @@ function App() {
                 </button>
               </div>
             </header>
+            {transcript && transcript.entries.length > 0 && (
+              <div className="transcript-toolbar">
+                <div className="transcript-search-field" role="search">
+                  <Icon name="search" size={14} />
+                  <input
+                    aria-label={t(lang, "transcriptSearch")}
+                    onChange={(event) => setTranscriptSearch(event.target.value)}
+                    placeholder={t(lang, "transcriptSearch")}
+                    spellCheck={false}
+                    type="search"
+                    value={transcriptSearch}
+                  />
+                  {transcriptSearch && (
+                    <button
+                      aria-label={t(lang, "clearSearch")}
+                      onClick={() => setTranscriptSearch("")}
+                      title={t(lang, "clearSearch")}
+                      type="button"
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  )}
+                </div>
+                <div
+                  aria-label={t(lang, "transcriptFilter")}
+                  className="transcript-filter"
+                  role="group"
+                >
+                  <button
+                    aria-pressed={transcriptMode === "dialogue"}
+                    className={transcriptMode === "dialogue" ? "is-active" : undefined}
+                    onClick={() => setTranscriptMode("dialogue")}
+                    type="button"
+                  >
+                    {t(lang, "transcriptDialogueOnly")}
+                  </button>
+                  <button
+                    aria-pressed={transcriptMode === "all"}
+                    className={transcriptMode === "all" ? "is-active" : undefined}
+                    onClick={() => setTranscriptMode("all")}
+                    type="button"
+                  >
+                    {t(lang, "transcriptWithService")}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="transcript-scroll">
               {transcriptLoading ? (
                 <div aria-live="polite" className="transcript-state">
@@ -1650,10 +1729,29 @@ function App() {
                   <Icon name="history" size={24} />
                   <strong>{t(lang, "transcriptEmpty")}</strong>
                 </div>
+              ) : visibleTranscriptEntries.length === 0 ? (
+                <div className="transcript-state">
+                  <Icon name="search" size={24} />
+                  <strong>{t(lang, "transcriptNoMatches")}</strong>
+                  {transcriptSearch && (
+                    <button
+                      className="button secondary"
+                      onClick={() => setTranscriptSearch("")}
+                      type="button"
+                    >
+                      {t(lang, "clearSearch")}
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="transcript-entries">
-                  {transcript.entries.map((entry) => (
-                    <article className="transcript-entry" data-role={entry.role} key={entry.id}>
+                  {visibleTranscriptEntries.map((entry) => (
+                    <article
+                      className="transcript-entry"
+                      data-category={entry.category}
+                      data-role={entry.role}
+                      key={entry.id}
+                    >
                       <header>
                         <strong>{transcriptRoleLabel(entry.role, lang)}</strong>
                         <span className="transcript-entry-meta">
@@ -1664,7 +1762,7 @@ function App() {
                           </time>
                         </span>
                       </header>
-                      <pre>{entry.text}</pre>
+                      <pre>{transcriptMode === "dialogue" ? entry.dialogueText : entry.text}</pre>
                     </article>
                   ))}
                 </div>
@@ -1672,7 +1770,12 @@ function App() {
             </div>
             {transcript && (
               <footer className="transcript-footer">
-                {t(lang, "transcriptUpdated")}: {formatTimestamp(transcript.updatedAt, lang)}
+                <span>
+                  {t(lang, "transcriptShown")}: {visibleTranscriptEntries.length} / {transcript.entries.length}
+                </span>
+                <span>
+                  {t(lang, "transcriptUpdated")}: {formatTimestamp(transcript.updatedAt, lang)}
+                </span>
               </footer>
             )}
           </section>

@@ -1,7 +1,7 @@
 use crate::{
     models::{
         AppSettings, BootstrapPayload, CodexSessionSummary, SessionSummary, SessionTranscript,
-        TranscriptEntry, WorkspaceSummary,
+        TranscriptEntry, TranscriptEntryCategory, WorkspaceSummary,
     },
     settings::runtime_info,
 };
@@ -229,7 +229,10 @@ pub fn import_session(path: &str, target_cwd: &str, session_root: &Path) -> Resu
     }
 }
 
-pub fn read_session_transcript(path: &str, session_root: &Path) -> Result<SessionTranscript, String> {
+pub fn read_session_transcript(
+    path: &str,
+    session_root: &Path,
+) -> Result<SessionTranscript, String> {
     let root = session_root.canonicalize().map_err(|error| {
         format!(
             "Не удалось открыть папку сессий {}: {error}",
@@ -253,8 +256,8 @@ pub fn read_session_transcript(path: &str, session_root: &Path) -> Result<Sessio
     let mut entries = Vec::new();
 
     for (line_index, line) in std::io::BufRead::lines(reader).enumerate() {
-        let line = line
-            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        let line =
+            line.map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -291,7 +294,13 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
         "message" => {
             let message = value.get("message").unwrap_or(value);
             let role = message.get("role").and_then(Value::as_str)?.to_owned();
-            let mut text = transcript_content_text(message.get("content"));
+            let (mut text, mut dialogue_text) = transcript_content_texts(message.get("content"));
+            if !matches!(
+                role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            ) {
+                dialogue_text.clear();
+            }
             if text.trim().is_empty() {
                 if let Some(error) = message.get("errorMessage").and_then(Value::as_str) {
                     text = format!("Ошибка: {error}");
@@ -300,17 +309,30 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
             if text.trim().is_empty() {
                 return None;
             }
+            let dialogue_text = (!dialogue_text.trim().is_empty()).then_some(dialogue_text);
+            let category = if dialogue_text.is_some() {
+                TranscriptEntryCategory::Dialogue
+            } else {
+                TranscriptEntryCategory::Service
+            };
             Some(TranscriptEntry {
                 id,
                 timestamp,
                 role,
                 text,
+                dialogue_text,
+                category,
                 kind: Some(event_type.to_owned()),
                 model: message
                     .get("model")
                     .and_then(Value::as_str)
                     .map(str::to_owned)
-                    .or_else(|| value.get("model").and_then(Value::as_str).map(str::to_owned)),
+                    .or_else(|| {
+                        value
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    }),
             })
         }
         "model_change" => {
@@ -320,6 +342,8 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
                 timestamp,
                 role: "system".to_owned(),
                 text: format!("Модель: {model}"),
+                dialogue_text: None,
+                category: TranscriptEntryCategory::Service,
                 kind: Some(event_type.to_owned()),
                 model: Some(model),
             })
@@ -334,6 +358,8 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
                 timestamp,
                 role: "system".to_owned(),
                 text: format!("Уровень рассуждений: {level}"),
+                dialogue_text: None,
+                category: TranscriptEntryCategory::Service,
                 kind: Some(event_type.to_owned()),
                 model: None,
             })
@@ -354,6 +380,8 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
                 timestamp,
                 role: "event".to_owned(),
                 text,
+                dialogue_text: None,
+                category: TranscriptEntryCategory::Service,
                 kind: Some(custom_type.to_owned()),
                 model: None,
             })
@@ -362,21 +390,23 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
     }
 }
 
-fn transcript_content_text(content: Option<&Value>) -> String {
+fn transcript_content_texts(content: Option<&Value>) -> (String, String) {
     let Some(content) = content else {
-        return String::new();
+        return (String::new(), String::new());
     };
     if let Some(text) = content.as_str() {
-        return text.to_owned();
+        return (text.to_owned(), text.to_owned());
     }
     let Some(items) = content.as_array() else {
-        return String::new();
+        return (String::new(), String::new());
     };
     let mut parts = Vec::new();
+    let mut dialogue_parts = Vec::new();
     for item in items {
         let Some(item_type) = item.get("type").and_then(Value::as_str) else {
             if let Some(text) = item.as_str() {
                 parts.push(text.to_owned());
+                dialogue_parts.push(text.to_owned());
             }
             continue;
         };
@@ -384,6 +414,7 @@ fn transcript_content_text(content: Option<&Value>) -> String {
             "text" | "input_text" | "output_text" => {
                 if let Some(text) = item.get("text").and_then(Value::as_str) {
                     parts.push(text.to_owned());
+                    dialogue_parts.push(text.to_owned());
                 }
             }
             "thinking" => {
@@ -396,10 +427,7 @@ fn transcript_content_text(content: Option<&Value>) -> String {
                 }
             }
             "toolCall" | "tool_use" | "function_call" => {
-                let name = item
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool");
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("tool");
                 let arguments = item
                     .get("arguments")
                     .or_else(|| item.get("input"))
@@ -418,7 +446,7 @@ fn transcript_content_text(content: Option<&Value>) -> String {
             }
         }
     }
-    parts.join("\n\n")
+    (parts.join("\n\n"), dialogue_parts.join("\n\n"))
 }
 
 fn value_to_string(value: &Value) -> Option<String> {
@@ -749,7 +777,8 @@ fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
     let mut seen_empty_cwd = HashSet::new();
     sessions.retain(|session| {
-        let is_empty = !session.has_messages && (session.title == "Новая сессия" || session.title.trim().is_empty());
+        let is_empty = !session.has_messages
+            && (session.title == "Новая сессия" || session.title.trim().is_empty());
         if !is_empty {
             true
         } else {
@@ -1357,7 +1386,7 @@ mod tests {
         deduplicate_codex_sessions, delete_session, encode_session_dir_name, import_session,
         parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
         read_session_transcript, restorable_session_model, scan_sessions, serialize_title_slot,
-        CodexSessionSummary,
+        CodexSessionSummary, TranscriptEntryCategory,
     };
     use std::{
         collections::HashMap,
@@ -1456,6 +1485,8 @@ mod tests {
             r#"{"type":"message","id":"user-1","timestamp":"2026-07-22T00:00:01Z","message":{"role":"user","content":[{"type":"text","text":"First line\nSecond line"}]}}"#,
             "\n",
             r#"{"type":"message","id":"assistant-1","timestamp":"2026-07-22T00:00:02Z","message":{"role":"assistant","model":"model-a","content":[{"type":"toolCall","name":"read","arguments":{"path":"history.jsonl"}},{"type":"text","text":"Complete answer"}]}}"#,
+            "\n",
+            r#"{"type":"message","id":"tool-1","timestamp":"2026-07-22T00:00:03Z","message":{"role":"tool","content":[{"type":"output_text","text":"tool output"}]}}"#,
             "\n"
         );
         fs::write(&path, contents).expect("fixture should be writable");
@@ -1463,11 +1494,33 @@ mod tests {
         let transcript = read_session_transcript(path.to_string_lossy().as_ref(), &root)
             .expect("transcript should be readable");
         assert_eq!(transcript.session.id, "session-id");
-        assert_eq!(transcript.entries.len(), 2);
+        assert_eq!(transcript.entries.len(), 3);
         assert_eq!(transcript.entries[0].text, "First line\nSecond line");
+        assert_eq!(
+            transcript.entries[0].dialogue_text.as_deref(),
+            Some("First line\nSecond line")
+        );
+        assert_eq!(
+            transcript.entries[0].category,
+            TranscriptEntryCategory::Dialogue
+        );
         assert!(transcript.entries[1].text.contains("Инструмент: read"));
         assert!(transcript.entries[1].text.contains("Complete answer"));
+        assert_eq!(
+            transcript.entries[1].dialogue_text.as_deref(),
+            Some("Complete answer")
+        );
+        assert_eq!(
+            transcript.entries[1].category,
+            TranscriptEntryCategory::Dialogue
+        );
         assert_eq!(transcript.entries[1].model.as_deref(), Some("model-a"));
+        assert_eq!(transcript.entries[2].text, "tool output");
+        assert_eq!(transcript.entries[2].dialogue_text, None);
+        assert_eq!(
+            transcript.entries[2].category,
+            TranscriptEntryCategory::Service
+        );
 
         let external = root.with_extension("external.jsonl");
         fs::write(&external, contents).expect("external fixture should be writable");
@@ -1481,7 +1534,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("omp-desktop-dedupe-{}-{nonce}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("omp-desktop-dedupe-{}-{nonce}", std::process::id()));
         let project_dir = root.join("project");
         fs::create_dir_all(&project_dir).expect("project dir should be writable");
 
@@ -1513,14 +1567,23 @@ mod tests {
 
         fs::write(&empty1, empty_content).expect("empty1 fixture should be writable");
         fs::write(&empty2, empty_content2).expect("empty2 fixture should be writable");
-        fs::write(&untitled_msg, untitled_msg_content).expect("untitled_msg fixture should be writable");
+        fs::write(&untitled_msg, untitled_msg_content)
+            .expect("untitled_msg fixture should be writable");
         fs::write(&titled, titled_content).expect("titled fixture should be writable");
 
         let sessions = scan_sessions(&root).expect("sessions should be scannable");
         assert_eq!(sessions.len(), 3);
         assert!(sessions.iter().any(|s| s.title == "Real work session"));
-        assert!(sessions.iter().any(|s| s.id == "s-untitled-msg" && s.has_messages));
-        assert_eq!(sessions.iter().filter(|s| !s.has_messages && s.title == "Новая сессия").count(), 1);
+        assert!(sessions
+            .iter()
+            .any(|s| s.id == "s-untitled-msg" && s.has_messages));
+        assert_eq!(
+            sessions
+                .iter()
+                .filter(|s| !s.has_messages && s.title == "Новая сессия")
+                .count(),
+            1
+        );
 
         fs::remove_dir_all(root).expect("test root should be removable");
     }
@@ -1530,7 +1593,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("omp-desktop-system-{}-{nonce}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("omp-desktop-system-{}-{nonce}", std::process::id()));
         let project_dir = root.join("project");
         fs::create_dir_all(&project_dir).expect("project dir should be writable");
 
@@ -1550,20 +1614,31 @@ mod tests {
             r#"{"type":"custom_message","id":"cm-1","content":"Internal system hook without role"}"#,
             "\n"
         );
-        fs::write(&roleless_custom, roleless_content).expect("roleless_custom fixture should be writable");
+        fs::write(&roleless_custom, roleless_content)
+            .expect("roleless_custom fixture should be writable");
 
         let parsed_sys = parse_session_with_names(&system_only, &HashMap::new())
             .expect("parse should succeed")
             .expect("session summary should be returned");
-        assert!(!parsed_sys.has_messages, "System-only message must not set has_messages to true");
+        assert!(
+            !parsed_sys.has_messages,
+            "System-only message must not set has_messages to true"
+        );
 
         let parsed_roleless = parse_session_with_names(&roleless_custom, &HashMap::new())
             .expect("parse should succeed")
             .expect("session summary should be returned");
-        assert!(!parsed_roleless.has_messages, "Roleless custom message must not set has_messages to true");
+        assert!(
+            !parsed_roleless.has_messages,
+            "Roleless custom message must not set has_messages to true"
+        );
 
         let sessions = scan_sessions(&root).expect("sessions should be scannable");
-        assert_eq!(sessions.len(), 1, "Multiple empty/system-only sessions must deduplicate to 1");
+        assert_eq!(
+            sessions.len(),
+            1,
+            "Multiple empty/system-only sessions must deduplicate to 1"
+        );
 
         fs::remove_dir_all(root).expect("test root should be removable");
     }

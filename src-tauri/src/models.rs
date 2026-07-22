@@ -144,7 +144,14 @@ pub struct CodexSessionSummary {
     pub model: Option<String>,
     pub preview: String,
 }
- 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TranscriptEntryCategory {
+    Dialogue,
+    Service,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptEntry {
@@ -152,7 +159,10 @@ pub struct TranscriptEntry {
     pub timestamp: String,
     pub role: String,
     pub text: String,
+    pub dialogue_text: Option<String>,
+    pub category: TranscriptEntryCategory,
     pub kind: Option<String>,
+
     pub model: Option<String>,
 }
 

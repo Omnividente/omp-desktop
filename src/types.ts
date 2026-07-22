@@ -35,6 +35,8 @@ export interface TranscriptEntry {
   timestamp: string;
   role: string;
   text: string;
+  dialogueText: string | null;
+  category: "dialogue" | "service";
   kind?: string;
   model?: string;
 }
