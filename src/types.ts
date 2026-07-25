@@ -89,6 +89,15 @@ export interface OmpRoleInfo {
   detail: string | null;
 }
 
+export interface OmpCredentialInfo {
+  provider: string;
+  keyName: string | null;
+  source: "desktop" | "environment" | "command" | "models" | "omp";
+  status: "ready" | "configured" | "ok" | "limited" | "exhausted" | "missing";
+  available: boolean;
+  modelCount: number;
+}
+
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[];
   models: OmpModelInfo[];
@@ -96,6 +105,7 @@ export interface OmpConfigSnapshot {
   autoResume: boolean;
   defaultThinkingLevel: string | null;
   providerEnvKeys: string[];
+  credentials: OmpCredentialInfo[];
   raw: Record<string, unknown>;
 }
 
@@ -159,6 +169,11 @@ export interface PtyRuntimeEvent {
   thinkingLevel: string | null;
   configuredThinkingLevel: string | null;
   activity: TerminalActivity | null;
+  errorMessage: string | null;
+}
+
+export interface PtyUpdateEvent {
+  terminalId: string;
 }
 
 export interface PtyOutputEvent {
@@ -174,7 +189,7 @@ export interface PtyExitEvent {
 }
 
 export type TerminalStatus = "running" | "exited";
-export type TerminalActivity = "idle" | "thinking";
+export type TerminalActivity = "idle" | "thinking" | "error";
 
 export interface TerminalTab {
   id: string;

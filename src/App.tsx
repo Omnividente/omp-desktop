@@ -37,6 +37,7 @@ import type {
   PtyExitEvent,
   PtyRuntimeEvent,
   PtySessionEvent,
+  PtyUpdateEvent,
   OmpConfigSnapshot,
   RuntimeInfo,
   SessionSummary,
@@ -46,6 +47,17 @@ import type {
 } from "./types";
 import packageMetadata from "../package.json";
 import "./App.css";
+
+type ToastState = {
+  kind: "error" | "notice";
+  message: string;
+};
+
+type PendingUpdateRestart = {
+  updateTerminalId: string;
+  sourceTerminalId: string | null;
+  sourceTab: TerminalTab | null;
+};
 
 function localeTag(lang: Lang): string {
   return lang === "en" ? "en" : "ru";
@@ -424,6 +436,11 @@ function SessionControls({
           ))
         )}
       </select>
+      {tab.currentModelRole === "fallback" && !tab.switching && (
+        <span aria-live="polite" className="session-fallback">
+          {t(lang, "fallbackActive")}
+        </span>
+      )}
       {tab.switching && (
         <span aria-live="polite" className="session-switching">
           {t(lang, "switchingSession")}
@@ -447,12 +464,14 @@ function App() {
   const [refreshing, setRefreshing] = useState(true);
   const [launching, setLaunching] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null);
+  const [updateSourceTerminalId, setUpdateSourceTerminalId] = useState<string | null>(null);
+  const pendingUpdateRestartRef = useRef<PendingUpdateRestart | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateNoticeVisible, setUpdateNoticeVisible] = useState(false);
   const [transcriptSession, setTranscriptSession] = useState<SessionSummary | null>(null);
@@ -498,7 +517,10 @@ function App() {
   }, [lang, transcript, transcriptMode, transcriptSearch]);
 
   const showError = useCallback((message: string) => {
-    setToast(message);
+    setToast({ kind: "error", message });
+  }, []);
+  const showNotice = useCallback((message: string) => {
+    setToast({ kind: "notice", message });
   }, []);
 
   const applyPayload = useCallback((next: BootstrapPayload, preferredWorkspace?: string) => {
@@ -590,6 +612,13 @@ function App() {
 
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return;
+      if (event.model && event.modelRole === "fallback") {
+        const model = event.model.split("/").at(-1) ?? event.model;
+        showNotice(t(lang, "fallbackSwitched").replace("{model}", model));
+      }
+      if (event.errorMessage) {
+        showError(event.errorMessage);
+      }
       setTabs((current) =>
         current.map((tab) =>
           tab.id === event.terminalId
@@ -613,13 +642,32 @@ function App() {
       return null;
     });
 
+    const unlistenUpdate = listen<PtyUpdateEvent>("omp-update-notice", ({ payload: event }) => {
+      if (disposed) return;
+      setUpdateSourceTerminalId(event.terminalId);
+      setUpdateInfo((current) =>
+        current?.hasUpdate
+          ? current
+          : {
+              hasUpdate: true,
+              currentVersion: payload?.runtime.ompVersion ?? null,
+              latestVersion: null,
+              message: "",
+            },
+      );
+      setUpdateNoticeVisible(true);
+    }).catch((error) => {
+      if (!disposed) showError(errorMessage(error));
+      return null;
+    });
+
     return () => {
       disposed = true;
       void unlistenSession.then((stop) => stop?.());
       void unlistenRuntime.then((stop) => stop?.());
+      void unlistenUpdate.then((stop) => stop?.());
     };
-  }, [applyPayload, showError]);
-
+  }, [applyPayload, lang, payload?.runtime.ompVersion, showError, showNotice]);
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 5_500);
@@ -632,8 +680,9 @@ function App() {
       const info = await checkOmpUpdate();
       setUpdateInfo(info);
       setUpdateNoticeVisible(info.hasUpdate);
+      if (!info.hasUpdate) setUpdateSourceTerminalId(null);
     } catch {
-      setUpdateInfo(null);
+      // A live PTY notice remains authoritative when the registry check is temporarily unavailable.
     } finally {
       setCheckingUpdate(false);
     }
@@ -642,12 +691,23 @@ function App() {
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
       setUpdateInfo(null);
+      setUpdateSourceTerminalId(null);
       setUpdateNoticeVisible(false);
       setCheckingUpdate(false);
       return;
     }
-    void checkForUpdates();
-  }, [checkForUpdates, payload?.runtime.ompAvailable, payload?.runtime.ompVersion]);
+    const check = () => void checkForUpdates();
+    check();
+    const interval = window.setInterval(check, 15 * 60 * 1_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [checkForUpdates, payload?.runtime.ompAvailable, payload?.runtime.ompVersion, updateSourceTerminalId]);
 
   const selectedWorkspace = useMemo(() => {
     if (!payload || !selectedWorkspacePath) return null;
@@ -862,12 +922,21 @@ function App() {
 
   const launchUpdate = useCallback(async () => {
     if (!payload?.runtime.ompAvailable || !selectedWorkspace?.path || launching !== null) return;
+    const sourceTab =
+      tabs.find((tab) => tab.id === updateSourceTerminalId && tab.status === "running") ??
+      tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
+      null;
     setLaunching("update");
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"]);
+      pendingUpdateRestartRef.current = {
+        updateTerminalId: started.terminalId,
+        sourceTerminalId: sourceTab?.id ?? null,
+        sourceTab,
+      };
       const tab: TerminalTab = {
         id: started.terminalId,
-        label: "OMP Update",
+        label: t(lang, "updateTabTitle"),
         cwd: started.cwd,
         processId: started.processId,
         sessionId: null,
@@ -886,7 +955,7 @@ function App() {
     } finally {
       setLaunching(null);
     }
-  }, [launching, payload?.runtime.ompAvailable, selectedWorkspace?.path, showError]);
+  }, [lang, launching, payload?.runtime.ompAvailable, selectedWorkspace?.path, showError, tabs, updateSourceTerminalId]);
 
   const openCodexImport = useCallback(async () => {
     setCodexOpen(true);
@@ -917,13 +986,13 @@ function App() {
       }
       if (nextPayload) applyPayload(nextPayload, selectedWorkspace.path);
       setCodexOpen(false);
-      setToast(`${t(lang, "imported")}: ${selected.length}`);
+      showNotice(`${t(lang, "imported")}: ${selected.length}`);
     } catch (error) {
       showError(errorMessage(error));
     } finally {
       setImporting(false);
     }
-  }, [applyPayload, codexSelected, codexSessions, lang, selectedWorkspace?.path, showError]);
+  }, [applyPayload, codexSelected, codexSessions, lang, selectedWorkspace?.path, showError, showNotice]);
 
   const importOmpFile = useCallback(async () => {
     if (!selectedWorkspace?.path) {
@@ -940,11 +1009,11 @@ function App() {
       if (typeof selected !== "string") return;
       const next = await importSession(selected, selectedWorkspace.path);
       applyPayload(next, selectedWorkspace.path);
-      setToast(t(lang, "imported"));
+      showNotice(t(lang, "imported"));
     } catch (error) {
       showError(errorMessage(error));
     }
-  }, [applyPayload, lang, selectedWorkspace?.path, showError]);
+  }, [applyPayload, lang, selectedWorkspace?.path, showError, showNotice]);
 
   const switchTerminalRuntime = useCallback(
     async (terminalId: string, model: string, thinking: string | null) => {
@@ -1033,7 +1102,7 @@ function App() {
         const next = await deleteSession(session.filePath);
         for (const tab of matchingTabs) closeTab(tab.id);
         applyPayload(next, selectedWorkspace?.path);
-        setToast(t(lang, "sessionDeleted"));
+        showNotice(t(lang, "sessionDeleted"));
       } catch (error) {
         showError(errorMessage(error));
       } finally {
@@ -1047,6 +1116,7 @@ function App() {
       payload?.runtime.platform,
       selectedWorkspace?.path,
       showError,
+      showNotice,
       tabs,
     ],
   );
@@ -1081,11 +1151,35 @@ function App() {
       }
 
       if (event.success) {
+        if (pendingUpdateRestartRef.current?.updateTerminalId === event.terminalId) {
+          const pending = pendingUpdateRestartRef.current;
+          pendingUpdateRestartRef.current = null;
+          showNotice(t(lang, "updateInstalled"));
+          if (pending.sourceTab?.sessionId && pending.sourceTab.sessionPath) {
+            const targetSession: SessionSummary = {
+              id: pending.sourceTab.sessionId,
+              title: pending.sourceTab.label,
+              cwd: pending.sourceTab.cwd,
+              filePath: pending.sourceTab.sessionPath,
+              createdAt: "",
+              updatedAt: Date.now(),
+              model: pending.sourceTab.currentModel ?? null,
+              thinkingLevel: pending.sourceTab.currentThinking ?? null,
+              configuredThinkingLevel: pending.sourceTab.currentThinkingConfigured ?? null,
+              source: "omp",
+              hasMessages: true,
+            };
+            showNotice(
+              t(lang, "updateRestarted").replace("{title}", pending.sourceTab.label),
+            );
+            void launchSession(targetSession);
+          }
+        }
         void checkForUpdates();
         void refresh();
       }
     },
-    [activeTabId, checkForUpdates, lang, refresh, tabs],
+    [activeTabId, checkForUpdates, lang, launchSession, refresh, showNotice, tabs],
   );
 
   useEffect(() => {
@@ -1512,13 +1606,13 @@ function App() {
                 <div className="terminal-tabs-scroll">
                   {tabs.map((tab) => (
                     <div
-                      className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""}${tab.activity === "thinking" ? " is-thinking" : " is-idle"}`}
+                      className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity}`}
                       key={tab.id}
                     >
                       <button
-                        aria-label={`${tab.label} — ${tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.status === "running" ? t(lang, "sessionOpenTitle") : t(lang, "close")}`}
+                        aria-label={`${tab.label} — ${tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.activity === "error" ? t(lang, "sessionErrorTitle") : tab.status === "running" ? t(lang, "sessionOpenTitle") : t(lang, "close")}`}
                         onClick={() => focusTab(tab.id)}
-                        title={tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : undefined}
+                        title={tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.activity === "error" ? t(lang, "sessionErrorTitle") : undefined}
                         type="button"
                       >
                         <span className={`status-dot is-${tab.status} is-${tab.activity}`} />
@@ -1528,6 +1622,11 @@ function App() {
                           <span aria-live="polite" className="terminal-tab-thinking">
                             <span className="thinking-pulse" />
                             {t(lang, "thinkingShort")}
+                          </span>
+                        )}
+                        {tab.activity === "error" && (
+                          <span aria-live="assertive" className="terminal-tab-error">
+                            {t(lang, "sessionErrorShort")}
                           </span>
                         )}
                       </button>
@@ -1886,9 +1985,9 @@ function App() {
       )}
 
       {toast && (
-        <div className="error-toast" role="alert">
-          <Icon name="alert" size={17} />
-          <span>{toast}</span>
+        <div className={`${toast.kind}-toast`} role={toast.kind === "error" ? "alert" : "status"}>
+          <Icon name={toast.kind === "error" ? "alert" : "spark"} size={17} />
+          <span>{toast.message}</span>
           <button onClick={() => setToast(null)} title={t(lang, "close")} type="button">
             <Icon name="close" size={14} />
           </button>
