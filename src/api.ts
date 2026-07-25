@@ -75,7 +75,7 @@ export function writeTerminal(
 
 export function writeTerminalBinary(
   terminalId: string,
-  data: number[],
+  data: string,
 ): Promise<void> {
   return invoke("write_terminal_binary", { terminalId, data });
 }
@@ -133,11 +133,20 @@ export function checkOmpUpdate(): Promise<OmpUpdateInfo> {
 }
 
 export function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
+  if (raw.startsWith("{") && raw.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(raw) as { code?: string; message?: string; details?: string };
+      if (parsed.message) return parsed.message;
+      if (parsed.code) return `[${parsed.code}] ${parsed.details ?? raw}`;
+    } catch {
+      // Plain string
+    }
   }
-  if (typeof error === "string") {
-    return error;
-  }
-  return "Unknown error";
+  return raw || "Unknown error";
 }

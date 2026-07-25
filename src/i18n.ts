@@ -34,6 +34,7 @@ export const UI_TEXT = {
     tryAnotherQuery: "Попробуйте другой запрос",
     jsonlNative: "JSONL · OMP native",
     stopAndClose: "Остановить и закрыть",
+    stopAndCloseConfirm: "Вкладка содержит активный процесс OMP. Завершить и закрыть?",
     close: "Закрыть",
     loading: "Ищем проекты и сессии…",
     loadError: "Не удалось загрузить данные OMP",
@@ -220,7 +221,12 @@ export const UI_TEXT = {
     credentialModels: "моделей: {count}",
     providerKeys: "Ключи, сохранённые в Desktop",
     providerKeysHelp:
-      "Эти ключи хранятся только в локальных настройках OMP Desktop и передаются в окружение новых процессов OMP. Они не записываются в проект.",
+      "Значения хранятся в системном хранилище credentials и передаются только в окружение новых процессов OMP. Во frontend и settings.json попадают только имена переменных.",
+    secretStorageWarningTitle: "Системное хранилище недоступно",
+    secretStorageFallbackBody:
+      "Ключи сохранены в отдельном локальном fallback-файле с ограниченными правами. Запустите системный Secret Service, чтобы автоматически перенести их.",
+    secretStorageUnavailableBody:
+      "Ключи из системного хранилища временно недоступны. Разблокируйте хранилище credentials и перезапустите приложение.",
     commonKeys: "Часто используемые переменные",
     addProviderKey: "Добавить ключ",
     keyName: "Имя переменной",
@@ -265,6 +271,7 @@ export const UI_TEXT = {
     tryAnotherQuery: "Try another query",
     jsonlNative: "JSONL · OMP native",
     stopAndClose: "Stop and close",
+    stopAndCloseConfirm: "The tab contains a running OMP process. Stop and close?",
     close: "Close",
     loading: "Searching for projects and sessions…",
     loadError: "Failed to load OMP data",
@@ -450,7 +457,12 @@ export const UI_TEXT = {
     credentialModels: "models: {count}",
     providerKeys: "Keys saved by Desktop",
     providerKeysHelp:
-      "These keys stay only in local OMP Desktop settings and are injected into new OMP process environments. They are never written to the project.",
+      "Values are kept in the operating system credential store and only injected into new OMP process environments. The frontend and settings.json receive variable names only.",
+    secretStorageWarningTitle: "System credential store unavailable",
+    secretStorageFallbackBody:
+      "Keys are stored in a separate local fallback file with restricted permissions. Start the system Secret Service to migrate them automatically.",
+    secretStorageUnavailableBody:
+      "Keys in the system credential store are temporarily unavailable. Unlock the credential store and restart the application.",
     commonKeys: "Common environment variables",
     addProviderKey: "Add key",
     keyName: "Environment variable",

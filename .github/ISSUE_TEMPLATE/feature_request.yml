@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a focused improvement to OMP Desktop
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the user need rather than only the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the desired behavior and how a user would interact with it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other approaches, if any.
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Relevant platforms
+      multiple: true
+      options:
+        - Windows
+        - Linux
+        - All platforms
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This request does not contain secrets, credentials, personal data, private paths, or session content.
+          required: true

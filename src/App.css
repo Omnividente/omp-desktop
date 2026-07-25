@@ -879,6 +879,39 @@ button:disabled {
   overflow: auto;
 }
 
+.settings-secret-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  color: #e2c98f;
+  border: 1px solid rgba(224, 177, 74, 0.3);
+  border-radius: 10px;
+  background: rgba(92, 66, 18, 0.18);
+}
+
+.settings-secret-warning svg {
+  margin-top: 1px;
+}
+
+.settings-secret-warning span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-secret-warning strong {
+  font-size: 10px;
+}
+
+.settings-secret-warning small {
+  color: #a79570;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
 .settings-section {
   margin-bottom: 14px;
   padding: 16px;

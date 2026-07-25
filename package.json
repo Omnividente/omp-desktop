@@ -1,6 +1,6 @@
 {
   "name": "omp-desktop",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Cross-platform desktop GUI for Oh My Pi projects, sessions, and native PTY terminals",
   "repository": {
     "type": "git",
@@ -20,7 +20,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -39,8 +44,16 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/yaml": "^1.9.6",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.9.6",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   }
 }

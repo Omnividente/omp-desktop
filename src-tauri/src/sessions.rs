@@ -9,8 +9,9 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
@@ -18,6 +19,76 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const TITLE_SLOT_BYTES: usize = 256;
+const CODEX_DISCOVERY_MAX_LINES: usize = 80;
+const CODEX_DISCOVERY_MAX_BYTES: usize = 256 * 1024;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SessionFileStamp {
+    modified: SystemTime,
+    size: u64,
+}
+
+#[derive(Clone)]
+struct CachedSessionSummary {
+    stamp: SessionFileStamp,
+    summary: SessionSummary,
+}
+
+static SESSION_SUMMARY_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedSessionSummary>>> =
+    OnceLock::new();
+
+fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, CachedSessionSummary>> {
+    SESSION_SUMMARY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn session_file_stamp(path: &Path) -> Result<SessionFileStamp, String> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        format!(
+            "Не удалось прочитать метаданные {}: {error}",
+            path.display()
+        )
+    })?;
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("Не удалось прочитать время {}: {error}", path.display()))?;
+    Ok(SessionFileStamp {
+        modified,
+        size: metadata.len(),
+    })
+}
+
+fn parse_session_cached(
+    path: &Path,
+    thread_names: &HashMap<String, String>,
+) -> Result<Option<SessionSummary>, String> {
+    let stamp = session_file_stamp(path)?;
+    if let Some(summary) = session_summary_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(path)
+        .filter(|cached| cached.stamp == stamp)
+        .map(|cached| cached.summary.clone())
+    {
+        return Ok(Some(summary));
+    }
+
+    let summary = parse_session_with_names(path, thread_names)?;
+    let mut cache = session_summary_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(summary) = summary.as_ref() {
+        cache.insert(
+            path.to_path_buf(),
+            CachedSessionSummary {
+                stamp,
+                summary: summary.clone(),
+            },
+        );
+    } else {
+        cache.remove(path);
+    }
+    Ok(summary)
+}
 
 pub fn build_bootstrap(
     app: &AppHandle,
@@ -59,6 +130,7 @@ fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {
     normalized.unwrap_or(path)
 }
 
+/// Source contract: keep the `-`, `-tmp`, and `--…--` encodings, including case and separator handling, because existing session directories depend on them.
 pub fn encode_session_dir_name(cwd: &str) -> String {
     let resolved = PathBuf::from(cwd);
     let resolved = normalize_windows_verbatim_path(
@@ -99,6 +171,125 @@ fn encode_relative_session_dir_name(prefix: &str, relative: &str) -> String {
         format!("{prefix}-{encoded}")
     }
 }
+fn atomic_write_jsonl(destination: &Path, contents: &[u8]) -> Result<(), String> {
+    atomic_write_jsonl_with(destination, contents, replace_file_atomically)
+}
+
+fn atomic_write_jsonl_with<F>(destination: &Path, contents: &[u8], replace: F) -> Result<(), String>
+where
+    F: FnOnce(&Path, &Path) -> io::Result<()>,
+{
+    let parent = destination.parent().ok_or_else(|| {
+        format!(
+            "Не удалось определить каталог для {}",
+            destination.display()
+        )
+    })?;
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session.jsonl");
+    let permissions = fs::metadata(destination)
+        .ok()
+        .map(|metadata| metadata.permissions());
+
+    let mut temporary = None;
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось создать временный файл рядом с {}: {error}",
+                    destination.display()
+                ))
+            }
+        }
+    }
+    let (temporary_path, mut temporary_file) = temporary.ok_or_else(|| {
+        format!(
+            "Не удалось создать уникальный временный файл рядом с {}",
+            destination.display()
+        )
+    })?;
+
+    let result = (|| -> io::Result<()> {
+        temporary_file.write_all(contents)?;
+        temporary_file.flush()?;
+        if let Some(permissions) = permissions {
+            temporary_file.set_permissions(permissions)?;
+        }
+        temporary_file.sync_all()?;
+        drop(temporary_file);
+        replace(&temporary_path, destination)
+    })();
+
+    if let Err(error) = result {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(format!(
+            "Не удалось атомарно записать {}: {error}",
+            destination.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
+    fs::rename(temporary, destination)
+}
+
+#[cfg(windows)]
+fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let temporary = temporary
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let moved = unsafe {
+        MoveFileExW(
+            temporary.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
 
 pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
     let title = clean_title(title)?;
@@ -116,36 +307,20 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
     let previous = read_session_title(file_path).ok().flatten();
     let now = now_iso();
     let slot = serialize_title_slot(&title, Some("user"), &now)?;
-
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(file_path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", file_path.display()))?;
-
-    let mut prefix = vec![0u8; TITLE_SLOT_BYTES.min(metadata.len() as usize)];
-    file.read_exact(&mut prefix)
-        .map_err(|error| format!("Не удалось прочитать title slot: {error}"))?;
-    let has_slot = prefix.starts_with(b"{\"type\":\"title\"");
-
-    file.seek(SeekFrom::Start(0))
-        .map_err(|error| format!("Не удалось перемотать файл: {error}"))?;
-
-    if has_slot && metadata.len() as usize >= TITLE_SLOT_BYTES {
-        file.write_all(slot.as_bytes())
-            .map_err(|error| format!("Не удалось записать title slot: {error}"))?;
+    let original = fs::read(file_path)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", file_path.display()))?;
+    let has_slot =
+        original.len() >= TITLE_SLOT_BYTES && original.starts_with(b"{\"type\":\"title\"");
+    let mut body = if has_slot {
+        let mut body = original;
+        body[..TITLE_SLOT_BYTES].copy_from_slice(slot.as_bytes());
+        body
     } else {
-        let rest = fs::read(file_path)
-            .map_err(|error| format!("Не удалось прочитать {}: {error}", file_path.display()))?;
-        let mut body = slot.into_bytes();
-        body.extend_from_slice(&rest);
-        fs::write(file_path, body)
-            .map_err(|error| format!("Не удалось перезаписать {}: {error}", file_path.display()))?;
-        file = fs::OpenOptions::new()
-            .append(true)
-            .open(file_path)
-            .map_err(|error| format!("Не удалось открыть {}: {error}", file_path.display()))?;
-    }
+        let mut body = Vec::with_capacity(slot.len() + original.len());
+        body.extend_from_slice(slot.as_bytes());
+        body.extend_from_slice(&original);
+        body
+    };
 
     let change = serde_json::json!({
         "type": "title_change",
@@ -156,13 +331,10 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
         "source": "user",
         "previousTitle": previous,
     });
-    let line = format!("{}\n", serde_json::to_string(&change).unwrap_or_default());
-    file.seek(SeekFrom::End(0))
-        .map_err(|error| format!("Не удалось перейти в конец файла: {error}"))?;
-    file.write_all(line.as_bytes())
-        .map_err(|error| format!("Не удалось дописать title_change: {error}"))?;
-    file.flush()
-        .map_err(|error| format!("Не удалось сохранить изменения: {error}"))?;
+    body.extend_from_slice(
+        format!("{}\n", serde_json::to_string(&change).unwrap_or_default()).as_bytes(),
+    );
+    atomic_write_jsonl(file_path, &body)?;
 
     let _ = filetime::set_file_mtime(
         file_path,
@@ -565,8 +737,7 @@ fn import_omp_session(
     if dest.exists() {
         dest = dest_dir.join(format!("imported-{}-{}", now.replace(':', "-"), file_name));
     }
-    fs::write(&dest, body)
-        .map_err(|error| format!("Не удалось записать {}: {error}", dest.display()))?;
+    atomic_write_jsonl(&dest, body.as_bytes())?;
 
     let artifact_dir = source.with_extension("");
     if artifact_dir.is_dir() {
@@ -746,8 +917,7 @@ fn import_codex_session(
         now.replace(':', "-"),
         &session_id[..8.min(session_id.len())]
     ));
-    fs::write(&dest, body)
-        .map_err(|error| format!("Не удалось записать {}: {error}", dest.display()))?;
+    atomic_write_jsonl(&dest, body.as_bytes())?;
     Ok(dest.to_string_lossy().into_owned())
 }
 
@@ -767,11 +937,7 @@ fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
     let thread_names = load_codex_thread_names();
     let mut sessions = files
         .into_iter()
-        .filter_map(|path| {
-            parse_session_with_names(&path, &thread_names)
-                .ok()
-                .flatten()
-        })
+        .filter_map(|path| parse_session_cached(&path, &thread_names).ok().flatten())
         .collect::<Vec<_>>();
 
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
@@ -794,8 +960,16 @@ fn collect_jsonl_files(
     max_depth: usize,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), String> {
-    let entries = fs::read_dir(directory)
-        .map_err(|error| format!("Не удалось прочитать {}: {error}", directory.display()))?;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) if depth > 0 => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Не удалось прочитать {}: {error}",
+                directory.display()
+            ))
+        }
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -831,7 +1005,7 @@ fn collect_jsonl_files(
 
 pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
     let thread_names = load_codex_thread_names();
-    parse_session_with_names(path, &thread_names)
+    parse_session_cached(path, &thread_names)
 }
 
 fn restorable_session_model(
@@ -980,6 +1154,24 @@ fn parse_session_with_names(
     }))
 }
 
+fn read_codex_discovery_prefix(path: &Path) -> Result<String, String> {
+    let file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let mut reader = std::io::BufReader::new(file).take(CODEX_DISCOVERY_MAX_BYTES as u64);
+    let mut bytes = Vec::with_capacity(CODEX_DISCOVERY_MAX_BYTES.min(16 * 1024));
+    let mut line = Vec::with_capacity(1024);
+    for _ in 0..CODEX_DISCOVERY_MAX_LINES {
+        line.clear();
+        let read = std::io::BufRead::read_until(&mut reader, b'\n', &mut line)
+            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&line);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn parse_codex_session(path: &Path) -> Result<Option<CodexSessionSummary>, String> {
     let thread_names = load_codex_thread_names();
     parse_codex_session_with_names(path, &thread_names)
@@ -989,8 +1181,7 @@ fn parse_codex_session_with_names(
     path: &Path,
     thread_names: &HashMap<String, String>,
 ) -> Result<Option<CodexSessionSummary>, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+    let text = read_codex_discovery_prefix(path)?;
     if !looks_like_codex_session(&text) {
         return Ok(None);
     }
@@ -1003,7 +1194,7 @@ fn parse_codex_session_with_names(
     let mut title = None;
     let mut preview = String::new();
 
-    for line in text.lines().take(80) {
+    for line in text.lines().take(CODEX_DISCOVERY_MAX_LINES) {
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             continue;
         };
@@ -1383,14 +1574,16 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        deduplicate_codex_sessions, delete_session, encode_session_dir_name, import_session,
-        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
-        read_session_transcript, restorable_session_model, scan_sessions, serialize_title_slot,
-        CodexSessionSummary, TranscriptEntryCategory,
+        atomic_write_jsonl, atomic_write_jsonl_with, collect_jsonl_files,
+        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
+        encode_session_dir_name, import_session, parse_codex_session_with_names, parse_session,
+        parse_session_with_names, path_key, read_codex_discovery_prefix, read_session_transcript,
+        restorable_session_model, scan_sessions, serialize_title_slot, CodexSessionSummary,
+        TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
     };
     use std::{
         collections::HashMap,
-        fs,
+        fs, io,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1402,6 +1595,17 @@ mod tests {
     }
 
     #[test]
+    fn nested_directory_read_errors_do_not_abort_scan() {
+        let missing = std::env::temp_dir().join(format!(
+            "omp-desktop-missing-subdirectory-{}",
+            std::process::id()
+        ));
+        let mut files = Vec::new();
+        assert!(collect_jsonl_files(&missing, 1, 3, &mut files).is_ok());
+        assert!(collect_jsonl_files(&missing, 0, 3, &mut files).is_err());
+    }
+
+    #[test]
     fn title_slot_is_fixed_width() {
         let line = serialize_title_slot("Hello", Some("user"), "2026-07-19T00:00:00Z").unwrap();
         assert_eq!(line.len(), 256);
@@ -1409,10 +1613,107 @@ mod tests {
     }
 
     #[test]
+    fn atomic_session_write_replaces_or_preserves_destination() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-atomic-session-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("session.jsonl");
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+        fs::write(&destination, b"old\n").expect("fixture should be writable");
+
+        let failed = atomic_write_jsonl_with(&destination, b"broken\n", |_temporary, _target| {
+            Err(io::Error::other("injected replace failure"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(
+            fs::read(&destination).expect("old file should remain"),
+            b"old\n"
+        );
+        assert_eq!(
+            fs::read_dir(&root)
+                .expect("fixture directory should be readable")
+                .count(),
+            1
+        );
+
+        atomic_write_jsonl(&destination, b"new\n").expect("atomic replacement should succeed");
+        assert_eq!(
+            fs::read(&destination).expect("new file should be readable"),
+            b"new\n"
+        );
+        fs::remove_dir_all(&root).expect("fixture directory should be removable");
+    }
+
+    #[test]
+    fn codex_discovery_reads_only_bounded_prefix() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-prefix-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let mut contents = String::new();
+        for index in 0..(CODEX_DISCOVERY_MAX_LINES + 20) {
+            contents.push_str(&format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"session-{index}\"}}}}\n"
+            ));
+        }
+        contents.push_str(&"x".repeat(CODEX_DISCOVERY_MAX_BYTES));
+        fs::write(&path, contents).expect("fixture should be writable");
+
+        let prefix = read_codex_discovery_prefix(&path).expect("prefix should be readable");
+        fs::remove_file(&path).expect("fixture should be removable");
+
+        assert_eq!(prefix.lines().count(), CODEX_DISCOVERY_MAX_LINES);
+        assert!(prefix.len() <= CODEX_DISCOVERY_MAX_BYTES);
+    }
+
+    #[test]
     fn encode_absolute_windows_path() {
         let name = encode_session_dir_name(r"D:\Projects\OMP");
         assert!(name.starts_with("--") || name.starts_with('-'));
         assert!(!name.contains('?'));
+    }
+
+    #[test]
+    fn encode_relative_session_dir_name_home_prefix() {
+        // Unix-style relative path
+        assert_eq!(
+            encode_relative_session_dir_name("-", "Projects/omp"),
+            "-Projects-omp"
+        );
+        // Windows-style relative path
+        assert_eq!(
+            encode_relative_session_dir_name("-", "Projects\\omp"),
+            "-Projects-omp"
+        );
+        // Relative path that is empty (home itself) → prefix stripped of trailing dash
+        assert_eq!(encode_relative_session_dir_name("-", ""), "");
+    }
+
+    #[test]
+    fn encode_relative_session_dir_name_tmp_prefix() {
+        assert_eq!(
+            encode_relative_session_dir_name("-tmp", "subdir"),
+            "-tmp-subdir"
+        );
+        // Prefix without trailing dash gets a dash inserted
+        assert_eq!(encode_relative_session_dir_name("-tmp", "a/b"), "-tmp-a-b");
+    }
+
+    #[test]
+    fn encode_absolute_path_uses_double_dash_wrapper() {
+        // Exercise the fallback (non-home, non-temp) path deterministically.
+        // The function strips leading slashes/backslashes and replaces separators with `-`.
+        let name = encode_session_dir_name("/absolute/unix/path");
+        assert_eq!(name, "--absolute-unix-path--");
     }
 
     #[test]
@@ -1462,6 +1763,40 @@ mod tests {
         assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
         assert_eq!(session.configured_thinking_level.as_deref(), Some("auto"));
         assert!(session.updated_at > 0);
+    }
+
+    #[test]
+    fn session_summary_cache_invalidates_after_file_change() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-session-cache-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let session_line = r#"{"type":"session","id":"cached-session","timestamp":"2026-07-18T10:00:00Z","cwd":"/tmp/project"}"#;
+        fs::write(
+            &path,
+            format!("{{\"type\":\"title\",\"title\":\"First\"}}\n{session_line}\n"),
+        )
+        .expect("fixture should be writable");
+        let first = parse_session(&path)
+            .expect("fixture should be readable")
+            .expect("fixture should contain a session header");
+
+        fs::write(
+            &path,
+            format!("{{\"type\":\"title\",\"title\":\"Updated cache title\"}}\n{session_line}\n"),
+        )
+        .expect("fixture should be rewritable");
+        let updated = parse_session(&path)
+            .expect("updated fixture should be readable")
+            .expect("updated fixture should contain a session header");
+        fs::remove_file(&path).expect("fixture should be removable");
+
+        assert_eq!(first.title, "First");
+        assert_eq!(updated.title, "Updated cache title");
     }
 
     #[test]

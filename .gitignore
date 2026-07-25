@@ -26,6 +26,7 @@ dist-ssr
 *.p12
 *.pfx
 /release/
+/.tmp/
 
 # Editor directories and files
 .vscode/*

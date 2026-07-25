@@ -28,7 +28,27 @@ const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;
 const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
 ];
+const MAX_SWITCH_INPUT_BUFFER: usize = 64 * 1024;
 
+/// Префикс имени файла breadcrumb, который OMP-агент пишет для привязки terminal_id к сессии.
+/// Wire contract (не менять без доказанного стабильного OMP RPC):
+///   Файл: <terminal-sessions>/apple-{terminal_id}
+///   Содержимое (две строки, без кавычек):
+///     <cwd проекта>\n
+///     <полный путь к session.jsonl>\n
+/// Используется resolve_resume_path / discover_session / cache_resume_path для resume и переключения модели.
+const BREADCRUMB_FILE_PREFIX: &str = "apple-";
+
+/// Escape-префикс и суффикс для команды смены модели по приватному протоколу OMP.
+/// Текущий wire contract (фиксируем тестами; не менять без доказанного стабильного OMP RPC):
+///   ESC p <provider/model> CR
+const OMP_MODEL_SWITCH_ESC: &[u8] = b"\x1bp";
+const OMP_MODEL_SWITCH_SUFFIX: &[u8] = b"\r";
+
+/// Escape для циклического переключения уровня рассуждений (thinking).
+/// Текущий wire: ESC [ Z . Отправляется нужное число раз в цикле.
+/// Фиксируем константой и тестами.
+const OMP_THINKING_CYCLE_ESC: &[u8] = b"\x1b[Z";
 #[derive(Default)]
 pub struct TerminalState {
     processes: Mutex<HashMap<String, TerminalProcess>>,
@@ -51,8 +71,11 @@ struct TerminalProcess {
     thinking: bool,
     restartable: bool,
     switch_pending: bool,
+    update_notified: bool,
+    update_buffer: Vec<u8>,
+    switch_input_buffer: Vec<u8>,
+    switch_input_overflow_notified: bool,
 }
-
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
         if !self.exited {
@@ -63,14 +86,18 @@ impl Drop for TerminalProcess {
 
 impl TerminalState {
     pub fn shutdown_all(&self) {
-        let processes = self
-            .processes
-            .lock()
-            .map(|mut processes| std::mem::take(&mut *processes));
-        if let Ok(processes) = processes {
-            drop(processes);
-        }
+        let processes = std::mem::take(&mut *lock_processes(self));
+        drop(processes);
     }
+}
+
+fn lock_processes(
+    state: &TerminalState,
+) -> std::sync::MutexGuard<'_, HashMap<String, TerminalProcess>> {
+    state
+        .processes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,14 +184,28 @@ struct PtyRuntimeEvent {
     thinking_level: Option<String>,
     configured_thinking_level: Option<String>,
     activity: Option<String>,
+    error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtyUpdateEvent {
+    terminal_id: String,
 }
 
 #[tauri::command]
-pub fn start_terminal(
+pub async fn start_terminal(
     request: LaunchRequest,
     app: AppHandle,
-    settings: State<'_, SettingsState>,
-    terminals: State<'_, TerminalState>,
+) -> Result<TerminalStarted, String> {
+    tauri::async_runtime::spawn_blocking(move || start_terminal_blocking(request, app))
+        .await
+        .map_err(|error| format!("Не удалось дождаться запуска OMP: {error}"))?
+}
+
+fn start_terminal_blocking(
+    request: LaunchRequest,
+    app: AppHandle,
 ) -> Result<TerminalStarted, String> {
     let cwd = Path::new(&request.cwd);
     if !cwd.is_dir() {
@@ -176,10 +217,11 @@ pub fn start_terminal(
         }
     }
 
-    let settings = settings
+    let settings = app
+        .state::<SettingsState>()
         .0
         .lock()
-        .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
     let omp = resolve_omp(&app, &settings);
     if omp.version.is_none() {
@@ -195,6 +237,7 @@ pub fn start_terminal(
     } else {
         request.args.unwrap_or_default()
     };
+    let terminals = app.state::<TerminalState>();
     spawn_terminal_process(
         &app,
         &terminals,
@@ -230,10 +273,7 @@ fn switch_terminal_blocking(
     validate_switch_request(&request)?;
     let terminals = app.state::<TerminalState>();
     let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
-        let processes = terminals
-            .processes
-            .lock()
-            .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+        let processes = lock_processes(&terminals);
         let process = processes
             .get(&request.terminal_id)
             .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
@@ -268,10 +308,7 @@ fn switch_terminal_blocking(
     }
 
     let should_spawn_runtime_watcher = {
-        let mut processes = terminals
-            .processes
-            .lock()
-            .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+        let mut processes = lock_processes(&terminals);
         let process = processes
             .get_mut(&request.terminal_id)
             .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
@@ -284,6 +321,8 @@ fn switch_terminal_blocking(
         let should_spawn = process.resume_path.is_none();
         process.resume_path = Some(resume_path.clone());
         process.switch_pending = true;
+        process.switch_input_buffer.clear();
+        process.switch_input_overflow_notified = false;
         should_spawn
     };
     if should_spawn_runtime_watcher {
@@ -295,12 +334,30 @@ fn switch_terminal_blocking(
     }
 
     let result = perform_terminal_switch(&request, &resume_path, &terminals);
-    if let Ok(mut processes) = terminals.processes.lock() {
-        if let Some(process) = processes.get_mut(&request.terminal_id) {
-            process.switch_pending = false;
-        }
+    let flush_result = finish_switch_input(&request.terminal_id, &terminals);
+    match (result, flush_result) {
+        (Err(error), _) => Err(error),
+        (Ok(runtime), Ok(())) => Ok(runtime),
+        (Ok(_), Err(error)) => Err(error),
     }
-    result
+}
+
+fn finish_switch_input(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let mut processes = lock_processes(terminals);
+    let process = processes
+        .get_mut(terminal_id)
+        .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+    process.switch_pending = false;
+    process.switch_input_overflow_notified = false;
+    let buffered = std::mem::take(&mut process.switch_input_buffer);
+    if buffered.is_empty() {
+        return Ok(());
+    }
+    process
+        .writer
+        .write_all(&buffered)
+        .and_then(|()| process.writer.flush())
+        .map_err(|error| format!("Не удалось восстановить ввод после смены модели: {error}"))
 }
 
 #[derive(Default)]
@@ -359,6 +416,16 @@ impl RuntimeCursor {
     }
 }
 
+fn model_switch_input(selector: &str) -> Vec<u8> {
+    let mut input = Vec::with_capacity(
+        OMP_MODEL_SWITCH_ESC.len() + selector.len() + OMP_MODEL_SWITCH_SUFFIX.len(),
+    );
+    input.extend_from_slice(OMP_MODEL_SWITCH_ESC);
+    input.extend_from_slice(selector.as_bytes());
+    input.extend_from_slice(OMP_MODEL_SWITCH_SUFFIX);
+    input
+}
+
 fn perform_terminal_switch(
     request: &SwitchRequest,
     resume_path: &str,
@@ -373,8 +440,8 @@ fn perform_terminal_switch(
         .is_none_or(|model| !model.eq_ignore_ascii_case(&request.model_selector));
 
     if model_changed {
-        let input = format!("\u{1b}p{}\r", request.model_selector);
-        write_switch_input(&request.terminal_id, input.as_bytes(), terminals)?;
+        let input = model_switch_input(&request.model_selector);
+        write_switch_input(&request.terminal_id, &input, terminals)?;
         wait_for_runtime_state(
             &request.terminal_id,
             path,
@@ -447,7 +514,7 @@ fn apply_thinking_level(
 
     for step in 1..=steps {
         let expected = levels[(current_index + step) % levels.len()].clone();
-        write_switch_input(terminal_id, b"\x1b[Z", terminals)?;
+        write_switch_input(terminal_id, OMP_THINKING_CYCLE_ESC, terminals)?;
         wait_for_runtime_state(
             terminal_id,
             path,
@@ -583,10 +650,7 @@ fn write_switch_input(
     data: &[u8],
     terminals: &TerminalState,
 ) -> Result<(), String> {
-    let mut processes = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+    let mut processes = lock_processes(terminals);
     let process = processes
         .get_mut(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
@@ -601,10 +665,7 @@ fn write_switch_input(
 }
 
 fn ensure_terminal_alive(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
-    let processes = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+    let processes = lock_processes(terminals);
     let process = processes
         .get(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
@@ -745,14 +806,20 @@ fn spawn_terminal_process(
         thinking: false,
         restartable,
         switch_pending: false,
+        update_notified: false,
+        update_buffer: Vec::new(),
+        switch_input_buffer: Vec::new(),
+        switch_input_overflow_notified: false,
     };
-    terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?
-        .insert(terminal_id.clone(), process);
-    spawn_reader(app.clone(), terminal_id.clone(), reader);
-    spawn_waiter(app.clone(), terminal_id.clone(), move || child.wait());
+    lock_processes(terminals).insert(terminal_id.clone(), process);
+    if let Err(error) = spawn_reader(app.clone(), terminal_id.clone(), reader) {
+        drop(lock_processes(terminals).remove(&terminal_id));
+        return Err(error);
+    }
+    if let Err(error) = spawn_waiter(app.clone(), terminal_id.clone(), move || child.wait()) {
+        drop(lock_processes(terminals).remove(&terminal_id));
+        return Err(error);
+    }
     if restartable {
         if let Some(session_path) = runtime_session_path {
             spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path);
@@ -807,7 +874,7 @@ fn resolve_resume_path(
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
 ) -> Option<String> {
-    let direct = directory.join(format!("apple-{terminal_id}"));
+    let direct = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
     if breadcrumb_changed(&direct, snapshot) {
         if let Some(path) = read_breadcrumb(&direct, cwd) {
             return Some(path);
@@ -864,9 +931,7 @@ fn discover_session(
 fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
     let state = app.state::<TerminalState>();
     let context = {
-        let Ok(processes) = state.processes.lock() else {
-            return true;
-        };
+        let processes = lock_processes(&state);
         let Some(process) = processes.get(terminal_id) else {
             return true;
         };
@@ -886,9 +951,7 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
     };
 
     {
-        let Ok(mut processes) = state.processes.lock() else {
-            return true;
-        };
+        let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return true;
         };
@@ -911,14 +974,22 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
 }
 
 fn spawn_session_watcher(app: AppHandle, terminal_id: String) {
-    thread::Builder::new()
+    let error_app = app.clone();
+    let error_terminal_id = terminal_id.clone();
+    if let Err(error) = thread::Builder::new()
         .name(format!("session-watcher-{terminal_id}"))
         .spawn(move || {
             while !cache_resume_path(&app, &terminal_id) {
                 thread::sleep(SESSION_DISCOVERY_INTERVAL);
             }
         })
-        .expect("failed to spawn OMP session watcher thread");
+    {
+        emit_runtime_error(
+            &error_app,
+            &error_terminal_id,
+            format!("Не удалось запустить наблюдение за сессией: {error}"),
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -979,17 +1050,12 @@ impl RuntimeWatchCursor {
         };
         cursor.identity = Some(RuntimeFileIdentity::from_metadata(&metadata));
         cursor.offset = metadata.len();
-        let anchor_start = cursor
-            .offset
-            .saturating_sub(RUNTIME_FILE_ANCHOR as u64);
+        let anchor_start = cursor.offset.saturating_sub(RUNTIME_FILE_ANCHOR as u64);
         let anchor_length = (cursor.offset - anchor_start) as usize;
-        if anchor_length > 0
-            && file.seek(SeekFrom::Start(anchor_start)).is_ok()
-            && {
-                cursor.anchor.resize(anchor_length, 0);
-                file.read_exact(&mut cursor.anchor).is_ok()
-            }
-        {
+        if anchor_length > 0 && file.seek(SeekFrom::Start(anchor_start)).is_ok() && {
+            cursor.anchor.resize(anchor_length, 0);
+            file.read_exact(&mut cursor.anchor).is_ok()
+        } {
             return cursor;
         }
         cursor.anchor.clear();
@@ -1066,9 +1132,7 @@ fn poll_runtime_file<F, R>(
     };
     let identity = RuntimeFileIdentity::from_metadata(&metadata);
     let length = metadata.len();
-    let reset = cursor
-        .identity
-        .is_some_and(|known| known != identity)
+    let reset = cursor.identity.is_some_and(|known| known != identity)
         || length < cursor.offset
         || !cursor.anchor_matches(&mut file);
     if reset {
@@ -1114,6 +1178,22 @@ fn emit_activity_event(app: &AppHandle, terminal_id: &str, activity: &str) {
             thinking_level: None,
             configured_thinking_level: None,
             activity: Some(activity.to_owned()),
+            error_message: None,
+        },
+    );
+}
+
+fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
+    let _ = app.emit(
+        "pty-runtime",
+        PtyRuntimeEvent {
+            terminal_id: terminal_id.to_owned(),
+            model: None,
+            model_role: None,
+            thinking_level: None,
+            configured_thinking_level: None,
+            activity: Some("error".to_owned()),
+            error_message: Some(message),
         },
     );
 }
@@ -1121,9 +1201,7 @@ fn emit_activity_event(app: &AppHandle, terminal_id: &str, activity: &str) {
 fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
     let should_emit = {
         let state = app.state::<TerminalState>();
-        let Ok(mut processes) = state.processes.lock() else {
-            return;
-        };
+        let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return;
         };
@@ -1138,7 +1216,9 @@ fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
 }
 
 fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: String) {
-    thread::Builder::new()
+    let error_app = app.clone();
+    let error_terminal_id = terminal_id.clone();
+    if let Err(error) = thread::Builder::new()
         .name(format!("runtime-watcher-{terminal_id}"))
         .spawn(move || {
             let path = PathBuf::from(&session_path);
@@ -1150,10 +1230,7 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
             loop {
                 let active = {
                     let state = app.state::<TerminalState>();
-                    let Ok(processes) = state.processes.lock() else {
-                        emit_activity(&app, &terminal_id, "idle");
-                        return;
-                    };
+                    let processes = lock_processes(&state);
                     let Some(process) = processes.get(&terminal_id) else {
                         return;
                     };
@@ -1184,7 +1261,13 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                 thread::sleep(SESSION_DISCOVERY_INTERVAL);
             }
         })
-        .expect("failed to spawn OMP runtime watcher thread");
+    {
+        emit_runtime_error(
+            &error_app,
+            &error_terminal_id,
+            format!("Не удалось запустить наблюдение за состоянием сессии: {error}"),
+        );
+    }
 }
 
 fn feed_runtime_lines<F>(
@@ -1261,6 +1344,10 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
                 Some("user" | "toolResult" | "tool") => Some("thinking"),
                 Some("assistant") => {
                     let stop_reason = message.get("stopReason").and_then(Value::as_str);
+                    let retry_recovered = message
+                        .pointer("/retryRecovery/status")
+                        .and_then(Value::as_str)
+                        .is_some_and(|status| status == "recovered");
                     let has_tool_call = message
                         .get("content")
                         .and_then(Value::as_array)
@@ -1275,7 +1362,13 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
                     let continues_with_tool = stop_reason.is_some_and(|reason| {
                         matches!(reason, "toolUse" | "tool_call" | "function_call")
                     }) || (stop_reason.is_none() && has_tool_call);
-                    Some(if continues_with_tool {
+                    Some(if stop_reason == Some("error") {
+                        if retry_recovered {
+                            "thinking"
+                        } else {
+                            "error"
+                        }
+                    } else if continues_with_tool {
                         "thinking"
                     } else {
                         "idle"
@@ -1293,10 +1386,44 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
     }
 }
 
+fn runtime_error_message(value: &Value) -> Option<String> {
+    let message = value.get("message").unwrap_or(value);
+    if message.get("role").and_then(Value::as_str) != Some("assistant")
+        || message.get("stopReason").and_then(Value::as_str) != Some("error")
+        || message
+            .pointer("/retryRecovery/status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| status == "recovered")
+    {
+        return None;
+    }
+
+    let raw = message.get("errorMessage").and_then(Value::as_str)?;
+    let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = compact.chars();
+    let mut summary = chars.by_ref().take(240).collect::<String>();
+    if chars.next().is_some() {
+        summary.push('…');
+    }
+    Some(summary)
+}
+
 fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeEvent> {
     let value = serde_json::from_slice::<Value>(line).ok()?;
     let activity = activity_from_value(&value).map(str::to_owned);
     match value.get("type").and_then(Value::as_str)? {
+        "retry_fallback_applied" => Some(PtyRuntimeEvent {
+            terminal_id: terminal_id.to_owned(),
+            model: value
+                .get("to")
+                .and_then(Value::as_str)
+                .map(|selector| selector.split(':').next().unwrap_or(selector).to_owned()),
+            model_role: Some("fallback".to_owned()),
+            thinking_level: None,
+            configured_thinking_level: None,
+            activity: Some("thinking".to_owned()),
+            error_message: None,
+        }),
         "model_change" => Some(PtyRuntimeEvent {
             terminal_id: terminal_id.to_owned(),
             model: value
@@ -1307,6 +1434,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             thinking_level: None,
             configured_thinking_level: None,
             activity: None,
+            error_message: None,
         }),
         "thinking_level_change" => {
             let thinking_level = value
@@ -1325,6 +1453,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 thinking_level,
                 configured_thinking_level,
                 activity: None,
+                error_message: None,
             })
         }
         "message" | "custom" => activity.map(|activity| PtyRuntimeEvent {
@@ -1334,6 +1463,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             thinking_level: None,
             configured_thinking_level: None,
             activity: Some(activity),
+            error_message: runtime_error_message(&value),
         }),
         _ => None,
     }
@@ -1344,10 +1474,7 @@ pub fn attach_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<TerminalAttachment, String> {
-    let mut processes = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+    let mut processes = lock_processes(&terminals);
     let process = processes
         .get_mut(&terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
@@ -1375,10 +1502,17 @@ pub fn write_terminal(
 #[tauri::command]
 pub fn write_terminal_binary(
     terminal_id: String,
-    data: Vec<u8>,
+    data: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    write_bytes(&terminal_id, &data, &terminals)
+    let bytes = decode_terminal_binary(&data)?;
+    write_bytes(&terminal_id, &bytes, &terminals)
+}
+
+fn decode_terminal_binary(data: &str) -> Result<Vec<u8>, String> {
+    BASE64
+        .decode(data)
+        .map_err(|error| format!("Некорректный base64 бинарного ввода PTY: {error}"))
 }
 
 #[tauri::command]
@@ -1388,10 +1522,7 @@ pub fn resize_terminal(
     rows: u16,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let processes = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+    let processes = lock_processes(&terminals);
     let process = processes
         .get(&terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
@@ -1411,20 +1542,30 @@ pub fn close_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let process = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?
-        .remove(&terminal_id);
+    let process = lock_processes(&terminals).remove(&terminal_id);
     drop(process);
     Ok(())
 }
 
+fn append_switch_input(
+    buffer: &mut Vec<u8>,
+    overflow_notified: &mut bool,
+    data: &[u8],
+) -> Result<(), String> {
+    let available = MAX_SWITCH_INPUT_BUFFER.saturating_sub(buffer.len());
+    buffer.extend_from_slice(&data[..data.len().min(available)]);
+    if data.len() > available && !*overflow_notified {
+        *overflow_notified = true;
+        return Err(format!(
+            "Буфер ввода во время смены модели заполнен ({} KiB)",
+            MAX_SWITCH_INPUT_BUFFER / 1024
+        ));
+    }
+    Ok(())
+}
+
 fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Result<(), String> {
-    let mut processes = terminals
-        .processes
-        .lock()
-        .map_err(|_| "Список терминалов заблокирован после внутренней ошибки".to_owned())?;
+    let mut processes = lock_processes(terminals);
     let process = processes
         .get_mut(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
@@ -1432,15 +1573,24 @@ fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Res
         return Err("Процесс OMP уже завершён".to_owned());
     }
     if process.switch_pending {
-        return Err("OMP переключает модель".to_owned());
+        return append_switch_input(
+            &mut process.switch_input_buffer,
+            &mut process.switch_input_overflow_notified,
+            data,
+        );
     }
     process
         .writer
         .write_all(data)
+        .and_then(|()| process.writer.flush())
         .map_err(|error| format!("Не удалось отправить ввод в OMP: {error}"))
 }
 
-fn spawn_reader(app: AppHandle, terminal_id: String, mut reader: Box<dyn Read + Send>) {
+fn spawn_reader(
+    app: AppHandle,
+    terminal_id: String,
+    mut reader: Box<dyn Read + Send>,
+) -> Result<(), String> {
     thread::Builder::new()
         .name(format!("pty-reader-{terminal_id}"))
         .spawn(move || {
@@ -1449,14 +1599,22 @@ fn spawn_reader(app: AppHandle, terminal_id: String, mut reader: Box<dyn Read + 
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(read) => route_output(&app, &terminal_id, &buffer[..read]),
-                    Err(_) => break,
+                    Err(error) => {
+                        emit_runtime_error(
+                            &app,
+                            &terminal_id,
+                            format!("Ошибка чтения PTY: {error}"),
+                        );
+                        break;
+                    }
                 }
             }
         })
-        .expect("failed to spawn PTY reader thread");
+        .map(|_| ())
+        .map_err(|error| format!("Не удалось запустить поток чтения PTY: {error}"))
 }
 
-fn spawn_waiter<F>(app: AppHandle, terminal_id: String, wait: F)
+fn spawn_waiter<F>(app: AppHandle, terminal_id: String, wait: F) -> Result<(), String>
 where
     F: FnOnce() -> std::io::Result<portable_pty::ExitStatus> + Send + 'static,
 {
@@ -1480,9 +1638,7 @@ where
 
             let should_emit = {
                 let state = app.state::<TerminalState>();
-                let Ok(mut processes) = state.processes.lock() else {
-                    return;
-                };
+                let mut processes = lock_processes(&state);
                 let Some(process) = processes.get_mut(&terminal_id) else {
                     return;
                 };
@@ -1490,8 +1646,7 @@ where
                 process.exit_code = event.exit_code;
                 process.exit_success = event.success;
                 process.exit_error = event.error.clone();
-                let should_emit = process.attached;
-                should_emit
+                process.attached
             };
 
             emit_activity(&app, &terminal_id, "idle");
@@ -1499,21 +1654,35 @@ where
                 let _ = app.emit("pty-exit", event);
             }
         })
-        .expect("failed to spawn PTY waiter thread");
+        .map(|_| ())
+        .map_err(|error| format!("Не удалось запустить поток ожидания PTY: {error}"))
+}
+
+fn output_event_name(terminal_id: &str) -> String {
+    format!("pty-output:{terminal_id}")
 }
 
 fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
     cache_resume_path(app, terminal_id);
-    let (payload, clear_activity) = {
+    let (payload, clear_activity, emit_update) = {
         let state = app.state::<TerminalState>();
-        let Ok(mut processes) = state.processes.lock() else {
-            return;
-        };
+        let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return;
         };
         let clear_activity = process.thinking;
         process.thinking = false;
+
+        let emit_update = if !process.update_notified {
+            if detect_update_notice(&mut process.update_buffer, data) {
+                process.update_notified = true;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
         let payload = if process.attached {
             Some(PtyOutputEvent {
@@ -1524,15 +1693,69 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
             append_pending(&mut process.pending_output, data);
             None
         };
-        (payload, clear_activity)
+        (payload, clear_activity, emit_update)
     };
 
     if let Some(payload) = payload {
-        let _ = app.emit("pty-output", payload);
+        let event_name = output_event_name(terminal_id);
+        let _ = app.emit(&event_name, payload);
     }
     if clear_activity {
         emit_activity_event(app, terminal_id, "idle");
     }
+    if emit_update {
+        let _ = app.emit(
+            "omp-update-notice",
+            PtyUpdateEvent {
+                terminal_id: terminal_id.to_owned(),
+            },
+        );
+    }
+}
+
+const MAX_UPDATE_BUFFER: usize = 4096;
+
+fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == 0x1b {
+            i += 1;
+            if i < input.len() && (input[i] == b'[' || input[i] == b'(' || input[i] == b')') {
+                i += 1;
+                while i < input.len() && !input[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+                if i < input.len() {
+                    i += 1;
+                }
+            }
+        } else {
+            out.push(input[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn detect_update_notice(buffer: &mut Vec<u8>, data: &[u8]) -> bool {
+    if data.len() >= MAX_UPDATE_BUFFER {
+        buffer.clear();
+        buffer.extend_from_slice(&data[data.len() - MAX_UPDATE_BUFFER..]);
+    } else {
+        let overflow = buffer
+            .len()
+            .saturating_add(data.len())
+            .saturating_sub(MAX_UPDATE_BUFFER);
+        if overflow > 0 {
+            buffer.drain(..overflow);
+        }
+        buffer.extend_from_slice(data);
+    }
+
+    let clean = strip_ansi_bytes(buffer);
+    let text = String::from_utf8_lossy(&clean);
+    (text.contains("New version") || text.contains("new version")) && text.contains("omp update")
 }
 
 fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
@@ -1555,9 +1778,11 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        discover_session, feed_runtime_lines, initial_agent_args, poll_runtime_file,
+        append_switch_input, decode_terminal_binary, discover_session, feed_runtime_lines,
+        initial_agent_args, model_switch_input, output_event_name, poll_runtime_file,
         read_latest_activity, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC,
     };
     use std::{
         collections::HashMap,
@@ -1578,11 +1803,44 @@ mod tests {
     }
 
     #[test]
+    fn switch_wire_bytes_match_omp_contract() {
+        assert_eq!(
+            model_switch_input("provider/model"),
+            b"\x1bpprovider/model\r"
+        );
+        assert_eq!(OMP_THINKING_CYCLE_ESC, b"\x1b[Z");
+    }
+
+    #[test]
     fn initial_args_always_use_exact_resume_path() {
         assert_eq!(
             initial_agent_args("/tmp/project", Some("/tmp/session.jsonl")),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
         );
+    }
+
+    #[test]
+    fn binary_transport_decodes_base64_and_scopes_output_event() {
+        assert_eq!(
+            decode_terminal_binary("AP8Q").expect("base64 should decode"),
+            [0, 255, 16]
+        );
+        assert!(decode_terminal_binary("not base64!").is_err());
+        assert_eq!(output_event_name("terminal-7"), "pty-output:terminal-7");
+    }
+
+    #[test]
+    fn switch_input_buffer_is_bounded_and_reports_overflow_once() {
+        let mut buffer = vec![1; MAX_SWITCH_INPUT_BUFFER - 1];
+        let mut overflow_notified = false;
+
+        assert!(append_switch_input(&mut buffer, &mut overflow_notified, &[2, 3]).is_err());
+        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER);
+        assert_eq!(buffer.last(), Some(&2));
+        assert!(overflow_notified);
+
+        assert!(append_switch_input(&mut buffer, &mut overflow_notified, &[4]).is_ok());
+        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER);
     }
 
     #[test]
@@ -1607,6 +1865,7 @@ mod tests {
         let payload = concat!(
             "{\"type\":\"custom_message\",\"content\":\"ignored\"}\n",
             "{\"type\":\"model_change\",\"model\":\"provider/new\",\"role\":\"fallback\"}\n",
+            "{\"type\":\"retry_fallback_applied\",\"to\":\"provider/fallback:high\",\"role\":\"default\"}\n",
             "{\"type\":\"thinking_level_change\",\"thinkingLevel\":\"high\",\"configured\":\"auto\"}\n"
         )
         .as_bytes();
@@ -1626,11 +1885,13 @@ mod tests {
             }
         });
 
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
         assert_eq!(events[0].model.as_deref(), Some("provider/new"));
         assert_eq!(events[0].model_role.as_deref(), Some("fallback"));
-        assert_eq!(events[1].thinking_level.as_deref(), Some("high"));
-        assert_eq!(events[1].configured_thinking_level.as_deref(), Some("auto"));
+        assert_eq!(events[1].model.as_deref(), Some("provider/fallback"));
+        assert_eq!(events[1].model_role.as_deref(), Some("fallback"));
+        assert_eq!(events[2].thinking_level.as_deref(), Some("high"));
+        assert_eq!(events[2].configured_thinking_level.as_deref(), Some("auto"));
     }
 
     #[test]
@@ -1642,6 +1903,8 @@ mod tests {
             br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"done"}],"stopReason":"stop"}}"#,
             br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"next"}],"stopReason":"toolUse"}}"#,
             br#"{"type":"custom","customType":"tool_execution_end"}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"quota exhausted"}}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"old error","retryRecovery":{"status":"recovered"}}}"#,
         ];
 
         let activities = lines
@@ -1652,10 +1915,32 @@ mod tests {
 
         assert_eq!(
             activities,
-            ["thinking", "thinking", "thinking", "idle", "thinking", "idle"]
+            ["thinking", "thinking", "thinking", "idle", "thinking", "idle", "error", "thinking"]
         );
     }
-    
+
+    #[test]
+    fn runtime_lines_report_only_unrecovered_model_errors() {
+        let failed = runtime_event_from_line(
+            "terminal-1",
+            br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Cloud API error (429):\n  Individual quota reached"}}"#,
+        )
+        .expect("failed model turn should emit runtime state");
+        assert_eq!(failed.activity.as_deref(), Some("error"));
+        assert_eq!(
+            failed.error_message.as_deref(),
+            Some("Cloud API error (429): Individual quota reached")
+        );
+
+        let recovered = runtime_event_from_line(
+            "terminal-1",
+            br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"old error","retryRecovery":{"status":"recovered"}}}"#,
+        )
+        .expect("recovered model turn should keep runtime active");
+        assert_eq!(recovered.activity.as_deref(), Some("thinking"));
+        assert!(recovered.error_message.is_none());
+    }
+
     #[test]
     fn runtime_watcher_resets_and_replays_rewritten_or_rotated_files() {
         let nonce = SystemTime::now()
@@ -1797,5 +2082,22 @@ mod tests {
 
         assert_eq!(resolved, session_path.to_string_lossy());
         assert_eq!(session.id, "new-session");
+    }
+    #[test]
+    fn update_notice_detection_handles_ansi_and_split_chunks() {
+        use super::detect_update_notice;
+
+        let mut buffer = Vec::new();
+        assert!(!detect_update_notice(
+            &mut buffer,
+            b"\x1b[32mNew version 17.1.0 is available.\x1b[0m"
+        ));
+        assert!(detect_update_notice(&mut buffer, b" Run: omp update\n"));
+
+        let mut unrelated = Vec::new();
+        assert!(!detect_update_notice(
+            &mut unrelated,
+            b"compiling crate omp_desktop_lib v0.1.8\n"
+        ));
     }
 }

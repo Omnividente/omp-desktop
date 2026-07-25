@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in OMP Desktop
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Remove secrets and private session data before submitting.
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: OMP Desktop version
+      placeholder: 0.1.8
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: omp-version
+    attributes:
+      label: OMP version
+      description: Provide the version only; do not include credentials or configuration values.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove tokens, keys, cookies, usernames, local paths, project content, and JSONL transcript data.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets, credentials, personal data, private paths, and session content from this report.
+          required: true

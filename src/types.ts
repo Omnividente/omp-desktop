@@ -3,7 +3,8 @@ export interface AppSettings {
   sessionRoot: string | null;
   recentWorkspaces: string[];
   language: "ru" | "en";
-  providerEnv: Record<string, string>;
+  providerEnvKeys: string[];
+  secretStorageWarning: string | null;
 }
 
 export interface RuntimeInfo {
@@ -63,9 +64,9 @@ export interface BootstrapPayload {
 }
 
 export interface SettingsUpdate {
-  ompExecutable: string | null;
-  sessionRoot: string | null;
-  language: "ru" | "en" | null;
+  ompExecutable?: string | null;
+  sessionRoot?: string | null;
+  language?: "ru" | "en" | null;
   providerEnv?: Record<string, string> | null;
 }
 

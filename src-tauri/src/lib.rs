@@ -1,139 +1,163 @@
 mod models;
 mod omp_bridge;
+mod secrets;
 mod sessions;
 mod settings;
 mod terminal;
+mod update;
 
 use models::{
     AppSettings, BootstrapPayload, CodexSessionSummary, OmpConfigSaveRequest, OmpConfigSnapshot,
-    OmpUpdateInfo, SessionTranscript, SettingsUpdate,
+    OmpUpdateInfo, SessionTranscript, SettingsPatch, SettingsUpdate,
 };
 use sessions::{build_bootstrap, path_key};
-use settings::{load_settings, normalize_optional, save_settings, SettingsState};
+use settings::{
+    load_settings, normalize_optional, save_settings, update_provider_secrets, SettingsState,
+};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 use terminal::TerminalState;
-use semver::Version;
 
-#[tauri::command]
-fn bootstrap(
-    app: AppHandle,
-    settings: State<'_, SettingsState>,
-) -> Result<BootstrapPayload, String> {
-    let settings = settings_snapshot(&settings)?;
-    build_bootstrap(&app, &settings)
+async fn run_blocking<T, F>(operation: &'static str, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("Не удалось дождаться {operation}: {error}"))?
 }
 
 #[tauri::command]
-fn add_workspace(
-    path: String,
-    app: AppHandle,
-    settings: State<'_, SettingsState>,
-) -> Result<BootstrapPayload, String> {
-    let workspace = PathBuf::from(path.trim());
-    if !workspace.is_dir() {
-        return Err(format!("Папка проекта не найдена: {}", workspace.display()));
-    }
-    let workspace = workspace.to_string_lossy().into_owned();
-    let workspace_key = path_key(&workspace);
-    let snapshot = {
-        let mut settings = settings
-            .0
-            .lock()
-            .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?;
-        settings
-            .recent_workspaces
-            .retain(|existing| path_key(existing) != workspace_key);
-        settings.recent_workspaces.insert(0, workspace);
-        settings.recent_workspaces.truncate(24);
-        settings.clone()
-    };
-    save_settings(&app, &snapshot)?;
-    build_bootstrap(&app, &snapshot)
+async fn bootstrap(app: AppHandle) -> Result<BootstrapPayload, String> {
+    run_blocking("загрузки данных", move || {
+        let settings = app.state::<SettingsState>();
+        let snapshot = settings_snapshot(&settings)?;
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
 }
 
 #[tauri::command]
-fn update_settings(
+async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload, String> {
+    run_blocking("добавления проекта", move || {
+        let workspace = PathBuf::from(path.trim());
+        if !workspace.is_dir() {
+            return Err(format!("Папка проекта не найдена: {}", workspace.display()));
+        }
+        let workspace = workspace.to_string_lossy().into_owned();
+        let workspace_key = path_key(&workspace);
+        let state = app.state::<SettingsState>();
+        let snapshot = {
+            let mut settings = state
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            settings
+                .recent_workspaces
+                .retain(|existing| path_key(existing) != workspace_key);
+            settings.recent_workspaces.insert(0, workspace);
+            settings.recent_workspaces.truncate(24);
+            settings.clone()
+        };
+        save_settings(&app, &snapshot)?;
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn update_settings(
     update: SettingsUpdate,
     app: AppHandle,
-    settings: State<'_, SettingsState>,
 ) -> Result<BootstrapPayload, String> {
-    let snapshot = {
-        let mut settings = settings
+    run_blocking("сохранения настроек", move || {
+        let state = app.state::<SettingsState>();
+        let mut snapshot = settings_snapshot(&state)?;
+        if let SettingsPatch::Set(value) = update.omp_executable {
+            snapshot.omp_executable = normalize_optional(value);
+        }
+        if let SettingsPatch::Set(value) = update.session_root {
+            snapshot.session_root = normalize_optional(value);
+        }
+        if let SettingsPatch::Set(Some(language)) = update.language {
+            if let Some(language) = normalize_optional(Some(language)) {
+                snapshot.language = language;
+            }
+        }
+        if let SettingsPatch::Set(Some(provider_env)) = update.provider_env {
+            update_provider_secrets(&app, &mut snapshot, provider_env)?;
+        }
+        save_settings(&app, &snapshot)?;
+        *state
             .0
             .lock()
-            .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?;
-        settings.omp_executable = normalize_optional(update.omp_executable);
-        settings.session_root = normalize_optional(update.session_root);
-        if let Some(language) = normalize_optional(update.language) {
-            settings.language = language;
-        }
-        if let Some(provider_env) = update.provider_env {
-            settings.provider_env = provider_env
-                .into_iter()
-                .filter(|(key, value)| !key.trim().is_empty() && !value.trim().is_empty())
-                .map(|(key, value)| (key.trim().to_owned(), value))
-                .collect();
-        }
-        settings.clone()
-    };
-    save_settings(&app, &snapshot)?;
-    build_bootstrap(&app, &snapshot)
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
 }
 
 #[tauri::command]
-fn rename_session(
+async fn rename_session(
     path: String,
     title: String,
     app: AppHandle,
-    settings: State<'_, SettingsState>,
 ) -> Result<BootstrapPayload, String> {
-    sessions::rename_session(&path, &title)?;
-    let snapshot = settings_snapshot(&settings)?;
-    build_bootstrap(&app, &snapshot)
+    run_blocking("переименования сессии", move || {
+        sessions::rename_session(&path, &title)?;
+        let settings = app.state::<SettingsState>();
+        let snapshot = settings_snapshot(&settings)?;
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
 }
 
 #[tauri::command]
-fn delete_session(
-    path: String,
-    app: AppHandle,
-    settings: State<'_, SettingsState>,
-) -> Result<BootstrapPayload, String> {
-    let snapshot = settings_snapshot(&settings)?;
-    let root = settings::session_root(&app, &snapshot)?;
-    sessions::delete_session(&path, &root)?;
-    build_bootstrap(&app, &snapshot)
+async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload, String> {
+    run_blocking("удаления сессии", move || {
+        let settings = app.state::<SettingsState>();
+        let snapshot = settings_snapshot(&settings)?;
+        let root = settings::session_root(&app, &snapshot)?;
+        sessions::delete_session(&path, &root)?;
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
 }
 
 #[tauri::command]
-fn import_session(
+async fn import_session(
     path: String,
     target_cwd: String,
     app: AppHandle,
-    settings: State<'_, SettingsState>,
 ) -> Result<BootstrapPayload, String> {
-    let snapshot = settings_snapshot(&settings)?;
-    let root = settings::session_root(&app, &snapshot)?;
-    sessions::import_session(&path, &target_cwd, &root)?;
-    build_bootstrap(&app, &snapshot)
+    run_blocking("импорта сессии", move || {
+        let settings = app.state::<SettingsState>();
+        let snapshot = settings_snapshot(&settings)?;
+        let root = settings::session_root(&app, &snapshot)?;
+        sessions::import_session(&path, &target_cwd, &root)?;
+        build_bootstrap(&app, &snapshot)
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
-    sessions::list_codex_sessions()
+async fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
+    run_blocking("загрузки сессий Codex", sessions::list_codex_sessions).await
 }
 
 #[tauri::command]
 async fn read_session_transcript(
     path: String,
     app: AppHandle,
-    settings: State<'_, SettingsState>,
 ) -> Result<SessionTranscript, String> {
-    let snapshot = settings_snapshot(&settings)?;
-    let root = settings::session_root(&app, &snapshot)?;
-    tauri::async_runtime::spawn_blocking(move || sessions::read_session_transcript(&path, &root))
-        .await
-        .map_err(|error| format!("Не удалось дождаться чтения транскрипта: {error}"))?
+    run_blocking("чтения транскрипта", move || {
+        let settings = app.state::<SettingsState>();
+        let snapshot = settings_snapshot(&settings)?;
+        let root = settings::session_root(&app, &snapshot)?;
+        sessions::read_session_transcript(&path, &root)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -162,110 +186,19 @@ async fn save_omp_config(
 
 #[tauri::command]
 async fn check_omp_update(app: AppHandle) -> Result<OmpUpdateInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking("проверки обновлений OMP", move || {
         let settings = app.state::<SettingsState>();
-        let raw = omp_bridge::check_update(&app, &settings)?;
-        let installed = settings_snapshot(&settings)
-            .ok()
-            .and_then(|settings| settings::resolve_omp(&app, &settings).version);
-        Ok(normalize_update_info(raw, installed.as_deref()))
+        omp_bridge::check_update(&app, &settings)
     })
     .await
-    .map_err(|error| format!("Не удалось дождаться проверки обновлений OMP: {error}"))?
-}
-fn normalize_update_info(raw: OmpUpdateInfo, installed_version: Option<&str>) -> OmpUpdateInfo {
-    let output = raw.message.trim();
-    let lower = output.to_ascii_lowercase();
-    let no_update = [
-        "already up to date",
-        "up-to-date",
-        "no update available",
-        "no updates available",
-        "latest version is installed",
-        "using the latest version",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker));
-    let advertised_update = ["new version", "update available", "upgrade available"]
-        .iter()
-        .any(|marker| lower.contains(marker));
-
-    let current = raw
-        .current_version
-        .as_deref()
-        .and_then(parse_version)
-        .or_else(|| version_from_matching_line(output, &["current version", "installed version"]))
-        .or_else(|| installed_version.and_then(parse_version));
-    let explicit_latest = version_from_matching_line(
-        output,
-        &[
-            "latest version",
-            "new version",
-            "update available",
-            "upgrade available",
-        ],
-    );
-    let latest = explicit_latest.or_else(|| {
-        if no_update {
-            current.clone()
-        } else {
-            None
-        }
-    });
-
-    let has_update = match (&current, &latest) {
-        (Some(current), Some(latest)) => latest > current,
-        _ => advertised_update && !no_update,
-    };
-    let message = match (has_update, current.as_ref(), latest.as_ref()) {
-        (true, Some(current), Some(latest)) => {
-            format!("Доступна новая версия OMP {latest} (установлена {current}).")
-        }
-        (true, _, Some(latest)) => format!("Доступна новая версия OMP {latest}."),
-        (true, _, None) => "Доступна новая версия OMP.".to_owned(),
-        (false, Some(current), _) => format!("Установлена актуальная версия OMP {current}."),
-        (false, None, _) => "Обновления OMP не найдены.".to_owned(),
-    };
-
-    OmpUpdateInfo {
-        has_update,
-        current_version: current.map(|version| version.to_string()),
-        latest_version: latest.map(|version| version.to_string()),
-        message,
-    }
-}
-
-fn version_from_matching_line(output: &str, markers: &[&str]) -> Option<Version> {
-    output.lines().find_map(|line| {
-        let lower = line.to_ascii_lowercase();
-        markers
-            .iter()
-            .any(|marker| lower.contains(marker))
-            .then(|| parse_version(line))
-            .flatten()
-    })
-}
-
-fn parse_version(text: &str) -> Option<Version> {
-    text.split(|character: char| {
-        !character.is_ascii_alphanumeric() && !matches!(character, '.' | '-' | '+')
-    })
-    .filter_map(|token| {
-        let token = token
-            .strip_prefix('v')
-            .or_else(|| token.strip_prefix('V'))
-            .unwrap_or(token);
-        Version::parse(token).ok()
-    })
-    .next()
 }
 
 fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
-    settings
+    Ok(settings
         .0
         .lock()
-        .map(|settings| settings.clone())
-        .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -309,52 +242,4 @@ pub fn run() {
             app_handle.state::<TerminalState>().shutdown_all();
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_update_info;
-    use crate::models::OmpUpdateInfo;
-
-    #[test]
-    fn ordinary_no_update_output_is_not_a_false_positive() {
-        let info = normalize_update_info(
-            OmpUpdateInfo {
-                has_update: true,
-                current_version: None,
-                latest_version: Some("17.0.7".to_owned()),
-                message: "Current version: 17.0.7\n✔ Already up to date".to_owned(),
-            },
-            Some("omp/17.0.7"),
-        );
-
-        assert!(!info.has_update);
-        assert_eq!(info.current_version.as_deref(), Some("17.0.7"));
-        assert_eq!(info.latest_version.as_deref(), Some("17.0.7"));
-        assert_eq!(
-            info.message,
-            "Установлена актуальная версия OMP 17.0.7."
-        );
-    }
-
-    #[test]
-    fn newer_semantic_version_is_reported_as_an_update() {
-        let info = normalize_update_info(
-            OmpUpdateInfo {
-                has_update: false,
-                current_version: None,
-                latest_version: None,
-                message: "Current version: 17.0.7\nNew version available: 17.1.0".to_owned(),
-            },
-            None,
-        );
-
-        assert!(info.has_update);
-        assert_eq!(info.current_version.as_deref(), Some("17.0.7"));
-        assert_eq!(info.latest_version.as_deref(), Some("17.1.0"));
-        assert_eq!(
-            info.message,
-            "Доступна новая версия OMP 17.1.0 (установлена 17.0.7)."
-        );
-    }
 }

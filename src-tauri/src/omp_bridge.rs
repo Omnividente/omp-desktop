@@ -1,16 +1,17 @@
 use crate::{
     models::{
-        AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpModelInfo, OmpRoleInfo,
-        OmpUpdateInfo,
+        AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpCredentialInfo, OmpModelInfo,
+        OmpRoleInfo, OmpUpdateInfo,
     },
     settings::{resolve_omp, SettingsState},
+    update,
 };
 use serde_json::{Map, Value};
 use std::{
     collections::{BTreeMap, HashMap},
     process::Command,
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -20,6 +21,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const KNOWN_ROLES: &[&str] = &[
     "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
+    "consult",
 ];
 
 const PROVIDER_ENV_KEYS: &[&str] = &[
@@ -67,6 +69,7 @@ pub fn load_config_snapshot(
     });
     let roles_map = extract_roles(&raw);
     let roles = build_roles(&roles_map, &models, &usage);
+    let credentials = build_credentials(app, app_settings, &models, &usage);
 
     Ok(OmpConfigSnapshot {
         roles,
@@ -78,8 +81,146 @@ pub fn load_config_snapshot(
             .iter()
             .map(|key| (*key).to_owned())
             .collect(),
+        credentials,
         raw,
     })
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ModelsYamlFile {
+    providers: Option<BTreeMap<String, ModelsYamlProvider>>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ModelsYamlProvider {
+    #[serde(rename = "apiKey")]
+    api_key: Option<serde_yml::Value>,
+}
+
+fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
+    let path = if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
+        std::path::PathBuf::from(dir).join("models.yml")
+    } else {
+        app.path()
+            .home_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(".omp")
+            .join("agent")
+            .join("models.yml")
+    };
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return BTreeMap::new();
+    };
+    serde_yml::from_str::<ModelsYamlFile>(&contents)
+        .ok()
+        .and_then(|file| file.providers)
+        .unwrap_or_default()
+}
+
+fn build_credentials(
+    app: &AppHandle,
+    app_settings: &AppSettings,
+    models: &[OmpModelInfo],
+    usage: &HashMap<String, UsageStatus>,
+) -> Vec<OmpCredentialInfo> {
+    build_credentials_from_sources(
+        load_models_yaml(app),
+        &app_settings.provider_env,
+        models,
+        usage,
+        |key| std::env::var_os(key).is_some(),
+    )
+}
+
+fn build_credentials_from_sources<F>(
+    yaml_providers: BTreeMap<String, ModelsYamlProvider>,
+    provider_env: &HashMap<String, String>,
+    models: &[OmpModelInfo],
+    usage: &HashMap<String, UsageStatus>,
+    environment_has: F,
+) -> Vec<OmpCredentialInfo>
+where
+    F: Fn(&str) -> bool,
+{
+    let mut model_counts = BTreeMap::<String, usize>::new();
+    for model in models {
+        *model_counts.entry(model.provider.clone()).or_default() += 1;
+    }
+
+    let mut credentials = BTreeMap::<String, OmpCredentialInfo>::new();
+    for (provider, config) in yaml_providers {
+        let (source, key_name) = match config.api_key.as_ref().and_then(serde_yml::Value::as_str) {
+            Some(resolver) if resolver.starts_with('!') => ("command".to_owned(), None),
+            Some(resolver) if provider_env.contains_key(resolver) => {
+                ("desktop".to_owned(), Some(resolver.to_owned()))
+            }
+            Some(resolver) if environment_has(resolver) => {
+                ("environment".to_owned(), Some(resolver.to_owned()))
+            }
+            Some(resolver) => (
+                "models".to_owned(),
+                looks_like_environment_key(resolver).then(|| resolver.to_owned()),
+            ),
+            None => ("omp".to_owned(), None),
+        };
+        let model_count = model_counts.get(&provider).copied().unwrap_or_default();
+        credentials.insert(
+            provider.clone(),
+            credential_info(provider, source, key_name, model_count, usage),
+        );
+    }
+
+    for provider in model_counts.keys().chain(usage.keys()) {
+        if credentials.contains_key(provider) {
+            continue;
+        }
+        let model_count = model_counts.get(provider).copied().unwrap_or_default();
+        credentials.insert(
+            provider.clone(),
+            credential_info(provider.clone(), "omp".to_owned(), None, model_count, usage),
+        );
+    }
+
+    credentials.into_values().collect()
+}
+
+fn credential_info(
+    provider: String,
+    source: String,
+    key_name: Option<String>,
+    model_count: usize,
+    usage: &HashMap<String, UsageStatus>,
+) -> OmpCredentialInfo {
+    let usage_status = usage.get(&provider);
+    let available = usage_status
+        .map(|item| item.available)
+        .unwrap_or(model_count > 0);
+    let status = usage_status
+        .map(|item| item.status.clone())
+        .unwrap_or_else(|| {
+            if model_count == 0 {
+                "missing".to_owned()
+            } else if matches!(source.as_str(), "command" | "models") {
+                "configured".to_owned()
+            } else {
+                "ready".to_owned()
+            }
+        });
+    OmpCredentialInfo {
+        provider,
+        key_name,
+        source,
+        status,
+        available,
+        model_count,
+    }
+}
+
+fn looks_like_environment_key(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 pub fn save_config(
@@ -90,33 +231,42 @@ pub fn save_config(
     let mut app_settings = settings
         .0
         .lock()
-        .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
     let omp = resolve_omp(app, &app_settings);
     if omp.version.is_none() {
         return Err(format!("OMP не найден: {}", omp.executable));
     }
 
+    let expected_roles = request
+        .roles
+        .iter()
+        .filter(|(_, selector)| !selector.trim().is_empty())
+        .map(|(role, selector)| (role.clone(), selector.trim().to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    for (role, selector) in &expected_roles {
+        validate_role_selector(selector)
+            .map_err(|error| format!("Некорректная модель для роли `{role}`: {error}"))?;
+    }
+
     if let Some(provider_env) = request.provider_env {
-        app_settings.provider_env = provider_env
-            .into_iter()
-            .filter(|(key, value)| !key.trim().is_empty() && !value.trim().is_empty())
-            .map(|(key, value)| (key.trim().to_owned(), value))
-            .collect();
+        crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
         crate::settings::save_settings(app, &app_settings)?;
         *settings
             .0
             .lock()
-            .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())? =
-            app_settings.clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = app_settings.clone();
     }
-
+    let expected_advisor = request.advisor_enabled;
+    let expected_auto_resume = request.auto_resume;
+    let expected_thinking = request
+        .default_thinking_level
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     let roles_value = Value::Object(
-        request
-            .roles
-            .into_iter()
-            .filter(|(_, selector)| !selector.trim().is_empty())
-            .map(|(role, selector)| (role, Value::String(selector.trim().to_owned())))
+        expected_roles
+            .iter()
+            .map(|(role, selector)| (role.clone(), Value::String(selector.clone())))
             .collect::<Map<String, Value>>(),
     );
     set_omp_config(
@@ -126,7 +276,7 @@ pub fn save_config(
         &app_settings.provider_env,
     )?;
 
-    if let Some(enabled) = request.advisor_enabled {
+    if let Some(enabled) = expected_advisor {
         set_omp_config(
             &omp.executable,
             "advisor.enabled",
@@ -134,7 +284,7 @@ pub fn save_config(
             &app_settings.provider_env,
         )?;
     }
-    if let Some(enabled) = request.auto_resume {
+    if let Some(enabled) = expected_auto_resume {
         set_omp_config(
             &omp.executable,
             "autoResume",
@@ -142,20 +292,54 @@ pub fn save_config(
             &app_settings.provider_env,
         )?;
     }
-    if let Some(level) = request
-        .default_thinking_level
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(level) = expected_thinking.as_ref() {
         set_omp_config(
             &omp.executable,
             "defaultThinkingLevel",
-            &Value::String(level),
+            &Value::String(level.clone()),
             &app_settings.provider_env,
         )?;
     }
 
-    load_config_snapshot(app, &app_settings)
+    let snapshot = load_config_snapshot(app, &app_settings)?;
+    verify_saved_config(
+        &snapshot,
+        &expected_roles,
+        expected_advisor,
+        expected_auto_resume,
+        expected_thinking.as_deref(),
+    )?;
+    Ok(snapshot)
+}
+
+fn verify_saved_config(
+    snapshot: &OmpConfigSnapshot,
+    expected_roles: &BTreeMap<String, String>,
+    expected_advisor: Option<bool>,
+    expected_auto_resume: Option<bool>,
+    expected_thinking: Option<&str>,
+) -> Result<(), String> {
+    let actual_roles = snapshot
+        .roles
+        .iter()
+        .filter(|role| !role.selector.trim().is_empty())
+        .map(|role| (role.role.clone(), role.selector.trim().to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    if &actual_roles != expected_roles {
+        return Err("OMP не применил сохранённые роли моделей".to_owned());
+    }
+    if expected_advisor.is_some_and(|expected| snapshot.advisor_enabled != expected) {
+        return Err("OMP не применил настройку советника".to_owned());
+    }
+    if expected_auto_resume.is_some_and(|expected| snapshot.auto_resume != expected) {
+        return Err("OMP не применил настройку автопродолжения".to_owned());
+    }
+    if expected_thinking
+        .is_some_and(|expected| snapshot.default_thinking_level.as_deref() != Some(expected))
+    {
+        return Err("OMP не применил уровень рассуждений".to_owned());
+    }
+    Ok(())
 }
 
 pub fn check_update(
@@ -165,7 +349,7 @@ pub fn check_update(
     let app_settings = settings
         .0
         .lock()
-        .map_err(|_| "Настройки заблокированы после внутренней ошибки".to_owned())?
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
     let omp = resolve_omp(app, &app_settings);
     if omp.version.is_none() {
@@ -177,42 +361,10 @@ pub fn check_update(
         &["update", "--check"],
         &app_settings.provider_env,
     )?;
-    let current = omp
-        .version
-        .as_deref()
-        .and_then(extract_version)
-        .map(str::to_owned);
-    let latest = output
-        .lines()
-        .find_map(|line| {
-            let lower = line.to_ascii_lowercase();
-            if lower.contains("new version") || lower.contains("latest") {
-                extract_version(line).map(str::to_owned)
-            } else {
-                None
-            }
-        })
-        .or_else(|| {
-            output
-                .lines()
-                .rev()
-                .find_map(|line| extract_version(line).map(str::to_owned))
-        });
-
-    let has_update = output
-        .to_ascii_lowercase()
-        .contains("new version available")
-        || match (&current, &latest) {
-            (Some(current), Some(latest)) => current != latest,
-            _ => false,
-        };
-
-    Ok(OmpUpdateInfo {
-        has_update,
-        current_version: current,
-        latest_version: latest,
-        message: output.trim().to_owned(),
-    })
+    Ok(update::normalize_update_info(
+        &output,
+        omp.version.as_deref(),
+    ))
 }
 
 fn load_models(
@@ -440,10 +592,62 @@ fn strip_thinking(selector: &str) -> String {
     }
 }
 
-fn extract_version(text: &str) -> Option<&str> {
-    text.split_whitespace().find(|part| {
-        part.chars().next().is_some_and(|ch| ch.is_ascii_digit()) && part.contains('.')
-    })
+fn validate_role_selector(selector: &str) -> Result<(), String> {
+    if selector.is_empty() || selector.len() > 512 {
+        return Err("selector модели пуст или слишком длинный".to_owned());
+    }
+    if selector
+        .chars()
+        .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("selector модели содержит пробельные или управляющие символы".to_owned());
+    }
+
+    let base = strip_thinking(selector);
+    if base == "*" {
+        return Ok(());
+    }
+    if let Some(alias) = base.strip_prefix('@') {
+        if valid_role_alias(alias) {
+            return Ok(());
+        }
+        return Err("некорректный alias роли модели".to_owned());
+    }
+    if let Some((provider, model)) = base.split_once('/') {
+        if valid_selector_segment(provider)
+            && !model.is_empty()
+            && model.split('/').all(valid_selector_segment)
+        {
+            return Ok(());
+        }
+        return Err("selector модели должен иметь формат provider/model".to_owned());
+    }
+    if valid_selector_segment(&base) {
+        return Ok(());
+    }
+    Err("некорректный canonical selector модели".to_owned())
+}
+
+fn valid_role_alias(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+fn valid_selector_segment(value: &str) -> bool {
+    let Some(first) = value.chars().next() else {
+        return false;
+    };
+    let Some(last) = value.chars().next_back() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && last.is_ascii_alphanumeric()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(character, '-' | '_' | '.' | '+' | ':' | '@')
+        })
 }
 
 fn set_omp_config(
@@ -456,7 +660,8 @@ fn set_omp_config(
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
-    let _ = run_omp_text(executable, &["config", "set", key, &rendered], env_map)?;
+    run_omp_text(executable, &["config", "set", key, &rendered], env_map)
+        .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))?;
     Ok(())
 }
 
@@ -491,14 +696,157 @@ fn run_omp_text(
     let output = command
         .output()
         .map_err(|error| format!("Не удалось запустить OMP ({executable}): {error}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() && stdout.trim().is_empty() {
-        return Err(stderr.trim().to_owned());
+    interpret_omp_output(
+        output.status.success(),
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+fn interpret_omp_output(
+    success: bool,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+) -> Result<String, String> {
+    if !success {
+        let detail = [stderr.trim(), stdout.trim()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let code = exit_code
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "неизвестный".to_owned());
+        return Err(if detail.is_empty() {
+            format!("OMP завершил команду с кодом {code}")
+        } else {
+            format!("OMP завершил команду с кодом {code}: {detail}")
+        });
     }
     if !stdout.trim().is_empty() {
         Ok(stdout)
     } else {
         Ok(stderr)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(provider: &str, id: &str) -> OmpModelInfo {
+        OmpModelInfo {
+            provider: provider.to_owned(),
+            id: id.to_owned(),
+            selector: format!("{provider}/{id}"),
+            name: id.to_owned(),
+            available: true,
+            status: "ok".to_owned(),
+            detail: None,
+            thinking: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn credentials_use_sources_without_exposing_secret_values() {
+        let mut provider_env = HashMap::new();
+        provider_env.insert("A6API_KEY".to_owned(), "secret_token_12345".to_owned());
+        let yaml = serde_yml::from_str::<ModelsYamlFile>(
+            r#"
+providers:
+  a6api:
+    apiKey: A6API_KEY
+  grok2api:
+    apiKey: G2A_API_KEY
+  rdsh:
+    apiKey: ANTHROPIC_API_KEY
+  codex-lb:
+    apiKey: "!resolve-codex-token"
+"#,
+        )
+        .expect("credential fixture should parse")
+        .providers
+        .expect("credential fixture should contain providers");
+        let models = vec![
+            model("a6api", "primary"),
+            model("grok2api", "build"),
+            model("rdsh", "advisor"),
+            model("codex-lb", "fallback"),
+        ];
+        let credentials =
+            build_credentials_from_sources(yaml, &provider_env, &models, &HashMap::new(), |key| {
+                key == "G2A_API_KEY"
+            });
+        let get = |provider: &str| {
+            credentials
+                .iter()
+                .find(|item| item.provider == provider)
+                .expect("provider should be present")
+        };
+
+        assert_eq!(get("a6api").source, "desktop");
+        assert_eq!(get("a6api").key_name.as_deref(), Some("A6API_KEY"));
+        assert_eq!(get("grok2api").source, "environment");
+        assert_eq!(get("rdsh").source, "models");
+        assert_eq!(get("rdsh").status, "configured");
+        assert_eq!(get("codex-lb").source, "command");
+        assert!(!format!("{credentials:?}").contains("secret_token_12345"));
+    }
+
+    #[test]
+    fn nonzero_omp_output_is_always_an_error() {
+        let result = interpret_omp_output(
+            false,
+            Some(2),
+            "partial stdout".to_owned(),
+            "config rejected".to_owned(),
+        );
+        let error = result.expect_err("nonzero status must not be accepted");
+        assert!(error.contains("config rejected"));
+        assert!(error.contains("partial stdout"));
+    }
+
+    #[test]
+    fn successful_omp_output_prefers_stdout() {
+        assert_eq!(
+            interpret_omp_output(
+                true,
+                Some(0),
+                "configured\n".to_owned(),
+                "warning".to_owned(),
+            )
+            .expect("successful command should return output"),
+            "configured\n"
+        );
+    }
+
+    #[test]
+    fn role_selector_validation_accepts_supported_omp_forms() {
+        for selector in [
+            "provider/model",
+            "provider/model:high",
+            "ollama/qwen3:30b",
+            "gpt-5.3-codex",
+            "@slow:xhigh",
+            "*",
+        ] {
+            assert!(validate_role_selector(selector).is_ok(), "{selector}");
+        }
+    }
+
+    #[test]
+    fn role_selector_validation_rejects_malformed_values() {
+        for selector in [
+            "provider/",
+            "/model",
+            "provider//model",
+            "provider/model with space",
+            "@",
+            "provider/model::high",
+            "model?query",
+        ] {
+            assert!(validate_role_selector(selector).is_err(), "{selector}");
+        }
     }
 }

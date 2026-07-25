@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::{collections::HashMap, fmt};
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     #[serde(default)]
@@ -12,22 +12,78 @@ pub struct AppSettings {
     pub recent_workspaces: Vec<String>,
     #[serde(default = "default_language")]
     pub language: String,
-    /// Provider env keys injected into OMP PTY processes. Values stay local.
-    #[serde(default)]
+    /// Secret values exist only in backend memory and are never serialized to disk or IPC.
+    #[serde(default, skip_serializing)]
     pub provider_env: HashMap<String, String>,
+    #[serde(default)]
+    pub provider_env_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_storage_warning: Option<String>,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            omp_executable: None,
+            session_root: None,
+            recent_workspaces: Vec::new(),
+            language: default_language(),
+            provider_env: HashMap::new(),
+            provider_env_keys: Vec::new(),
+            secret_storage_warning: None,
+        }
+    }
+}
+
+impl fmt::Debug for AppSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AppSettings")
+            .field("omp_executable", &self.omp_executable)
+            .field("session_root", &self.session_root)
+            .field("recent_workspaces", &self.recent_workspaces)
+            .field("language", &self.language)
+            .field("provider_env_keys", &self.provider_env_keys)
+            .field("provider_env_value_count", &self.provider_env.len())
+            .field("secret_storage_warning", &self.secret_storage_warning)
+            .finish()
+    }
 }
 
 fn default_language() -> String {
     "ru".to_owned()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq)]
+pub enum SettingsPatch<T> {
+    #[default]
+    Missing,
+    Set(Option<T>),
+}
+
+impl<'de, T> Deserialize<'de> for SettingsPatch<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(Self::Set)
+    }
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsUpdate {
-    pub omp_executable: Option<String>,
-    pub session_root: Option<String>,
-    pub language: Option<String>,
-    pub provider_env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub omp_executable: SettingsPatch<String>,
+    #[serde(default)]
+    pub session_root: SettingsPatch<String>,
+    #[serde(default)]
+    pub language: SettingsPatch<String>,
+    #[serde(default)]
+    pub provider_env: SettingsPatch<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +159,17 @@ pub struct OmpRoleInfo {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OmpCredentialInfo {
+    pub provider: String,
+    pub key_name: Option<String>,
+    pub source: String,
+    pub status: String,
+    pub available: bool,
+    pub model_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
@@ -110,10 +177,11 @@ pub struct OmpConfigSnapshot {
     pub auto_resume: bool,
     pub default_thinking_level: Option<String>,
     pub provider_env_keys: Vec<String>,
+    pub credentials: Vec<OmpCredentialInfo>,
     pub raw: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OmpConfigSaveRequest {
     pub roles: HashMap<String, String>,
@@ -172,4 +240,61 @@ pub struct SessionTranscript {
     pub session: SessionSummary,
     pub entries: Vec<TranscriptEntry>,
     pub updated_at: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppSettings, SettingsPatch, SettingsUpdate};
+
+    #[test]
+    fn app_settings_never_serialize_provider_secret_values() {
+        let mut settings = AppSettings::default();
+        settings.provider_env.insert(
+            "OPENAI_API_KEY".to_owned(),
+            "secret-value-that-must-not-leave-rust".to_owned(),
+        );
+        settings.provider_env_keys = vec!["OPENAI_API_KEY".to_owned()];
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let debug = format!("{settings:?}");
+        assert!(!serialized.contains("secret-value-that-must-not-leave-rust"));
+        assert!(!serialized.contains("providerEnv\""));
+        assert!(serialized.contains("providerEnvKeys"));
+        assert!(!debug.contains("secret-value-that-must-not-leave-rust"));
+    }
+
+    #[test]
+    fn legacy_provider_env_is_read_but_removed_on_reserialize() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "providerEnv": {"A6API_KEY": "legacy-secret"}
+        }))
+        .expect("legacy settings should deserialize");
+        assert_eq!(
+            settings.provider_env.get("A6API_KEY").map(String::as_str),
+            Some("legacy-secret")
+        );
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        assert!(!serialized.contains("legacy-secret"));
+        assert!(!serialized.contains("providerEnv\""));
+    }
+
+    #[test]
+    fn settings_update_distinguishes_missing_and_null_fields() {
+        let missing: SettingsUpdate = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(matches!(missing.omp_executable, SettingsPatch::Missing));
+        assert!(matches!(missing.session_root, SettingsPatch::Missing));
+
+        let patch: SettingsUpdate = serde_json::from_value(serde_json::json!({
+            "ompExecutable": null,
+            "sessionRoot": "D:/sessions",
+            "language": "en"
+        }))
+        .unwrap();
+        assert!(matches!(patch.omp_executable, SettingsPatch::Set(None)));
+        assert!(
+            matches!(patch.session_root, SettingsPatch::Set(Some(value)) if value == "D:/sessions")
+        );
+        assert!(matches!(patch.language, SettingsPatch::Set(Some(value)) if value == "en"));
+    }
 }

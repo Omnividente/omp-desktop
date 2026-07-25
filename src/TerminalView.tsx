@@ -19,6 +19,7 @@ interface TerminalViewProps {
   active: boolean;
   onExit: (event: PtyExitEvent) => void;
   onError: (message: string) => void;
+  onReady: (terminalId: string) => void;
 }
 
 function decodeBase64(data: string): Uint8Array {
@@ -44,6 +45,7 @@ export function TerminalView({
   active,
   onExit,
   onError,
+  onReady,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -51,10 +53,12 @@ export function TerminalView({
   const activeRef = useRef(active);
   const onExitRef = useRef(onExit);
   const onErrorRef = useRef(onError);
+  const onReadyRef = useRef(onReady);
 
   activeRef.current = active;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -156,18 +160,20 @@ export function TerminalView({
       });
     });
     const binarySubscription = terminal.onBinary((data) => {
-      const bytes = Array.from(data, (character) => character.charCodeAt(0) & 0xff);
-      void writeTerminalBinary(tab.id, bytes).catch((error) => {
+      void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error));
       });
     });
 
     const connect = async () => {
-      const stopOutput = await listen<PtyOutputEvent>("pty-output", ({ payload }) => {
-        if (!disposed && payload.terminalId === tab.id && payload.data) {
-          terminal.write(decodeBase64(payload.data));
-        }
-      });
+      const stopOutput = await listen<PtyOutputEvent>(
+        `pty-output:${tab.id}`,
+        ({ payload }) => {
+          if (!disposed && payload.data) {
+            terminal.write(decodeBase64(payload.data));
+          }
+        },
+      );
       if (disposed) {
         stopOutput();
         return;
@@ -202,6 +208,9 @@ export function TerminalView({
         };
         terminal.write(exitLine(event));
         onExitRef.current(event);
+      }
+      if (!attachment.exited) {
+        onReadyRef.current(tab.id);
       }
       window.requestAnimationFrame(() => {
         fit();

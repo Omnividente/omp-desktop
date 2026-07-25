@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   errorMessage,
@@ -30,22 +30,10 @@ interface SettingsPanelProps {
   runtime: RuntimeInfo;
   onClose: () => void;
   onSaved: (payload: BootstrapPayload) => void;
+  onConfigSaved?: (snapshot: OmpConfigSnapshot) => void;
   onError: (message: string) => void;
 }
 
-const ROLE_ORDER = [
-  "default",
-  "smol",
-  "slow",
-  "plan",
-  "advisor",
-  "task",
-  "designer",
-  "vision",
-  "commit",
-  "tiny",
-  "consult",
-];
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"];
 
 type SettingsSection = "general" | "behavior" | "models" | "providers";
@@ -85,6 +73,7 @@ export function SettingsPanel({
   runtime,
   onClose,
   onSaved,
+  onConfigSaved,
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang;
@@ -101,8 +90,8 @@ export function SettingsPanel({
   const [advisorEnabled, setAdvisorEnabled] = useState(false);
   const [autoResume, setAutoResume] = useState(false);
   const [thinkingLevel, setThinkingLevel] = useState("medium");
-  const [providerEnv, setProviderEnv] = useState<Record<string, string>>(
-    settings.providerEnv ?? {},
+  const [providerEnv, setProviderEnv] = useState<Record<string, string>>(() =>
+    Object.fromEntries((settings.providerEnvKeys ?? []).map((key) => [key, ""])),
   );
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY");
   const [newKeyValue, setNewKeyValue] = useState("");
@@ -140,8 +129,12 @@ export function SettingsPanel({
   }, [runtime.ompAvailable]);
 
   useEffect(() => {
-    setProviderEnv(settings.providerEnv ?? {});
-  }, [settings.providerEnv]);
+    setProviderEnv((current) =>
+      Object.fromEntries(
+        (settings.providerEnvKeys ?? []).map((key) => [key, current[key] ?? ""]),
+      ),
+    );
+  }, [settings.providerEnvKeys]);
 
   useEffect(() => {
     if (!loadingConfig) {
@@ -152,16 +145,8 @@ export function SettingsPanel({
     return () => window.clearTimeout(timeout);
   }, [loadingConfig]);
 
-  const orderedRoles = useMemo(() => {
-    if (!ompConfig) {
-      return [];
-    }
-    const known = ROLE_ORDER
-      .map((role) => ompConfig.roles.find((item) => item.role === role))
-      .filter(Boolean);
-    const rest = ompConfig.roles.filter((role) => !ROLE_ORDER.includes(role.role));
-    return [...known, ...rest] as typeof ompConfig.roles;
-  }, [ompConfig]);
+  const orderedRoles = ompConfig?.roles ?? [];
+  const credentials = ompConfig?.credentials ?? [];
 
 
   const chooseExecutable = async () => {
@@ -216,6 +201,7 @@ export function SettingsPanel({
           providerEnv,
         });
         setOmpConfig(snapshot);
+        onConfigSaved?.(snapshot);
       }
       const payload = await updateSettings({
         ompExecutable: executable.trim() || null,
@@ -595,6 +581,22 @@ export function SettingsPanel({
 
               {activeSection === "providers" && (
                 <>
+                  {settings.secretStorageWarning && (
+                    <div className="settings-secret-warning" role="status">
+                      <Icon name="alert" size={16} />
+                      <span>
+                        <strong>{t(language, "secretStorageWarningTitle")}</strong>
+                        <small>
+                          {t(
+                            language,
+                            settings.secretStorageWarning === "fallback_file"
+                              ? "secretStorageFallbackBody"
+                              : "secretStorageUnavailableBody",
+                          )}
+                        </small>
+                      </span>
+                    </div>
+                  )}
                   <section className="settings-section">
                     <div className="settings-section-heading">
                       <div>
@@ -626,15 +628,15 @@ export function SettingsPanel({
                         </button>
                       </div>
                     )}
-                    {ompConfig && ompConfig.credentials.length === 0 && (
+                    {ompConfig && credentials.length === 0 && (
                       <div className="settings-state">
                         <Icon name="terminal" size={16} />
                         <span>{t(language, "noConnectedProviders")}</span>
                       </div>
                     )}
-                    {ompConfig && ompConfig.credentials.length > 0 && (
+                    {ompConfig && credentials.length > 0 && (
                       <div className="provider-credential-list">
-                        {ompConfig.credentials.map((credential) => (
+                        {credentials.map((credential) => (
                           <article className="provider-credential" key={credential.provider}>
                             <div className="provider-credential-main">
                               <strong>{credential.provider}</strong>
@@ -667,14 +669,10 @@ export function SettingsPanel({
                     </div>
                     {Object.entries(providerEnv)
                       .sort(([left], [right]) => left.localeCompare(right))
-                      .map(([key, value]) => (
+                      .map(([key]) => (
                         <div className="provider-key-row" key={key}>
                           <code>{key}</code>
-                          <span>
-                            {value.length > 8
-                              ? `${value.slice(0, 4)}…${value.slice(-4)}`
-                              : "••••"}
-                          </span>
+                          <span>••••••••</span>
                           <button
                             className="button secondary"
                             onClick={() =>

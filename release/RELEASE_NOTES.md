@@ -1,3 +1,47 @@
+# OMP Desktop 0.1.9
+
+## Русский
+
+Крупный релиз надёжности, безопасности и производительности по итогам полного аудита приложения.
+
+### Что изменилось
+
+- **Безопасное хранение ключей**: API-ключи провайдеров перенесены из открытого JSON в системное хранилище учётных данных; существующие значения мигрируются автоматически.
+- **Надёжность сессий и терминалов**: добавлены атомарная запись JSONL, устойчивое сканирование каталогов, ожидание готовности PTY перед отправкой начального ввода и буферизация ввода во время смены модели.
+- **Быстродействие**: тяжёлые операции вынесены с UI-потока, добавлены кэши OMP и сессий, ограничено чтение больших историй Codex, изолирован вывод терминалов и виртуализированы длинные списки.
+- **Диагностика и обновления OMP**: исправлены статусы провайдеров, обработка ошибок команд, события ошибок терминала и уведомления об обновлении из активной сессии.
+- **UX**: добавлены клавиатурное управление выбором модели, очередь уведомлений, подтверждение закрытия работающего процесса, индикатор Thinking в заголовке окна и drag-and-drop вкладок.
+- **Защита и качество**: включён строгий CSP, добавлены frontend-тесты, ESLint/Prettier и межплатформенные CI-проверки Rust/TypeScript.
+- Версия обновлена до 0.1.9.
+
+Рекомендуется `OMP-Desktop_0.1.9_x64-setup.exe` (Windows) и `OMP-Desktop_0.1.9_amd64.AppImage` (Linux).
+
+## English
+
+A major reliability, security, and performance release based on a complete application audit.
+
+### Changes
+
+- **Secure key storage**: provider API keys moved from plain JSON to the operating system credential store, with automatic migration of existing values.
+- **Session and terminal reliability**: added atomic JSONL writes, resilient directory scanning, PTY readiness before initial input, and input buffering during model switches.
+- **Performance**: moved heavy work off the UI thread, added OMP and session caches, bounded Codex history reads, isolated terminal output, and virtualized long lists.
+- **Diagnostics and OMP updates**: fixed provider status reporting, command error handling, terminal error events, and live-session update notifications.
+- **UX**: added keyboard model selection, queued notifications, confirmation before stopping active processes, a Thinking window-title indicator, and tab drag-and-drop.
+- **Security and quality**: enabled a strict CSP and added frontend tests, ESLint/Prettier, and cross-platform Rust/TypeScript CI checks.
+- Version bumped to 0.1.9.
+
+Recommended: `OMP-Desktop_0.1.9_x64-setup.exe` (Windows), `OMP-Desktop_0.1.9_amd64.AppImage` (Linux).
+
+## SHA-256 (0.1.9)
+
+```text
+e6f823fdeeea9c36cfa8f978e124d1fbcdfaf7225faeb71e53e412f6bdccdfdd  windows/OMP-Desktop_0.1.9_x64_en-US.msi
+2c032e89a331ec157631960bf801d7b4432ac3b5cdb54122b83622f287e44da2  windows/OMP-Desktop_0.1.9_x64-setup.exe
+cb46bd772fbca1330a6fbb7acad4cca147c84db8b6a49aa827eeba8e672fa4a9  linux/OMP-Desktop_0.1.9_amd64.AppImage
+566dce8d93de93b81afe302b2247505155007f39619ce31c12cdaccadae6b715  linux/OMP-Desktop_0.1.9_amd64.deb
+5e59bdf8a3853465fca3ccd1239f041333d6bbcf71e30aa4bc46a33a493d6a33  linux/OMP-Desktop-0.1.9-1.x86_64.rpm
+```
+
 # OMP Desktop 0.1.8
 
 ## Русский

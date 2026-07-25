@@ -1,4 +1,4 @@
-import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
@@ -25,11 +25,17 @@ import {
   startTerminal,
   writeTerminal,
 } from "./api";
+import { CodexImportModal } from "./CodexImportModal";
 import { Icon } from "./Icon";
 import { matchesSelector, splitSelector } from "./ModelPicker";
-import { thinkingLevelLabel, t, type Lang } from "./i18n";
+import { t, type Lang } from "./i18n";
+import { ProjectRail } from "./ProjectRail";
 import { SettingsPanel } from "./SettingsPanel";
-import { TerminalView } from "./TerminalView";
+import { TerminalWorkspace } from "./TerminalWorkspace";
+import { Topbar } from "./Topbar";
+import { TranscriptModal } from "./TranscriptModal";
+import { UpdateNotice } from "./UpdateNotice";
+import { ToastContainer, type ToastItem } from "./ToastContainer";
 import type {
   BootstrapPayload,
   CodexSessionSummary,
@@ -39,74 +45,20 @@ import type {
   PtySessionEvent,
   PtyUpdateEvent,
   OmpConfigSnapshot,
-  RuntimeInfo,
   SessionSummary,
   SessionTranscript,
   TerminalTab,
-  WorkspaceSummary,
 } from "./types";
+import { localeTag, normalizedPath, tabMatchesSession } from "./uiUtils";
 import packageMetadata from "../package.json";
 import "./App.css";
 
-type ToastState = {
-  kind: "error" | "notice";
-  message: string;
-};
 
 type PendingUpdateRestart = {
   updateTerminalId: string;
-  sourceTerminalId: string | null;
   sourceTab: TerminalTab | null;
 };
 
-function localeTag(lang: Lang): string {
-  return lang === "en" ? "en" : "ru";
-}
-
-function normalizedPath(path: string, platform: string): string {
-  const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
-  return platform === "windows" ? normalized.toLocaleLowerCase("en-US") : normalized;
-}
-
-function tabMatchesSession(tab: TerminalTab, session: SessionSummary, platform: string): boolean {
-  return (
-    tab.sessionId === session.id ||
-    Boolean(
-      tab.sessionPath &&
-        normalizedPath(tab.sessionPath, platform) === normalizedPath(session.filePath, platform),
-    )
-  );
-}
-
-function formatRelative(timestamp: number, lang: Lang): string {
-  if (!timestamp) {
-    return lang === "en" ? "no runs" : "нет запусков";
-  }
-  const relativeTime = new Intl.RelativeTimeFormat(localeTag(lang), { numeric: "auto" });
-  const calendarDate = new Intl.DateTimeFormat(localeTag(lang), {
-    day: "numeric",
-    month: "short",
-  });
-  const seconds = Math.round((timestamp - Date.now()) / 1000);
-  const absolute = Math.abs(seconds);
-  if (absolute < 60) return relativeTime.format(seconds, "second");
-  if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute");
-  if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour");
-  if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day");
-  return calendarDate.format(timestamp);
-}
-
-function formatTimestamp(timestamp: string | number, lang: Lang): string {
-  const numericTimestamp = typeof timestamp === "number" && timestamp < 10_000_000_000
-    ? timestamp * 1_000
-    : timestamp;
-  const date = new Date(numericTimestamp);
-  if (Number.isNaN(date.getTime())) return String(timestamp);
-  return new Intl.DateTimeFormat(localeTag(lang), {
-    dateStyle: "medium",
-    timeStyle: "medium",
-  }).format(date);
-}
 
 function transcriptRoleLabel(role: string, lang: Lang): string {
   switch (role.trim().toLocaleLowerCase("en-US")) {
@@ -150,305 +102,6 @@ async function notifyTerminalCompletion(
     // Notifications are optional and must never interfere with terminal cleanup.
   }
 }
-
-interface WorkspaceHomeProps {
-  workspace: WorkspaceSummary | null;
-  sessions: SessionSummary[];
-  selectedSession: SessionSummary | null;
-  runtime: RuntimeInfo;
-  launching: string | null;
-  lang: Lang;
-  onLaunch: (session?: SessionSummary) => void;
-  onReveal: (path: string) => void;
-  onOpenFolder: () => void;
-}
-
-function WorkspaceHome({
-  workspace,
-  sessions,
-  selectedSession,
-  runtime,
-  launching,
-  lang,
-  onLaunch,
-  onReveal,
-  onOpenFolder,
-}: WorkspaceHomeProps) {
-  if (!workspace) {
-    return (
-      <section className="empty-workspace">
-        <div className="empty-orbit" aria-hidden="true">
-          <span />
-          <Icon name="folderOpen" size={34} />
-        </div>
-        <span className="eyebrow">{t(lang, "startWork")}</span>
-        <h1>{t(lang, "emptyTitle")}</h1>
-        <p>{t(lang, "emptyDesc")}</p>
-        <button className="button primary large" onClick={onOpenFolder} type="button">
-          <Icon name="folderOpen" />
-          {t(lang, "btnOpenFolder")}
-        </button>
-        <span className="shortcut-hint">Ctrl + Shift + O</span>
-      </section>
-    );
-  }
-
-  const latest = sessions[0] ?? null;
-  const focusSession = selectedSession ?? latest;
-  return (
-    <div className="workspace-home">
-      <section className="hero-card">
-        <div className="hero-copy">
-          <span className="eyebrow">
-            <Icon name="spark" size={14} />
-            {t(lang, "workspaceReady")}
-          </span>
-          <h1>{workspace.name}</h1>
-          <button
-            className="hero-path"
-            onClick={() => onReveal(workspace.path)}
-            title={t(lang, "showInExplorer")}
-            type="button"
-          >
-            <span>{workspace.path}</span>
-            <Icon name="external" size={14} />
-          </button>
-          <p>{t(lang, "workspaceDesc")}</p>
-          <div className="hero-actions">
-            <button
-              className="button primary large"
-              disabled={launching !== null || !runtime.ompAvailable}
-              onClick={() => onLaunch()}
-              type="button"
-            >
-              <Icon name="plus" />
-              {launching === "new" ? t(lang, "launching") : t(lang, "btnNewSession")}
-            </button>
-            {focusSession && (
-              <button
-                className="button secondary large"
-                disabled={launching !== null || !runtime.ompAvailable}
-                onClick={() => onLaunch(focusSession)}
-                type="button"
-              >
-                <Icon name="play" />
-                {t(lang, "btnResumeLast")}
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="hero-mark" aria-hidden="true">
-          <Icon name="logo" size={112} />
-          <span>OMP</span>
-        </div>
-      </section>
-
-      <section className="stats-grid" aria-label={t(lang, "statSessions")}>
-        <article>
-          <span>{t(lang, "statSessions")}</span>
-          <strong>{workspace.sessionCount}</strong>
-          <small>{t(lang, "statInFolder")}</small>
-        </article>
-        <article>
-          <span>{t(lang, "statLastRun")}</span>
-          <strong className="stat-text">{formatRelative(workspace.lastActive, lang)}</strong>
-          <small>{t(lang, "statByFileTime")}</small>
-        </article>
-        <article>
-          <span>Runtime</span>
-          <strong className="stat-text">
-            {runtime.ompVersion?.replace(/^omp(?:\s+|\/)/i, "") ?? t(lang, "notFound")}
-          </strong>
-          <small>
-            {runtime.platform} · {runtime.arch}
-          </small>
-        </article>
-      </section>
-
-      <section className="recent-card">
-        <div className="card-heading">
-          <div>
-            <span className="eyebrow">{t(lang, "recent")}</span>
-            <h2>{t(lang, "continueWork")}</h2>
-          </div>
-          <span className="muted-count">
-            {sessions.length} {t(lang, "total")}
-          </span>
-        </div>
-        {sessions.length === 0 ? (
-          <div className="inline-empty">
-            <Icon name="history" />
-            <div>
-              <strong>{t(lang, "noSessionsYet")}</strong>
-              <span>{t(lang, "noSessionsDesc")}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="recent-list">
-            {sessions.slice(0, 4).map((session) => (
-              <button key={session.id} onClick={() => onLaunch(session)} type="button">
-                <span className="recent-icon">
-                  <Icon name="history" />
-                </span>
-                <span className="recent-copy">
-                  <strong>{session.title}</strong>
-                  <small>
-                    {session.model?.split("/").at(-1) ?? t(lang, "noModel")} ·{" "}
-                    {formatRelative(session.updatedAt, lang)}
-                  </small>
-                </span>
-                <Icon name="arrow" size={16} />
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function SessionControls({
-  tab,
-  ompConfig,
-  lang,
-  onSwitch,
-}: {
-  tab: TerminalTab;
-  ompConfig: OmpConfigSnapshot | null;
-  lang: Lang;
-  onSwitch: (tabId: string, model: string, thinking: string | null) => void;
-}) {
-  if (!ompConfig || tab.status !== "running" || tab.kind !== "agent") return null;
-
-  const defaultSelector =
-    ompConfig.roles.find((role) => role.role === "default")?.selector ?? "";
-  const configured = splitSelector(tab.currentModel ?? defaultSelector);
-  const selectedModel = ompConfig.models.find((model) =>
-    matchesSelector(model, configured.base),
-  );
-  const baseModel = selectedModel
-    ? splitSelector(selectedModel.selector).base
-    : configured.base;
-  const supportedThinking = selectedModel?.thinking ?? [];
-  const thinkingOptions =
-    supportedThinking.length === 0
-      ? []
-      : [
-          "off",
-          "auto",
-          ...supportedThinking.filter((level) => level !== "off" && level !== "auto"),
-        ];
-  const preferredThinking =
-    tab.currentThinkingConfigured ??
-    tab.currentThinking ??
-    configured.thinking ??
-    ompConfig.defaultThinkingLevel;
-  const currentThinking =
-    preferredThinking && thinkingOptions.includes(preferredThinking)
-      ? preferredThinking
-      : (thinkingOptions[0] ?? null);
-
-  const modelsByProvider = ompConfig.models.reduce<
-    Record<string, typeof ompConfig.models>
-  >((providers, model) => {
-    const provider = model.provider || "unknown";
-    (providers[provider] ??= []).push(model);
-    return providers;
-  }, {});
-
-  const switchSelection = (model: string, thinking: string | null) => {
-    if (!model || tab.switching) return;
-    onSwitch(tab.id, model, thinking);
-  };
-
-  const handleModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextBase = event.target.value;
-    if (nextBase === baseModel) return;
-    const nextModel = ompConfig.models.find((model) =>
-      matchesSelector(model, nextBase),
-    );
-    if (!nextModel?.available) return;
-    const defaultThinking = ompConfig.defaultThinkingLevel;
-    const nextOptions =
-      nextModel.thinking.length === 0
-        ? []
-        : [
-            "off",
-            "auto",
-            ...nextModel.thinking.filter((level) => level !== "off" && level !== "auto"),
-          ];
-    const nextThinking =
-      currentThinking && nextOptions.includes(currentThinking)
-        ? currentThinking
-        : defaultThinking && nextOptions.includes(defaultThinking)
-          ? defaultThinking
-          : (nextOptions[0] ?? null);
-    switchSelection(splitSelector(nextModel.selector).base, nextThinking);
-  };
-
-  const handleThinkingChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextThinking = event.target.value;
-    if (nextThinking === currentThinking || !thinkingOptions.includes(nextThinking)) {
-      return;
-    }
-    switchSelection(baseModel, nextThinking);
-  };
-
-  return (
-    <div aria-busy={tab.switching} className="session-controls">
-      <select
-        aria-label={t(lang, "sessionModel")}
-        className="session-model-select"
-        disabled={tab.switching}
-        onChange={handleModelChange}
-        title={t(lang, "sessionModel")}
-        value={baseModel}
-      >
-        {!selectedModel && baseModel && <option value={baseModel}>{baseModel}</option>}
-        {Object.entries(modelsByProvider).map(([provider, models]) => (
-          <optgroup label={provider} key={provider}>
-            {models.map((model) => {
-              const selector = splitSelector(model.selector).base;
-              return (
-                <option disabled={!model.available} key={model.selector} value={selector}>
-                  {model.name}
-                </option>
-              );
-            })}
-          </optgroup>
-        ))}
-      </select>
-      <select
-        aria-label={t(lang, "sessionThinking")}
-        className="session-thinking-select"
-        disabled={tab.switching || thinkingOptions.length === 0}
-        onChange={handleThinkingChange}
-        title={t(lang, "sessionThinking")}
-        value={currentThinking ?? ""}
-      >
-        {thinkingOptions.length === 0 ? (
-          <option value="">{t(lang, "thinkingUnavailable")}</option>
-        ) : (
-          thinkingOptions.map((level) => (
-            <option key={level} value={level}>
-              {thinkingLevelLabel(lang, level)}
-            </option>
-          ))
-        )}
-      </select>
-      {tab.currentModelRole === "fallback" && !tab.switching && (
-        <span aria-live="polite" className="session-fallback">
-          {t(lang, "fallbackActive")}
-        </span>
-      )}
-      {tab.switching && (
-        <span aria-live="polite" className="session-switching">
-          {t(lang, "switchingSession")}
-        </span>
-      )}
-    </div>
-  );
-}
 function App() {
 
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
@@ -459,12 +112,14 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>());
   const completionNotifiedRef = useRef(new Set<string>());
+  const pendingInitialInputRef = useRef(new Map<string, string>());
+  const readyTerminalIdsRef = useRef(new Set<string>());
   const transcriptRequestRef = useRef(0);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(true);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [launching, setLaunching] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [toast, setToast] = useState<ToastState | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -498,6 +153,16 @@ function App() {
     void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    if (activeTab?.activity === "thinking") {
+      document.title = `[Thinking...] ${activeTab.label} — OMP Desktop`;
+    } else if (activeTab) {
+      document.title = `${activeTab.label} — OMP Desktop`;
+    } else {
+      document.title = "OMP Desktop";
+    }
+  }, [activeTabId, tabs]);
   const visibleTranscriptEntries = useMemo(() => {
     const query = transcriptSearch.trim().toLocaleLowerCase(localeTag(lang));
     return (transcript?.entries ?? []).filter((entry) => {
@@ -515,13 +180,51 @@ function App() {
         .includes(query);
     });
   }, [lang, transcript, transcriptMode, transcriptSearch]);
-
   const showError = useCallback((message: string) => {
-    setToast({ kind: "error", message });
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((current) => [...current, { id, kind: "error", message }]);
   }, []);
+
   const showNotice = useCallback((message: string) => {
-    setToast({ kind: "notice", message });
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts((current) => [...current, { id, kind: "notice", message }]);
   }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+  const sendPendingInitialInput = useCallback(
+    async (terminalId: string) => {
+      const initialInput = pendingInitialInputRef.current.get(terminalId);
+      if (initialInput === undefined) return;
+      pendingInitialInputRef.current.delete(terminalId);
+      try {
+        await writeTerminal(terminalId, initialInput);
+      } catch (error) {
+        showError(errorMessage(error));
+      }
+    },
+    [showError],
+  );
+
+  const queueInitialInput = useCallback(
+    async (terminalId: string, initialInput: string) => {
+      if (!initialInput) return;
+      pendingInitialInputRef.current.set(terminalId, initialInput);
+      if (readyTerminalIdsRef.current.has(terminalId)) {
+        await sendPendingInitialInput(terminalId);
+      }
+    },
+    [sendPendingInitialInput],
+  );
+
+  const handleTerminalReady = useCallback(
+    (terminalId: string) => {
+      readyTerminalIdsRef.current.add(terminalId);
+      void sendPendingInitialInput(terminalId);
+    },
+    [sendPendingInitialInput],
+  );
 
   const applyPayload = useCallback((next: BootstrapPayload, preferredWorkspace?: string) => {
     setPayload(next);
@@ -668,25 +371,27 @@ function App() {
       void unlistenUpdate.then((stop) => stop?.());
     };
   }, [applyPayload, lang, payload?.runtime.ompVersion, showError, showNotice]);
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 5_500);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
 
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true);
     try {
       const info = await checkOmpUpdate();
-      setUpdateInfo(info);
-      setUpdateNoticeVisible(info.hasUpdate);
-      if (!info.hasUpdate) setUpdateSourceTerminalId(null);
+      setUpdateInfo((current) => {
+        if (!info.hasUpdate && current?.hasUpdate) {
+          return current;
+        }
+        return info;
+      });
+      setUpdateNoticeVisible((current) => info.hasUpdate || current);
+      if (!info.hasUpdate && !updateSourceTerminalId) {
+        setUpdateNoticeVisible(false);
+      }
     } catch {
       // A live PTY notice remains authoritative when the registry check is temporarily unavailable.
     } finally {
       setCheckingUpdate(false);
     }
-  }, []);
+  }, [updateSourceTerminalId]);
 
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
@@ -694,6 +399,7 @@ function App() {
       setUpdateSourceTerminalId(null);
       setUpdateNoticeVisible(false);
       setCheckingUpdate(false);
+      pendingUpdateRestartRef.current = null;
       return;
     }
     const check = () => void checkForUpdates();
@@ -847,13 +553,7 @@ function App() {
         );
         if (existing) {
           focusTab(existing.id);
-          if (initialInput) {
-            try {
-              await writeTerminal(existing.id, initialInput);
-            } catch (error) {
-              showError(errorMessage(error));
-            }
-          }
+          if (initialInput) await queueInitialInput(existing.id, initialInput);
           return;
         }
       }
@@ -899,16 +599,16 @@ function App() {
           currentThinkingConfigured: initialConfiguredThinking,
           success: null,
         };
+        if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput);
         setTabs((current) => [...current, tab]);
         setActiveTabId(tab.id);
-        if (initialInput) await writeTerminal(tab.id, initialInput);
       } catch (error) {
         showError(errorMessage(error));
       } finally {
         setLaunching(null);
       }
     },
-    [focusTab, lang, launching, ompConfig, payload, selectedWorkspace, showError, tabs],
+    [focusTab, lang, launching, ompConfig, payload, queueInitialInput, selectedWorkspace, showError, tabs],
   );
 
   const openAndRereadSession = useCallback(
@@ -926,12 +626,12 @@ function App() {
       tabs.find((tab) => tab.id === updateSourceTerminalId && tab.status === "running") ??
       tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
       null;
+    pendingUpdateRestartRef.current = null;
     setLaunching("update");
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"]);
       pendingUpdateRestartRef.current = {
         updateTerminalId: started.terminalId,
-        sourceTerminalId: sourceTab?.id ?? null,
         sourceTab,
       };
       const tab: TerminalTab = {
@@ -1065,10 +765,26 @@ function App() {
     [ompConfig, refresh, showError, tabs],
   );
 
-  const closeTab = useCallback(
+  const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
+    setTabs((current) => {
+      const draggedIndex = current.findIndex((tab) => tab.id === draggedId);
+      const targetIndex = current.findIndex((tab) => tab.id === targetId);
+      if (draggedIndex < 0 || targetIndex < 0) return current;
+      const copy = [...current];
+      const [moved] = copy.splice(draggedIndex, 1);
+      copy.splice(targetIndex, 0, moved);
+      return copy;
+    });
+  }, []);
+
+
+  const performCloseTab = useCallback(
     (terminalId: string) => {
-      const target = tabs.find((tab) => tab.id === terminalId);
-      if (!target || target.switching) return;
+      if (pendingUpdateRestartRef.current?.updateTerminalId === terminalId) {
+        pendingUpdateRestartRef.current = null;
+      }
+      pendingInitialInputRef.current.delete(terminalId);
+      readyTerminalIdsRef.current.delete(terminalId);
       discoveredSessionsRef.current.delete(terminalId);
       void closeTerminal(terminalId).catch((error) => showError(errorMessage(error)));
       setTabs((current) => {
@@ -1081,8 +797,39 @@ function App() {
         return remaining;
       });
     },
-    [showError, tabs],
+    [showError],
   );
+
+  const closeTab = useCallback(
+    (terminalId: string) => {
+      const target = tabs.find((tab) => tab.id === terminalId);
+      if (!target || target.switching) return;
+      if (target.status === "running") {
+        void confirm(t(lang, "stopAndCloseConfirm"), {
+          title: target.label,
+          kind: "warning",
+        }).then((shouldClose) => {
+          if (shouldClose) {
+            performCloseTab(terminalId);
+          }
+        });
+      } else {
+        performCloseTab(terminalId);
+      }
+    },
+    [lang, performCloseTab, tabs],
+  );
+
+  useEffect(() => {
+    const pending = pendingUpdateRestartRef.current;
+    if (!pending) return;
+    const updateTab = tabs.find((tab) => tab.id === pending.updateTerminalId);
+    // Only clear if the tab existed but is no longer a running utility tab.
+    // Do NOT clear if the tab hasn't been registered yet (race between setTabs and ref write).
+    if (updateTab && (updateTab.kind !== "utility" || updateTab.status !== "running")) {
+      pendingUpdateRestartRef.current = null;
+    }
+  }, [tabs]);
 
   const deleteOmpSession = useCallback(
     async (session: SessionSummary) => {
@@ -1121,10 +868,48 @@ function App() {
     ],
   );
 
+  const startRenameSession = useCallback((session: SessionSummary) => {
+    setRenameValue(session.title);
+    setRenamingSessionId(session.id);
+  }, []);
+
+  const submitRenameSession = useCallback(
+    (session: SessionSummary) => {
+      if (renamingSessionId !== session.id) return;
+      setRenamingSessionId(null);
+      const trimmed = renameValue.trim();
+      if (trimmed && trimmed !== session.title) {
+        void renameSession(session.filePath, trimmed)
+          .then((next) => applyPayload(next))
+          .catch((error) => showError(errorMessage(error)));
+      }
+    },
+    [applyPayload, renameValue, renamingSessionId, showError],
+  );
+
+  const handleRenameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>, session: SessionSummary) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitRenameSession(session);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setRenamingSessionId(null);
+      }
+    },
+    [submitRenameSession],
+  );
+
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
       if (completionNotifiedRef.current.has(event.terminalId)) return;
       completionNotifiedRef.current.add(event.terminalId);
+      pendingInitialInputRef.current.delete(event.terminalId);
+      readyTerminalIdsRef.current.delete(event.terminalId);
+      const pendingUpdate = pendingUpdateRestartRef.current?.updateTerminalId === event.terminalId
+        ? pendingUpdateRestartRef.current
+        : null;
+      if (pendingUpdate) pendingUpdateRestartRef.current = null;
 
       const target = tabs.find((tab) => tab.id === event.terminalId);
       setTabs((current) =>
@@ -1151,26 +936,24 @@ function App() {
       }
 
       if (event.success) {
-        if (pendingUpdateRestartRef.current?.updateTerminalId === event.terminalId) {
-          const pending = pendingUpdateRestartRef.current;
-          pendingUpdateRestartRef.current = null;
+        if (pendingUpdate) {
           showNotice(t(lang, "updateInstalled"));
-          if (pending.sourceTab?.sessionId && pending.sourceTab.sessionPath) {
+          if (pendingUpdate.sourceTab?.sessionId && pendingUpdate.sourceTab.sessionPath) {
             const targetSession: SessionSummary = {
-              id: pending.sourceTab.sessionId,
-              title: pending.sourceTab.label,
-              cwd: pending.sourceTab.cwd,
-              filePath: pending.sourceTab.sessionPath,
+              id: pendingUpdate.sourceTab.sessionId,
+              title: pendingUpdate.sourceTab.label,
+              cwd: pendingUpdate.sourceTab.cwd,
+              filePath: pendingUpdate.sourceTab.sessionPath,
               createdAt: "",
               updatedAt: Date.now(),
-              model: pending.sourceTab.currentModel ?? null,
-              thinkingLevel: pending.sourceTab.currentThinking ?? null,
-              configuredThinkingLevel: pending.sourceTab.currentThinkingConfigured ?? null,
+              model: pendingUpdate.sourceTab.currentModel ?? null,
+              thinkingLevel: pendingUpdate.sourceTab.currentThinking ?? null,
+              configuredThinkingLevel: pendingUpdate.sourceTab.currentThinkingConfigured ?? null,
               source: "omp",
               hasMessages: true,
             };
             showNotice(
-              t(lang, "updateRestarted").replace("{title}", pending.sourceTab.label),
+              t(lang, "updateRestarted").replace("{title}", pendingUpdate.sourceTab.label),
             );
             void launchSession(targetSession);
           }
@@ -1232,477 +1015,90 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">
-            <Icon name="logo" size={26} />
-          </span>
-          <strong>OMP</strong>
-          <span className="brand-product">Desktop</span>
-          <span className="app-version" title={`OMP Desktop ${appVersion}`}>
-            v{appVersion}
-          </span>
-        </div>
-        <div className="topbar-context">
-          <Icon name="folder" size={15} />
-          <span>{selectedWorkspace?.name ?? t(lang, "projectNotSelected")}</span>
-          {selectedWorkspace && <small>{selectedWorkspace.path}</small>}
-        </div>
-        <div className="topbar-actions">
-          <button
-            className={`runtime-pill ${payload.runtime.ompAvailable ? "is-ready" : "is-error"}`}
-            onClick={() => setSettingsOpen(true)}
-            type="button"
-          >
-            <span />
-            {payload.runtime.ompVersion ?? t(lang, "notFound")}
-          </button>
-          {checkingUpdate && (
-            <span aria-live="polite" className="update-check-pill">
-              <span className="mini-loader" />
-              {t(lang, "updateChecking")}
-            </span>
-          )}
-          {updateInfo?.hasUpdate && (
-            <button
-              className="button secondary update-pill"
-              onClick={() => void launchUpdate()}
-              title={updateInfo.message}
-              type="button"
-            >
-              <Icon name="spark" size={14} />
-              {t(lang, "updateNow")}
-              {updateInfo.latestVersion ? ` ${updateInfo.latestVersion}` : ""}
-            </button>
-          )}
-          <button
-            className={`icon-button${refreshing ? " is-spinning" : ""}`}
-            disabled={refreshing}
-            onClick={() => void refresh()}
-            title={t(lang, "refresh")}
-            type="button"
-          >
-            <Icon name="refresh" />
-          </button>
-          <button
-            className="icon-button"
-            onClick={() => setSettingsOpen(true)}
-            title={t(lang, "settings")}
-            type="button"
-          >
-            <Icon name="settings" />
-          </button>
-        </div>
-      </header>
+      <Topbar
+        appVersion={appVersion}
+        checkingUpdate={checkingUpdate}
+        language={lang}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onRefresh={() => void refresh()}
+        onUpdate={() => void launchUpdate()}
+        refreshing={refreshing}
+        runtime={payload.runtime}
+        selectedWorkspace={selectedWorkspace}
+        updateInfo={updateInfo}
+      />
 
       <div className="workbench">
-        <aside className="project-rail">
-          <div className="section-title">
-            <span>{t(lang, "projects")}</span>
-            <button onClick={() => void openFolder()} title={t(lang, "btnOpenFolder")} type="button">
-              <Icon name="plus" size={16} />
-            </button>
-          </div>
-          <nav className="project-list" aria-label={t(lang, "projects")}>
-            {payload.workspaces.map((workspace) => {
-              const active = selectedWorkspace
-                ? normalizedPath(workspace.path, payload.runtime.platform) ===
-                  normalizedPath(selectedWorkspace.path, payload.runtime.platform)
-                : false;
-              return (
-                <button
-                  aria-expanded={active}
-                  className={`project-item${active ? " is-active is-expanded" : ""}`}
-                  key={normalizedPath(workspace.path, payload.runtime.platform)}
-                  onClick={() => {
-                    setSelectedWorkspacePath(workspace.path);
-                    setSelectedSessionId(null);
-                    setSearch("");
-                  }}
-                  title={workspace.path}
-                  type="button"
-                >
-                  <span className="project-glyph">
-                    <Icon name="folder" size={17} />
-                  </span>
-                  <span className="project-copy">
-                    <strong>{workspace.name}</strong>
-                    <small>
-                      {workspace.sessionCount} {t(lang, "sessShort")}
-                    </small>
-                  </span>
-                  <span aria-hidden="true" className="project-expand-marker">
-                    <Icon name="chevron" size={13} />
-                  </span>
-                  {workspace.pinned && <span className="pin-dot" title="pinned" />}
-                </button>
-              );
-            })}
-          </nav>
-          <section className="project-sessions">
-          <div className="session-header">
-            <div className="session-project-row">
-              <div>
-                <span className="eyebrow">{t(lang, "sessions")}</span>
-                <h2>{selectedWorkspace?.name ?? t(lang, "noProject")}</h2>
-              </div>
-              <div className="session-header-actions">
-                {selectedWorkspace && (
-                  <>
-                    <button
-                      className="icon-button compact"
-                      onClick={() => void openCodexImport()}
-                      title={t(lang, "importCodex")}
-                      type="button"
-                    >
-                      <Icon name="history" size={15} />
-                    </button>
-                    <button
-                      className="icon-button compact"
-                      onClick={() => void importOmpFile()}
-                      title={t(lang, "importSession")}
-                      type="button"
-                    >
-                      <Icon name="plus" size={15} />
-                    </button>
-                    <button
-                      className="icon-button compact"
-                      onClick={() => reveal(selectedWorkspace.path)}
-                      title={t(lang, "showInExplorer")}
-                      type="button"
-                    >
-                      <Icon name="external" size={15} />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            <button
-              className="button primary new-session-button"
-              disabled={!selectedWorkspace || launching !== null || !payload.runtime.ompAvailable}
-              onClick={() => void launchSession()}
-              type="button"
-            >
-              <Icon name="plus" size={16} />
-              {launching === "new" ? t(lang, "launching") : t(lang, "btnNewSession")}
-            </button>
-            <label className="search-box">
-              <Icon name="search" size={15} />
-              <input
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t(lang, "searchSessions")}
-                value={search}
-              />
-              {search && (
-                <button onClick={() => setSearch("")} title={t(lang, "clearSearch")} type="button">
-                  <Icon name="close" size={13} />
-                </button>
-              )}
-            </label>
-          </div>
-
-          <div className="session-list">
-            {visibleSessions.map((session) => {
-              const selected = session.id === selectedSessionId;
-              const busy = launching === session.id;
-              const renaming = session.id === renamingSessionId;
-              const sessionTab = tabs.find((tab) =>
-                tabMatchesSession(tab, session, payload.runtime.platform),
-              );
-              const runningTab = tabs.find(
-                (tab) =>
-                  tab.status === "running" &&
-                  tabMatchesSession(tab, session, payload.runtime.platform),
-              );
-              const sessionOpen = Boolean(sessionTab);
-              const sessionRunning = Boolean(runningTab);
-              const sessionThinking = runningTab?.activity === "thinking";
-              const deleting = deletingSessionId === session.id;
-
-              const submitRename = () => {
-                if (!renaming) return;
-                setRenamingSessionId(null);
-                const trimmed = renameValue.trim();
-                if (trimmed && trimmed !== session.title) {
-                  void renameSession(session.filePath, trimmed)
-                    .then((next) => applyPayload(next))
-                    .catch((error) => showError(errorMessage(error)));
-                }
-              };
-
-              const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitRename();
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  setRenamingSessionId(null);
-                }
-              };
-
-              return (
-                <article
-                  className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}`}
-                  key={session.id}
-                >
-                  <div
-                    aria-pressed={selected}
-                    className="session-select"
-                    onClick={() => selectSession(session)}
-                    onDoubleClick={() => {
-                      if (deletingSessionId === null) void launchSession(session);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        selectSession(session);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <span className="session-icon">
-                      <Icon name="history" size={16} />
-                    </span>
-                    <span
-                      className="session-copy"
-                      onClick={() => selectSession(session)}
-                      role="presentation"
-                    >
-                      {renaming ? (
-                        <input
-                          autoFocus
-                          className="session-rename"
-                          onBlur={submitRename}
-                          onChange={(event) => setRenameValue(event.target.value)}
-                          onKeyDown={handleRenameKeyDown}
-                          value={renameValue}
-                        />
-                      ) : (
-                        <strong>{session.title}</strong>
-                      )}
-                      <small>
-                        {formatRelative(session.updatedAt, lang)}
-                        <i>·</i>
-                        {session.model?.split("/").at(-1) ?? t(lang, "noModel")}
-                        {session.source !== "omp" ? <i>· {session.source}</i> : null}
-                      </small>
-                    </span>
-                    {sessionOpen && (
-                      <span
-                        aria-label={
-                          sessionThinking
-                            ? t(lang, "sessionThinkingTitle")
-                            : sessionRunning
-                              ? t(lang, "sessionOpenTitle")
-                              : t(lang, "sessionOpenShort")
-                        }
-                        className={`session-live-marker${sessionRunning ? " is-running" : ""}${sessionThinking ? " is-thinking" : ""}`}
-                        title={
-                          sessionThinking
-                            ? t(lang, "sessionThinkingTitle")
-                            : sessionRunning
-                              ? t(lang, "sessionOpenTitle")
-                              : t(lang, "sessionOpenShort")
-                        }
-                      >
-                        <span />
-                      </span>
-                    )}
-                  </div>
-                  {!renaming && (
-                    <button
-                      className="session-play session-transcript"
-                      disabled={deletingSessionId !== null}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void loadTranscript(session);
-                      }}
-                      title={t(lang, "openTranscript")}
-                      type="button"
-                    >
-                      <Icon name="history" size={14} />
-                    </button>
-                  )}
-                  {!renaming && (
-                    <button
-                      className="session-play"
-                      disabled={deletingSessionId !== null}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setRenameValue(session.title);
-                        setRenamingSessionId(session.id);
-                      }}
-                      title={t(lang, "rename")}
-                      type="button"
-                    >
-                      <Icon name="edit" size={14} />
-                    </button>
-                  )}
-                  {!renaming && (
-                    <button
-                      className="session-play session-delete"
-                      disabled={deletingSessionId !== null || sessionRunning}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void deleteOmpSession(session);
-                      }}
-                      title={
-                        sessionRunning
-                          ? t(lang, "closeSessionBeforeDelete")
-                          : t(lang, "deleteSession")
-                      }
-                      type="button"
-                    >
-                      {deleting ? <span className="mini-loader" /> : <Icon name="trash" size={14} />}
-                    </button>
-                  )}
-                  {!renaming && (
-                    <button
-                      className="session-play"
-                      disabled={
-                        deletingSessionId !== null || launching !== null || !payload.runtime.ompAvailable
-                      }
-                      onClick={() => void launchSession(session)}
-                      title={t(lang, "resumeSession")}
-                      type="button"
-                    >
-                      {busy ? <span className="mini-loader" /> : <Icon name="play" size={14} />}
-                    </button>
-                  )}
-                </article>
-              );
-            })}
-            {selectedWorkspace && visibleSessions.length === 0 && (
-              <div className="sidebar-empty">
-                <Icon name={search ? "search" : "history"} />
-                <strong>{search ? t(lang, "nothingFound") : t(lang, "historyEmpty")}</strong>
-                <span>{search ? t(lang, "tryAnotherQuery") : t(lang, "createFirstSession")}</span>
-              </div>
-            )}
-          </div>
-          <div className="session-footer">
-            <span>
-              {workspaceSessions.length} {t(lang, "sessions").toLowerCase()}
-            </span>
-            <small>{t(lang, "jsonlNative")}</small>
-          </div>
-          </section>
-          <button className="open-project-button" onClick={() => void openFolder()} type="button">
-            <Icon name="folderOpen" size={16} />
-            {t(lang, "btnOpenFolder")}
-          </button>
-          <div className="rail-footer">
-            <Icon name="command" size={15} />
-            <span>Ctrl + N</span>
-            <small>{t(lang, "newSessionShortcut")}</small>
-          </div>
-        </aside>
-
-        <main className="main-stage">
-          {tabs.length > 0 ? (
-            <div className="terminal-workspace">
-              <div className="terminal-tabs">
-                <div className="terminal-tabs-scroll">
-                  {tabs.map((tab) => (
-                    <div
-                      className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity}`}
-                      key={tab.id}
-                    >
-                      <button
-                        aria-label={`${tab.label} — ${tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.activity === "error" ? t(lang, "sessionErrorTitle") : tab.status === "running" ? t(lang, "sessionOpenTitle") : t(lang, "close")}`}
-                        onClick={() => focusTab(tab.id)}
-                        title={tab.activity === "thinking" ? t(lang, "sessionThinkingTitle") : tab.activity === "error" ? t(lang, "sessionErrorTitle") : undefined}
-                        type="button"
-                      >
-                        <span className={`status-dot is-${tab.status} is-${tab.activity}`} />
-                        <Icon name="terminal" size={14} />
-                        <span className="terminal-tab-label">{tab.label}</span>
-                        {tab.activity === "thinking" && (
-                          <span aria-live="polite" className="terminal-tab-thinking">
-                            <span className="thinking-pulse" />
-                            {t(lang, "thinkingShort")}
-                          </span>
-                        )}
-                        {tab.activity === "error" && (
-                          <span aria-live="assertive" className="terminal-tab-error">
-                            {t(lang, "sessionErrorShort")}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        className="tab-close"
-                        disabled={tab.switching}
-                        onClick={() => closeTab(tab.id)}
-                        title={tab.status === "running" ? t(lang, "stopAndClose") : t(lang, "close")}
-                        type="button"
-                      >
-                        <Icon name="close" size={13} />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    className="new-tab-button"
-                    disabled={!selectedWorkspace || launching !== null}
-                    onClick={() => void launchSession()}
-                    title={t(lang, "btnNewSession")}
-                    type="button"
-                  >
-                    <Icon name="plus" size={15} />
-                  </button>
-                </div>
-                <div className="terminal-meta">
-                  {(() => {
-                    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-                    if (!activeTab) return null;
-                    return (
-                      <SessionControls
-                        key={activeTab.id}
-                        tab={activeTab}
-                        ompConfig={ompConfig}
-                        lang={lang}
-                        onSwitch={(tabId, model, thinking) =>
-                          void switchTerminalRuntime(tabId, model, thinking)
-                        }
-                      />
-                    );
-                  })()}
-                  {tabs.find((tab) => tab.id === activeTabId)?.processId && (
-                    <span>PID {tabs.find((tab) => tab.id === activeTabId)?.processId}</span>
-                  )}
-                </div>
-              </div>
-              <div className="terminal-stack">
-                {tabs.map((tab) => (
-                  <TerminalView
-                    active={tab.id === activeTabId}
-                    key={tab.id}
-                    onError={showError}
-                    onExit={handleExit}
-                    tab={tab}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <WorkspaceHome
-              lang={lang}
-              launching={launching}
-              onLaunch={(session) => void launchSession(session)}
-              onOpenFolder={() => void openFolder()}
-              onReveal={reveal}
-              runtime={payload.runtime}
-              selectedSession={selectedSession}
-              sessions={workspaceSessions}
-              workspace={selectedWorkspace}
-            />
-          )}
-        </main>
+        <ProjectRail
+          onOpenFolder={() => void openFolder()}
+          onSelectWorkspace={(path) => {
+            setSelectedWorkspacePath(path);
+            setSelectedSessionId(null);
+            setSearch("");
+          }}
+          platform={payload.runtime.platform}
+          selectedWorkspace={selectedWorkspace}
+          sessionList={{
+            canLaunch: payload.runtime.ompAvailable,
+            deletingSessionId,
+            lang,
+            launching,
+            onClearSearch: () => setSearch(""),
+            onDeleteSession: (session) => void deleteOmpSession(session),
+            onImportOmp: () => void importOmpFile(),
+            onLaunchSession: (session) => void launchSession(session),
+            onLoadTranscript: (session) => void loadTranscript(session),
+            onNewSession: () => void launchSession(),
+            onOpenCodex: () => void openCodexImport(),
+            onRenameKeyDown: handleRenameKeyDown,
+            onRenameValueChange: setRenameValue,
+            onRevealWorkspace: reveal,
+            onSearchChange: setSearch,
+            onSelectSession: selectSession,
+            onStartRename: startRenameSession,
+            onSubmitRename: submitRenameSession,
+            platform: payload.runtime.platform,
+            renameValue,
+            renamingSessionId,
+            search,
+            selectedSessionId,
+            selectedWorkspaceName: selectedWorkspace?.name ?? null,
+            selectedWorkspacePath: selectedWorkspace?.path ?? null,
+            tabs,
+            visibleSessions,
+            workspaceSessionsCount: workspaceSessions.length,
+          }}
+          workspaces={payload.workspaces}
+        />
+        <TerminalWorkspace
+          activeTabId={activeTabId}
+          language={lang}
+          launching={launching}
+          ompConfig={ompConfig}
+          onCloseTab={closeTab}
+          onError={showError}
+          onExit={handleExit}
+          onFocusTab={focusTab}
+          onLaunch={(session) => void launchSession(session)}
+          onOpenFolder={() => void openFolder()}
+          onReorderTabs={handleReorderTabs}
+          onReady={handleTerminalReady}
+          onReveal={reveal}
+          onSwitch={(tabId, model, thinking) =>
+            void switchTerminalRuntime(tabId, model, thinking)
+          }
+          runtime={payload.runtime}
+          selectedSession={selectedSession}
+          selectedWorkspace={selectedWorkspace}
+          tabs={tabs}
+          workspaceSessions={workspaceSessions}
+        />
       </div>
 
       {settingsOpen && (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
+          onConfigSaved={setOmpConfig}
           onError={showError}
           onSaved={applyPayload}
           runtime={payload.runtime}
@@ -1711,288 +1107,50 @@ function App() {
       )}
 
       {transcriptSession && (
-        <div className="settings-backdrop" onMouseDown={closeTranscript} role="presentation">
-          <section
-            aria-labelledby="transcript-title"
-            aria-modal="true"
-            className="settings-panel transcript-panel"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <header className="settings-header transcript-header">
-              <div>
-                <span className="eyebrow">{t(lang, "transcript")}</span>
-                <h2 id="transcript-title">{transcript?.session.title ?? transcriptSession.title}</h2>
-                <small title={transcript?.session.filePath ?? transcriptSession.filePath}>
-                  {transcript?.session.filePath ?? transcriptSession.filePath}
-                </small>
-              </div>
-              <div className="transcript-header-actions">
-                <button
-                  className="button secondary transcript-reread-button"
-                  disabled={launching !== null || !payload.runtime.ompAvailable}
-                  onClick={() => void openAndRereadSession(transcriptSession)}
-                  type="button"
-                >
-                  <Icon name="terminal" size={14} />
-                  {t(lang, "transcriptOpenAndReread")}
-                </button>
-                <button
-                  className={`icon-button${transcriptLoading ? " is-spinning" : ""}`}
-                  disabled={transcriptLoading}
-                  onClick={() => void loadTranscript(transcriptSession)}
-                  title={t(lang, "transcriptRefresh")}
-                  type="button"
-                >
-                  <Icon name="refresh" />
-                </button>
-                <button
-                  className="icon-button"
-                  onClick={closeTranscript}
-                  title={t(lang, "close")}
-                  type="button"
-                >
-                  <Icon name="close" />
-                </button>
-              </div>
-            </header>
-            {transcript && transcript.entries.length > 0 && (
-              <div className="transcript-toolbar">
-                <div className="transcript-search-field" role="search">
-                  <Icon name="search" size={14} />
-                  <input
-                    aria-label={t(lang, "transcriptSearch")}
-                    onChange={(event) => setTranscriptSearch(event.target.value)}
-                    placeholder={t(lang, "transcriptSearch")}
-                    spellCheck={false}
-                    type="search"
-                    value={transcriptSearch}
-                  />
-                  {transcriptSearch && (
-                    <button
-                      aria-label={t(lang, "clearSearch")}
-                      onClick={() => setTranscriptSearch("")}
-                      title={t(lang, "clearSearch")}
-                      type="button"
-                    >
-                      <Icon name="close" size={12} />
-                    </button>
-                  )}
-                </div>
-                <div
-                  aria-label={t(lang, "transcriptFilter")}
-                  className="transcript-filter"
-                  role="group"
-                >
-                  <button
-                    aria-pressed={transcriptMode === "dialogue"}
-                    className={transcriptMode === "dialogue" ? "is-active" : undefined}
-                    onClick={() => setTranscriptMode("dialogue")}
-                    type="button"
-                  >
-                    {t(lang, "transcriptDialogueOnly")}
-                  </button>
-                  <button
-                    aria-pressed={transcriptMode === "all"}
-                    className={transcriptMode === "all" ? "is-active" : undefined}
-                    onClick={() => setTranscriptMode("all")}
-                    type="button"
-                  >
-                    {t(lang, "transcriptWithService")}
-                  </button>
-                </div>
-              </div>
-            )}
-            <div className="transcript-scroll">
-              {transcriptLoading ? (
-                <div aria-live="polite" className="transcript-state">
-                  <span className="mini-loader" />
-                  <strong>{t(lang, "transcriptLoading")}</strong>
-                </div>
-              ) : transcriptError ? (
-                <div className="transcript-state is-error" role="alert">
-                  <Icon name="alert" size={22} />
-                  <strong>{t(lang, "transcriptError")}</strong>
-                  <span>{transcriptError}</span>
-                  <button
-                    className="button secondary"
-                    onClick={() => void loadTranscript(transcriptSession)}
-                    type="button"
-                  >
-                    <Icon name="refresh" size={14} />
-                    {t(lang, "retry")}
-                  </button>
-                </div>
-              ) : !transcript || transcript.entries.length === 0 ? (
-                <div className="transcript-state">
-                  <Icon name="history" size={24} />
-                  <strong>{t(lang, "transcriptEmpty")}</strong>
-                </div>
-              ) : visibleTranscriptEntries.length === 0 ? (
-                <div className="transcript-state">
-                  <Icon name="search" size={24} />
-                  <strong>{t(lang, "transcriptNoMatches")}</strong>
-                  {transcriptSearch && (
-                    <button
-                      className="button secondary"
-                      onClick={() => setTranscriptSearch("")}
-                      type="button"
-                    >
-                      {t(lang, "clearSearch")}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="transcript-entries">
-                  {visibleTranscriptEntries.map((entry) => (
-                    <article
-                      className="transcript-entry"
-                      data-category={entry.category}
-                      data-role={entry.role}
-                      key={entry.id}
-                    >
-                      <header>
-                        <strong>{transcriptRoleLabel(entry.role, lang)}</strong>
-                        <span className="transcript-entry-meta">
-                          {entry.kind && <span>{entry.kind}</span>}
-                          {entry.model && <span>{entry.model}</span>}
-                          <time dateTime={entry.timestamp}>
-                            {formatTimestamp(entry.timestamp, lang)}
-                          </time>
-                        </span>
-                      </header>
-                      <pre>{transcriptMode === "dialogue" ? entry.dialogueText : entry.text}</pre>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-            {transcript && (
-              <footer className="transcript-footer">
-                <span>
-                  {t(lang, "transcriptShown")}: {visibleTranscriptEntries.length} / {transcript.entries.length}
-                </span>
-                <span>
-                  {t(lang, "transcriptUpdated")}: {formatTimestamp(transcript.updatedAt, lang)}
-                </span>
-              </footer>
-            )}
-          </section>
-        </div>
+        <TranscriptModal
+          lang={lang}
+          launching={launching}
+          onClearSearch={() => setTranscriptSearch("")}
+          onClose={closeTranscript}
+          onModeChange={setTranscriptMode}
+          onRefresh={() => void loadTranscript(transcriptSession)}
+          onReread={() => void openAndRereadSession(transcriptSession)}
+          onSearchChange={setTranscriptSearch}
+          runtimeAvailable={payload.runtime.ompAvailable}
+          transcript={transcript}
+          transcriptError={transcriptError}
+          transcriptLoading={transcriptLoading}
+          transcriptMode={transcriptMode}
+          transcriptSearch={transcriptSearch}
+          transcriptSession={transcriptSession}
+          visibleEntries={visibleTranscriptEntries}
+        />
       )}
 
       {codexOpen && (
-        <div className="settings-backdrop" onMouseDown={() => setCodexOpen(false)} role="presentation">
-          <section
-            className="settings-panel codex-import-panel"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <header className="settings-header">
-              <div>
-                <span className="eyebrow">Codex</span>
-                <h2>{t(lang, "codexImportTitle")}</h2>
-              </div>
-              <button className="icon-button" onClick={() => setCodexOpen(false)} type="button">
-                <Icon name="close" />
-              </button>
-            </header>
-            <div className="settings-scroll">
-              {codexLoading ? (
-                <p className="field-help">{t(lang, "loading")}</p>
-              ) : codexSessions.length === 0 ? (
-                <p className="field-help">{t(lang, "noCodexSessions")}</p>
-              ) : (
-                <div className="codex-list">
-                  {codexSessions.map((session) => (
-                    <label className="codex-item" key={session.filePath}>
-                      <input
-                        checked={Boolean(codexSelected[session.filePath])}
-                        onChange={(event) =>
-                          setCodexSelected((current) => ({
-                            ...current,
-                            [session.filePath]: event.target.checked,
-                          }))
-                        }
-                        type="checkbox"
-                      />
-                      <span>
-                        <strong>{session.title}</strong>
-                        <small>
-                          {session.cwd} · {formatRelative(session.updatedAt, lang)}
-                          {session.model ? ` · ${session.model}` : ""}
-                        </small>
-                        {session.preview && <em>{session.preview}</em>}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-            <footer className="settings-actions">
-              <button
-                className="button secondary"
-                onClick={() => {
-                  const next: Record<string, boolean> = {};
-                  for (const session of codexSessions) next[session.filePath] = true;
-                  setCodexSelected(next);
-                }}
-                type="button"
-              >
-                {t(lang, "selectAll")}
-              </button>
-              <button
-                className="button primary"
-                disabled={importing || Object.values(codexSelected).every((value) => !value)}
-                onClick={() => void importCodexSelected()}
-                type="button"
-              >
-                {importing ? t(lang, "saving") : t(lang, "importSelected")}
-              </button>
-            </footer>
-          </section>
-        </div>
+        <CodexImportModal
+          importing={importing}
+          language={lang}
+          loading={codexLoading}
+          onClose={() => setCodexOpen(false)}
+          onImport={() => void importCodexSelected()}
+          onSelectedChange={setCodexSelected}
+          selected={codexSelected}
+          sessions={codexSessions}
+        />
       )}
 
       {updateNoticeVisible && updateInfo?.hasUpdate && (
-        <div className="update-toast" role="status">
-          <Icon name="spark" size={18} />
-          <div>
-            <strong>{t(lang, "updateToastTitle")}</strong>
-            <span>
-              {t(lang, "updateToastBody")
-                .replace("{current}", updateInfo.currentVersion ?? t(lang, "notFound"))
-                .replace("{latest}", updateInfo.latestVersion ?? t(lang, "updateAvailable"))}
-            </span>
-          </div>
-          <button
-            className="button primary"
-            disabled={launching !== null}
-            onClick={() => void launchUpdate()}
-            type="button"
-          >
-            {t(lang, "updateNow")}
-          </button>
-          <button
-            className="update-toast-close"
-            onClick={() => setUpdateNoticeVisible(false)}
-            title={t(lang, "close")}
-            type="button"
-          >
-            <Icon name="close" size={14} />
-          </button>
-        </div>
+        <UpdateNotice
+          disabled={launching !== null}
+          info={updateInfo}
+          language={lang}
+          onClose={() => setUpdateNoticeVisible(false)}
+          onUpdate={() => void launchUpdate()}
+        />
       )}
 
-      {toast && (
-        <div className={`${toast.kind}-toast`} role={toast.kind === "error" ? "alert" : "status"}>
-          <Icon name={toast.kind === "error" ? "alert" : "spark"} size={17} />
-          <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} title={t(lang, "close")} type="button">
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-      )}
+      <ToastContainer language={lang} onDismiss={dismissToast} toasts={toasts} />
     </div>
   );
 }
