@@ -30,6 +30,16 @@ OMP Desktop 0.1.11 users can install this release through the built-in updater.
 
 Recommended: `OMP.Desktop_0.1.12_x64-setup.exe` (Windows), `OMP.Desktop_0.1.12_amd64.AppImage` (Linux).
 
+## SHA-256 (0.1.12)
+
+```text
+0f51d7eeb62b784b1c856c40ece7b03a94dc7e01a60da2e276750502b73b4da0  windows/OMP.Desktop_0.1.12_x64-setup.exe
+39984c0491c8c9ff5bf5a1514ca90a7e00c5c19ca7ce87b040d8d302755e9561  windows/OMP.Desktop_0.1.12_x64_en-US.msi
+171027d3571ae49f00791b340b3784f0a42c332cac1d3c507481d2146ff62d48  linux/OMP.Desktop_0.1.12_amd64.AppImage
+75eae2ee14bbc95ec7222bf68bb59d06e36ed20c8f469b48043554713f7c2422  linux/OMP.Desktop_0.1.12_amd64.deb
+19002765b43dc787625ea52a5a02ea4d2011f919c178766e2ec7b2283816bd10  linux/OMP.Desktop-0.1.12-1.x86_64.rpm
+```
+
 # OMP Desktop 0.1.11
 
 ## Русский
