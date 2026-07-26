@@ -967,7 +967,7 @@ fn collect_jsonl_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), String> {
     let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
+        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
         Err(_) if depth > 0 => return Ok(()),
         Err(error) => {
             return Err(format!(
@@ -976,15 +976,35 @@ fn collect_jsonl_files(
             ))
         }
     };
+    // Task and subagent JSONLs live inside the parent session's same-stem artifact directory.
+    // Keep that execution lineage on disk, but expose only the parent discussion in the sidebar.
+    let artifact_directory_names = entries
+        .iter()
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            let path = entry.path();
+            if !file_type.is_file()
+                || !path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"))
+            {
+                return None;
+            }
+            path.file_stem().map(|name| name.to_os_string())
+        })
+        .collect::<HashSet<_>>();
 
-    for entry in entries.flatten() {
+    for entry in entries {
         let path = entry.path();
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
 
         if file_type.is_dir() && depth < max_depth {
-            collect_jsonl_files(&path, depth + 1, max_depth, files)?;
+            if !artifact_directory_names.contains(&entry.file_name()) {
+                collect_jsonl_files(&path, depth + 1, max_depth, files)?;
+            }
             continue;
         }
 
@@ -1609,6 +1629,46 @@ mod tests {
         let mut files = Vec::new();
         assert!(collect_jsonl_files(&missing, 1, 3, &mut files).is_ok());
         assert!(collect_jsonl_files(&missing, 0, 3, &mut files).is_err());
+    }
+
+    #[test]
+    fn scan_sessions_collapses_nested_task_lineage_into_parent() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-session-lineage-{}-{nonce}",
+            std::process::id()
+        ));
+        let project_dir = root.join("project");
+        let parent = project_dir.join("discussion.with-dot.jsonl");
+        let artifact_dir = parent.with_extension("");
+        let child = artifact_dir.join("TaskWorker.jsonl");
+        let legacy_dir = project_dir.join("legacy-layout");
+        let legacy = legacy_dir.join("independent.jsonl");
+        fs::create_dir_all(&artifact_dir).expect("artifact dir should be writable");
+        fs::create_dir_all(&legacy_dir).expect("legacy dir should be writable");
+
+        let session = |id: &str, message: &str| {
+            format!(
+                "{{\"type\":\"session\",\"id\":\"{id}\",\"timestamp\":\"2026-07-26T00:00:00Z\",\"cwd\":\"/tmp/project\"}}\n{{\"type\":\"message\",\"id\":\"m-{id}\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"{message}\"}}]}}}}\n"
+            )
+        };
+        fs::write(&parent, session("parent", "Main discussion"))
+            .expect("parent fixture should be writable");
+        fs::write(&child, session("child", "Delegated task"))
+            .expect("child fixture should be writable");
+        fs::write(&legacy, session("legacy", "Independent nested discussion"))
+            .expect("legacy fixture should be writable");
+
+        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().any(|session| session.id == "parent"));
+        assert!(sessions.iter().any(|session| session.id == "legacy"));
+        assert!(!sessions.iter().any(|session| session.id == "child"));
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 
     #[test]

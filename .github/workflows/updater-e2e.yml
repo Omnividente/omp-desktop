@@ -27,8 +27,8 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - 0.1.10-rc.1
-          - 0.1.10-rc.2
+          - 0.1.11-rc.1
+          - 0.1.11-rc.2
         os:
           - ubuntu-22.04
           - windows-latest

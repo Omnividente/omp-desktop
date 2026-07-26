@@ -938,6 +938,9 @@ function App() {
 
       if (event.success) {
         if (pendingUpdate) {
+          setUpdateInfo(null);
+          setUpdateSourceTerminalId(null);
+          setUpdateNoticeVisible(false);
           showNotice(t(lang, "updateInstalled"));
           if (pendingUpdate.sourceTab?.sessionId && pendingUpdate.sourceTab.sessionPath) {
             const targetSession: SessionLaunchTarget = {

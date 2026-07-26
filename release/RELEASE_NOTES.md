@@ -1,3 +1,35 @@
+# OMP Desktop 0.1.11
+
+## Русский
+
+Исправляющий релиз для истории сессий и уведомления об обновлении OMP.
+
+### Что изменилось
+
+- **Единая история обсуждения**: внутренние task/subagent JSONL больше не отображаются как отдельные пользовательские сессии. Старые связанные файлы автоматически сворачиваются под родительское обсуждение без переноса или удаления данных.
+- **Новые сессии без дубликатов**: дочерние процессы текущего обсуждения сохраняют свою техническую историю, но больше не размножают строки в списке сессий.
+- **Завершение обновления OMP**: после успешного обновления устаревшее уведомление и кнопка перезапуска сразу исчезают без перезапуска OMP Desktop.
+- Версия обновлена до 0.1.11.
+
+Пользователи OMP Desktop 0.1.10 могут установить обновление встроенным updater.
+
+Рекомендуется `OMP.Desktop_0.1.11_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.11_amd64.AppImage` (Linux).
+
+## English
+
+A corrective release for session history and the OMP update notification.
+
+### Changes
+
+- **Unified discussion history**: internal task/subagent JSONL files no longer appear as separate user sessions. Existing related files are collapsed under their parent discussion automatically, without moving or deleting data.
+- **No duplicates from new sessions**: child processes retain their technical history without adding extra rows to the session list.
+- **OMP update completion**: after a successful update, the stale notice and restart action disappear immediately without restarting OMP Desktop.
+- Version bumped to 0.1.11.
+
+OMP Desktop 0.1.10 users can install this release through the built-in updater.
+
+Recommended: `OMP.Desktop_0.1.11_x64-setup.exe` (Windows), `OMP.Desktop_0.1.11_amd64.AppImage` (Linux).
+
 # OMP Desktop 0.1.10
 
 ## Русский
