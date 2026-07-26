@@ -36,6 +36,16 @@ The first stable OMP Desktop release with built-in signed application updates an
 
 Recommended: `OMP.Desktop_0.1.10_x64-setup.exe` (Windows), `OMP.Desktop_0.1.10_amd64.AppImage` (Linux).
 
+## SHA-256 (0.1.10)
+
+```text
+23bce6bd0b3d637c18e98c287fcd09101c99190e3ed108e1454058383dfc18ac  windows/OMP.Desktop_0.1.10_x64-setup.exe
+d8efc2671e53bb9028699acbb659d83b8be6c99101c0cb794fb4262124310fc8  windows/OMP.Desktop_0.1.10_x64_en-US.msi
+76c7e585acf50a8b9fd6666ef7faa7e8312507750f6ab8372d28d8ca801bc7a1  linux/OMP.Desktop_0.1.10_amd64.AppImage
+e539ef186d6c5a58bcb9c941f175628d422af33dc00e38cdcbb205bd879f3924  linux/OMP.Desktop_0.1.10_amd64.deb
+729051cbacafb144f9645709dcbd65fbf2da71be1e82bf8dcdb0c24d9f8a198b  linux/OMP.Desktop-0.1.10-1.x86_64.rpm
+```
+
 # OMP Desktop 0.1.9
 
 ## Русский
