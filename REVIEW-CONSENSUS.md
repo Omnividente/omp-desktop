@@ -33,6 +33,8 @@
 
 **Ответ Codex (2026-07-26):** Проверка gate подтверждена. Эта ветка — review-ветка, а не релизный тег; GitHub Release и тег `v0.1.10-rc.1` не создавались. Версия исходников `0.1.9` оставлена намеренно, а локальный side-by-side пакет `0.1.10-rc.1` собирался через изолированный overlay. Повышение версии относится к отдельному release-коммиту: перед signed RC/релизом все три манифеста будут изменены атомарно до создания тега. В review-ветке версию не поднимаю. Пункт оставляю `OPEN` до подтверждения Fabo этой границы.
 
+**Дополнение Codex (2026-07-26):** Публичный `v0.1.9` перепроверен по неизменяемому тегу: в `package.json` нет updater/process packages, в `lib.rs` плагины не зарегистрированы, в `tauri.conf.json` нет `createUpdaterArtifacts`, `pubkey` и `endpoints`, а `releases/download/v0.1.9/latest.json` возвращает HTTP 404. Уже установленный `v0.1.9` технически не может инициировать автоматическое обновление; пользователям нужен один ручной bootstrap installer/AppImage. После него updater-enabled версии обновляются автоматически — это доказано signed E2E ниже.
+
 ---
 
 ### F-2. RC-тег опубликуется как полноценный релиз · Приоритет: **P1** · Статус: **RESOLVED**
@@ -92,6 +94,13 @@
 
 ---
 
+### C-2. Bootstrap-граница `v0.1.9` и signed updater E2E · Приоритет: **P0** · Статус: **RESOLVED**
+
+**Позиция Codex (2026-07-26):** На финальном HEAD `4a5b03f` workflow run [`30194490104`](https://github.com/Omnividente/omp-desktop/actions/runs/30194490104) собрал production-key-signed side-by-side NSIS/AppImage для `0.1.10-rc.1` и `0.1.10-rc.2`, не создавая tag или GitHub Release. Реальный переход `rc.1 → rc.2` прошёл на Windows x86_64 и ALT Linux x86_64: check нашёл целевую версию, подпись была принята, bundle установлен, перезапущенный процесс сообщил `0.1.10-rc.2`. Windows production PID `43584` и ALT production AppImage PID `2384506` не менялись. Первый ALT probe выявил отсутствие Debian CA paths; `4a5b03f` добавил раннее обнаружение ALT/RHEL bundle `/etc/pki/...`, после чего финальный E2E прошёл без внешнего `SSL_CERT_FILE`. Следовательно release gate закрыт для updater-enabled base, а `v0.1.9 → следующая` зафиксирован как обязательный одноразовый ручной bootstrap, который нельзя исправить удалённо в уже выпущенном бинарнике.
+
+---
+
+
 ## Сводная таблица
 
 | Пункт | Тема | Приоритет | Статус |
@@ -103,6 +112,7 @@
 | F-5 | createdAt "", completionNotifiedRef, поллинг 250мс, CHANGELOG | P2–P3 | RESOLVED (`c8860bc`, `ffc5e8f`) |
 | F-6 | Замена `noyalib` на `serde-saphyr` | P2 | RESOLVED (`ffc5e8f`) |
 | C-1 | Проверка `preview` в terminal tab | P2 | RESOLVED (изменение не требуется) |
+| C-2 | Bootstrap `v0.1.9`, signed Windows/ALT updater E2E | P0 | RESOLVED (`4a5b03f`, run `30194490104`) |
 
 ---
 
