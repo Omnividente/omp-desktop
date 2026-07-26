@@ -2,6 +2,9 @@ name: Build Signed Updater E2E Artifacts
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "review/**"
 
 permissions:
   contents: read
