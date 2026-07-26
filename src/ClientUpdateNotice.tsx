@@ -1,3 +1,4 @@
+import { Icon } from "./Icon"
 import type { Lang } from "./i18n"
 import { t } from "./i18n"
 import type { ClientUpdateInfo } from "./clientUpdater"
@@ -32,12 +33,14 @@ export function ClientUpdateNotice({
             : t(language, "desktopUpdateInstall")}
         </button>
         <button
+          aria-label={t(language, "close")}
           className="icon-button compact"
           disabled={installing}
           onClick={onClose}
+          title={t(language, "close")}
           type="button"
         >
-          {t(language, "close")}
+          <Icon name="close" size={14} />
         </button>
       </div>
     </aside>

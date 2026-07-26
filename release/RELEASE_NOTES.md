@@ -1,3 +1,35 @@
+# OMP Desktop 0.1.12
+
+## Русский
+
+Визуальный hotfix уведомления об обновлении OMP Desktop.
+
+### Что изменилось
+
+- **Компактное закрытие уведомления**: текстовая кнопка больше не выходит за границы карточки; вместо неё используется аккуратная иконка закрытия с доступной подписью.
+- **Стабильная компоновка**: кнопка «Установить и перезапустить» сохраняет одну строку, а текст уведомления корректно сжимается на узкой ширине без горизонтального переполнения.
+- Функциональная логика updater не изменялась.
+- Версия обновлена до 0.1.12.
+
+Пользователи OMP Desktop 0.1.11 могут установить обновление встроенным updater.
+
+Рекомендуется `OMP.Desktop_0.1.12_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.12_amd64.AppImage` (Linux).
+
+## English
+
+A visual hotfix for the OMP Desktop update notice.
+
+### Changes
+
+- **Compact dismiss action**: the text button no longer escapes the notice card; it is replaced by a compact close icon with an accessible label.
+- **Stable layout**: “Install and restart” remains on one line, while notice text shrinks correctly at narrow widths without horizontal overflow.
+- Updater behavior is unchanged.
+- Version bumped to 0.1.12.
+
+OMP Desktop 0.1.11 users can install this release through the built-in updater.
+
+Recommended: `OMP.Desktop_0.1.12_x64-setup.exe` (Windows), `OMP.Desktop_0.1.12_amd64.AppImage` (Linux).
+
 # OMP Desktop 0.1.11
 
 ## Русский
