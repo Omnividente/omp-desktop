@@ -1,0 +1,113 @@
+name: Build Signed Updater E2E Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: updater-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 0.1.10-rc.1
+          - 0.1.10-rc.2
+        os:
+          - ubuntu-22.04
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            file
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify updater signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: >-
+          node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) throw new Error('TAURI_SIGNING_PRIVATE_KEY is required');"
+
+      - name: Create version overlay
+        env:
+          E2E_VERSION: ${{ matrix.version }}
+        run: >-
+          node -e "require('node:fs').writeFileSync('.tmp-tauri-updater-e2e-version.json', JSON.stringify({ version: process.env.E2E_VERSION }))"
+
+      - name: Build signed Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          CI: "false"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: >-
+          npx tauri build
+          --bundles appimage
+          --features updater-e2e
+          --config src-tauri/tauri.updater-e2e.conf.json
+          --config .tmp-tauri-updater-e2e-version.json
+
+      - name: Build signed Windows NSIS installer
+        if: runner.os == 'Windows'
+        env:
+          CI: "false"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: >-
+          npx tauri build
+          --bundles nsis
+          --features updater-e2e
+          --config src-tauri/tauri.updater-e2e.conf.json
+          --config .tmp-tauri-updater-e2e-version.json
+
+      - name: Upload Linux updater artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-e2e-${{ matrix.version }}-linux-x86_64
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Windows updater artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-e2e-${{ matrix.version }}-windows-x86_64
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          if-no-files-found: error
+          retention-days: 3

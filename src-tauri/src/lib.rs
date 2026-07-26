@@ -7,6 +7,8 @@ mod sessions;
 mod settings;
 mod terminal;
 mod update;
+#[cfg(feature = "updater-e2e")]
+mod updater_e2e;
 use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, OmpConfigSaveRequest,
     OmpConfigSnapshot, OmpUpdateInfo, SessionTranscript, SettingsPatch, SettingsUpdate,
@@ -302,6 +304,8 @@ pub fn run() {
             }
             app.manage(SettingsState::new_uninitialized());
             app.manage(TerminalState::default());
+            #[cfg(feature = "updater-e2e")]
+            updater_e2e::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

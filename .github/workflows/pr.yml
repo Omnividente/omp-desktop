@@ -69,3 +69,7 @@ jobs:
       - name: Test Rust
         working-directory: src-tauri
         run: cargo test
+
+      - name: Check updater E2E feature
+        working-directory: src-tauri
+        run: cargo check --features updater-e2e
