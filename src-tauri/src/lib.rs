@@ -286,8 +286,36 @@ fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
         .clone())
 }
 
+#[cfg(target_os = "linux")]
+fn configure_linux_ca_bundle() {
+    if std::env::var_os("SSL_CERT_FILE")
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return;
+    }
+
+    // rustls-native-certs does not discover ALT's /etc/pki bundle. Set the
+    // standard override before the updater creates its first HTTP client.
+    for candidate in [
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+        "/etc/ssl/cert.pem",
+    ] {
+        if std::path::Path::new(candidate).is_file() {
+            std::env::set_var("SSL_CERT_FILE", candidate);
+            break;
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_linux_ca_bundle() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    configure_linux_ca_bundle();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
