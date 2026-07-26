@@ -90,6 +90,12 @@ export function SettingsPanel({
   const [advisorEnabled, setAdvisorEnabled] = useState(false);
   const [autoResume, setAutoResume] = useState(false);
   const [thinkingLevel, setThinkingLevel] = useState("medium");
+  const [terminalFontFamily, setTerminalFontFamily] = useState(
+    settings.terminalFontFamily ?? "monospace",
+  );
+  const [terminalFontSize, setTerminalFontSize] = useState(
+    String(settings.terminalFontSize ?? 14),
+  );
   const [providerEnv, setProviderEnv] = useState<Record<string, string>>(() =>
     Object.fromEntries((settings.providerEnvKeys ?? []).map((key) => [key, ""])),
   );
@@ -115,7 +121,7 @@ export function SettingsPanel({
       setAutoResume(snapshot.autoResume);
       setThinkingLevel(snapshot.defaultThinkingLevel ?? "medium");
     } catch (error) {
-      const message = errorMessage(error);
+      const message = errorMessage(error, language);
       setConfigError(message);
       onError(message);
     } finally {
@@ -160,7 +166,7 @@ export function SettingsPanel({
         setExecutable(selected);
       }
     } catch (error) {
-      onError(errorMessage(error));
+      onError(errorMessage(error, language));
     }
   };
 
@@ -175,7 +181,7 @@ export function SettingsPanel({
         setSessionRoot(selected);
       }
     } catch (error) {
-      onError(errorMessage(error));
+      onError(errorMessage(error, language));
     }
   };
 
@@ -192,7 +198,8 @@ export function SettingsPanel({
   const save = async () => {
     setSaving(true);
     try {
-      if (runtime.ompAvailable && ompConfig) {
+      const configSavedProviderEnv = runtime.ompAvailable && ompConfig !== null;
+      if (configSavedProviderEnv) {
         const snapshot = await saveOmpConfig({
           roles: roleDrafts,
           advisorEnabled,
@@ -207,12 +214,13 @@ export function SettingsPanel({
         ompExecutable: executable.trim() || null,
         sessionRoot: sessionRoot.trim() || null,
         language,
-        providerEnv,
+        terminalFontFamily,
+        terminalFontSize: Number(terminalFontSize),
+        ...(configSavedProviderEnv ? {} : { providerEnv }),
       });
       onSaved(payload);
-      onClose();
     } catch (error) {
-      onError(errorMessage(error));
+      onError(errorMessage(error, language));
     } finally {
       setSaving(false);
     }
@@ -272,6 +280,20 @@ export function SettingsPanel({
             </button>
           )}
         </div>
+
+        {ompConfig && ompConfig.warnings.length > 0 && (
+          <div className="settings-secret-warning" role="status">
+            <Icon name="alert" size={16} />
+            <span>
+              <strong>{t(language, "configWarningsTitle")}</strong>
+              {ompConfig.warnings.map((warning) => (
+                <small key={`${warning.source}:${warning.code}`}>
+                  {warning.source}: {warning.message}
+                </small>
+              ))}
+            </span>
+          </div>
+        )}
 
         {loadingConfig && (
           <div
@@ -497,6 +519,36 @@ export function SettingsPanel({
                     <Icon className="select-chevron" name="chevron" size={14} />
                   </div>
                   <p className="field-help">{t(language, "thinkingLevelHelp")}</p>
+
+                  <label className="field-label" htmlFor="terminal-font-family">
+                    {t(language, "terminalFontFamily")}
+                  </label>
+                  <input
+                    id="terminal-font-family"
+                    onChange={(event) => setTerminalFontFamily(event.target.value)}
+                    spellCheck={false}
+                    value={terminalFontFamily}
+                  />
+                  <p className="field-help">{t(language, "terminalFontFamilyHelp")}</p>
+
+                  <label className="field-label" htmlFor="terminal-font-size">
+                    {t(language, "terminalFontSize")}
+                  </label>
+                  <div className="path-field select-field">
+                    <select
+                      id="terminal-font-size"
+                      onChange={(event) => setTerminalFontSize(event.target.value)}
+                      value={terminalFontSize}
+                    >
+                      {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((size) => (
+                        <option key={size} value={size}>
+                          {size}px
+                        </option>
+                      ))}
+                    </select>
+                    <Icon className="select-chevron" name="chevron" size={14} />
+                  </div>
+                  <p className="field-help">{t(language, "terminalFontSizeHelp")}</p>
                 </section>
               )}
 

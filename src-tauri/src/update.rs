@@ -3,7 +3,7 @@ use semver::Version;
 
 pub fn normalize_update_info(output: &str, installed_version: Option<&str>) -> OmpUpdateInfo {
     let output = output.trim();
-    let lower = output.to_ascii_lowercase();
+    let lower = output.to_lowercase();
     let no_update = [
         "already up to date",
         "up-to-date",
@@ -11,15 +11,31 @@ pub fn normalize_update_info(output: &str, installed_version: Option<&str>) -> O
         "no updates available",
         "latest version is installed",
         "using the latest version",
+        "обновление не требуется",
+        "актуальная версия",
     ]
     .iter()
     .any(|marker| lower.contains(marker));
-    let advertised_update = ["new version", "update available", "upgrade available"]
-        .iter()
-        .any(|marker| lower.contains(marker));
-
-    let current = version_from_matching_line(output, &["current version", "installed version"])
-        .or_else(|| installed_version.and_then(parse_version));
+    let advertised_update = [
+        "new version",
+        "update available",
+        "upgrade available",
+        "новая версия",
+        "доступно обновление",
+        "доступна новая версия",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    let current = version_from_matching_line(
+        output,
+        &[
+            "current version",
+            "installed version",
+            "текущая версия",
+            "установлена",
+        ],
+    )
+    .or_else(|| installed_version.and_then(parse_version));
     let explicit_latest = version_from_matching_line(
         output,
         &[
@@ -27,6 +43,8 @@ pub fn normalize_update_info(output: &str, installed_version: Option<&str>) -> O
             "new version",
             "update available",
             "upgrade available",
+            "новая версия",
+            "доступно обновление",
         ],
     );
     let latest = explicit_latest.or_else(|| no_update.then(|| current.clone()).flatten());
@@ -55,7 +73,7 @@ pub fn normalize_update_info(output: &str, installed_version: Option<&str>) -> O
 
 fn version_from_matching_line(output: &str, markers: &[&str]) -> Option<Version> {
     output.lines().find_map(|line| {
-        let lower = line.to_ascii_lowercase();
+        let lower = line.to_lowercase();
         markers
             .iter()
             .any(|marker| lower.contains(marker))
@@ -69,6 +87,7 @@ fn parse_version(text: &str) -> Option<Version> {
         !character.is_ascii_alphanumeric() && !matches!(character, '.' | '-' | '+')
     })
     .filter_map(|token| {
+        let token = token.trim_matches(|character| matches!(character, '.' | '-' | '+'));
         let token = token
             .strip_prefix('v')
             .or_else(|| token.strip_prefix('V'))
@@ -78,9 +97,23 @@ fn parse_version(text: &str) -> Option<Version> {
     .next()
 }
 
+pub fn contains_version(text: &str) -> bool {
+    text.split(|character: char| {
+        !character.is_ascii_alphanumeric() && !matches!(character, '.' | '-' | '+')
+    })
+    .any(|token| {
+        let token = token.trim_matches(|character| matches!(character, '.' | '-' | '+'));
+        let token = token
+            .strip_prefix('v')
+            .or_else(|| token.strip_prefix('V'))
+            .unwrap_or(token);
+        Version::parse(token).is_ok()
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_update_info;
+    use super::{contains_version, normalize_update_info};
 
     #[test]
     fn ordinary_no_update_output_is_not_a_false_positive() {
@@ -123,6 +156,28 @@ mod tests {
         let info = normalize_update_info("New version available: v17.2.0", Some("omp/17.1.3"));
         assert!(info.has_update);
         assert_eq!(info.current_version.as_deref(), Some("17.1.3"));
+        assert_eq!(info.latest_version.as_deref(), Some("17.2.0"));
+    }
+
+    #[test]
+    fn current_omp_check_snapshot_is_supported() {
+        let info = normalize_update_info(
+            "Current version: 17.1.3\n[OK] Already up to date",
+            Some("omp/17.1.3"),
+        );
+        assert!(!info.has_update);
+        assert_eq!(info.current_version.as_deref(), Some("17.1.3"));
+        assert_eq!(info.latest_version.as_deref(), Some("17.1.3"));
+        assert!(contains_version("Run: omp update to install v17.2.0"));
+    }
+
+    #[test]
+    fn localized_update_snapshot_is_supported() {
+        let info = normalize_update_info(
+            "Текущая версия: 17.1.3\nДоступна новая версия OMP: 17.2.0\nЗапустите omp update",
+            None,
+        );
+        assert!(info.has_update);
         assert_eq!(info.latest_version.as_deref(), Some("17.2.0"));
     }
 }

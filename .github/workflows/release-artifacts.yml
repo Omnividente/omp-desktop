@@ -1,12 +1,13 @@
-name: Build Release Artifacts
+name: Build and Publish Release
 
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate-tag:
@@ -16,19 +17,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Require a matching semantic version
+      - name: Require matching semantic versions
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from "node:fs/promises";
-
           const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
           const tag = process.env.RELEASE_TAG ?? "";
           const version = tag.startsWith("v") ? tag.slice(1) : "";
@@ -36,32 +30,22 @@ jobs:
           const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
           const cargoManifest = await readFile("src-tauri/Cargo.toml", "utf8");
           const cargoVersion = cargoManifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-
-          if (!semver.test(version)) {
-            throw new Error(`Release tag ${tag} is not a valid v-prefixed semantic version.`);
-          }
-          if (
-            packageManifest.version !== version ||
-            tauriConfig.version !== version ||
-            cargoVersion !== version
-          ) {
-            throw new Error(
-              `Tag ${tag} must match package.json, src-tauri/tauri.conf.json, and src-tauri/Cargo.toml.`,
-            );
+          if (!semver.test(version)) throw new Error(`Release tag ${tag} is not semantic.`);
+          if (packageManifest.version !== version || tauriConfig.version !== version || cargoVersion !== version) {
+            throw new Error(`Tag ${tag} must match package.json, tauri.conf.json, and Cargo.toml.`);
           }
           EOF
 
-  build:
-    name: Bundle (${{ matrix.os }})
+  publish:
+    name: Build and upload (${{ matrix.platform }})
     needs: validate-tag
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
+        platform:
+          - ubuntu-22.04
           - windows-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -73,12 +57,9 @@ jobs:
           cache: npm
 
       - name: Set up Rust
-        shell: bash
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Tauri system dependencies
+      - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -93,59 +74,127 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri bundles
-        run: npm run tauri build
+      - name: Verify updater signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) throw new Error('TAURI_SIGNING_PRIVATE_KEY is required for signed updater artifacts');"
+      - name: Build, sign, and upload Tauri artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: OMP Desktop v__VERSION__
+          releaseBody: "Установщики и signed updater-артефакты OMP Desktop."
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          uploadWorkflowArtifacts: true
 
-      - name: Create Linux checksums
+      - name: Create and upload Linux checksums
         if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          set -o pipefail
-          cd src-tauri/target/release/bundle
-          find . -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 \
-            | sort -z \
-            | xargs -0 sha256sum > ../SHA256SUMS-linux.txt
-          test -s ../SHA256SUMS-linux.txt
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          mapfile -d '' files < <(find src-tauri/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 | sort -z)
+          ((${#files[@]} > 0))
+          sha256sum "${files[@]}" > src-tauri/target/release/SHA256SUMS-linux.txt
+          gh release upload "v${version}" src-tauri/target/release/SHA256SUMS-linux.txt --clobber
 
-      - name: Create Windows checksums
+      - name: Create and upload Windows checksums
         if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $bundleRoot = Join-Path $PWD "src-tauri/target/release/bundle"
-          $files = @(
-            Get-ChildItem -Path $bundleRoot -Recurse -File |
-              Where-Object { $_.Extension -in ".msi", ".exe" } |
-              Sort-Object FullName
-          )
-          if ($files.Count -eq 0) {
-            throw "No Windows installers were produced."
-          }
+          $version = node -p "require('./package.json').version"
+          $bundleRoot = Join-Path $PWD 'src-tauri/target/release/bundle'
+          $files = @(Get-ChildItem -Path $bundleRoot -Recurse -File | Where-Object { $_.Extension -in '.msi', '.exe' } | Sort-Object FullName)
+          if ($files.Count -eq 0) { throw 'No Windows installers were produced.' }
           $lines = $files | ForEach-Object {
-            $relativePath = [IO.Path]::GetRelativePath($bundleRoot, $_.FullName).Replace("\", "/")
             $hash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
-            "$hash  $relativePath"
+            $relative = [IO.Path]::GetRelativePath($bundleRoot, $_.FullName).Replace('\', '/')
+            "$hash  $relative"
           }
-          $lines | Set-Content -Encoding ascii -Path "src-tauri/target/release/SHA256SUMS-windows.txt"
+          $checksum = 'src-tauri/target/release/SHA256SUMS-windows.txt'
+          $lines | Set-Content -Encoding ascii $checksum
+          gh release upload "v$version" $checksum --clobber
 
-      - name: Upload Linux installers and checksums
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: omp-desktop-linux-${{ github.ref_name }}
-          if-no-files-found: error
-          path: |
-            src-tauri/target/release/bundle/**/*.AppImage
-            src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
-            src-tauri/target/release/SHA256SUMS-linux.txt
+  publish-release:
+    name: Publish draft release
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate and upload release assets manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/package.json" | jq -r .version)
+          tag="v${version}"
+          rm -rf release-assets
+          mkdir -p release-assets
+          gh release download "$tag" --dir release-assets --clobber
+          RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
+          import { createHash } from "node:crypto";
+          import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+          import { join } from "node:path";
 
-      - name: Upload Windows installers and checksums
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: omp-desktop-windows-${{ github.ref_name }}
-          if-no-files-found: error
-          path: |
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/SHA256SUMS-windows.txt
+          const directory = process.env.RELEASE_DIR;
+          const names = await readdir(directory);
+          const assets = [];
+          for (const name of names) {
+            const path = join(directory, name);
+            const metadata = await stat(path);
+            if (!metadata.isFile()) continue;
+            const bytes = await readFile(path);
+            const sha256 = createHash("sha256").update(bytes).digest("hex");
+            const lower = name.toLowerCase();
+            const platform = /windows|win|msi|nsis|setup\.exe/.test(lower)
+              ? "windows"
+              : /linux|appimage|\.deb$|\.rpm$|\.tar\.gz$/.test(lower)
+                ? "linux"
+                : "metadata";
+            const kind = lower.endsWith(".sig")
+              ? "signature"
+              : lower === "latest.json"
+                ? "updater-manifest"
+                : /\.nsis\.zip$|\.msi\.zip$|\.tar\.gz$/.test(lower)
+                  ? "updater-bundle"
+                  : "installer";
+            assets.push({
+              name,
+              kind,
+              platform,
+              bytes: metadata.size,
+              sha256,
+              downloadUrl: `https://github.com/${process.env.RELEASE_REPOSITORY}/releases/download/${process.env.RELEASE_TAG}/${encodeURIComponent(name)}`,
+            });
+          }
+          assets.sort((left, right) => left.name.localeCompare(right.name));
+          const manifest = {
+            schemaVersion: 1,
+            version: process.env.RELEASE_VERSION,
+            tag: process.env.RELEASE_TAG,
+            repository: process.env.RELEASE_REPOSITORY,
+            generatedAt: new Date().toISOString(),
+            assets,
+          };
+          await writeFile("release-assets-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+          EOF
+          gh release upload "$tag" release-assets-manifest.json --clobber
+
+      - name: Publish release after all platform uploads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/package.json" | jq -r .version)
+          gh release edit "v${version}" --draft=false

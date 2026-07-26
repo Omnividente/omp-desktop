@@ -5,6 +5,7 @@ import { Icon } from "./Icon";
 import { t } from "./i18n";
 import { SessionRow } from "./SessionRow";
 import { useVirtualList } from "./useVirtualList";
+import { tabMatchesSession } from "./uiUtils";
 
 export interface SessionListProps {
   lang: Lang;
@@ -155,12 +156,12 @@ export function SessionList({
               const busy = launching === session.id;
               const renaming = session.id === renamingSessionId;
               const sessionTab = tabs.find((tab) =>
-                tabMatchesSessionLocal(tab, session, platform),
+                tabMatchesSession(tab, session, platform),
               );
               const runningTab = tabs.find(
                 (tab) =>
                   tab.status === "running" &&
-                  tabMatchesSessionLocal(tab, session, platform),
+                  tabMatchesSession(tab, session, platform),
               );
               const sessionOpen = Boolean(sessionTab);
               const sessionRunning = Boolean(runningTab);
@@ -248,22 +249,5 @@ export function SessionList({
         <small>{t(lang, "jsonlNative")}</small>
       </div>
     </section>
-  );
-}
-
-// Local duplicate of matching to avoid import cycle; mirrors App's logic.
-function tabMatchesSessionLocal(
-  tab: { sessionId: string | null; sessionPath: string | null },
-  session: { id: string; filePath: string },
-  platform: string,
-): boolean {
-  const normalized = (p: string) =>
-    p.replaceAll("\\", "/").replace(/\/+$/, "").toLocaleLowerCase(platform === "windows" ? "en-US" : undefined);
-  return (
-    tab.sessionId === session.id ||
-    Boolean(
-      tab.sessionPath &&
-        normalized(tab.sessionPath) === normalized(session.filePath),
-    )
   );
 }

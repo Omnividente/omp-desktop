@@ -171,11 +171,11 @@ fn encode_relative_session_dir_name(prefix: &str, relative: &str) -> String {
         format!("{prefix}-{encoded}")
     }
 }
-fn atomic_write_jsonl(destination: &Path, contents: &[u8]) -> Result<(), String> {
-    atomic_write_jsonl_with(destination, contents, replace_file_atomically)
+pub(crate) fn atomic_write_file(destination: &Path, contents: &[u8]) -> Result<(), String> {
+    atomic_write_file_with(destination, contents, replace_file_atomically)
 }
 
-fn atomic_write_jsonl_with<F>(destination: &Path, contents: &[u8], replace: F) -> Result<(), String>
+fn atomic_write_file_with<F>(destination: &Path, contents: &[u8], replace: F) -> Result<(), String>
 where
     F: FnOnce(&Path, &Path) -> io::Result<()>,
 {
@@ -230,6 +230,12 @@ where
         temporary_file.flush()?;
         if let Some(permissions) = permissions {
             temporary_file.set_permissions(permissions)?;
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                temporary_file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            }
         }
         temporary_file.sync_all()?;
         drop(temporary_file);
@@ -334,7 +340,7 @@ pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
     body.extend_from_slice(
         format!("{}\n", serde_json::to_string(&change).unwrap_or_default()).as_bytes(),
     );
-    atomic_write_jsonl(file_path, &body)?;
+    atomic_write_file(file_path, &body)?;
 
     let _ = filetime::set_file_mtime(
         file_path,
@@ -737,7 +743,7 @@ fn import_omp_session(
     if dest.exists() {
         dest = dest_dir.join(format!("imported-{}-{}", now.replace(':', "-"), file_name));
     }
-    atomic_write_jsonl(&dest, body.as_bytes())?;
+    atomic_write_file(&dest, body.as_bytes())?;
 
     let artifact_dir = source.with_extension("");
     if artifact_dir.is_dir() {
@@ -917,7 +923,7 @@ fn import_codex_session(
         now.replace(':', "-"),
         &session_id[..8.min(session_id.len())]
     ));
-    atomic_write_jsonl(&dest, body.as_bytes())?;
+    atomic_write_file(&dest, body.as_bytes())?;
     Ok(dest.to_string_lossy().into_owned())
 }
 
@@ -1574,12 +1580,12 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write_jsonl, atomic_write_jsonl_with, collect_jsonl_files,
-        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
-        encode_session_dir_name, import_session, parse_codex_session_with_names, parse_session,
-        parse_session_with_names, path_key, read_codex_discovery_prefix, read_session_transcript,
-        restorable_session_model, scan_sessions, serialize_title_slot, CodexSessionSummary,
-        TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
+        atomic_write_file, atomic_write_file_with, collect_jsonl_files, deduplicate_codex_sessions,
+        delete_session, encode_relative_session_dir_name, encode_session_dir_name, import_session,
+        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
+        read_codex_discovery_prefix, read_session_transcript, restorable_session_model,
+        scan_sessions, serialize_title_slot, CodexSessionSummary, TranscriptEntryCategory,
+        CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
     };
     use std::{
         collections::HashMap,
@@ -1626,7 +1632,7 @@ mod tests {
         fs::create_dir_all(&root).expect("fixture directory should be writable");
         fs::write(&destination, b"old\n").expect("fixture should be writable");
 
-        let failed = atomic_write_jsonl_with(&destination, b"broken\n", |_temporary, _target| {
+        let failed = atomic_write_file_with(&destination, b"broken\n", |_temporary, _target| {
             Err(io::Error::other("injected replace failure"))
         });
         assert!(failed.is_err());
@@ -1641,7 +1647,7 @@ mod tests {
             1
         );
 
-        atomic_write_jsonl(&destination, b"new\n").expect("atomic replacement should succeed");
+        atomic_write_file(&destination, b"new\n").expect("atomic replacement should succeed");
         assert_eq!(
             fs::read(&destination).expect("new file should be readable"),
             b"new\n"

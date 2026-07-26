@@ -20,12 +20,12 @@ import {
   listCodexSessions,
   loadOmpConfig,
   renameSession,
-  readSessionTranscript,
   switchTerminal,
   startTerminal,
   writeTerminal,
 } from "./api";
 import { CodexImportModal } from "./CodexImportModal";
+import { ClientUpdateNotice } from "./ClientUpdateNotice";
 import { Icon } from "./Icon";
 import { matchesSelector, splitSelector } from "./ModelPicker";
 import { t, type Lang } from "./i18n";
@@ -46,10 +46,12 @@ import type {
   PtyUpdateEvent,
   OmpConfigSnapshot,
   SessionSummary,
-  SessionTranscript,
   TerminalTab,
 } from "./types";
 import { localeTag, normalizedPath, tabMatchesSession } from "./uiUtils";
+import { useClientUpdater } from "./useClientUpdater";
+import { useWindowActivity } from "./useWindowActivity";
+import { useTranscript } from "./useTranscript";
 import packageMetadata from "../package.json";
 import "./App.css";
 
@@ -60,20 +62,6 @@ type PendingUpdateRestart = {
 };
 
 
-function transcriptRoleLabel(role: string, lang: Lang): string {
-  switch (role.trim().toLocaleLowerCase("en-US")) {
-    case "user":
-      return t(lang, "transcriptRoleUser");
-    case "assistant":
-      return t(lang, "transcriptRoleAssistant");
-    case "system":
-      return t(lang, "transcriptRoleSystem");
-    case "tool":
-      return t(lang, "transcriptRoleTool");
-    default:
-      return role.trim() || t(lang, "transcriptRoleOther");
-  }
-}
 
 async function notifyTerminalCompletion(
   tab: TerminalTab,
@@ -112,9 +100,9 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>());
   const completionNotifiedRef = useRef(new Set<string>());
+  const settingsWarningShownRef = useRef<string | null>(null);
   const pendingInitialInputRef = useRef(new Map<string, string>());
   const readyTerminalIdsRef = useRef(new Set<string>());
-  const transcriptRequestRef = useRef(0);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(true);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -129,12 +117,6 @@ function App() {
   const pendingUpdateRestartRef = useRef<PendingUpdateRestart | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateNoticeVisible, setUpdateNoticeVisible] = useState(false);
-  const [transcriptSession, setTranscriptSession] = useState<SessionSummary | null>(null);
-  const [transcript, setTranscript] = useState<SessionTranscript | null>(null);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
-  const [transcriptSearch, setTranscriptSearch] = useState("");
-  const [transcriptMode, setTranscriptMode] = useState<"dialogue" | "all">("all");
   const [codexOpen, setCodexOpen] = useState(false);
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([]);
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({});
@@ -148,38 +130,25 @@ function App() {
     void loadOmpConfig().then(setOmpConfig).catch(console.error);
   }, [payload?.runtime.ompAvailable]);
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru";
+  const {
+    transcriptSession,
+    transcript,
+    transcriptLoading,
+    transcriptError,
+    transcriptSearch,
+    transcriptMode,
+    visibleEntries: visibleTranscriptEntries,
+    loadTranscript,
+    closeTranscript,
+    setSearch: setTranscriptSearch,
+    setMode: setTranscriptMode,
+  } = useTranscript(lang);
 
   useEffect(() => {
     void getVersion().then(setAppVersion).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    if (activeTab?.activity === "thinking") {
-      document.title = `[Thinking...] ${activeTab.label} — OMP Desktop`;
-    } else if (activeTab) {
-      document.title = `${activeTab.label} — OMP Desktop`;
-    } else {
-      document.title = "OMP Desktop";
-    }
-  }, [activeTabId, tabs]);
-  const visibleTranscriptEntries = useMemo(() => {
-    const query = transcriptSearch.trim().toLocaleLowerCase(localeTag(lang));
-    return (transcript?.entries ?? []).filter((entry) => {
-      const visibleText = transcriptMode === "dialogue" ? entry.dialogueText : entry.text;
-      if (!visibleText) return false;
-      if (!query) return true;
-      return [
-        visibleText,
-        entry.kind ?? "",
-        entry.model ?? "",
-        transcriptRoleLabel(entry.role, lang),
-      ]
-        .join("\n")
-        .toLocaleLowerCase(localeTag(lang))
-        .includes(query);
-    });
-  }, [lang, transcript, transcriptMode, transcriptSearch]);
+  useWindowActivity(tabs, activeTabId);
   const showError = useCallback((message: string) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setToasts((current) => [...current, { id, kind: "error", message }]);
@@ -193,6 +162,12 @@ function App() {
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+  const {
+    update: clientUpdate,
+    installing: installingClientUpdate,
+    dismiss: dismissClientUpdate,
+    install: installAvailableClientUpdate,
+  } = useClientUpdater(lang, showError);
   const sendPendingInitialInput = useCallback(
     async (terminalId: string) => {
       const initialInput = pendingInitialInputRef.current.get(terminalId);
@@ -201,10 +176,10 @@ function App() {
       try {
         await writeTerminal(terminalId, initialInput);
       } catch (error) {
-        showError(errorMessage(error));
+        showError(errorMessage(error, lang));
       }
     },
-    [showError],
+    [lang, showError],
   );
 
   const queueInitialInput = useCallback(
@@ -226,37 +201,54 @@ function App() {
     [sendPendingInitialInput],
   );
 
-  const applyPayload = useCallback((next: BootstrapPayload, preferredWorkspace?: string) => {
-    setPayload(next);
-    setStartupError(null);
-    setSelectedWorkspacePath((current) => {
-      const preferred = preferredWorkspace ?? current;
-      if (preferred) {
-        const preferredKey = normalizedPath(preferred, next.runtime.platform);
-        const match = next.workspaces.find(
-          (workspace) => normalizedPath(workspace.path, next.runtime.platform) === preferredKey,
+  const applyPayload = useCallback(
+    (next: BootstrapPayload, preferredWorkspace?: string) => {
+      setPayload(next);
+      setStartupError(null);
+      const warning = next.settings.settingsWarning;
+      const warningKey = warning ? `${warning.code}:${warning.details ?? ""}` : null;
+      if (warning && settingsWarningShownRef.current !== warningKey) {
+        settingsWarningShownRef.current = warningKey;
+        const warningLang: Lang = next.settings.language === "en" ? "en" : "ru";
+        showNotice(
+          warning.code === "settings_recovered"
+            ? t(warningLang, "settingsRecovered").replace(
+                "{path}",
+                warning.details ?? "settings.invalid.json",
+              )
+            : warning.message,
         );
-        if (match) return match.path;
       }
-      return next.workspaces[0]?.path ?? null;
-    });
-    setSelectedSessionId((current) =>
-      current && next.sessions.some((session) => session.id === current) ? current : null,
-    );
-  }, []);
+      setSelectedWorkspacePath((current) => {
+        const preferred = preferredWorkspace ?? current;
+        if (preferred) {
+          const preferredKey = normalizedPath(preferred, next.runtime.platform);
+          const match = next.workspaces.find(
+            (workspace) => normalizedPath(workspace.path, next.runtime.platform) === preferredKey,
+          );
+          if (match) return match.path;
+        }
+        return next.workspaces[0]?.path ?? null;
+      });
+      setSelectedSessionId((current) =>
+        current && next.sessions.some((session) => session.id === current) ? current : null,
+      );
+    },
+    [showNotice],
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
       applyPayload(await loadBootstrap());
     } catch (error) {
-      const message = errorMessage(error);
+      const message = errorMessage(error, lang);
       setStartupError(message);
       showError(message);
     } finally {
       setRefreshing(false);
     }
-  }, [applyPayload, showError]);
+  }, [applyPayload, lang, showError]);
 
   useEffect(() => {
     void refresh();
@@ -306,10 +298,10 @@ function App() {
           if (!disposed) applyPayload(next);
         })
         .catch((error) => {
-          if (!disposed) showError(errorMessage(error));
+          if (!disposed) showError(errorMessage(error, lang));
         });
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error));
+      if (!disposed) showError(errorMessage(error, lang));
       return null;
     });
 
@@ -341,7 +333,7 @@ function App() {
         ),
       );
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error));
+      if (!disposed) showError(errorMessage(error, lang));
       return null;
     });
 
@@ -360,7 +352,7 @@ function App() {
       );
       setUpdateNoticeVisible(true);
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error));
+      if (!disposed) showError(errorMessage(error, lang));
       return null;
     });
 
@@ -392,6 +384,7 @@ function App() {
       setCheckingUpdate(false);
     }
   }, [updateSourceTerminalId]);
+
 
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
@@ -474,39 +467,6 @@ function App() {
     [focusTab, payload?.runtime.platform, tabs],
   );
 
-  const loadTranscript = useCallback(async (session: SessionSummary) => {
-    const requestId = transcriptRequestRef.current + 1;
-    transcriptRequestRef.current = requestId;
-    setTranscriptSession(session);
-    setTranscript(null);
-    setTranscriptError(null);
-    setTranscriptLoading(true);
-    try {
-      const next = await readSessionTranscript(session.filePath);
-      if (transcriptRequestRef.current === requestId) {
-        setTranscript(next);
-        setTranscriptSession(next.session);
-      }
-    } catch (error) {
-      if (transcriptRequestRef.current === requestId) {
-        setTranscriptError(errorMessage(error));
-      }
-    } finally {
-      if (transcriptRequestRef.current === requestId) {
-        setTranscriptLoading(false);
-      }
-    }
-  }, []);
-
-  const closeTranscript = useCallback(() => {
-    transcriptRequestRef.current += 1;
-    setTranscriptSession(null);
-    setTranscript(null);
-    setTranscriptError(null);
-    setTranscriptLoading(false);
-    setTranscriptSearch("");
-    setTranscriptMode("all");
-  }, []);
 
   const openFolder = useCallback(async () => {
     try {
@@ -521,15 +481,15 @@ function App() {
       setSelectedSessionId(null);
       setSearch("");
     } catch (error) {
-      showError(errorMessage(error));
+      showError(errorMessage(error, lang));
     }
   }, [applyPayload, lang, showError]);
 
   const reveal = useCallback(
     (path: string) => {
-      void revealItemInDir(path).catch((error) => showError(errorMessage(error)));
+      void revealItemInDir(path).catch((error) => showError(errorMessage(error, lang)));
     },
-    [showError],
+    [lang, showError],
   );
 
   const launchSession = useCallback(
@@ -603,7 +563,7 @@ function App() {
         setTabs((current) => [...current, tab]);
         setActiveTabId(tab.id);
       } catch (error) {
-        showError(errorMessage(error));
+        showError(errorMessage(error, lang));
       } finally {
         setLaunching(null);
       }
@@ -651,7 +611,7 @@ function App() {
       setTabs((current) => [...current, tab]);
       setActiveTabId(tab.id);
     } catch (error) {
-      showError(errorMessage(error));
+      showError(errorMessage(error, lang));
     } finally {
       setLaunching(null);
     }
@@ -665,11 +625,11 @@ function App() {
       setCodexSessions(sessions);
       setCodexSelected({});
     } catch (error) {
-      showError(errorMessage(error));
+      showError(errorMessage(error, lang));
     } finally {
       setCodexLoading(false);
     }
-  }, [showError]);
+  }, [lang, showError]);
 
   const importCodexSelected = useCallback(async () => {
     if (!selectedWorkspace?.path) {
@@ -688,7 +648,7 @@ function App() {
       setCodexOpen(false);
       showNotice(`${t(lang, "imported")}: ${selected.length}`);
     } catch (error) {
-      showError(errorMessage(error));
+      showError(errorMessage(error, lang));
     } finally {
       setImporting(false);
     }
@@ -711,7 +671,7 @@ function App() {
       applyPayload(next, selectedWorkspace.path);
       showNotice(t(lang, "imported"));
     } catch (error) {
-      showError(errorMessage(error));
+      showError(errorMessage(error, lang));
     }
   }, [applyPayload, lang, selectedWorkspace?.path, showError, showNotice]);
 
@@ -759,10 +719,10 @@ function App() {
             candidate.id === terminalId ? { ...candidate, switching: false } : candidate,
           ),
         );
-        showError(errorMessage(error));
+        showError(errorMessage(error, lang));
       }
     },
-    [ompConfig, refresh, showError, tabs],
+    [lang, ompConfig, refresh, showError, tabs],
   );
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
@@ -786,7 +746,8 @@ function App() {
       pendingInitialInputRef.current.delete(terminalId);
       readyTerminalIdsRef.current.delete(terminalId);
       discoveredSessionsRef.current.delete(terminalId);
-      void closeTerminal(terminalId).catch((error) => showError(errorMessage(error)));
+      completionNotifiedRef.current.delete(terminalId);
+      void closeTerminal(terminalId).catch((error) => showError(errorMessage(error, lang)));
       setTabs((current) => {
         const index = current.findIndex((tab) => tab.id === terminalId);
         const remaining = current.filter((tab) => tab.id !== terminalId);
@@ -797,7 +758,7 @@ function App() {
         return remaining;
       });
     },
-    [showError],
+    [lang, showError],
   );
 
   const closeTab = useCallback(
@@ -851,7 +812,7 @@ function App() {
         applyPayload(next, selectedWorkspace?.path);
         showNotice(t(lang, "sessionDeleted"));
       } catch (error) {
-        showError(errorMessage(error));
+        showError(errorMessage(error, lang));
       } finally {
         setDeletingSessionId(null);
       }
@@ -868,23 +829,52 @@ function App() {
     ],
   );
 
-  const startRenameSession = useCallback((session: SessionSummary) => {
-    setRenameValue(session.title);
-    setRenamingSessionId(session.id);
-  }, []);
+  const startRenameSession = useCallback(
+    (session: SessionSummary) => {
+      const active = tabs.some(
+        (tab) =>
+          tab.status === "running" &&
+          tabMatchesSession(tab, session, payload?.runtime.platform ?? "unknown"),
+      );
+      if (active) {
+        showError(t(lang, "closeSessionBeforeRename"));
+        return;
+      }
+      setRenameValue(session.title);
+      setRenamingSessionId(session.id);
+    },
+    [lang, payload?.runtime.platform, showError, tabs],
+  );
 
   const submitRenameSession = useCallback(
     (session: SessionSummary) => {
       if (renamingSessionId !== session.id) return;
       setRenamingSessionId(null);
+      const active = tabs.some(
+        (tab) =>
+          tab.status === "running" &&
+          tabMatchesSession(tab, session, payload?.runtime.platform ?? "unknown"),
+      );
+      if (active) {
+        showError(t(lang, "closeSessionBeforeRename"));
+        return;
+      }
       const trimmed = renameValue.trim();
       if (trimmed && trimmed !== session.title) {
         void renameSession(session.filePath, trimmed)
           .then((next) => applyPayload(next))
-          .catch((error) => showError(errorMessage(error)));
+          .catch((error) => showError(errorMessage(error, lang)));
       }
     },
-    [applyPayload, renameValue, renamingSessionId, showError],
+    [
+      applyPayload,
+      lang,
+      payload?.runtime.platform,
+      renameValue,
+      renamingSessionId,
+      showError,
+      tabs,
+    ],
   );
 
   const handleRenameKeyDown = useCallback(
@@ -1073,6 +1063,8 @@ function App() {
         <TerminalWorkspace
           activeTabId={activeTabId}
           language={lang}
+          terminalFontFamily={payload.settings.terminalFontFamily}
+          terminalFontSize={payload.settings.terminalFontSize}
           launching={launching}
           ompConfig={ompConfig}
           onCloseTab={closeTab}
@@ -1150,7 +1142,18 @@ function App() {
         />
       )}
 
+      {clientUpdate && (
+        <ClientUpdateNotice
+          info={clientUpdate}
+          installing={installingClientUpdate}
+          language={lang}
+          onClose={dismissClientUpdate}
+          onInstall={() => void installAvailableClientUpdate()}
+        />
+      )}
+
       <ToastContainer language={lang} onDismiss={dismissToast} toasts={toasts} />
+
     </div>
   );
 }

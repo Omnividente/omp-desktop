@@ -15,6 +15,8 @@ import { WorkspaceHome } from "./WorkspaceHome";
 interface TerminalWorkspaceProps {
   activeTabId: string | null;
   language: Lang;
+  terminalFontFamily: string;
+  terminalFontSize: number;
   launching: string | null;
   ompConfig: OmpConfigSnapshot | null;
   runtime: RuntimeInfo;
@@ -37,6 +39,8 @@ interface TerminalWorkspaceProps {
 export function TerminalWorkspace({
   activeTabId,
   language,
+  terminalFontFamily,
+  terminalFontSize,
   launching,
   ompConfig,
   runtime,
@@ -161,6 +165,9 @@ export function TerminalWorkspace({
           {tabs.map((tab) => (
             <TerminalView
               active={tab.id === activeTabId}
+              language={language}
+              terminalFontFamily={terminalFontFamily}
+              terminalFontSize={terminalFontSize}
               key={tab.id}
               onError={onError}
               onExit={onExit}

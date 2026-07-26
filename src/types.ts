@@ -1,10 +1,19 @@
+export interface SettingsWarning {
+  code: string;
+  message: string;
+  details: string | null;
+}
+
 export interface AppSettings {
   ompExecutable: string | null;
   sessionRoot: string | null;
   recentWorkspaces: string[];
   language: "ru" | "en";
+  terminalFontFamily: string;
+  terminalFontSize: number;
   providerEnvKeys: string[];
   secretStorageWarning: string | null;
+  settingsWarning: SettingsWarning | null;
 }
 
 export interface RuntimeInfo {
@@ -65,6 +74,8 @@ export interface BootstrapPayload {
 
 export interface SettingsUpdate {
   ompExecutable?: string | null;
+  terminalFontFamily?: string | null;
+  terminalFontSize?: number | null;
   sessionRoot?: string | null;
   language?: "ru" | "en" | null;
   providerEnv?: Record<string, string> | null;
@@ -99,6 +110,12 @@ export interface OmpCredentialInfo {
   modelCount: number;
 }
 
+export interface OmpConfigWarning {
+  source: "models" | "usage" | string;
+  code: string;
+  message: string;
+}
+
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[];
   models: OmpModelInfo[];
@@ -107,6 +124,7 @@ export interface OmpConfigSnapshot {
   defaultThinkingLevel: string | null;
   providerEnvKeys: string[];
   credentials: OmpCredentialInfo[];
+  warnings: OmpConfigWarning[];
   raw: Record<string, unknown>;
 }
 

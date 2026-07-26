@@ -13,10 +13,14 @@ import {
   writeTerminalBinary,
 } from "./api";
 import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types";
+import type { Lang } from "./i18n";
 
 interface TerminalViewProps {
   tab: TerminalTab;
   active: boolean;
+  language: Lang;
+  terminalFontFamily: string;
+  terminalFontSize: number;
   onExit: (event: PtyExitEvent) => void;
   onError: (message: string) => void;
   onReady: (terminalId: string) => void;
@@ -43,6 +47,9 @@ function exitLine(event: PtyExitEvent): string {
 export function TerminalView({
   tab,
   active,
+  language,
+  terminalFontFamily,
+  terminalFontSize,
   onExit,
   onError,
   onReady,
@@ -51,11 +58,17 @@ export function TerminalView({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const activeRef = useRef(active);
+  const languageRef = useRef(language);
+  const terminalFontFamilyRef = useRef(terminalFontFamily);
+  const terminalFontSizeRef = useRef(terminalFontSize);
   const onExitRef = useRef(onExit);
   const onErrorRef = useRef(onError);
   const onReadyRef = useRef(onReady);
 
   activeRef.current = active;
+  languageRef.current = language;
+  terminalFontFamilyRef.current = terminalFontFamily;
+  terminalFontSizeRef.current = terminalFontSize;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
   onReadyRef.current = onReady;
@@ -70,9 +83,8 @@ export function TerminalView({
       cursorBlink: true,
       cursorStyle: "bar",
       cursorWidth: 2,
-      fontFamily:
-        '"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "Fira Code", Consolas, monospace',
-      fontSize: 14,
+      fontFamily: terminalFontFamilyRef.current,
+      fontSize: terminalFontSizeRef.current,
       fontWeight: "400",
       fontWeightBold: "600",
       letterSpacing: 0,
@@ -123,7 +135,7 @@ export function TerminalView({
         return true;
       }
       void writeText(selection).catch((error) => {
-        onErrorRef.current(errorMessage(error));
+        onErrorRef.current(errorMessage(error, languageRef.current));
       });
       return false;
     });
@@ -156,12 +168,12 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData((data) => {
       void writeTerminal(tab.id, data).catch((error) => {
-        onErrorRef.current(errorMessage(error));
+        onErrorRef.current(errorMessage(error, languageRef.current));
       });
     });
     const binarySubscription = terminal.onBinary((data) => {
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
-        onErrorRef.current(errorMessage(error));
+        onErrorRef.current(errorMessage(error, languageRef.current));
       });
     });
 
@@ -222,7 +234,7 @@ export function TerminalView({
 
     void connect().catch((error) => {
       if (!disposed) {
-        onErrorRef.current(errorMessage(error));
+        onErrorRef.current(errorMessage(error, languageRef.current));
       }
     });
 
@@ -239,6 +251,14 @@ export function TerminalView({
       terminal.dispose();
     };
   }, [tab.id]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.fontFamily = terminalFontFamily;
+    terminal.options.fontSize = terminalFontSize;
+    window.requestAnimationFrame(() => fitAddonRef.current?.fit());
+  }, [terminalFontFamily, terminalFontSize]);
 
   useEffect(() => {
     if (!active) {

@@ -125,9 +125,11 @@ export function SessionRow({
       {!renaming && (
         <button
           className="session-play"
-          disabled={actionsDisabled}
+          disabled={actionsDisabled || sessionRunning}
           onClick={onStartRename}
-          title={t(lang, "rename")}
+          title={
+            sessionRunning ? t(lang, "closeSessionBeforeRename") : t(lang, "rename")
+          }
           type="button"
         >
           <Icon name="edit" size={14} />

@@ -1,33 +1,47 @@
 use crate::{
-    models::{AppSettings, RuntimeInfo},
+    diagnostics,
+    models::{
+        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_TERMINAL_FONT_FAMILY,
+        DEFAULT_TERMINAL_FONT_SIZE,
+    },
+    omp_command::{run_omp_command, OmpOperation},
     secrets,
+    sessions::atomic_write_file,
 };
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     ffi::OsString,
     fs,
-    io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
     sync::{LazyLock, Mutex},
-    thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-pub struct SettingsState(pub Mutex<AppSettings>);
+pub struct SettingsState(pub Mutex<AppSettings>, Mutex<bool>);
 
 impl SettingsState {
-    pub fn new(settings: AppSettings) -> Self {
-        Self(Mutex::new(settings))
+    pub fn new_uninitialized() -> Self {
+        Self(Mutex::new(AppSettings::default()), Mutex::new(false))
     }
+}
+
+pub fn initialize_settings(app: &AppHandle, state: &SettingsState) -> Result<(), String> {
+    let mut initialized = state
+        .1
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if *initialized {
+        return Ok(());
+    }
+    let settings = load_settings(app)?;
+    *state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = settings;
+    *initialized = true;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,9 +50,6 @@ pub struct OmpResolution {
     pub version: Option<String>,
 }
 
-const OMP_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-const OMP_PROBE_POLL_INTERVAL: Duration = Duration::from_millis(20);
-const OMP_PROBE_OUTPUT_LIMIT: u64 = 16 * 1024;
 const OMP_RESOLUTION_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -86,8 +97,10 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let mut settings = if path.exists() {
         let contents = fs::read_to_string(&path)
             .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-        serde_json::from_str(&contents)
-            .map_err(|error| format!("Некорректные настройки {}: {error}", path.display()))?
+        match serde_json::from_str(&contents) {
+            Ok(settings) => settings,
+            Err(error) => recover_invalid_settings(&path, &error.to_string())?,
+        }
     } else {
         AppSettings::default()
     };
@@ -108,11 +121,41 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     let mut persisted = settings.clone();
     persisted.provider_env_keys.sort();
     persisted.provider_env_keys.dedup();
+    persisted.settings_warning = None;
     let contents = serde_json::to_string_pretty(&persisted)
         .map_err(|error| format!("Не удалось сериализовать настройки: {error}"))?;
-    fs::write(&path, contents)
-        .map_err(|error| format!("Не удалось записать {}: {error}", path.display()))?;
+    atomic_write_file(&path, contents.as_bytes())?;
     secrets::set_private_permissions(&path)
+}
+
+fn recover_invalid_settings(path: &Path, parse_error: &str) -> Result<AppSettings, String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let backup = path.with_file_name(format!("settings.invalid-{timestamp}.json"));
+    fs::rename(path, &backup).map_err(|error| {
+        format!(
+            "Настройки {} повреждены ({parse_error}); не удалось сохранить резервную копию {}: {error}",
+            path.display(),
+            backup.display()
+        )
+    })?;
+    diagnostics::warn("settings.parse", parse_error);
+    diagnostics::info(
+        "settings.recovery",
+        &format!("invalid settings moved to {}", backup.display()),
+    );
+    let settings = AppSettings {
+        settings_warning: Some(SettingsWarning {
+            code: "settings_recovered".to_owned(),
+            message: "Повреждённый settings.json сохранён, применены настройки по умолчанию"
+                .to_owned(),
+            details: Some(backup.to_string_lossy().into_owned()),
+        }),
+        ..AppSettings::default()
+    };
+    Ok(settings)
 }
 
 pub fn update_provider_secrets(
@@ -279,6 +322,23 @@ pub fn normalize_optional(value: Option<String>) -> Option<String> {
     })
 }
 
+pub fn normalize_terminal_font_family(value: Option<String>) -> String {
+    value
+        .map(|value| {
+            value
+                .trim()
+                .chars()
+                .filter(|character| !character.is_control())
+                .collect::<String>()
+        })
+        .filter(|value| !value.is_empty() && value.len() <= 256)
+        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT_FAMILY.to_owned())
+}
+
+pub fn normalize_terminal_font_size(value: Option<u16>) -> u16 {
+    value.unwrap_or(DEFAULT_TERMINAL_FONT_SIZE).clamp(8, 32)
+}
+
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -294,51 +354,24 @@ fn probe_omp(executable: &str) -> Option<String> {
         return None;
     }
 
-    let mut command = Command::new(executable);
-    command
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-
-    let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + OMP_PROBE_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                thread::sleep(OMP_PROBE_POLL_INTERVAL.min(remaining));
-            }
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-    if !status.success() {
+    let output = run_omp_command(
+        executable,
+        &["--version"],
+        &HashMap::new(),
+        OmpOperation::Probe,
+    )
+    .ok()?;
+    if !output.status.success() {
         return None;
     }
-
-    let stdout = read_probe_stream(child.stdout.take()?)?;
-    let stderr = read_probe_stream(child.stderr.take()?)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     stdout
         .lines()
         .chain(stderr.lines())
         .map(str::trim)
         .find(|line| !line.is_empty())
         .map(str::to_owned)
-}
-
-fn read_probe_stream(stream: impl Read) -> Option<String> {
-    let mut bytes = Vec::new();
-    stream
-        .take(OMP_PROBE_OUTPUT_LIMIT)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn looks_like_path(value: &str) -> bool {

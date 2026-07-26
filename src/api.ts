@@ -11,6 +11,7 @@ import type {
   TerminalStarted,
   TerminalRuntime,
 } from "./types";
+import type { Lang } from "./i18n";
 
 export function bootstrap(): Promise<BootstrapPayload> {
   return invoke("bootstrap");
@@ -132,21 +133,75 @@ export function checkOmpUpdate(): Promise<OmpUpdateInfo> {
   return invoke("check_omp_update");
 }
 
-export function errorMessage(error: unknown): string {
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
-  if (raw.startsWith("{") && raw.endsWith("}")) {
+interface BackendError {
+  code?: string;
+  message?: string;
+  details?: string;
+}
+
+const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
+  backend_join_failed: {
+    ru: "Фоновая операция backend завершилась аварийно",
+    en: "The backend background operation failed",
+  },
+  bootstrap_failed: { ru: "Не удалось загрузить данные OMP", en: "Failed to load OMP data" },
+  workspace_add_failed: { ru: "Не удалось добавить проект", en: "Failed to add the project" },
+  settings_save_failed: { ru: "Не удалось сохранить настройки", en: "Failed to save settings" },
+  session_active_rename: {
+    ru: "Сначала остановите активную сессию OMP",
+    en: "Stop the active OMP session before renaming it",
+  },
+  session_rename_failed: { ru: "Не удалось переименовать сессию", en: "Failed to rename the session" },
+  session_delete_failed: { ru: "Не удалось удалить сессию", en: "Failed to delete the session" },
+  session_import_failed: { ru: "Не удалось импортировать сессию", en: "Failed to import the session" },
+  codex_sessions_load_failed: {
+    ru: "Не удалось загрузить сессии Codex",
+    en: "Failed to load Codex sessions",
+  },
+  transcript_read_failed: { ru: "Не удалось прочитать транскрипт", en: "Failed to read the transcript" },
+  omp_config_load_failed: {
+    ru: "Не удалось загрузить настройки OMP",
+    en: "Failed to load OMP settings",
+  },
+  omp_config_save_failed: {
+    ru: "Не удалось сохранить настройки OMP",
+    en: "Failed to save OMP settings",
+  },
+  omp_update_check_failed: {
+    ru: "Не удалось проверить обновление OMP",
+    en: "Failed to check for OMP updates",
+  },
+  omp_timeout: { ru: "OMP не ответил вовремя и был остановлен", en: "OMP timed out and was stopped" },
+  omp_output_limit: {
+    ru: "OMP вернул слишком большой объём данных",
+    en: "OMP returned too much data",
+  },
+  omp_spawn_failed: { ru: "Не удалось запустить OMP", en: "Failed to start OMP" },
+  omp_io_failed: { ru: "Ошибка обмена данными с OMP", en: "Failed to communicate with OMP" },
+  omp_invalid_json: { ru: "OMP вернул некорректные данные", en: "OMP returned invalid data" },
+  omp_command_failed: { ru: "Команда OMP завершилась с ошибкой", en: "The OMP command failed" },
+};
+
+export function errorMessage(error: unknown, language: Lang = "ru"): string {
+  const parsed = parseBackendError(error);
+  if (parsed.code && BACKEND_ERROR_TEXT[parsed.code]) {
+    return BACKEND_ERROR_TEXT[parsed.code][language];
+  }
+  return parsed.message || parsed.details || (language === "en" ? "Unknown error" : "Неизвестная ошибка");
+}
+
+function parseBackendError(error: unknown): BackendError {
+  if (error && typeof error === "object" && !(error instanceof Error)) {
+    const candidate = error as BackendError;
+    if (candidate.code || candidate.message || candidate.details) return candidate;
+  }
+  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error);
+  if (raw?.startsWith("{") && raw.endsWith("}")) {
     try {
-      const parsed = JSON.parse(raw) as { code?: string; message?: string; details?: string };
-      if (parsed.message) return parsed.message;
-      if (parsed.code) return `[${parsed.code}] ${parsed.details ?? raw}`;
+      return JSON.parse(raw) as BackendError;
     } catch {
-      // Plain string
+      // Fall through to the plain message.
     }
   }
-  return raw || "Unknown error";
+  return { message: raw || undefined };
 }

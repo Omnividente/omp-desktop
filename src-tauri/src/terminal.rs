@@ -1,6 +1,7 @@
 use crate::{
-    sessions::{parse_session, path_key},
+    sessions::{parse_session, path_key, rename_session as rename_session_file},
     settings::{resolve_omp, SettingsState},
+    update,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -52,6 +53,7 @@ const OMP_THINKING_CYCLE_ESC: &[u8] = b"\x1b[Z";
 #[derive(Default)]
 pub struct TerminalState {
     processes: Mutex<HashMap<String, TerminalProcess>>,
+    session_files: Mutex<()>,
 }
 
 struct TerminalProcess {
@@ -98,6 +100,33 @@ fn lock_processes(
         .processes
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn lock_session_files(state: &TerminalState) -> std::sync::MutexGuard<'_, ()> {
+    state
+        .session_files
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub fn rename_inactive_session(
+    state: &TerminalState,
+    path: &str,
+    title: &str,
+) -> Result<(), String> {
+    let _session_file_guard = lock_session_files(state);
+    let target = path_key(path);
+    let active = lock_processes(state).values().any(|process| {
+        !process.exited
+            && process
+                .resume_path
+                .as_deref()
+                .is_some_and(|resume_path| path_key(resume_path) == target)
+    });
+    if active {
+        return Err("[session_active_rename] Активную сессию нельзя переименовать. Сначала завершите её процесс OMP.".to_owned());
+    }
+    rename_session_file(path, title)
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +236,8 @@ fn start_terminal_blocking(
     request: LaunchRequest,
     app: AppHandle,
 ) -> Result<TerminalStarted, String> {
+    let terminals = app.state::<TerminalState>();
+    let _session_file_guard = lock_session_files(&terminals);
     let cwd = Path::new(&request.cwd);
     if !cwd.is_dir() {
         return Err(format!("Папка проекта не найдена: {}", cwd.display()));
@@ -237,7 +268,6 @@ fn start_terminal_blocking(
     } else {
         request.args.unwrap_or_default()
     };
-    let terminals = app.state::<TerminalState>();
     spawn_terminal_process(
         &app,
         &terminals,
@@ -1755,7 +1785,17 @@ fn detect_update_notice(buffer: &mut Vec<u8>, data: &[u8]) -> bool {
 
     let clean = strip_ansi_bytes(buffer);
     let text = String::from_utf8_lossy(&clean);
-    (text.contains("New version") || text.contains("new version")) && text.contains("omp update")
+    let lower = text.to_lowercase();
+    let advertises_update = [
+        "new version",
+        "update available",
+        "upgrade available",
+        "новая версия",
+        "доступно обновление",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    advertises_update && lower.contains("omp update") && update::contains_version(&text)
 }
 
 fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
@@ -2098,6 +2138,18 @@ mod tests {
         assert!(!detect_update_notice(
             &mut unrelated,
             b"compiling crate omp_desktop_lib v0.1.8\n"
+        ));
+
+        let mut localized = Vec::new();
+        assert!(detect_update_notice(
+            &mut localized,
+            "Доступна новая версия OMP 17.2.0. Запустите omp update\n".as_bytes()
+        ));
+
+        let mut missing_version = Vec::new();
+        assert!(!detect_update_notice(
+            &mut missing_version,
+            b"New version is available. Run: omp update\n"
         ));
     }
 }

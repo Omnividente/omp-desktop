@@ -1,23 +1,16 @@
 use crate::{
+    diagnostics,
     models::{
-        AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpCredentialInfo, OmpModelInfo,
-        OmpRoleInfo, OmpUpdateInfo,
+        AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo,
+        OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
+    omp_command::{run_omp_command, OmpOperation},
     settings::{resolve_omp, SettingsState},
     update,
 };
 use serde_json::{Map, Value};
-use std::{
-    collections::{BTreeMap, HashMap},
-    process::Command,
-};
+use std::collections::{BTreeMap, HashMap};
 use tauri::{AppHandle, Manager, State};
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const KNOWN_ROLES: &[&str] = &[
     "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
@@ -58,17 +51,20 @@ pub fn load_config_snapshot(
         &omp.executable,
         &["config", "list", "--json"],
         &app_settings.provider_env,
+        OmpOperation::Config,
     )?;
-    let (models, usage) = std::thread::scope(|scope| {
+    let (models_result, usage_result) = std::thread::scope(|scope| {
         let models = scope.spawn(|| load_models(&omp.executable, &app_settings.provider_env));
         let usage = scope.spawn(|| load_usage(&omp.executable, &app_settings.provider_env));
-        (
-            models.join().ok().and_then(Result::ok).unwrap_or_default(),
-            usage.join().ok().and_then(Result::ok).unwrap_or_default(),
-        )
+        (models.join(), usage.join())
     });
+    let mut warnings = Vec::new();
+    let mut models =
+        snapshot_value_or_warning(models_result, "models", "omp_models_failed", &mut warnings);
+    let usage = snapshot_value_or_warning(usage_result, "usage", "omp_usage_failed", &mut warnings);
+    apply_usage_to_models(&mut models, &usage);
     let roles_map = extract_roles(&raw);
-    let roles = build_roles(&roles_map, &models, &usage);
+    let roles = build_roles(&roles_map, &models);
     let credentials = build_credentials(app, app_settings, &models, &usage);
 
     Ok(OmpConfigSnapshot {
@@ -82,8 +78,38 @@ pub fn load_config_snapshot(
             .map(|key| (*key).to_owned())
             .collect(),
         credentials,
+        warnings,
         raw,
     })
+}
+
+fn snapshot_value_or_warning<T: Default>(
+    result: std::thread::Result<Result<T, String>>,
+    source: &str,
+    code: &str,
+    warnings: &mut Vec<OmpConfigWarning>,
+) -> T {
+    match result {
+        Ok(Ok(value)) => value,
+        Ok(Err(message)) => {
+            diagnostics::warn(source, &message);
+            warnings.push(OmpConfigWarning {
+                source: source.to_owned(),
+                code: code.to_owned(),
+                message,
+            });
+            T::default()
+        }
+        Err(_) => {
+            diagnostics::warn(source, "фоновая операция завершилась паникой");
+            warnings.push(OmpConfigWarning {
+                source: source.to_owned(),
+                code: format!("{code}_panic"),
+                message: format!("OMP {source}: фоновая операция завершилась паникой"),
+            });
+            T::default()
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -94,7 +120,7 @@ struct ModelsYamlFile {
 #[derive(Debug, serde::Deserialize)]
 struct ModelsYamlProvider {
     #[serde(rename = "apiKey")]
-    api_key: Option<serde_yml::Value>,
+    api_key: Option<noyalib::Value>,
 }
 
 fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
@@ -111,7 +137,7 @@ fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
     let Ok(contents) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
-    serde_yml::from_str::<ModelsYamlFile>(&contents)
+    noyalib::from_str::<ModelsYamlFile>(&contents)
         .ok()
         .and_then(|file| file.providers)
         .unwrap_or_default()
@@ -121,7 +147,7 @@ fn build_credentials(
     app: &AppHandle,
     app_settings: &AppSettings,
     models: &[OmpModelInfo],
-    usage: &HashMap<String, UsageStatus>,
+    usage: &UsageMap,
 ) -> Vec<OmpCredentialInfo> {
     build_credentials_from_sources(
         load_models_yaml(app),
@@ -136,7 +162,7 @@ fn build_credentials_from_sources<F>(
     yaml_providers: BTreeMap<String, ModelsYamlProvider>,
     provider_env: &HashMap<String, String>,
     models: &[OmpModelInfo],
-    usage: &HashMap<String, UsageStatus>,
+    usage: &UsageMap,
     environment_has: F,
 ) -> Vec<OmpCredentialInfo>
 where
@@ -149,7 +175,7 @@ where
 
     let mut credentials = BTreeMap::<String, OmpCredentialInfo>::new();
     for (provider, config) in yaml_providers {
-        let (source, key_name) = match config.api_key.as_ref().and_then(serde_yml::Value::as_str) {
+        let (source, key_name) = match config.api_key.as_ref().and_then(noyalib::Value::as_str) {
             Some(resolver) if resolver.starts_with('!') => ("command".to_owned(), None),
             Some(resolver) if provider_env.contains_key(resolver) => {
                 ("desktop".to_owned(), Some(resolver.to_owned()))
@@ -189,13 +215,15 @@ fn credential_info(
     source: String,
     key_name: Option<String>,
     model_count: usize,
-    usage: &HashMap<String, UsageStatus>,
+    usage: &UsageMap,
 ) -> OmpCredentialInfo {
-    let usage_status = usage.get(&provider);
+    let usage_status = usage.get(&provider).map(summarize_provider_usage);
     let available = usage_status
+        .as_ref()
         .map(|item| item.available)
         .unwrap_or(model_count > 0);
     let status = usage_status
+        .as_ref()
         .map(|item| item.status.clone())
         .unwrap_or_else(|| {
             if model_count == 0 {
@@ -360,6 +388,7 @@ pub fn check_update(
         &omp.executable,
         &["update", "--check"],
         &app_settings.provider_env,
+        OmpOperation::Update,
     )?;
     Ok(update::normalize_update_info(
         &output,
@@ -371,7 +400,12 @@ fn load_models(
     executable: &str,
     env_map: &HashMap<String, String>,
 ) -> Result<Vec<OmpModelInfo>, String> {
-    let value = run_omp_json(executable, &["models", "--json"], env_map)?;
+    let value = run_omp_json(
+        executable,
+        &["models", "--json"],
+        env_map,
+        OmpOperation::Models,
+    )?;
     let models = value
         .get("models")
         .and_then(Value::as_array)
@@ -418,12 +452,51 @@ fn load_models(
         .collect())
 }
 
-fn load_usage(
-    executable: &str,
-    env_map: &HashMap<String, String>,
-) -> Result<HashMap<String, UsageStatus>, String> {
-    let value = run_omp_json(executable, &["usage", "--json"], env_map)?;
-    let mut map = HashMap::new();
+fn load_usage(executable: &str, env_map: &HashMap<String, String>) -> Result<UsageMap, String> {
+    let value = run_omp_json(
+        executable,
+        &["usage", "--json"],
+        env_map,
+        OmpOperation::Usage,
+    )?;
+    Ok(parse_usage_reports(&value))
+}
+
+type UsageMap = HashMap<String, ProviderUsage>;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ModelFamily {
+    Google,
+    Anthropic,
+    OpenAi,
+    General,
+}
+
+impl ModelFamily {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Google => "Google",
+            Self::Anthropic => "Anthropic",
+            Self::OpenAi => "OpenAI",
+            Self::General => "Provider",
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct ProviderUsage {
+    families: HashMap<ModelFamily, UsageStatus>,
+}
+
+#[derive(Clone, Debug)]
+struct UsageStatus {
+    available: bool,
+    status: String,
+    detail: Option<String>,
+}
+
+fn parse_usage_reports(value: &Value) -> UsageMap {
+    let mut accounts = HashMap::<String, HashMap<ModelFamily, Vec<UsageStatus>>>::new();
     let reports = value
         .get("reports")
         .and_then(Value::as_array)
@@ -435,60 +508,208 @@ fn load_usage(
             .get("provider")
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .to_owned();
+            .trim();
         if provider.is_empty() {
             continue;
         }
-        let mut worst = UsageStatus {
+
+        let mut account = HashMap::<ModelFamily, UsageStatus>::new();
+        if let Some(limits) = report.get("limits").and_then(Value::as_array) {
+            for limit in limits {
+                let family = usage_family(limit);
+                let candidate = usage_status_from_limit(limit);
+                account
+                    .entry(family)
+                    .and_modify(|current| {
+                        if usage_severity(&candidate) > usage_severity(current) {
+                            *current = candidate.clone();
+                        }
+                    })
+                    .or_insert(candidate);
+            }
+        }
+
+        let provider_accounts = accounts.entry(provider.to_owned()).or_default();
+        for (family, status) in account {
+            provider_accounts.entry(family).or_default().push(status);
+        }
+    }
+
+    accounts
+        .into_iter()
+        .map(|(provider, families)| {
+            let families = families
+                .into_iter()
+                .map(|(family, statuses)| (family, aggregate_account_statuses(family, &statuses)))
+                .collect();
+            (provider, ProviderUsage { families })
+        })
+        .collect()
+}
+
+fn usage_family(limit: &Value) -> ModelFamily {
+    let label = limit
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let id = limit.get("id").and_then(Value::as_str).unwrap_or_default();
+    let value = format!("{label} {id}").to_ascii_lowercase();
+    if value.contains("anthropic") || value.contains("claude") {
+        ModelFamily::Anthropic
+    } else if value.contains("openai") || value.contains("gpt") {
+        ModelFamily::OpenAi
+    } else if value.contains("google") || value.contains("gemini") {
+        ModelFamily::Google
+    } else {
+        ModelFamily::General
+    }
+}
+
+fn usage_status_from_limit(limit: &Value) -> UsageStatus {
+    let raw_status = limit.get("status").and_then(Value::as_str).unwrap_or("ok");
+    let label = limit
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or("Usage");
+    let used = limit
+        .pointer("/amount/usedFraction")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    if raw_status.eq_ignore_ascii_case("exhausted") || used >= 0.999 {
+        UsageStatus {
+            available: false,
+            status: "exhausted".to_owned(),
+            detail: Some(format!("{label}: 100%")),
+        }
+    } else if !raw_status.eq_ignore_ascii_case("ok") || used >= 0.9 {
+        UsageStatus {
+            available: true,
+            status: "limited".to_owned(),
+            detail: Some(format!("{label}: {:.0}%", used * 100.0)),
+        }
+    } else {
+        UsageStatus {
+            available: true,
+            status: "ok".to_owned(),
+            detail: Some(format!("{label}: {:.0}%", used * 100.0)),
+        }
+    }
+}
+
+fn usage_severity(status: &UsageStatus) -> u8 {
+    if !status.available || status.status == "exhausted" {
+        2
+    } else if status.status != "ok" {
+        1
+    } else {
+        0
+    }
+}
+
+fn aggregate_account_statuses(family: ModelFamily, statuses: &[UsageStatus]) -> UsageStatus {
+    let available = statuses.iter().filter(|status| status.available).count();
+    if available == 0 {
+        return UsageStatus {
+            available: false,
+            status: "exhausted".to_owned(),
+            detail: Some(format!("{}: 0/{}", family.label(), statuses.len())),
+        };
+    }
+
+    let status = if statuses
+        .iter()
+        .any(|status| status.available && status.status == "ok")
+    {
+        "ok"
+    } else {
+        "limited"
+    };
+    UsageStatus {
+        available: true,
+        status: status.to_owned(),
+        detail: if statuses.len() > 1 {
+            Some(format!(
+                "{}: {available}/{}",
+                family.label(),
+                statuses.len()
+            ))
+        } else {
+            statuses
+                .iter()
+                .find(|status| status.available)
+                .and_then(|status| status.detail.clone())
+        },
+    }
+}
+
+fn summarize_provider_usage(usage: &ProviderUsage) -> UsageStatus {
+    let total = usage.families.len();
+    let available = usage
+        .families
+        .values()
+        .filter(|status| status.available)
+        .count();
+    if total == 0 {
+        return UsageStatus {
             available: true,
             status: "ok".to_owned(),
             detail: None,
         };
-        if let Some(limits) = report.get("limits").and_then(Value::as_array) {
-            for limit in limits {
-                let status = limit.get("status").and_then(Value::as_str).unwrap_or("ok");
-                let label = limit
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .unwrap_or("limit");
-                let used = limit
-                    .pointer("/amount/usedFraction")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0);
-                if status == "exhausted" || used >= 0.999 {
-                    worst = UsageStatus {
-                        available: false,
-                        status: "exhausted".to_owned(),
-                        detail: Some(format!("{label}: exhausted")),
-                    };
-                    break;
-                }
-                if status != "ok" || used >= 0.9 {
-                    worst = UsageStatus {
-                        available: true,
-                        status: "limited".to_owned(),
-                        detail: Some(format!("{label}: {used:.0}% used")),
-                    };
-                }
-            }
-        }
-        map.insert(provider, worst);
     }
-    Ok(map)
+    if available == 0 {
+        return UsageStatus {
+            available: false,
+            status: "exhausted".to_owned(),
+            detail: Some(format!("families: 0/{total}")),
+        };
+    }
+    let all_ok = usage
+        .families
+        .values()
+        .all(|status| status.available && status.status == "ok");
+    UsageStatus {
+        available: true,
+        status: if all_ok { "ok" } else { "limited" }.to_owned(),
+        detail: (!all_ok).then(|| format!("families: {available}/{total}")),
+    }
 }
 
-#[derive(Clone)]
-struct UsageStatus {
-    available: bool,
-    status: String,
-    detail: Option<String>,
+fn model_family(model: &OmpModelInfo) -> ModelFamily {
+    let id = model.id.to_ascii_lowercase();
+    if id.starts_with("claude-") {
+        ModelFamily::Anthropic
+    } else if id.starts_with("gemini-") || id.starts_with("tab_") {
+        ModelFamily::Google
+    } else if id.starts_with("gpt-") || id.starts_with("o1-") || id.starts_with("o3-") {
+        ModelFamily::OpenAi
+    } else {
+        ModelFamily::General
+    }
 }
 
-fn build_roles(
-    roles: &BTreeMap<String, String>,
-    models: &[OmpModelInfo],
-    usage: &HashMap<String, UsageStatus>,
-) -> Vec<OmpRoleInfo> {
+fn usage_for_model(model: &OmpModelInfo, usage: &UsageMap) -> Option<UsageStatus> {
+    let provider = usage.get(&model.provider)?;
+    provider
+        .families
+        .get(&model_family(model))
+        .or_else(|| provider.families.get(&ModelFamily::General))
+        .cloned()
+        .or_else(|| Some(summarize_provider_usage(provider)))
+}
+
+fn apply_usage_to_models(models: &mut [OmpModelInfo], usage: &UsageMap) {
+    for model in models {
+        let Some(status) = usage_for_model(model, usage) else {
+            continue;
+        };
+        model.available = status.available;
+        model.status = status.status;
+        model.detail = status.detail;
+    }
+}
+
+fn build_roles(roles: &BTreeMap<String, String>, models: &[OmpModelInfo]) -> Vec<OmpRoleInfo> {
     let mut names = KNOWN_ROLES
         .iter()
         .map(|role| (*role).to_owned())
@@ -522,23 +743,13 @@ fn build_roles(
             });
 
             if let Some(model) = matched {
-                let usage_status = usage.get(&model.provider);
-                let available = usage_status.map(|item| item.available).unwrap_or(true);
-                let status = usage_status
-                    .map(|item| item.status.clone())
-                    .unwrap_or_else(|| "ok".to_owned());
-                let detail = usage_status.and_then(|item| item.detail.clone());
-                let mut info = model.clone();
-                info.available = available;
-                info.status = status.clone();
-                info.detail = detail.clone();
                 OmpRoleInfo {
                     role,
                     selector,
-                    model: Some(info),
-                    available,
-                    status,
-                    detail,
+                    model: Some(model.clone()),
+                    available: model.available,
+                    status: model.status.clone(),
+                    detail: model.detail.clone(),
                 }
             } else {
                 OmpRoleInfo {
@@ -660,8 +871,13 @@ fn set_omp_config(
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
-    run_omp_text(executable, &["config", "set", key, &rendered], env_map)
-        .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))?;
+    run_omp_text(
+        executable,
+        &["config", "set", key, &rendered],
+        env_map,
+        OmpOperation::Config,
+    )
+    .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))?;
     Ok(())
 }
 
@@ -669,11 +885,12 @@ fn run_omp_json(
     executable: &str,
     args: &[&str],
     env_map: &HashMap<String, String>,
+    operation: OmpOperation,
 ) -> Result<Value, String> {
-    let text = run_omp_text(executable, args, env_map)?;
+    let text = run_omp_text(executable, args, env_map, operation)?;
     serde_json::from_str(&text).map_err(|error| {
         format!(
-            "OMP вернул не-JSON для `{}`: {error}\n{}",
+            "[omp_invalid_json] OMP вернул не-JSON для `{}`: {error}\n{}",
             args.join(" "),
             text.chars().take(400).collect::<String>()
         )
@@ -684,18 +901,10 @@ fn run_omp_text(
     executable: &str,
     args: &[&str],
     env_map: &HashMap<String, String>,
+    operation: OmpOperation,
 ) -> Result<String, String> {
-    let mut command = Command::new(executable);
-    command.args(args);
-    for (key, value) in env_map {
-        command.env(key, value);
-    }
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-
-    let output = command
-        .output()
-        .map_err(|error| format!("Не удалось запустить OMP ({executable}): {error}"))?;
+    let output = run_omp_command(executable, args, env_map, operation)
+        .map_err(|error| format!("[{}] {error}", error.code()))?;
     interpret_omp_output(
         output.status.success(),
         output.status.code(),
@@ -720,9 +929,9 @@ fn interpret_omp_output(
             .map(|value| value.to_string())
             .unwrap_or_else(|| "неизвестный".to_owned());
         return Err(if detail.is_empty() {
-            format!("OMP завершил команду с кодом {code}")
+            format!("[omp_command_failed] OMP завершил команду с кодом {code}")
         } else {
-            format!("OMP завершил команду с кодом {code}: {detail}")
+            format!("[omp_command_failed] OMP завершил команду с кодом {code}: {detail}")
         });
     }
     if !stdout.trim().is_empty() {
@@ -752,7 +961,7 @@ mod tests {
     fn credentials_use_sources_without_exposing_secret_values() {
         let mut provider_env = HashMap::new();
         provider_env.insert("A6API_KEY".to_owned(), "secret_token_12345".to_owned());
-        let yaml = serde_yml::from_str::<ModelsYamlFile>(
+        let yaml = noyalib::from_str::<ModelsYamlFile>(
             r#"
 providers:
   a6api:
@@ -848,5 +1057,67 @@ providers:
         ] {
             assert!(validate_role_selector(selector).is_err(), "{selector}");
         }
+    }
+
+    #[test]
+    fn antigravity_usage_is_applied_per_model_family_across_accounts() {
+        let usage = parse_usage_reports(&serde_json::json!({
+            "reports": [
+                {
+                    "provider": "google-antigravity",
+                    "limits": [
+                        {"id": "anthropic", "label": "Usage (Anthropic)", "amount": {"usedFraction": 1.0}, "status": "exhausted"},
+                        {"id": "openai", "label": "Usage (OpenAI)", "amount": {"usedFraction": 1.0}, "status": "exhausted"},
+                        {"id": "google", "label": "Usage (Google)", "amount": {"usedFraction": 0.0}, "status": "ok"}
+                    ]
+                },
+                {
+                    "provider": "google-antigravity",
+                    "limits": [
+                        {"id": "anthropic", "label": "Usage (Anthropic)", "amount": {"usedFraction": 1.0}, "status": "exhausted"},
+                        {"id": "openai", "label": "Usage (OpenAI)", "amount": {"usedFraction": 1.0}, "status": "exhausted"},
+                        {"id": "google", "label": "Usage (Google)", "amount": {"usedFraction": 0.23}, "status": "ok"}
+                    ]
+                }
+            ]
+        }));
+        let mut models = vec![
+            model("google-antigravity", "gemini-3.1-pro"),
+            model("google-antigravity", "tab_flash_lite_preview"),
+            model("google-antigravity", "claude-sonnet-4-6"),
+            model("google-antigravity", "gpt-oss-120b"),
+        ];
+        apply_usage_to_models(&mut models, &usage);
+
+        assert!(models[0].available);
+        assert_eq!(models[0].status, "ok");
+        assert!(models[1].available);
+        assert!(!models[2].available);
+        assert_eq!(models[2].status, "exhausted");
+        assert!(!models[3].available);
+        assert_eq!(models[3].status, "exhausted");
+
+        let provider = summarize_provider_usage(usage.get("google-antigravity").unwrap());
+        assert!(provider.available);
+        assert_eq!(provider.status, "limited");
+    }
+
+    #[test]
+    fn one_available_account_keeps_the_model_family_available() {
+        let usage = parse_usage_reports(&serde_json::json!({
+            "reports": [
+                {"provider": "google-antigravity", "limits": [
+                    {"label": "Usage (Google)", "amount": {"usedFraction": 1.0}, "status": "exhausted"}
+                ]},
+                {"provider": "google-antigravity", "limits": [
+                    {"label": "Usage (Google)", "amount": {"usedFraction": 0.4}, "status": "ok"}
+                ]}
+            ]
+        }));
+        let mut models = vec![model("google-antigravity", "gemini-3.1-pro")];
+        apply_usage_to_models(&mut models, &usage);
+        assert!(models[0].available);
+        assert_eq!(models[0].status, "ok");
+        assert_eq!(models[0].detail.as_deref(), Some("Google: 1/2"));
     }
 }

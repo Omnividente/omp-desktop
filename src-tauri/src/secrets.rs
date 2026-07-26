@@ -1,15 +1,19 @@
+use crate::{diagnostics, sessions::atomic_write_file};
 use keyring::v1::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    fs::{self, OpenOptions},
-    io::Write,
+    fs,
     path::{Path, PathBuf},
+    sync::mpsc,
+    thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Manager};
 
 const KEYRING_SERVICE: &str = "com.ompdesk.desktop";
 pub const FALLBACK_WARNING: &str = "fallback_file";
+const KEYRING_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub const UNAVAILABLE_WARNING: &str = "unavailable";
 
@@ -42,18 +46,24 @@ pub fn load_provider_secrets(
     keys.extend(seed.keys().cloned());
 
     if !seed.is_empty() {
-        match write_keyring(&seed) {
-            Ok(()) => {
-                remove_fallback(&fallback_path)?;
-                let mut values = seed;
-                for key in &keys {
-                    if values.contains_key(key) {
-                        continue;
-                    }
-                    if let Some(value) = read_keyring(key)? {
-                        values.insert(key.clone(), value);
-                    }
+        let keyring_seed = seed.clone();
+        let keyring_keys = keys.clone();
+        let keyring_result = run_keyring_operation("миграция credentials", move || {
+            write_keyring(&keyring_seed)?;
+            let mut values = keyring_seed;
+            for key in &keyring_keys {
+                if values.contains_key(key) {
+                    continue;
                 }
+                if let Some(value) = read_keyring(key)? {
+                    values.insert(key.clone(), value);
+                }
+            }
+            Ok(values)
+        });
+        match keyring_result {
+            Ok(values) => {
+                remove_fallback(&fallback_path)?;
                 return Ok(LoadedSecrets {
                     values: values.into_iter().collect(),
                     keys: keys.into_iter().collect(),
@@ -61,7 +71,8 @@ pub fn load_provider_secrets(
                     migrated: legacy_existed || fallback_existed,
                 });
             }
-            Err(_) => {
+            Err(error) => {
+                diagnostics::warn("keyring.migrate", &error);
                 write_fallback(&fallback_path, &seed)?;
                 return Ok(LoadedSecrets {
                     values: seed.into_iter().collect(),
@@ -73,20 +84,31 @@ pub fn load_provider_secrets(
         }
     }
 
-    let mut values = BTreeMap::new();
-    let mut warning = None;
-    for key in &keys {
-        match read_keyring(key) {
-            Ok(Some(value)) => {
+    if keys.is_empty() {
+        return Ok(LoadedSecrets {
+            values: HashMap::new(),
+            keys: Vec::new(),
+            warning: None,
+            migrated: false,
+        });
+    }
+    let keyring_keys = keys.clone();
+    let keyring_result = run_keyring_operation("чтение credentials", move || {
+        let mut values = BTreeMap::new();
+        for key in &keyring_keys {
+            if let Some(value) = read_keyring(key)? {
                 values.insert(key.clone(), value);
             }
-            Ok(None) => {}
-            Err(_) => {
-                warning = Some(UNAVAILABLE_WARNING.to_owned());
-                break;
-            }
         }
-    }
+        Ok(values)
+    });
+    let (values, warning) = match keyring_result {
+        Ok(values) => (values, None),
+        Err(error) => {
+            diagnostics::warn("keyring.read", &error);
+            (BTreeMap::new(), Some(UNAVAILABLE_WARNING.to_owned()))
+        }
+    };
     Ok(LoadedSecrets {
         values: values.into_iter().collect(),
         keys: keys.into_iter().collect(),
@@ -108,9 +130,16 @@ pub fn update_provider_secrets(
         .cloned()
         .collect::<Vec<_>>();
     let fallback_path = fallback_path(app)?;
-    let keyring_result = write_keyring(&next)
-        .and_then(|()| delete_keyring(&stale))
-        .and_then(|()| probe_keyring(&next_keys));
+    let keyring_values = next.clone();
+    let keyring_keys = next_keys.clone();
+    let keyring_result = run_keyring_operation("обновление credentials", move || {
+        write_keyring(&keyring_values)?;
+        delete_keyring(&stale)?;
+        probe_keyring(&keyring_keys)
+    });
+    if let Err(error) = &keyring_result {
+        diagnostics::warn("keyring.update", error);
+    }
     let warning = if keyring_result.is_ok() {
         remove_fallback(&fallback_path)?;
         None
@@ -126,6 +155,42 @@ pub fn update_provider_secrets(
         warning,
         migrated: false,
     })
+}
+
+fn run_keyring_operation<T, F>(operation: &'static str, action: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    run_keyring_operation_with_timeout(operation, KEYRING_TIMEOUT, action)
+}
+
+fn run_keyring_operation_with_timeout<T, F>(
+    operation: &'static str,
+    timeout: Duration,
+    action: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::Builder::new()
+        .name("omp-keyring".to_owned())
+        .spawn(move || {
+            let _ = sender.send(action());
+        })
+        .map_err(|error| format!("Не удалось запустить {operation}: {error}"))?;
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+            "Операция «{operation}» превысила таймаут {} мс",
+            timeout.as_millis()
+        )),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(format!("Операция «{operation}» завершилась без результата"))
+        }
+    }
 }
 
 fn merge_requested_secrets(
@@ -225,29 +290,8 @@ fn write_fallback(path: &Path, values: &BTreeMap<String, String>) -> Result<(), 
         values: values.clone(),
     })
     .map_err(|error| format!("Не удалось подготовить резервное хранилище: {error}"))?;
-    let temporary = path.with_extension(format!("tmp-{}", rand::random::<u64>()));
-    let mut options = OpenOptions::new();
-    options.create_new(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&temporary)
-        .map_err(|error| format!("Не удалось создать резервное хранилище: {error}"))?;
-    file.write_all(&contents)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| format!("Не удалось записать резервное хранилище: {error}"))?;
-    drop(file);
-    if path.exists() {
-        fs::remove_file(path)
-            .map_err(|error| format!("Не удалось заменить резервное хранилище: {error}"))?;
-    }
-    fs::rename(&temporary, path)
-        .map_err(|error| format!("Не удалось активировать резервное хранилище: {error}"))?;
-    set_private_permissions(path)?;
-    Ok(())
+    atomic_write_file(path, &contents)?;
+    set_private_permissions(path)
 }
 
 fn remove_fallback(path: &Path) -> Result<(), String> {
@@ -270,8 +314,25 @@ pub fn set_private_permissions(_path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_requested_secrets;
-    use std::collections::HashMap;
+    use super::{merge_requested_secrets, run_keyring_operation_with_timeout};
+    use std::{
+        collections::HashMap,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn keyring_operation_returns_on_timeout_without_waiting_for_backend() {
+        let started = Instant::now();
+        let result = run_keyring_operation_with_timeout("test", Duration::from_millis(10), || {
+            thread::sleep(Duration::from_millis(100));
+            Ok::<_, String>(())
+        });
+        assert!(result
+            .expect_err("slow keyring operation should time out")
+            .contains("превысила таймаут"));
+        assert!(started.elapsed() < Duration::from_millis(80));
+    }
 
     #[test]
     fn blank_existing_values_are_preserved_without_round_tripping_to_ui() {

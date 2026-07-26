@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,5 +36,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2QTBCREQ0OUYxREQ2QkYKUldTLzFoMmYxTDJnOXZsTWJNZllaREVtQU9YaFlPSGhCclR1NnZNbWtiOE5vT1lkaDAyd21Ta2wK",
+      "endpoints": [
+        "https://github.com/Omnividente/omp-desktop/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
