@@ -1,3 +1,41 @@
+# OMP Desktop 0.1.10
+
+## Русский
+
+Первый стабильный релиз OMP Desktop со встроенным подписанным автообновлением приложения и полным набором исправлений надёжности после аудита.
+
+### Что изменилось
+
+- **Подписанное автообновление приложения**: добавлена проверка новых версий OMP Desktop, загрузка подписанного пакета и безопасный перезапуск. Последующие версии смогут устанавливаться автоматически.
+- **Важно для пользователей 0.1.9**: эта версия ещё не содержала updater, поэтому переход на 0.1.10 требует однократной ручной установки нового installer или AppImage.
+- **Надёжность интеграции OMP**: команды ограничены по времени и объёму вывода; частичные сбои каталога или usage показываются предупреждением, не блокируя остальные настройки.
+- **Безопасность настроек**: усилены атомарное сохранение и восстановление повреждённого `settings.json`, работа системного хранилища ключей и безопасный файловый fallback.
+- **Безопасность сессий**: активную сессию нельзя переименовать до остановки её процесса; улучшена очистка runtime-состояния терминалов.
+- **Терминал и Thinking**: добавлены настройки семейства и размера шрифта, а Thinking теперь заметен у фоновой вкладки, в списке сессий и заголовке окна.
+- **Совместимость Linux**: добавлено обнаружение системного CA bundle на ALT/RHEL-подобных системах для HTTPS-проверки обновлений.
+- **Целостность релиза**: Windows- и Linux-пакеты публикуются с updater-подписями, SHA-256 и машинно-читаемым манифестом assets.
+- Версия обновлена до 0.1.10.
+
+Рекомендуется `OMP-Desktop_0.1.10_x64-setup.exe` (Windows) и `OMP-Desktop_0.1.10_amd64.AppImage` (Linux).
+
+## English
+
+The first stable OMP Desktop release with built-in signed application updates and the complete post-audit reliability fixes.
+
+### Changes
+
+- **Signed application updates**: added OMP Desktop update checks, signed package installation, and safe application restart. Later releases can be installed automatically.
+- **Important for 0.1.9 users**: that version did not include the updater, so moving to 0.1.10 requires one manual installer or AppImage update.
+- **OMP integration reliability**: commands now have time and output bounds; partial model-catalog or usage failures produce warnings without blocking the remaining settings.
+- **Settings safety**: strengthened atomic persistence and recovery of an invalid `settings.json`, operating-system credential storage, and the protected file fallback.
+- **Session safety**: active sessions cannot be renamed until their process stops; terminal runtime state cleanup was improved.
+- **Terminal and Thinking UX**: added terminal font family and size settings; background Thinking is visible in tabs, the session list, and the window title.
+- **Linux compatibility**: added system CA bundle discovery on ALT/RHEL-like distributions for HTTPS update checks.
+- **Release integrity**: Windows and Linux packages include updater signatures, SHA-256 files, and a machine-readable asset manifest.
+- Version bumped to 0.1.10.
+
+Recommended: `OMP-Desktop_0.1.10_x64-setup.exe` (Windows), `OMP-Desktop_0.1.10_amd64.AppImage` (Linux).
+
 # OMP Desktop 0.1.9
 
 ## Русский
