@@ -89,7 +89,7 @@ jobs:
           releaseName: OMP Desktop v__VERSION__
           releaseBody: "Установщики и signed updater-артефакты OMP Desktop."
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true

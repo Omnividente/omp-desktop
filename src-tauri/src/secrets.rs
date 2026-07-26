@@ -165,6 +165,9 @@ where
     run_keyring_operation_with_timeout(operation, KEYRING_TIMEOUT, action)
 }
 
+// Native keyring calls are blocking and cannot be cancelled safely. After a timeout the
+// detached worker may finish later; the fallback remains the recovery source and the next
+// successful load reconciles it into keyring before removing the fallback file.
 fn run_keyring_operation_with_timeout<T, F>(
     operation: &'static str,
     timeout: Duration,

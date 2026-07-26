@@ -120,7 +120,7 @@ struct ModelsYamlFile {
 #[derive(Debug, serde::Deserialize)]
 struct ModelsYamlProvider {
     #[serde(rename = "apiKey")]
-    api_key: Option<noyalib::Value>,
+    api_key: Option<serde_json::Value>,
 }
 
 fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
@@ -137,7 +137,7 @@ fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
     let Ok(contents) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
-    noyalib::from_str::<ModelsYamlFile>(&contents)
+    serde_saphyr::from_str::<ModelsYamlFile>(&contents)
         .ok()
         .and_then(|file| file.providers)
         .unwrap_or_default()
@@ -175,7 +175,7 @@ where
 
     let mut credentials = BTreeMap::<String, OmpCredentialInfo>::new();
     for (provider, config) in yaml_providers {
-        let (source, key_name) = match config.api_key.as_ref().and_then(noyalib::Value::as_str) {
+        let (source, key_name) = match config.api_key.as_ref().and_then(serde_json::Value::as_str) {
             Some(resolver) if resolver.starts_with('!') => ("command".to_owned(), None),
             Some(resolver) if provider_env.contains_key(resolver) => {
                 ("desktop".to_owned(), Some(resolver.to_owned()))
@@ -961,7 +961,7 @@ mod tests {
     fn credentials_use_sources_without_exposing_secret_values() {
         let mut provider_env = HashMap::new();
         provider_env.insert("A6API_KEY".to_owned(), "secret_token_12345".to_owned());
-        let yaml = noyalib::from_str::<ModelsYamlFile>(
+        let yaml = serde_saphyr::from_str::<ModelsYamlFile>(
             r#"
 providers:
   a6api:

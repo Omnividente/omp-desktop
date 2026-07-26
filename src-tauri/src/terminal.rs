@@ -23,6 +23,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
+// Deliberate 4 Hz polling: watchers exist only while the PTY is alive, and polling avoids
+// platform-specific rename/replacement gaps for OMP's append-only runtime files.
 const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 const RUNTIME_FILE_ANCHOR: usize = 64;
 const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;

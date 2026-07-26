@@ -1,6 +1,8 @@
 import type { Lang } from "./i18n";
 import type { SessionSummary, TerminalTab } from "./types";
 
+type SessionIdentity = Pick<SessionSummary, "id" | "filePath">;
+
 export function localeTag(lang: Lang): string {
   return lang === "en" ? "en" : "ru";
 }
@@ -30,7 +32,7 @@ export function normalizedPath(path: string, platform: string): string {
 
 export function tabMatchesSession(
   tab: TerminalTab,
-  session: SessionSummary,
+  session: SessionIdentity,
   platform: string,
 ): boolean {
   return (

@@ -61,6 +61,17 @@ type PendingUpdateRestart = {
   sourceTab: TerminalTab | null;
 };
 
+type SessionLaunchTarget = Pick<
+  SessionSummary,
+  | "id"
+  | "title"
+  | "cwd"
+  | "filePath"
+  | "model"
+  | "thinkingLevel"
+  | "configuredThinkingLevel"
+>;
+
 
 
 async function notifyTerminalCompletion(
@@ -493,7 +504,7 @@ function App() {
   );
 
   const launchSession = useCallback(
-    async (session?: SessionSummary, initialInput?: string) => {
+    async (session?: SessionLaunchTarget, initialInput?: string) => {
       if (!payload || launching !== null) return;
       const cwd = session?.cwd ?? selectedWorkspace?.path;
       if (!cwd) {
@@ -929,18 +940,14 @@ function App() {
         if (pendingUpdate) {
           showNotice(t(lang, "updateInstalled"));
           if (pendingUpdate.sourceTab?.sessionId && pendingUpdate.sourceTab.sessionPath) {
-            const targetSession: SessionSummary = {
+            const targetSession: SessionLaunchTarget = {
               id: pendingUpdate.sourceTab.sessionId,
               title: pendingUpdate.sourceTab.label,
               cwd: pendingUpdate.sourceTab.cwd,
               filePath: pendingUpdate.sourceTab.sessionPath,
-              createdAt: "",
-              updatedAt: Date.now(),
               model: pendingUpdate.sourceTab.currentModel ?? null,
               thinkingLevel: pendingUpdate.sourceTab.currentThinking ?? null,
               configuredThinkingLevel: pendingUpdate.sourceTab.currentThinkingConfigured ?? null,
-              source: "omp",
-              hasMessages: true,
             };
             showNotice(
               t(lang, "updateRestarted").replace("{title}", pendingUpdate.sourceTab.label),
