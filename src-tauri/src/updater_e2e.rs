@@ -9,9 +9,23 @@ use tauri_plugin_updater::UpdaterExt;
 
 const MARKER_ENV: &str = "OMP_DESKTOP_UPDATER_E2E_MARKER";
 const TARGET_ENV: &str = "OMP_DESKTOP_UPDATER_E2E_TARGET";
+const MARKER_ARG: &str = "--updater-e2e-marker=";
+const TARGET_ARG: &str = "--updater-e2e-target=";
+
+fn process_value(env_name: &str, argument_prefix: &str) -> Option<String> {
+    env::var(env_name)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            env::args()
+                .skip(1)
+                .find_map(|argument| argument.strip_prefix(argument_prefix).map(str::to_owned))
+                .filter(|value| !value.is_empty())
+        })
+}
 
 pub fn start(app: AppHandle) {
-    let Some(marker) = env::var_os(MARKER_ENV).filter(|value| !value.is_empty()) else {
+    let Some(marker) = process_value(MARKER_ENV, MARKER_ARG) else {
         return;
     };
     let marker = PathBuf::from(marker);
@@ -28,8 +42,8 @@ pub fn start(app: AppHandle) {
 
 async fn run(app: &AppHandle, marker: &Path, version: &str) -> Result<(), String> {
     record(marker, "started", version, None)?;
-    let target = env::var(TARGET_ENV)
-        .map_err(|_| format!("{TARGET_ENV} must contain the expected update version"))?;
+    let target = process_value(TARGET_ENV, TARGET_ARG)
+        .ok_or_else(|| format!("{TARGET_ENV} or {TARGET_ARG}<version> is required"))?;
 
     if version == target {
         record(marker, "complete", version, None)?;
