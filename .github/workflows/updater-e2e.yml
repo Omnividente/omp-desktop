@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - "review/**"
+    paths:
+      - ".github/workflows/updater-e2e.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "src-tauri/**"
 
 permissions:
   contents: read
