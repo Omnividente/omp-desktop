@@ -142,7 +142,7 @@ jobs:
           tag="v${version}"
           rm -rf release-assets
           mkdir -p release-assets
-          gh release download "$tag" --dir release-assets --clobber
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";
           import { readFile, readdir, stat, writeFile } from "node:fs/promises";
@@ -190,11 +190,11 @@ jobs:
           };
           await writeFile("release-assets-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
           EOF
-          gh release upload "$tag" release-assets-manifest.json --clobber
+          gh release upload "$tag" release-assets-manifest.json --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish release after all platform uploads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/package.json" | jq -r .version)
-          gh release edit "v${version}" --draft=false
+          gh release edit "v${version}" --repo "$GITHUB_REPOSITORY" --draft=false
