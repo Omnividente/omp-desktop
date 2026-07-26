@@ -16,7 +16,7 @@
 - **Целостность релиза**: Windows- и Linux-пакеты публикуются с updater-подписями, SHA-256 и машинно-читаемым манифестом assets.
 - Версия обновлена до 0.1.10.
 
-Рекомендуется `OMP-Desktop_0.1.10_x64-setup.exe` (Windows) и `OMP-Desktop_0.1.10_amd64.AppImage` (Linux).
+Рекомендуется `OMP.Desktop_0.1.10_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.10_amd64.AppImage` (Linux).
 
 ## English
 
@@ -34,7 +34,7 @@ The first stable OMP Desktop release with built-in signed application updates an
 - **Release integrity**: Windows and Linux packages include updater signatures, SHA-256 files, and a machine-readable asset manifest.
 - Version bumped to 0.1.10.
 
-Recommended: `OMP-Desktop_0.1.10_x64-setup.exe` (Windows), `OMP-Desktop_0.1.10_amd64.AppImage` (Linux).
+Recommended: `OMP.Desktop_0.1.10_x64-setup.exe` (Windows), `OMP.Desktop_0.1.10_amd64.AppImage` (Linux).
 
 # OMP Desktop 0.1.9
 
