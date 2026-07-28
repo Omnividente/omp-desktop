@@ -1,4 +1,5 @@
 use crate::{
+    omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{parse_session, path_key, rename_session as rename_session_file},
     settings::{resolve_omp, SettingsState},
     update,
@@ -765,6 +766,11 @@ fn build_omp_command(
     }
     for (key, value) in provider_env {
         command.env(key, value);
+    }
+    if args.first().is_some_and(|arg| arg == "update") {
+        for key in GITHUB_AUTH_ENV_KEYS {
+            command.env_remove(key);
+        }
     }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
@@ -1820,14 +1826,15 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_switch_input, decode_terminal_binary, discover_session, feed_runtime_lines,
-        initial_agent_args, model_switch_input, output_event_name, poll_runtime_file,
-        read_latest_activity, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC,
+        append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
+        feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
+        poll_runtime_file, read_latest_activity, runtime_event_from_line, thinking_cycle,
+        validate_switch_request, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
     };
     use std::{
         collections::HashMap,
+        ffi::OsStr,
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -1859,6 +1866,35 @@ mod tests {
             initial_agent_args("/tmp/project", Some("/tmp/session.jsonl")),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
         );
+    }
+
+    #[test]
+    fn update_pty_drops_github_auth_without_affecting_agent_sessions() {
+        let provider_env = HashMap::from([
+            ("GITHUB_TOKEN".to_owned(), "stale-token".to_owned()),
+            ("GH_TOKEN".to_owned(), "stale-token".to_owned()),
+        ]);
+        let update = build_omp_command(
+            "omp",
+            ".",
+            "terminal-update",
+            &provider_env,
+            &["update".to_owned()],
+        );
+        for key in crate::omp_command::GITHUB_AUTH_ENV_KEYS {
+            assert_eq!(update.get_env(key), None);
+        }
+
+        let agent = build_omp_command(
+            "omp",
+            ".",
+            "terminal-agent",
+            &provider_env,
+            &["--cwd".to_owned(), ".".to_owned()],
+        );
+        for key in crate::omp_command::GITHUB_AUTH_ENV_KEYS {
+            assert_eq!(agent.get_env(key), Some(OsStr::new("stale-token")));
+        }
     }
 
     #[test]

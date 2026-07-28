@@ -1,47 +1,55 @@
-import { useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
-import type { UnlistenFn } from "@tauri-apps/api/event";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
+import { useEffect, useRef } from "react"
+import { listen } from "@tauri-apps/api/event"
+import type { UnlistenFn } from "@tauri-apps/api/event"
+import { writeText } from "@tauri-apps/plugin-clipboard-manager"
+import { FitAddon } from "@xterm/addon-fit"
+import { Terminal } from "@xterm/xterm"
+import "@xterm/xterm/css/xterm.css"
 import {
   attachTerminal,
   errorMessage,
   resizeTerminal,
   writeTerminal,
   writeTerminalBinary,
-} from "./api";
-import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types";
-import type { Lang } from "./i18n";
+} from "./api"
+import {
+  bufferCellFromMouseEvent,
+  createMouseSelectionEdit,
+  cursorMoveInput,
+  deleteInput,
+  type MouseSelectionEdit,
+  type TerminalCell,
+} from "./terminalInput"
+import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
+import type { Lang } from "./i18n"
 
 interface TerminalViewProps {
-  tab: TerminalTab;
-  active: boolean;
-  language: Lang;
-  terminalFontFamily: string;
-  terminalFontSize: number;
-  onExit: (event: PtyExitEvent) => void;
-  onError: (message: string) => void;
-  onReady: (terminalId: string) => void;
+  tab: TerminalTab
+  active: boolean
+  language: Lang
+  terminalFontFamily: string
+  terminalFontSize: number
+  onExit: (event: PtyExitEvent) => void
+  onError: (message: string) => void
+  onReady: (terminalId: string) => void
 }
 
 function decodeBase64(data: string): Uint8Array {
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
+  const binary = atob(data)
+  const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+    bytes[index] = binary.charCodeAt(index)
   }
-  return bytes;
+  return bytes
 }
 
 function exitLine(event: PtyExitEvent): string {
   if (event.error) {
-    return `\r\n\x1b[38;2;239;112;112mOMP завершён: ${event.error}\x1b[0m\r\n`;
+    return `\r\n\x1b[38;2;239;112;112mOMP завершён: ${event.error}\x1b[0m\r\n`
   }
-  const color = event.success ? "129;201;149" : "239;170;103";
-  const code = event.exitCode ?? "?";
-  return `\r\n\x1b[38;2;${color}mПроцесс OMP завершён · код ${code}\x1b[0m\r\n`;
+  const color = event.success ? "129;201;149" : "239;170;103"
+  const code = event.exitCode ?? "?"
+  return `\r\n\x1b[38;2;${color}mПроцесс OMP завершён · код ${code}\x1b[0m\r\n`
 }
 
 export function TerminalView({
@@ -54,29 +62,29 @@ export function TerminalView({
   onError,
   onReady,
 }: TerminalViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const activeRef = useRef(active);
-  const languageRef = useRef(language);
-  const terminalFontFamilyRef = useRef(terminalFontFamily);
-  const terminalFontSizeRef = useRef(terminalFontSize);
-  const onExitRef = useRef(onExit);
-  const onErrorRef = useRef(onError);
-  const onReadyRef = useRef(onReady);
+  const containerRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<Terminal | null>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
+  const activeRef = useRef(active)
+  const languageRef = useRef(language)
+  const terminalFontFamilyRef = useRef(terminalFontFamily)
+  const terminalFontSizeRef = useRef(terminalFontSize)
+  const onExitRef = useRef(onExit)
+  const onErrorRef = useRef(onError)
+  const onReadyRef = useRef(onReady)
 
-  activeRef.current = active;
-  languageRef.current = language;
-  terminalFontFamilyRef.current = terminalFontFamily;
-  terminalFontSizeRef.current = terminalFontSize;
-  onExitRef.current = onExit;
-  onErrorRef.current = onError;
-  onReadyRef.current = onReady;
+  activeRef.current = active
+  languageRef.current = language
+  terminalFontFamilyRef.current = terminalFontFamily
+  terminalFontSizeRef.current = terminalFontSize
+  onExitRef.current = onExit
+  onErrorRef.current = onError
+  onReadyRef.current = onReady
 
   useEffect(() => {
-    const container = containerRef.current;
+    const container = containerRef.current
     if (!container) {
-      return;
+      return
     }
 
     const terminal = new Terminal({
@@ -114,102 +122,166 @@ export function TerminalView({
         brightCyan: "#8ddbd4",
         brightWhite: "#f6f8f7",
       },
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(container);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
+    })
+    const fitAddon = new FitAddon()
+    terminal.loadAddon(fitAddon)
+    terminal.open(container)
+    terminalRef.current = terminal
+    fitAddonRef.current = fitAddon
+
+    let selectAllArmed = false
+    let pointerDownCell: TerminalCell | null = null
+    let mouseSelection: MouseSelectionEdit | null = null
+    const sendInput = (data: string) => {
+      void writeTerminal(tab.id, data).catch((error) => {
+        onErrorRef.current(errorMessage(error, languageRef.current))
+      })
+    }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      const copyShortcut =
-        event.type === "keydown" &&
-        (event.ctrlKey || event.metaKey) &&
-        event.code === "KeyC";
-      if (!copyShortcut || !terminal.hasSelection()) {
-        return true;
+      if (event.type !== "keydown") return true
+      const modifier = event.ctrlKey || event.metaKey
+      const copyShortcut = modifier && event.code === "KeyC"
+      if (copyShortcut && terminal.hasSelection()) {
+        const selection = terminal.getSelection()
+        if (selection) {
+          void writeText(selection).catch((error) => {
+            onErrorRef.current(errorMessage(error, languageRef.current))
+          })
+          return false
+        }
       }
 
-      const selection = terminal.getSelection();
-      if (!selection) {
-        return true;
+      if (
+        tab.kind === "agent" &&
+        modifier &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyA"
+      ) {
+        selectAllArmed = true
+        mouseSelection = null
+        terminal.clearSelection()
+        return false
       }
-      void writeText(selection).catch((error) => {
-        onErrorRef.current(errorMessage(error, languageRef.current));
-      });
-      return false;
-    });
 
-    let disposed = false;
-    let lastCols = 0;
-    let lastRows = 0;
-    const unlisteners: UnlistenFn[] = [];
+      const deleteSelection = event.code === "Backspace" || event.code === "Delete"
+      if (tab.kind === "agent" && deleteSelection) {
+        const input =
+          selectAllArmed || (terminal.hasSelection() && mouseSelection)
+            ? deleteInput(terminal, selectAllArmed, mouseSelection)
+            : null
+        if (input !== null) {
+          selectAllArmed = false
+          mouseSelection = null
+          terminal.clearSelection()
+          sendInput(input)
+          return false
+        }
+      }
+
+      if (selectAllArmed) selectAllArmed = false
+      if (!terminal.hasSelection()) mouseSelection = null
+      return true
+    })
+
+    const handleMouseDown = (event: MouseEvent) => {
+      terminal.focus()
+      selectAllArmed = false
+      mouseSelection = null
+      pointerDownCell =
+        event.button === 0 && terminal.modes.mouseTrackingMode === "none"
+          ? bufferCellFromMouseEvent(terminal, container, event)
+          : null
+    }
+    const handleMouseUp = (event: MouseEvent) => {
+      const releaseCell =
+        event.button === 0 && terminal.modes.mouseTrackingMode === "none"
+          ? bufferCellFromMouseEvent(terminal, container, event)
+          : null
+      if (!pointerDownCell || !releaseCell) {
+        pointerDownCell = null
+        return
+      }
+
+      if (terminal.hasSelection()) {
+        const range = terminal.getSelectionPosition()
+        const text = terminal.getSelection()
+        if (range && text) {
+          mouseSelection = createMouseSelectionEdit(terminal, range, releaseCell, text)
+        }
+      } else if (pointerDownCell.x === releaseCell.x && pointerDownCell.y === releaseCell.y) {
+        const move = cursorMoveInput(terminal, releaseCell)
+        if (move) sendInput(move)
+      }
+      pointerDownCell = null
+    }
+    container.addEventListener("mousedown", handleMouseDown)
+    container.addEventListener("mouseup", handleMouseUp)
+
+    let disposed = false
+    let lastCols = 0
+    let lastRows = 0
+    const unlisteners: UnlistenFn[] = []
 
     const fit = () => {
       if (disposed || !activeRef.current || container.clientWidth === 0) {
-        return;
+        return
       }
       try {
-        fitAddon.fit();
+        fitAddon.fit()
         if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
-          lastCols = terminal.cols;
-          lastRows = terminal.rows;
-          void resizeTerminal(tab.id, terminal.cols, terminal.rows).catch(() => undefined);
+          lastCols = terminal.cols
+          lastRows = terminal.rows
+          void resizeTerminal(tab.id, terminal.cols, terminal.rows).catch(() => undefined)
         }
       } catch {
         // The webview can report a zero-sized container during a tab switch.
       }
-    };
+    }
 
     const resizeObserver = new ResizeObserver(() => {
-      window.requestAnimationFrame(fit);
-    });
-    resizeObserver.observe(container);
+      window.requestAnimationFrame(fit)
+    })
+    resizeObserver.observe(container)
 
-    const dataSubscription = terminal.onData((data) => {
-      void writeTerminal(tab.id, data).catch((error) => {
-        onErrorRef.current(errorMessage(error, languageRef.current));
-      });
-    });
+    const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
-        onErrorRef.current(errorMessage(error, languageRef.current));
-      });
-    });
+        onErrorRef.current(errorMessage(error, languageRef.current))
+      })
+    })
 
     const connect = async () => {
-      const stopOutput = await listen<PtyOutputEvent>(
-        `pty-output:${tab.id}`,
-        ({ payload }) => {
-          if (!disposed && payload.data) {
-            terminal.write(decodeBase64(payload.data));
-          }
-        },
-      );
+      const stopOutput = await listen<PtyOutputEvent>(`pty-output:${tab.id}`, ({ payload }) => {
+        if (!disposed && payload.data) {
+          terminal.write(decodeBase64(payload.data))
+        }
+      })
       if (disposed) {
-        stopOutput();
-        return;
+        stopOutput()
+        return
       }
-      unlisteners.push(stopOutput);
+      unlisteners.push(stopOutput)
 
       const stopExit = await listen<PtyExitEvent>("pty-exit", ({ payload }) => {
         if (!disposed && payload.terminalId === tab.id) {
-          terminal.write(exitLine(payload));
-          onExitRef.current(payload);
+          terminal.write(exitLine(payload))
+          onExitRef.current(payload)
         }
-      });
+      })
       if (disposed) {
-        stopExit();
-        return;
+        stopExit()
+        return
       }
-      unlisteners.push(stopExit);
+      unlisteners.push(stopExit)
 
-      const attachment = await attachTerminal(tab.id);
+      const attachment = await attachTerminal(tab.id)
       if (disposed) {
-        return;
+        return
       }
       if (attachment.data) {
-        terminal.write(decodeBase64(attachment.data));
+        terminal.write(decodeBase64(attachment.data))
       }
       if (attachment.exited) {
         const event: PtyExitEvent = {
@@ -217,67 +289,69 @@ export function TerminalView({
           exitCode: attachment.exitCode,
           success: attachment.success,
           error: attachment.error,
-        };
-        terminal.write(exitLine(event));
-        onExitRef.current(event);
+        }
+        terminal.write(exitLine(event))
+        onExitRef.current(event)
       }
       if (!attachment.exited) {
-        onReadyRef.current(tab.id);
+        onReadyRef.current(tab.id)
       }
       window.requestAnimationFrame(() => {
-        fit();
+        fit()
         if (activeRef.current) {
-          terminal.focus();
+          terminal.focus()
         }
-      });
-    };
+      })
+    }
 
     void connect().catch((error) => {
       if (!disposed) {
-        onErrorRef.current(errorMessage(error, languageRef.current));
+        onErrorRef.current(errorMessage(error, languageRef.current))
       }
-    });
+    })
 
     return () => {
-      disposed = true;
-      resizeObserver.disconnect();
-      dataSubscription.dispose();
-      binarySubscription.dispose();
+      disposed = true
+      resizeObserver.disconnect()
+      container.removeEventListener("mousedown", handleMouseDown)
+      container.removeEventListener("mouseup", handleMouseUp)
+      dataSubscription.dispose()
+      binarySubscription.dispose()
       for (const unlisten of unlisteners) {
-        unlisten();
+        unlisten()
       }
-      fitAddonRef.current = null;
-      terminalRef.current = null;
-      terminal.dispose();
-    };
-  }, [tab.id]);
+      fitAddonRef.current = null
+      terminalRef.current = null
+      terminal.dispose()
+    }
+  }, [tab.id, tab.kind])
 
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    terminal.options.fontFamily = terminalFontFamily;
-    terminal.options.fontSize = terminalFontSize;
-    window.requestAnimationFrame(() => fitAddonRef.current?.fit());
-  }, [terminalFontFamily, terminalFontSize]);
+    const terminal = terminalRef.current
+    if (!terminal) return
+    terminal.options.fontFamily = terminalFontFamily
+    terminal.options.fontSize = terminalFontSize
+    window.requestAnimationFrame(() => fitAddonRef.current?.fit())
+  }, [terminalFontFamily, terminalFontSize])
 
   useEffect(() => {
     if (!active) {
-      return;
+      return
     }
     const frame = window.requestAnimationFrame(() => {
       try {
-        fitAddonRef.current?.fit();
-        terminalRef.current?.focus();
-        const terminal = terminalRef.current;
+        fitAddonRef.current?.fit()
+        terminalRef.current?.focus()
+        const terminal = terminalRef.current
         if (terminal) {
-          void resizeTerminal(tab.id, terminal.cols, terminal.rows).catch(() => undefined);
+          void resizeTerminal(tab.id, terminal.cols, terminal.rows).catch(() => undefined)
         }
       } catch {
         // A hidden terminal can briefly be zero-sized while the tab becomes active.
       }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [active, tab.id]);
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active, tab.id])
 
   return (
     <div
@@ -285,5 +359,5 @@ export function TerminalView({
       onMouseDown={() => terminalRef.current?.focus()}
       ref={containerRef}
     />
-  );
+  )
 }

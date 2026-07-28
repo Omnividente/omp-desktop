@@ -1,3 +1,39 @@
+# OMP Desktop 0.1.13
+
+## Русский
+
+Исправляющий релиз для обновления OMP и desktop-редактирования терминального ввода.
+
+### Что изменилось
+
+- **Публичное обновление OMP без GitHub-аутентификации**: `GH_TOKEN` и `GITHUB_TOKEN` теперь удаляются только из окружения `omp update`, поэтому недействительные переменные пользователя больше не превращают публичный запрос GitHub Releases в HTTP 401. Остальные операции OMP сохраняют своё окружение без изменений.
+- **Позиционирование курсора мышью**: одиночный клик перемещает курсор внутри текущей строки ввода, включая строки, перенесённые терминалом.
+- **Удаление выделенного текста**: выделение мышью удаляется через Backspace или Delete с правильного endpoint и не захватывает соседний ввод.
+- **Полная очистка черновика**: Ctrl/Cmd+A с последующим Backspace или Delete очищает редактор OMP его штатной клавишей Ctrl+C.
+- **Совместимость с xterm 6.0**: обработаны фактические zero-based координаты selection runtime; добавлено 5 новых frontend-тестов и регрессионные Rust-тесты updater environment.
+- Версия обновлена до 0.1.13.
+
+Пользователи OMP Desktop 0.1.12 могут установить обновление встроенным updater.
+
+Рекомендуется `OMP.Desktop_0.1.13_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.13_amd64.AppImage` (Linux).
+
+## English
+
+A corrective release for OMP updates and desktop-style terminal input editing.
+
+### Changes
+
+- **Public OMP updates without GitHub authentication**: `GH_TOKEN` and `GITHUB_TOKEN` are removed only from the `omp update` environment, so invalid user variables no longer turn a public GitHub Releases request into HTTP 401. Other OMP operations keep their environment unchanged.
+- **Mouse cursor positioning**: a single click moves the cursor within the current input line, including terminal-wrapped rows.
+- **Selection deletion**: mouse-selected text is removed with Backspace or Delete from the correct endpoint without consuming adjacent input.
+- **Full draft clearing**: Ctrl/Cmd+A followed by Backspace or Delete clears the OMP editor through its native Ctrl+C chord.
+- **xterm 6.0 compatibility**: selection handling follows the runtime's actual zero-based coordinates; 5 frontend tests and Rust updater-environment regression tests were added.
+- Version bumped to 0.1.13.
+
+OMP Desktop 0.1.12 users can install this release through the built-in updater.
+
+Recommended: `OMP.Desktop_0.1.13_x64-setup.exe` (Windows), `OMP.Desktop_0.1.13_amd64.AppImage` (Linux).
+
 # OMP Desktop 0.1.12
 
 ## Русский

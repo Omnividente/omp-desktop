@@ -13,6 +13,22 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+pub(crate) const GITHUB_AUTH_ENV_KEYS: [&str; 2] = ["GITHUB_TOKEN", "GH_TOKEN"];
+
+fn apply_omp_environment(
+    command: &mut Command,
+    env_map: &HashMap<String, String>,
+    operation: OmpOperation,
+) {
+    for (key, value) in env_map {
+        command.env(key, value);
+    }
+    if operation == OmpOperation::Update {
+        for key in GITHUB_AUTH_ENV_KEYS {
+            command.env_remove(key);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OmpOperation {
@@ -170,9 +186,7 @@ pub fn run_omp_command(
 ) -> Result<OmpCommandOutput, OmpCommandError> {
     let mut command = Command::new(executable);
     command.args(args);
-    for (key, value) in env_map {
-        command.env(key, value);
-    }
+    apply_omp_environment(&mut command, env_map, operation);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     run_command(command, operation.label(), operation.limits())
@@ -332,7 +346,7 @@ fn join_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use std::{ffi::OsStr, io::Cursor};
 
     #[test]
     fn bounded_reader_keeps_prefix_and_reports_overflow() {
@@ -347,6 +361,29 @@ mod tests {
         assert!(OmpOperation::Config.limits().timeout < OmpOperation::Models.limits().timeout);
         assert!(OmpOperation::Models.limits().timeout < OmpOperation::Usage.limits().timeout);
         assert!(OmpOperation::Usage.limits().timeout < OmpOperation::Update.limits().timeout);
+    }
+
+    #[test]
+    fn update_commands_drop_github_auth_without_affecting_other_operations() {
+        let env_map = HashMap::from([
+            ("GITHUB_TOKEN".to_owned(), "stale-token".to_owned()),
+            ("GH_TOKEN".to_owned(), "stale-token".to_owned()),
+        ]);
+        let mut update = Command::new("omp");
+        apply_omp_environment(&mut update, &env_map, OmpOperation::Update);
+        for key in GITHUB_AUTH_ENV_KEYS {
+            assert!(update
+                .get_envs()
+                .any(|(name, value)| name == OsStr::new(key) && value.is_none()));
+        }
+
+        let mut models = Command::new("omp");
+        apply_omp_environment(&mut models, &env_map, OmpOperation::Models);
+        for key in GITHUB_AUTH_ENV_KEYS {
+            assert!(models.get_envs().any(|(name, value)| {
+                name == OsStr::new(key) && value == Some(OsStr::new("stale-token"))
+            }));
+        }
     }
 
     #[test]
