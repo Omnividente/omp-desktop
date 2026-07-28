@@ -1,3 +1,8 @@
+8c0617746a3477d0974a932af29215508204e4ffa61ba27ba56d960a184e5ade  windows/OMP.Desktop_0.1.14_x64-setup.exe
+cf49c62963d840e2503a02c89407044aca456328b641cb4aaadd96a9c9566bf9  windows/OMP.Desktop_0.1.14_x64_en-US.msi
+22b3573706053023ede0d64e670689d2ef36a4c2da4abd644af8a09c256f7811  linux/OMP.Desktop_0.1.14_amd64.AppImage
+3425732bddf28181d0819dd334c1688ac02b70af5cb20eb040756d57e41ea04b  linux/OMP.Desktop_0.1.14_amd64.deb
+6e7835bcde711fd0ec8d99ee81b4807d727591c56ef1af2bab8ed1a5346211ba  linux/OMP.Desktop-0.1.14-1.x86_64.rpm
 0f51d7eeb62b784b1c856c40ece7b03a94dc7e01a60da2e276750502b73b4da0  windows/OMP.Desktop_0.1.12_x64-setup.exe
 39984c0491c8c9ff5bf5a1514ca90a7e00c5c19ca7ce87b040d8d302755e9561  windows/OMP.Desktop_0.1.12_x64_en-US.msi
 171027d3571ae49f00791b340b3784f0a42c332cac1d3c507481d2146ff62d48  linux/OMP.Desktop_0.1.12_amd64.AppImage
