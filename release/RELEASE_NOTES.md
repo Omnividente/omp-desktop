@@ -28,16 +28,6 @@ A release with fixed session titles and persistent agent activity indicators.
 
 Recommended: `OMP.Desktop_0.1.14_x64-setup.exe` (Windows), `OMP.Desktop_0.1.14_amd64.AppImage` (Linux).
 
-## SHA-256 (0.1.14)
-
-```text
-eb4a8e9c4be9f31d85852bc5d108321721b601939836ef62fbb8e7f9afa6bbc3  windows/OMP.Desktop_0.1.14_x64-setup.exe
-c94c5c70462ce2cb44db1fff6d0cc53f6dec9fa5e4c841cf1794775f9a89b566  windows/OMP.Desktop_0.1.14_x64_en-US.msi
-1e14e6b054f15817f93e2fbb9858f18dd53db39a3942a3ad9d2ccdeb905c0e0f  linux/OMP.Desktop_0.1.14_amd64.AppImage
-65049b3774729677f96ef6552d1bf51880f671470c335ca5f255deda92a0e7e3  linux/OMP.Desktop_0.1.14_amd64.deb
-1890d7b0ab47bd18178854f1814b117ba5c3de162ffd314fb67f75097694c7c2  linux/OMP.Desktop-0.1.14-1.x86_64.rpm
-```
-
 # OMP Desktop 0.1.13
 
 ## Русский
