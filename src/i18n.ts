@@ -1,10 +1,9 @@
-export type Lang = "ru" | "en";
+export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
     emptyTitle: "Откройте папку проекта",
-    emptyDesc:
-      "OMP Desktop запустит агента в выбранной папке и соберёт связанные с ней сессии.",
+    emptyDesc: "OMP Desktop запустит агента в выбранной папке и соберёт связанные с ней сессии.",
     btnOpenFolder: "Открыть папку",
     startWork: "Начало работы",
     workspaceReady: "Рабочая папка готова",
@@ -42,7 +41,8 @@ export const UI_TEXT = {
     desktopUpdateInstalling: "Устанавливаем…",
     loading: "Ищем проекты и сессии…",
     loadError: "Не удалось загрузить данные OMP",
-    settingsRecovered: "Повреждённый settings.json сохранён в {path}; применены настройки по умолчанию.",
+    settingsRecovered:
+      "Повреждённый settings.json сохранён в {path}; применены настройки по умолчанию.",
     retry: "Повторить",
     projectNotSelected: "Проект не выбран",
     settings: "Настройки",
@@ -50,13 +50,14 @@ export const UI_TEXT = {
     requireProjectDir: "Сначала выберите папку проекта",
     requireOmp: "OMP не найден — укажите исполняемый файл в настройках",
     launching: "Запускаем…",
-    rename: "Переименовать",
+    editFixedTitle: "Изменить фиксированное название",
+    pinSessionTitle: "Зафиксировать текущее название",
+    unpinSessionTitle: "Вернуть автоматическое название",
     deleteSession: "Удалить сессию",
     deleteSessionConfirm:
       "Удалить сессию «{title}»? JSONL и связанные артефакты будут удалены без возможности восстановления.",
     sessionDeleted: "Сессия удалена",
     closeSessionBeforeDelete: "Сначала остановите открытую сессию",
-    closeSessionBeforeRename: "Сначала остановите активную сессию",
     resumeSession: "Продолжить сессию",
     importSession: "Импорт Codex/OMP",
     importCodex: "Импорт из Codex",
@@ -118,24 +119,24 @@ export const UI_TEXT = {
     ompMissing: "OMP не найден",
     ompPathHelp: "Укажите путь к исполняемому файлу ниже",
     executableLabel: "Исполняемый файл OMP",
-    executableHelp:
-      "Оставьте пустым для автоматического поиска через PATH и стандартные папки.",
+    executableHelp: "Оставьте пустым для автоматического поиска через PATH и стандартные папки.",
     sessionRootLabel: "Папка сессий",
-    sessionRootHelp:
-      "По умолчанию используется ~/.omp/agent/sessions или PI_CODING_AGENT_DIR.",
+    sessionRootHelp: "По умолчанию используется ~/.omp/agent/sessions или PI_CODING_AGENT_DIR.",
     interfaceSection: "Интерфейс",
     interfaceSectionHelp: "Язык меняется сразу; сохранение применит его ко всему приложению.",
     languageHelp: "Выберите язык подписей, подсказок и описаний в OMP Desktop.",
     pathsSection: "Пути и хранение",
     pathsSectionHelp: "Оставьте поля пустыми, чтобы использовать стандартные пути OMP.",
     behaviorSection: "Поведение OMP",
-    behaviorSectionHelp: "Эти параметры записываются в конфигурацию OMP и действуют для новых запусков.",
+    behaviorSectionHelp:
+      "Эти параметры записываются в конфигурацию OMP и действуют для новых запусков.",
     advisorEnabled: "Включить советника",
     advisorHelp: "Советник параллельно проверяет ответы основной модели и сообщает о рисках.",
     autoResume: "Автоматически продолжать последнюю сессию",
     autoResumeHelp: "При запуске OMP в папке сразу открывать последнюю найденную сессию.",
     thinkingLevel: "Уровень рассуждений по умолчанию",
-    thinkingLevelHelp: "Определяет глубину рассуждений, если для выбранной модели не задан отдельный суффикс.",
+    thinkingLevelHelp:
+      "Определяет глубину рассуждений, если для выбранной модели не задан отдельный суффикс.",
     terminalFontFamily: "Шрифт терминала",
     terminalFontFamilyHelp: "CSS-имя или стек шрифтов для новых и открытых терминалов.",
     terminalFontSize: "Размер шрифта терминала",
@@ -166,9 +167,11 @@ export const UI_TEXT = {
     loadingModels: "Загружаем роли, каталог моделей и сведения о лимитах…",
     refreshingModels: "Загружаем…",
     loadingBannerTitle: "Получаем настройки из OMP",
-    loadingBannerBody: "Модели, роли и сведения о лимитах загружаются в фоне. Остальные настройки уже доступны.",
+    loadingBannerBody:
+      "Модели, роли и сведения о лимитах загружаются в фоне. Остальные настройки уже доступны.",
     loadingSlowTitle: "OMP отвечает дольше обычного",
-    loadingSlowBody: "Интерфейс работает: можно менять общие настройки или закрыть окно, не дожидаясь каталога моделей.",
+    loadingSlowBody:
+      "Интерфейс работает: можно менять общие настройки или закрыть окно, не дожидаясь каталога моделей.",
     modelLoadFailed: "Не удалось загрузить каталог моделей.",
     retryModels: "Повторить загрузку",
     modelsAvailable: "моделей в каталоге",
@@ -194,7 +197,8 @@ export const UI_TEXT = {
     roleConsult: "Консультант",
     roleCustom: "Пользовательская роль",
     roleDescDefault: "Ведёт обычный диалог и выполняет основную работу в сессии.",
-    roleDescSmol: "Быстрые и недорогие операции: поиск, простые проверки и короткие преобразования.",
+    roleDescSmol:
+      "Быстрые и недорогие операции: поиск, простые проверки и короткие преобразования.",
     roleDescSlow: "Сложный анализ и задачи, где важнее качество, чем скорость.",
     roleDescPlan: "Строит архитектуру и подробный план перед реализацией.",
     roleDescAdvisor: "Независимо проверяет ход работы и предупреждает о пропущенных рисках.",
@@ -213,7 +217,8 @@ export const UI_TEXT = {
     statusHelpOk: "Модель найдена и может использоваться.",
     statusHelpLimited: "Модель доступна, но провайдер сообщает о близком лимите.",
     statusHelpExhausted: "Лимит провайдера исчерпан; OMP может перейти по fallback-цепочке.",
-    statusHelpMissing: "Selector есть в роли, но модели нет в текущем каталоге OMP. Обновите каталог или выберите другую модель.",
+    statusHelpMissing:
+      "Selector есть в роли, но модели нет в текущем каталоге OMP. Обновите каталог или выберите другую модель.",
     statusHelpUnset: "Для этой роли пока не выбрана модель.",
     refreshModels: "Обновить каталог",
     connectedProviders: "Подключённые провайдеры",
@@ -251,8 +256,7 @@ export const UI_TEXT = {
   },
   en: {
     emptyTitle: "Open project folder",
-    emptyDesc:
-      "OMP Desktop will launch the agent in the selected folder and collect its sessions.",
+    emptyDesc: "OMP Desktop will launch the agent in the selected folder and collect its sessions.",
     btnOpenFolder: "Open folder",
     startWork: "Getting started",
     workspaceReady: "Workspace ready",
@@ -290,7 +294,8 @@ export const UI_TEXT = {
     desktopUpdateInstalling: "Installing…",
     loading: "Searching for projects and sessions…",
     loadError: "Failed to load OMP data",
-    settingsRecovered: "The invalid settings.json was saved to {path}; default settings were applied.",
+    settingsRecovered:
+      "The invalid settings.json was saved to {path}; default settings were applied.",
     retry: "Retry",
     projectNotSelected: "No project selected",
     settings: "Settings",
@@ -298,13 +303,14 @@ export const UI_TEXT = {
     requireProjectDir: "Select a project folder first",
     requireOmp: "OMP not found — specify executable path in settings",
     launching: "Launching…",
-    rename: "Rename",
+    editFixedTitle: "Edit fixed title",
+    pinSessionTitle: "Pin current title",
+    unpinSessionTitle: "Restore automatic title",
     deleteSession: "Delete session",
     deleteSessionConfirm:
       "Delete session “{title}”? Its JSONL file and related artifacts will be permanently removed.",
     sessionDeleted: "Session deleted",
     closeSessionBeforeDelete: "Stop the open session before deleting it",
-    closeSessionBeforeRename: "Stop the active session before renaming it",
     resumeSession: "Resume session",
     importSession: "Import Codex/OMP",
     importCodex: "Import from Codex",
@@ -368,8 +374,7 @@ export const UI_TEXT = {
     executableLabel: "OMP executable",
     executableHelp: "Leave empty to auto-detect via PATH and standard folders.",
     sessionRootLabel: "Sessions folder",
-    sessionRootHelp:
-      "Defaults to ~/.omp/agent/sessions or PI_CODING_AGENT_DIR.",
+    sessionRootHelp: "Defaults to ~/.omp/agent/sessions or PI_CODING_AGENT_DIR.",
     interfaceSection: "Interface",
     interfaceSectionHelp: "The language changes immediately; saving applies it to the whole app.",
     languageHelp: "Choose the language used for labels, hints, and descriptions in OMP Desktop.",
@@ -382,7 +387,8 @@ export const UI_TEXT = {
     autoResume: "Automatically resume the latest session",
     autoResumeHelp: "Opening OMP in a folder immediately resumes its latest detected session.",
     thinkingLevel: "Default reasoning level",
-    thinkingLevelHelp: "Controls reasoning depth when the selected model has no explicit thinking suffix.",
+    thinkingLevelHelp:
+      "Controls reasoning depth when the selected model has no explicit thinking suffix.",
     terminalFontFamily: "Terminal font family",
     terminalFontFamilyHelp: "A CSS font name or stack used by open and new terminals.",
     terminalFontSize: "Terminal font size",
@@ -413,9 +419,11 @@ export const UI_TEXT = {
     loadingModels: "Loading roles, model catalog, and usage limits…",
     refreshingModels: "Loading…",
     loadingBannerTitle: "Loading settings from OMP",
-    loadingBannerBody: "Models, roles, and usage limits are loading in the background. Other settings are already available.",
+    loadingBannerBody:
+      "Models, roles, and usage limits are loading in the background. Other settings are already available.",
     loadingSlowTitle: "OMP is taking longer than usual",
-    loadingSlowBody: "The interface is still responsive: edit general settings or close this window without waiting for the catalog.",
+    loadingSlowBody:
+      "The interface is still responsive: edit general settings or close this window without waiting for the catalog.",
     modelLoadFailed: "Could not load the model catalog.",
     retryModels: "Retry loading",
     modelsAvailable: "models in catalog",
@@ -441,7 +449,8 @@ export const UI_TEXT = {
     roleConsult: "Consultant",
     roleCustom: "Custom role",
     roleDescDefault: "Runs the regular conversation and performs the main work in a session.",
-    roleDescSmol: "Fast, inexpensive operations such as search, simple checks, and short transformations.",
+    roleDescSmol:
+      "Fast, inexpensive operations such as search, simple checks, and short transformations.",
     roleDescSlow: "Complex analysis where quality matters more than latency.",
     roleDescPlan: "Builds architecture and a detailed plan before implementation.",
     roleDescAdvisor: "Independently reviews progress and flags missed risks.",
@@ -460,7 +469,8 @@ export const UI_TEXT = {
     statusHelpOk: "The model is present and ready to use.",
     statusHelpLimited: "The model is available, but its provider reports a near limit.",
     statusHelpExhausted: "The provider limit is exhausted; OMP may follow its fallback chain.",
-    statusHelpMissing: "The role has a selector, but the model is absent from the current OMP catalog. Refresh or choose another model.",
+    statusHelpMissing:
+      "The role has a selector, but the model is absent from the current OMP catalog. Refresh or choose another model.",
     statusHelpUnset: "No model is assigned to this role yet.",
     refreshModels: "Refresh catalog",
     connectedProviders: "Connected providers",
@@ -496,13 +506,13 @@ export const UI_TEXT = {
     selectAll: "Select all",
     imported: "Imported",
   },
-} as const;
+} as const
 
-export type UiKey = keyof typeof UI_TEXT.ru;
+export type UiKey = keyof typeof UI_TEXT.ru
 
 export function t(lang: Lang | string | null | undefined, key: UiKey): string {
-  const resolved: Lang = lang === "en" ? "en" : "ru";
-  return UI_TEXT[resolved][key];
+  const resolved: Lang = lang === "en" ? "en" : "ru"
+  return UI_TEXT[resolved][key]
 }
 
 const ROLE_TEXT: Record<string, { label: UiKey; description: UiKey }> = {
@@ -517,48 +527,39 @@ const ROLE_TEXT: Record<string, { label: UiKey; description: UiKey }> = {
   commit: { label: "roleCommit", description: "roleDescCommit" },
   tiny: { label: "roleTiny", description: "roleDescTiny" },
   consult: { label: "roleConsult", description: "roleDescConsult" },
-};
+}
 
 export function roleLabel(lang: Lang | string | null | undefined, role: string): string {
-  return t(lang, ROLE_TEXT[role]?.label ?? "roleCustom");
+  return t(lang, ROLE_TEXT[role]?.label ?? "roleCustom")
 }
 
 export function roleDescription(lang: Lang | string | null | undefined, role: string): string {
-  return t(lang, ROLE_TEXT[role]?.description ?? "roleDescCustom");
+  return t(lang, ROLE_TEXT[role]?.description ?? "roleDescCustom")
 }
 
-export function statusLabel(
-  lang: Lang | string | null | undefined,
-  status: string,
-): string {
+export function statusLabel(lang: Lang | string | null | undefined, status: string): string {
   const keyByStatus: Record<string, UiKey> = {
     ok: "statusOk",
     limited: "statusLimited",
     exhausted: "statusExhausted",
     missing: "statusMissing",
     unset: "statusUnset",
-  };
-  return t(lang, keyByStatus[status] ?? "statusUnset");
+  }
+  return t(lang, keyByStatus[status] ?? "statusUnset")
 }
 
-export function statusDescription(
-  lang: Lang | string | null | undefined,
-  status: string,
-): string {
+export function statusDescription(lang: Lang | string | null | undefined, status: string): string {
   const keyByStatus: Record<string, UiKey> = {
     ok: "statusHelpOk",
     limited: "statusHelpLimited",
     exhausted: "statusHelpExhausted",
     missing: "statusHelpMissing",
     unset: "statusHelpUnset",
-  };
-  return t(lang, keyByStatus[status] ?? "statusHelpUnset");
+  }
+  return t(lang, keyByStatus[status] ?? "statusHelpUnset")
 }
 
-export function thinkingLevelLabel(
-  lang: Lang | string | null | undefined,
-  level: string,
-): string {
+export function thinkingLevelLabel(lang: Lang | string | null | undefined, level: string): string {
   const keyByLevel: Record<string, UiKey> = {
     off: "thinkingOff",
     minimal: "thinkingMinimal",
@@ -568,6 +569,6 @@ export function thinkingLevelLabel(
     xhigh: "thinkingXhigh",
     max: "thinkingMax",
     auto: "thinkingAuto",
-  };
-  return t(lang, keyByLevel[level] ?? "thinkingAuto");
+  }
+  return t(lang, keyByLevel[level] ?? "thinkingAuto")
 }

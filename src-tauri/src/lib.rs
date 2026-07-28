@@ -138,20 +138,34 @@ async fn update_settings(
 }
 
 #[tauri::command]
-async fn rename_session(
+async fn set_session_title_pin(
     path: String,
-    title: String,
+    title: Option<String>,
     app: AppHandle,
 ) -> Result<BootstrapPayload, AppError> {
     run_blocking(
-        "переименования сессии",
-        "session_rename_failed",
-        "Не удалось переименовать сессию",
+        "фиксации названия сессии",
+        "session_title_pin_failed",
+        "Не удалось зафиксировать название сессии",
         move || {
-            let terminals = app.state::<TerminalState>();
-            terminal::rename_inactive_session(&terminals, &path, &title)?;
-            let settings = app.state::<SettingsState>();
-            let snapshot = settings_snapshot(&settings)?;
+            if !PathBuf::from(&path).is_file() {
+                return Err(format!("Файл сессии не найден: {path}"));
+            }
+            let state = app.state::<SettingsState>();
+            let mut snapshot = settings_snapshot(&state)?;
+            let key = path_key(&path);
+            if let Some(title) = title {
+                snapshot
+                    .session_title_pins
+                    .insert(key, sessions::normalize_pinned_title(&title)?);
+            } else {
+                snapshot.session_title_pins.remove(&key);
+            }
+            save_settings(&app, &snapshot)?;
+            *state
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
             build_bootstrap(&app, &snapshot)
         },
     )
@@ -166,9 +180,20 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
         "Не удалось удалить сессию",
         move || {
             let settings = app.state::<SettingsState>();
-            let snapshot = settings_snapshot(&settings)?;
+            let mut snapshot = settings_snapshot(&settings)?;
             let root = settings::session_root(&app, &snapshot)?;
             sessions::delete_session(&path, &root)?;
+            if snapshot
+                .session_title_pins
+                .remove(&path_key(&path))
+                .is_some()
+            {
+                save_settings(&app, &snapshot)?;
+                *settings
+                    .0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
+            }
             build_bootstrap(&app, &snapshot)
         },
     )
@@ -220,7 +245,12 @@ async fn read_session_transcript(
             let settings = app.state::<SettingsState>();
             let snapshot = settings_snapshot(&settings)?;
             let root = settings::session_root(&app, &snapshot)?;
-            sessions::read_session_transcript(&path, &root)
+            let mut transcript = sessions::read_session_transcript(&path, &root)?;
+            sessions::apply_session_title_pin(
+                &mut transcript.session,
+                &snapshot.session_title_pins,
+            );
+            Ok(transcript)
         },
     )
     .await
@@ -340,7 +370,7 @@ pub fn run() {
             bootstrap,
             add_workspace,
             update_settings,
-            rename_session,
+            set_session_title_pin,
             delete_session,
             import_session,
             list_codex_sessions,

@@ -1,41 +1,42 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useRef } from "react";
-import type { SessionSummary, TerminalTab } from "./types";
-import type { Lang } from "./i18n";
-import { Icon } from "./Icon";
-import { t } from "./i18n";
-import { SessionRow } from "./SessionRow";
-import { useVirtualList } from "./useVirtualList";
-import { tabMatchesSession } from "./uiUtils";
+import { type KeyboardEvent as ReactKeyboardEvent, useRef } from "react"
+import type { SessionSummary, TerminalTab } from "./types"
+import type { Lang } from "./i18n"
+import { Icon } from "./Icon"
+import { t } from "./i18n"
+import { SessionRow } from "./SessionRow"
+import { useVirtualList } from "./useVirtualList"
+import { tabMatchesSession } from "./uiUtils"
 
 export interface SessionListProps {
-  lang: Lang;
-  visibleSessions: SessionSummary[];
-  workspaceSessionsCount: number;
-  search: string;
-  onSearchChange: (value: string) => void;
-  onClearSearch: () => void;
-  selectedSessionId: string | null;
-  launching: string | null;
-  renamingSessionId: string | null;
-  renameValue: string;
-  deletingSessionId: string | null;
-  tabs: TerminalTab[];
-  platform: string;
-  onSelectSession: (session: SessionSummary) => void;
-  onLaunchSession: (session: SessionSummary) => void;
-  onNewSession: () => void;
-  onLoadTranscript: (session: SessionSummary) => void;
-  onStartRename: (session: SessionSummary) => void;
-  onDeleteSession: (session: SessionSummary) => void;
-  onSubmitRename: (session: SessionSummary) => void;
-  onRenameValueChange: (value: string) => void;
-  onRenameKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>, session: SessionSummary) => void;
-  onOpenCodex: () => void;
-  onImportOmp: () => void;
-  onRevealWorkspace: (path: string) => void;
-  selectedWorkspacePath: string | null;
-  selectedWorkspaceName: string | null;
-  canLaunch: boolean;
+  lang: Lang
+  visibleSessions: SessionSummary[]
+  workspaceSessionsCount: number
+  search: string
+  onSearchChange: (value: string) => void
+  onClearSearch: () => void
+  selectedSessionId: string | null
+  launching: string | null
+  renamingSessionId: string | null
+  renameValue: string
+  deletingSessionId: string | null
+  tabs: TerminalTab[]
+  platform: string
+  onSelectSession: (session: SessionSummary) => void
+  onLaunchSession: (session: SessionSummary) => void
+  onNewSession: () => void
+  onLoadTranscript: (session: SessionSummary) => void
+  onStartRename: (session: SessionSummary) => void
+  onToggleTitlePin: (session: SessionSummary) => void
+  onDeleteSession: (session: SessionSummary) => void
+  onSubmitRename: (session: SessionSummary) => void
+  onRenameValueChange: (value: string) => void
+  onRenameKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>, session: SessionSummary) => void
+  onOpenCodex: () => void
+  onImportOmp: () => void
+  onRevealWorkspace: (path: string) => void
+  selectedWorkspacePath: string | null
+  selectedWorkspaceName: string | null
+  canLaunch: boolean
 }
 
 export function SessionList({
@@ -57,6 +58,7 @@ export function SessionList({
   onNewSession,
   onLoadTranscript,
   onStartRename,
+  onToggleTitlePin,
   onDeleteSession,
   onSubmitRename,
   onRenameValueChange,
@@ -68,15 +70,15 @@ export function SessionList({
   selectedWorkspaceName,
   canLaunch,
 }: SessionListProps) {
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null)
 
   // Session cards are fixed-height in App.css: 55px row + 2px separation.
   const { virtualItems, totalHeight } = useVirtualList(visibleSessions, listRef, {
     estimatedRowHeight: 57,
     overscan: 8,
-  });
+  })
 
-  const showEmpty = Boolean(selectedWorkspacePath) && visibleSessions.length === 0;
+  const showEmpty = Boolean(selectedWorkspacePath) && visibleSessions.length === 0
 
   return (
     <section className="project-sessions">
@@ -151,28 +153,23 @@ export function SessionList({
             {/* Spacer to establish correct scroll height */}
             <div style={{ height: totalHeight }} aria-hidden="true" />
             {virtualItems.map((vi) => {
-              const session = vi.item;
-              const selected = session.id === selectedSessionId;
-              const busy = launching === session.id;
-              const renaming = session.id === renamingSessionId;
-              const sessionTab = tabs.find((tab) =>
-                tabMatchesSession(tab, session, platform),
-              );
+              const session = vi.item
+              const selected = session.id === selectedSessionId
+              const busy = launching === session.id
+              const renaming = session.id === renamingSessionId
+              const sessionTab = tabs.find((tab) => tabMatchesSession(tab, session, platform))
               const runningTab = tabs.find(
-                (tab) =>
-                  tab.status === "running" &&
-                  tabMatchesSession(tab, session, platform),
-              );
-              const sessionOpen = Boolean(sessionTab);
-              const sessionRunning = Boolean(runningTab);
-              const sessionThinking = runningTab?.activity === "thinking";
-              const deleting = deletingSessionId === session.id;
-              const launchDisabled =
-                deletingSessionId !== null || launching !== null || !canLaunch;
+                (tab) => tab.status === "running" && tabMatchesSession(tab, session, platform),
+              )
+              const sessionOpen = Boolean(sessionTab)
+              const sessionRunning = Boolean(runningTab)
+              const sessionThinking = runningTab?.activity === "thinking"
+              const deleting = deletingSessionId === session.id
+              const launchDisabled = deletingSessionId !== null || launching !== null || !canLaunch
 
-              const submit = () => onSubmitRename(session);
+              const submit = () => onSubmitRename(session)
               const keyDown = (e: ReactKeyboardEvent<HTMLInputElement>) =>
-                onRenameKeyDown(e, session);
+                onRenameKeyDown(e, session)
 
               return (
                 <div
@@ -192,16 +189,16 @@ export function SessionList({
                     lang={lang}
                     launchDisabled={launchDisabled}
                     onDelete={(e) => {
-                      e.stopPropagation();
-                      onDeleteSession(session);
+                      e.stopPropagation()
+                      onDeleteSession(session)
                     }}
                     onDoubleLaunch={() => {
-                      if (deletingSessionId === null) onLaunchSession(session);
+                      if (deletingSessionId === null) onLaunchSession(session)
                     }}
                     onKeySelect={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelectSession(session);
+                        event.preventDefault()
+                        onSelectSession(session)
                       }
                     }}
                     onLaunch={() => onLaunchSession(session)}
@@ -209,13 +206,17 @@ export function SessionList({
                     onRenameKeyDown={keyDown}
                     onSelect={() => onSelectSession(session)}
                     onStartRename={(e) => {
-                      e.stopPropagation();
-                      onStartRename(session);
+                      e.stopPropagation()
+                      onStartRename(session)
                     }}
                     onSubmitRename={submit}
+                    onToggleTitlePin={(event) => {
+                      event.stopPropagation()
+                      onToggleTitlePin(session)
+                    }}
                     onTranscript={(event) => {
-                      event.stopPropagation();
-                      onLoadTranscript(session);
+                      event.stopPropagation()
+                      onLoadTranscript(session)
                     }}
                     renameValue={renameValue}
                     renaming={renaming}
@@ -226,7 +227,7 @@ export function SessionList({
                     sessionThinking={sessionThinking}
                   />
                 </div>
-              );
+              )
             })}
           </>
         )}
@@ -235,9 +236,7 @@ export function SessionList({
           <div className="sidebar-empty">
             <Icon name={search ? "search" : "history"} />
             <strong>{search ? t(lang, "nothingFound") : t(lang, "historyEmpty")}</strong>
-            <span>
-              {search ? t(lang, "tryAnotherQuery") : t(lang, "createFirstSession")}
-            </span>
+            <span>{search ? t(lang, "tryAnotherQuery") : t(lang, "createFirstSession")}</span>
           </div>
         )}
       </div>
@@ -249,5 +248,5 @@ export function SessionList({
         <small>{t(lang, "jsonlNative")}</small>
       </div>
     </section>
-  );
+  )
 }

@@ -1,5 +1,11 @@
 :root {
-  font-family: Inter, "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family:
+    Inter,
+    "Segoe UI Variable",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
   color: #dce2de;
   background: #0c0e0d;
   font-synthesis: none;
@@ -40,8 +46,7 @@ body {
   min-width: 1000px;
   min-height: 650px;
   background:
-    radial-gradient(circle at 72% -20%, rgba(185, 242, 124, 0.06), transparent 34%),
-    var(--bg);
+    radial-gradient(circle at 72% -20%, rgba(185, 242, 124, 0.06), transparent 34%), var(--bg);
 }
 
 button,
@@ -373,7 +378,9 @@ button:disabled {
   flex: none;
   place-items: center;
   color: #657068;
-  transition: color 120ms ease, transform 120ms ease;
+  transition:
+    color 120ms ease,
+    transform 120ms ease;
 }
 
 .project-item:hover .project-expand-marker,
@@ -536,7 +543,10 @@ button:disabled {
   cursor: pointer;
   font-size: 11px;
   font-weight: 650;
-  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
 }
 
 .button:not(:disabled):active {
@@ -636,15 +646,19 @@ button:disabled {
   overflow-y: auto;
 }
 
- .session-item {
-   display: grid;
-   grid-template-columns: minmax(0, 1fr) 28px 28px 28px 28px;
-   align-items: center;
-   min-height: 55px;
-   margin-bottom: 2px;
-   border: 1px solid transparent;
-   border-radius: 8px;
- }
+.session-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px 28px 28px 28px;
+  align-items: center;
+  min-height: 55px;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.session-item.is-renaming {
+  grid-template-columns: minmax(0, 1fr);
+}
 
 .session-item:hover {
   border-color: #262c28;
@@ -717,7 +731,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-
 .session-rename {
   width: 100%;
   min-width: 0;
@@ -751,30 +764,40 @@ button:disabled {
 }
 
 .session-live-marker {
-  display: grid;
-  width: 16px;
+  display: inline-flex;
+  min-width: 16px;
   height: 16px;
   flex: none;
-  place-items: center;
-  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 999px;
 }
 
-.session-live-marker > span {
+.session-live-dot {
   width: 6px;
   height: 6px;
+  flex: none;
   border-radius: 50%;
   background: #69736c;
 }
 
-.session-live-marker.is-running > span {
+.session-live-marker.is-running .session-live-dot {
   background: var(--success);
   box-shadow: 0 0 0 3px rgba(129, 201, 149, 0.1);
 }
 
-.session-live-marker.is-thinking > span {
+.session-live-marker.is-thinking .session-live-dot {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
   animation: pulse 1.15s ease-in-out infinite;
+}
+
+.session-live-marker b {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .session-item.is-thinking {
@@ -792,7 +815,10 @@ button:disabled {
   background: transparent;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 100ms ease, color 100ms ease, background 100ms ease;
+  transition:
+    opacity 100ms ease,
+    color 100ms ease,
+    background 100ms ease;
 }
 
 .session-item:hover .session-play,
@@ -804,6 +830,12 @@ button:disabled {
 .session-play:hover {
   color: var(--accent);
   background: rgba(185, 242, 124, 0.08);
+}
+
+.session-pin.is-pinned {
+  color: var(--accent);
+  background: rgba(185, 242, 124, 0.08);
+  opacity: 1;
 }
 
 .session-delete:hover {
@@ -1030,7 +1062,6 @@ button:disabled {
   min-height: 58px;
 }
 
-
 .settings-options {
   display: grid;
   gap: 8px;
@@ -1239,7 +1270,12 @@ button:disabled {
 .settings-role-skeleton::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.035) 48%, transparent 76%);
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.035) 48%,
+    transparent 76%
+  );
   content: "";
   transform: translateX(-100%);
   animation: settings-shimmer 1.5s ease-in-out infinite;
@@ -2055,8 +2091,7 @@ button:disabled {
   overflow: hidden;
   background:
     linear-gradient(rgba(255, 255, 255, 0.007) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.007) 1px, transparent 1px),
-    #0d100e;
+    linear-gradient(90deg, rgba(255, 255, 255, 0.007) 1px, transparent 1px), #0d100e;
   background-size: 28px 28px;
 }
 
@@ -2546,6 +2581,36 @@ button:disabled {
   border-bottom-color: rgba(239, 112, 112, 0.42);
 }
 
+.tab-pin {
+  display: grid;
+  width: 23px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  color: #5f6862;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.terminal-tab:hover .tab-pin,
+.terminal-tab.is-active .tab-pin,
+.tab-pin:focus-visible,
+.tab-pin.is-pinned {
+  opacity: 1;
+}
+
+.tab-pin:hover,
+.tab-pin.is-pinned {
+  color: var(--accent);
+  background: rgba(185, 242, 124, 0.08);
+}
+
+.tab-pin:disabled {
+  cursor: wait;
+  opacity: 0.28;
+}
+
 .tab-close {
   display: grid;
   width: 27px;
@@ -2682,7 +2747,6 @@ button:disabled {
   overflow: hidden;
   background: #101312;
 }
-
 
 .terminal-view {
   position: absolute;
@@ -3035,8 +3099,7 @@ button:disabled {
   flex-direction: column;
   color: var(--text-soft);
   background:
-    radial-gradient(circle at 50% 40%, rgba(185, 242, 124, 0.07), transparent 25%),
-    #0c0e0d;
+    radial-gradient(circle at 50% 40%, rgba(185, 242, 124, 0.07), transparent 25%), #0c0e0d;
   text-align: center;
 }
 
@@ -3105,37 +3168,70 @@ button:disabled {
 }
 
 @keyframes settings-progress {
-  from { transform: translateX(-115%); }
-  to { transform: translateX(300%); }
+  from {
+    transform: translateX(-115%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }
 
 @keyframes settings-shimmer {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(100%); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.08); }
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slide-in {
-  from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 @keyframes toast-in {
-  from { transform: translateY(8px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1180px) {

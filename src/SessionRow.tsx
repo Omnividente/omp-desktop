@@ -1,32 +1,33 @@
-import React, { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { SessionSummary } from "./types";
-import type { Lang } from "./i18n";
-import { Icon } from "./Icon";
-import { t } from "./i18n";
+import React, { KeyboardEvent as ReactKeyboardEvent } from "react"
+import type { SessionSummary } from "./types"
+import type { Lang } from "./i18n"
+import { Icon } from "./Icon"
+import { t } from "./i18n"
 
 interface SessionRowProps {
-  session: SessionSummary;
-  lang: Lang;
-  selected: boolean;
-  busy: boolean;
-  renaming: boolean;
-  sessionOpen: boolean;
-  sessionRunning: boolean;
-  sessionThinking: boolean;
-  deleting: boolean;
-  actionsDisabled: boolean;
-  renameValue: string;
-  launchDisabled: boolean;
-  onSelect: () => void;
-  onDoubleLaunch: () => void;
-  onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void;
-  onLaunch: () => void;
-  onTranscript: (e: React.MouseEvent) => void;
-  onStartRename: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onSubmitRename: () => void;
-  onRenameChange: (v: string) => void;
-  onRenameKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  session: SessionSummary
+  lang: Lang
+  selected: boolean
+  busy: boolean
+  renaming: boolean
+  sessionOpen: boolean
+  sessionRunning: boolean
+  sessionThinking: boolean
+  deleting: boolean
+  actionsDisabled: boolean
+  renameValue: string
+  launchDisabled: boolean
+  onSelect: () => void
+  onDoubleLaunch: () => void
+  onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void
+  onLaunch: () => void
+  onTranscript: (e: React.MouseEvent) => void
+  onStartRename: (e: React.MouseEvent) => void
+  onToggleTitlePin: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void
+  onSubmitRename: () => void
+  onRenameChange: (v: string) => void
+  onRenameKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void
 }
 
 export function SessionRow({
@@ -48,6 +49,7 @@ export function SessionRow({
   onLaunch,
   onTranscript,
   onStartRename,
+  onToggleTitlePin,
   onDelete,
   onSubmitRename,
   onRenameChange,
@@ -55,7 +57,7 @@ export function SessionRow({
 }: SessionRowProps) {
   return (
     <article
-      className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}`}
+      className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}${renaming ? " is-renaming" : ""}`}
     >
       <div
         aria-pressed={selected}
@@ -107,10 +109,23 @@ export function SessionRow({
                   : t(lang, "sessionOpenShort")
             }
           >
-            <span />
+            <span className="session-live-dot" />
+            {sessionThinking && <b>{t(lang, "thinkingShort")}</b>}
           </span>
         )}
       </div>
+      {!renaming && (
+        <button
+          aria-pressed={session.pinnedTitle !== null}
+          className={`session-play session-pin${session.pinnedTitle ? " is-pinned" : ""}`}
+          disabled={actionsDisabled}
+          onClick={onToggleTitlePin}
+          title={t(lang, session.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
+          type="button"
+        >
+          <Icon name="pin" size={14} />
+        </button>
+      )}
       {!renaming && (
         <button
           className="session-play session-transcript"
@@ -125,11 +140,9 @@ export function SessionRow({
       {!renaming && (
         <button
           className="session-play"
-          disabled={actionsDisabled || sessionRunning}
+          disabled={actionsDisabled}
           onClick={onStartRename}
-          title={
-            sessionRunning ? t(lang, "closeSessionBeforeRename") : t(lang, "rename")
-          }
+          title={t(lang, "editFixedTitle")}
           type="button"
         >
           <Icon name="edit" size={14} />
@@ -140,9 +153,7 @@ export function SessionRow({
           className="session-play session-delete"
           disabled={actionsDisabled || sessionRunning}
           onClick={onDelete}
-          title={
-            sessionRunning ? t(lang, "closeSessionBeforeDelete") : t(lang, "deleteSession")
-          }
+          title={sessionRunning ? t(lang, "closeSessionBeforeDelete") : t(lang, "deleteSession")}
           type="button"
         >
           {deleting ? <span className="mini-loader" /> : <Icon name="trash" size={14} />}
@@ -160,24 +171,24 @@ export function SessionRow({
         </button>
       )}
     </article>
-  );
+  )
 }
 
 // Local small relative formatter to avoid cross import cycles; mirrors App's for display only.
 function formatRelativeLocal(timestamp: number, lang: Lang): string {
   if (!timestamp) {
-    return lang === "en" ? "no runs" : "нет запусков";
+    return lang === "en" ? "no runs" : "нет запусков"
   }
-  const relativeTime = new Intl.RelativeTimeFormat(lang === "en" ? "en" : "ru", { numeric: "auto" });
+  const relativeTime = new Intl.RelativeTimeFormat(lang === "en" ? "en" : "ru", { numeric: "auto" })
   const calendarDate = new Intl.DateTimeFormat(lang === "en" ? "en" : "ru", {
     day: "numeric",
     month: "short",
-  });
-  const seconds = Math.round((timestamp - Date.now()) / 1000);
-  const absolute = Math.abs(seconds);
-  if (absolute < 60) return relativeTime.format(seconds, "second");
-  if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute");
-  if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour");
-  if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day");
-  return calendarDate.format(timestamp);
+  })
+  const seconds = Math.round((timestamp - Date.now()) / 1000)
+  const absolute = Math.abs(seconds)
+  if (absolute < 60) return relativeTime.format(seconds, "second")
+  if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute")
+  if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour")
+  if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day")
+  return calendarDate.format(timestamp)
 }

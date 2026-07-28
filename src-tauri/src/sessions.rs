@@ -7,7 +7,7 @@ use crate::{
 };
 use serde_json::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env, fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -96,6 +96,9 @@ pub fn build_bootstrap(
 ) -> Result<BootstrapPayload, String> {
     let runtime = runtime_info(app, settings)?;
     let mut sessions = scan_sessions(Path::new(&runtime.session_root))?;
+    for session in &mut sessions {
+        apply_session_title_pin(session, &settings.session_title_pins);
+    }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
     let workspaces = build_workspaces(&sessions, &settings.recent_workspaces);
 
@@ -114,6 +117,16 @@ pub fn path_key(path: &str) -> String {
         normalized.to_lowercase()
     } else {
         normalized.to_owned()
+    }
+}
+
+pub(crate) fn apply_session_title_pin(
+    session: &mut SessionSummary,
+    pins: &BTreeMap<String, String>,
+) {
+    session.pinned_title = pins.get(&path_key(&session.file_path)).cloned();
+    if let Some(title) = session.pinned_title.as_ref() {
+        session.title.clone_from(title);
     }
 }
 
@@ -295,58 +308,6 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
     } else {
         Ok(())
     }
-}
-
-pub fn rename_session(path: &str, title: &str) -> Result<(), String> {
-    let title = clean_title(title)?;
-    let file_path = Path::new(path);
-    if !file_path.is_file() {
-        return Err(format!("Файл сессии не найден: {path}"));
-    }
-
-    let metadata = fs::metadata(file_path).map_err(|error| {
-        format!(
-            "Не удалось прочитать метаданные {}: {error}",
-            file_path.display()
-        )
-    })?;
-    let previous = read_session_title(file_path).ok().flatten();
-    let now = now_iso();
-    let slot = serialize_title_slot(&title, Some("user"), &now)?;
-    let original = fs::read(file_path)
-        .map_err(|error| format!("Не удалось прочитать {}: {error}", file_path.display()))?;
-    let has_slot =
-        original.len() >= TITLE_SLOT_BYTES && original.starts_with(b"{\"type\":\"title\"");
-    let mut body = if has_slot {
-        let mut body = original;
-        body[..TITLE_SLOT_BYTES].copy_from_slice(slot.as_bytes());
-        body
-    } else {
-        let mut body = Vec::with_capacity(slot.len() + original.len());
-        body.extend_from_slice(slot.as_bytes());
-        body.extend_from_slice(&original);
-        body
-    };
-
-    let change = serde_json::json!({
-        "type": "title_change",
-        "id": format!("{:08x}", rand::random::<u32>()),
-        "parentId": Value::Null,
-        "timestamp": now,
-        "title": title,
-        "source": "user",
-        "previousTitle": previous,
-    });
-    body.extend_from_slice(
-        format!("{}\n", serde_json::to_string(&change).unwrap_or_default()).as_bytes(),
-    );
-    atomic_write_file(file_path, &body)?;
-
-    let _ = filetime::set_file_mtime(
-        file_path,
-        filetime::FileTime::from_last_modification_time(&metadata),
-    );
-    Ok(())
 }
 
 pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
@@ -1168,6 +1129,7 @@ fn parse_session_with_names(
         title: local_title
             .or(indexed_title)
             .unwrap_or_else(|| "Новая сессия".to_owned()),
+        pinned_title: None,
         cwd,
         file_path: path.to_string_lossy().into_owned(),
         created_at: created_at.unwrap_or_default(),
@@ -1445,6 +1407,10 @@ fn clean_title(title: &str) -> Result<String, String> {
     Ok(cleaned)
 }
 
+pub(crate) fn normalize_pinned_title(title: &str) -> Result<String, String> {
+    Ok(truncate_title(&clean_title(title)?))
+}
+
 fn truncate_title(value: &str) -> String {
     let one_line = value.lines().next().unwrap_or(value).trim();
     one_line.chars().take(80).collect()
@@ -1496,27 +1462,6 @@ fn title_slot_line(title: &str, source: Option<&str>, updated_at: &str, pad: &st
         slot["source"] = Value::String(source.to_owned());
     }
     format!("{}\n", serde_json::to_string(&slot).unwrap_or_default())
-}
-
-fn read_session_title(path: &Path) -> Result<Option<String>, String> {
-    let mut file = fs::File::open(path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
-    let mut buf = String::new();
-    let mut chunk = [0u8; 512];
-    let read = file
-        .read(&mut chunk)
-        .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-    buf.push_str(&String::from_utf8_lossy(&chunk[..read]));
-    let first = buf.lines().next().unwrap_or_default();
-    if let Ok(value) = serde_json::from_str::<Value>(first) {
-        if value.get("type").and_then(Value::as_str) == Some("title") {
-            return Ok(value
-                .get("title")
-                .and_then(Value::as_str)
-                .map(str::to_owned));
-        }
-    }
-    Ok(None)
 }
 
 fn modified_millis(path: &Path) -> u64 {
@@ -1600,15 +1545,16 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        atomic_write_file, atomic_write_file_with, collect_jsonl_files, deduplicate_codex_sessions,
-        delete_session, encode_relative_session_dir_name, encode_session_dir_name, import_session,
-        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
-        read_codex_discovery_prefix, read_session_transcript, restorable_session_model,
-        scan_sessions, serialize_title_slot, CodexSessionSummary, TranscriptEntryCategory,
-        CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
+        apply_session_title_pin, atomic_write_file, atomic_write_file_with, collect_jsonl_files,
+        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
+        encode_session_dir_name, import_session, parse_codex_session_with_names, parse_session,
+        parse_session_with_names, path_key, read_codex_discovery_prefix, read_session_transcript,
+        restorable_session_model, scan_sessions, serialize_title_slot, CodexSessionSummary,
+        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
+        CODEX_DISCOVERY_MAX_LINES,
     };
     use std::{
-        collections::HashMap,
+        collections::{BTreeMap, HashMap},
         fs, io,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -1618,6 +1564,33 @@ mod tests {
         let key = path_key(r"D:\Projects\OMP\");
         assert!(!key.ends_with('/'));
         assert!(key.contains("/Projects/") || key.contains("/projects/"));
+    }
+
+    #[test]
+    fn pinned_title_overrides_dynamic_title_by_normalized_path() {
+        let mut session = SessionSummary {
+            id: "session-1".to_owned(),
+            title: "Dynamic activity title".to_owned(),
+            pinned_title: None,
+            cwd: "D:/Projects/OMP".to_owned(),
+            file_path: r"D:\Sessions\session.jsonl".to_owned(),
+            created_at: String::new(),
+            updated_at: 1,
+            model: None,
+            thinking_level: None,
+            configured_thinking_level: None,
+            source: "omp".to_owned(),
+            has_messages: true,
+        };
+        let pins = BTreeMap::from([(
+            path_key("D:/Sessions/session.jsonl"),
+            "Fixed project name".to_owned(),
+        )]);
+
+        apply_session_title_pin(&mut session, &pins);
+
+        assert_eq!(session.title, "Fixed project name");
+        assert_eq!(session.pinned_title.as_deref(), Some("Fixed project name"));
     }
 
     #[test]

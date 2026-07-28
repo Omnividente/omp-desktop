@@ -1,5 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +65,8 @@ pub struct AppSettings {
     pub session_root: Option<String>,
     #[serde(default)]
     pub recent_workspaces: Vec<String>,
+    #[serde(default)]
+    pub session_title_pins: BTreeMap<String, String>,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_terminal_font_family")]
@@ -85,6 +90,7 @@ impl Default for AppSettings {
             omp_executable: None,
             session_root: None,
             recent_workspaces: Vec::new(),
+            session_title_pins: BTreeMap::new(),
             language: default_language(),
             provider_env: HashMap::new(),
             provider_env_keys: Vec::new(),
@@ -103,6 +109,7 @@ impl fmt::Debug for AppSettings {
             .field("omp_executable", &self.omp_executable)
             .field("session_root", &self.session_root)
             .field("recent_workspaces", &self.recent_workspaces)
+            .field("session_title_pin_count", &self.session_title_pins.len())
             .field("language", &self.language)
             .field("provider_env_keys", &self.provider_env_keys)
             .field("terminal_font_family", &self.terminal_font_family)
@@ -183,6 +190,7 @@ pub struct RuntimeInfo {
 pub struct SessionSummary {
     pub id: String,
     pub title: String,
+    pub pinned_title: Option<String>,
     pub cwd: String,
     pub file_path: String,
     pub created_at: String,
@@ -366,6 +374,21 @@ mod tests {
         let serialized = serde_json::to_string(&settings).expect("settings should serialize");
         assert!(!serialized.contains("legacy-secret"));
         assert!(!serialized.contains("providerEnv\""));
+    }
+
+    #[test]
+    fn session_title_pins_survive_settings_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.session_title_pins.insert(
+            "c:/sessions/session.jsonl".to_owned(),
+            "Fixed project name".to_owned(),
+        );
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let restored: AppSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+
+        assert_eq!(restored.session_title_pins, settings.session_title_pins);
     }
 
     #[test]

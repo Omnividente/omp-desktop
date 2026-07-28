@@ -1,6 +1,6 @@
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
-    sessions::{parse_session, path_key, rename_session as rename_session_file},
+    sessions::{apply_session_title_pin, parse_session, path_key},
     settings::{resolve_omp, SettingsState},
     update,
 };
@@ -110,26 +110,6 @@ fn lock_session_files(state: &TerminalState) -> std::sync::MutexGuard<'_, ()> {
         .session_files
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-pub fn rename_inactive_session(
-    state: &TerminalState,
-    path: &str,
-    title: &str,
-) -> Result<(), String> {
-    let _session_file_guard = lock_session_files(state);
-    let target = path_key(path);
-    let active = lock_processes(state).values().any(|process| {
-        !process.exited
-            && process
-                .resume_path
-                .as_deref()
-                .is_some_and(|resume_path| path_key(resume_path) == target)
-    });
-    if active {
-        return Err("[session_active_rename] Активную сессию нельзя переименовать. Сначала завершите её процесс OMP.".to_owned());
-    }
-    rename_session_file(path, title)
 }
 
 #[derive(Debug, Deserialize)]
@@ -982,11 +962,20 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
             process.breadcrumb_snapshot.clone(),
         )
     };
-    let Some((resume_path, session)) =
+    let Some((resume_path, mut session)) =
         discover_session(terminal_id, &context.0, &context.1, &context.2)
     else {
         return false;
     };
+
+    {
+        let settings = app.state::<SettingsState>();
+        let settings = settings
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        apply_session_title_pin(&mut session, &settings.session_title_pins);
+    }
 
     {
         let mut processes = lock_processes(&state);
@@ -1417,7 +1406,7 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
         }
         "custom" => match value.get("customType").and_then(Value::as_str) {
             Some("tool_execution_start") => Some("thinking"),
-            Some("tool_execution_end") => Some("idle"),
+            Some("tool_execution_end") => Some("thinking"),
             _ => None,
         },
         _ => None,
@@ -1702,14 +1691,12 @@ fn output_event_name(terminal_id: &str) -> String {
 
 fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
     cache_resume_path(app, terminal_id);
-    let (payload, clear_activity, emit_update) = {
+    let (payload, emit_update) = {
         let state = app.state::<TerminalState>();
         let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return;
         };
-        let clear_activity = process.thinking;
-        process.thinking = false;
 
         let emit_update = if !process.update_notified {
             if detect_update_notice(&mut process.update_buffer, data) {
@@ -1731,15 +1718,12 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
             append_pending(&mut process.pending_output, data);
             None
         };
-        (payload, clear_activity, emit_update)
+        (payload, emit_update)
     };
 
     if let Some(payload) = payload {
         let event_name = output_event_name(terminal_id);
         let _ = app.emit(&event_name, payload);
-    }
-    if clear_activity {
-        emit_activity_event(app, terminal_id, "idle");
     }
     if emit_update {
         let _ = app.emit(
@@ -1981,6 +1965,7 @@ mod tests {
             br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"done"}],"stopReason":"stop"}}"#,
             br#"{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","name":"next"}],"stopReason":"toolUse"}}"#,
             br#"{"type":"custom","customType":"tool_execution_end"}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}}"#,
             br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"quota exhausted"}}"#,
             br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"old error","retryRecovery":{"status":"recovered"}}}"#,
         ];
@@ -1993,7 +1978,10 @@ mod tests {
 
         assert_eq!(
             activities,
-            ["thinking", "thinking", "thinking", "idle", "thinking", "idle", "error", "thinking"]
+            [
+                "thinking", "thinking", "thinking", "idle", "thinking", "thinking", "idle",
+                "error", "thinking",
+            ]
         );
     }
 

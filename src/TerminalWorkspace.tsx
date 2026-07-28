@@ -1,7 +1,7 @@
-import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
-import { SessionControls } from "./SessionControls";
-import { TerminalView } from "./TerminalView";
+import { Icon } from "./Icon"
+import { t, type Lang } from "./i18n"
+import { SessionControls } from "./SessionControls"
+import { TerminalView } from "./TerminalView"
 import type {
   OmpConfigSnapshot,
   PtyExitEvent,
@@ -9,31 +9,32 @@ import type {
   SessionSummary,
   TerminalTab,
   WorkspaceSummary,
-} from "./types";
-import { WorkspaceHome } from "./WorkspaceHome";
+} from "./types"
+import { WorkspaceHome } from "./WorkspaceHome"
 
 interface TerminalWorkspaceProps {
-  activeTabId: string | null;
-  language: Lang;
-  terminalFontFamily: string;
-  terminalFontSize: number;
-  launching: string | null;
-  ompConfig: OmpConfigSnapshot | null;
-  runtime: RuntimeInfo;
-  selectedSession: SessionSummary | null;
-  selectedWorkspace: WorkspaceSummary | null;
-  tabs: TerminalTab[];
-  workspaceSessions: SessionSummary[];
-  onReorderTabs?: (draggedId: string, targetId: string) => void;
-  onCloseTab: (terminalId: string) => void;
-  onError: (message: string) => void;
-  onExit: (event: PtyExitEvent) => void;
-  onFocusTab: (terminalId: string) => void;
-  onLaunch: (session?: SessionSummary) => void;
-  onOpenFolder: () => void;
-  onReady: (terminalId: string) => void;
-  onReveal: (path: string) => void;
-  onSwitch: (terminalId: string, model: string, thinking: string | null) => void;
+  activeTabId: string | null
+  language: Lang
+  terminalFontFamily: string
+  terminalFontSize: number
+  launching: string | null
+  ompConfig: OmpConfigSnapshot | null
+  runtime: RuntimeInfo
+  selectedSession: SessionSummary | null
+  selectedWorkspace: WorkspaceSummary | null
+  tabs: TerminalTab[]
+  workspaceSessions: SessionSummary[]
+  onReorderTabs?: (draggedId: string, targetId: string) => void
+  onCloseTab: (terminalId: string) => void
+  onError: (message: string) => void
+  onExit: (event: PtyExitEvent) => void
+  onFocusTab: (terminalId: string) => void
+  onLaunch: (session?: SessionSummary) => void
+  onOpenFolder: () => void
+  onReady: (terminalId: string) => void
+  onReveal: (path: string) => void
+  onSwitch: (terminalId: string, model: string, thinking: string | null) => void
+  onToggleTitlePin: (tab: TerminalTab) => void
 }
 
 export function TerminalWorkspace({
@@ -58,6 +59,7 @@ export function TerminalWorkspace({
   onReorderTabs,
   onReveal,
   onSwitch,
+  onToggleTitlePin,
 }: TerminalWorkspaceProps) {
   if (tabs.length === 0) {
     return (
@@ -74,10 +76,10 @@ export function TerminalWorkspace({
           workspace={selectedWorkspace}
         />
       </main>
-    );
+    )
   }
 
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
   return (
     <main className="main-stage">
       <div className="terminal-workspace">
@@ -90,13 +92,13 @@ export function TerminalWorkspace({
                 key={tab.id}
                 onDragOver={(event) => event.preventDefault()}
                 onDragStart={(event) => {
-                  event.dataTransfer.setData("text/plain", tab.id);
+                  event.dataTransfer.setData("text/plain", tab.id)
                 }}
                 onDrop={(event) => {
-                  event.preventDefault();
-                  const draggedId = event.dataTransfer.getData("text/plain");
+                  event.preventDefault()
+                  const draggedId = event.dataTransfer.getData("text/plain")
                   if (draggedId && draggedId !== tab.id) {
-                    onReorderTabs?.(draggedId, tab.id);
+                    onReorderTabs?.(draggedId, tab.id)
                   }
                 }}
               >
@@ -127,11 +129,25 @@ export function TerminalWorkspace({
                     </span>
                   )}
                 </button>
+                {tab.sessionPath && (
+                  <button
+                    aria-pressed={tab.pinnedTitle !== null}
+                    className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
+                    disabled={tab.switching}
+                    onClick={() => onToggleTitlePin(tab)}
+                    title={t(language, tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
+                    type="button"
+                  >
+                    <Icon name="pin" size={12} />
+                  </button>
+                )}
                 <button
                   className="tab-close"
                   disabled={tab.switching}
                   onClick={() => onCloseTab(tab.id)}
-                  title={tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")}
+                  title={
+                    tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")
+                  }
                   type="button"
                 >
                   <Icon name="close" size={13} />
@@ -178,5 +194,5 @@ export function TerminalWorkspace({
         </div>
       </div>
     </main>
-  );
+  )
 }

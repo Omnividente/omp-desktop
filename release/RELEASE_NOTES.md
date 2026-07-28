@@ -1,3 +1,43 @@
+# OMP Desktop 0.1.14
+
+## Русский
+
+Релиз с фиксированными названиями сессий и постоянной индикацией работы агента.
+
+### Что изменилось
+
+- **Фиксированные названия сессий**: текущее имя можно закрепить кнопкой pin в списке сессий или на вкладке; автоматические заголовки OMP больше не перезаписывают закреплённое имя.
+- **Редактирование активной сессии**: пользовательское название можно менять без остановки запущенного терминала; значение сохраняется в настройках OMP Desktop и применяется после перезапуска.
+- **Явная индикация работы**: во вкладке и списке сессий показываются пульсирующий индикатор и текст «Думает» на всём протяжении размышления и выполнения инструментов.
+- **Стабильная компоновка**: кнопки действий не переносятся за границы строки, а поле редактирования использует доступную ширину.
+- Версия обновлена до 0.1.14.
+
+Рекомендуется `OMP.Desktop_0.1.14_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.14_amd64.AppImage` (Linux).
+
+## English
+
+A release with fixed session titles and persistent agent activity indicators.
+
+### Changes
+
+- **Fixed session titles**: the current name can be pinned from the session list or terminal tab; automatic OMP titles no longer overwrite the pinned name.
+- **Live-session editing**: a user-defined title can be changed without stopping the running terminal; it is persisted in OMP Desktop settings and restored after restart.
+- **Explicit activity state**: tabs and session rows show a pulsing indicator and “Thinking” throughout reasoning and tool execution.
+- **Stable row layout**: action buttons no longer wrap outside the session row, and the title editor uses the available width.
+- Version bumped to 0.1.14.
+
+Recommended: `OMP.Desktop_0.1.14_x64-setup.exe` (Windows), `OMP.Desktop_0.1.14_amd64.AppImage` (Linux).
+
+## SHA-256 (0.1.14)
+
+```text
+eb4a8e9c4be9f31d85852bc5d108321721b601939836ef62fbb8e7f9afa6bbc3  windows/OMP.Desktop_0.1.14_x64-setup.exe
+c94c5c70462ce2cb44db1fff6d0cc53f6dec9fa5e4c841cf1794775f9a89b566  windows/OMP.Desktop_0.1.14_x64_en-US.msi
+1e14e6b054f15817f93e2fbb9858f18dd53db39a3942a3ad9d2ccdeb905c0e0f  linux/OMP.Desktop_0.1.14_amd64.AppImage
+65049b3774729677f96ef6552d1bf51880f671470c335ca5f255deda92a0e7e3  linux/OMP.Desktop_0.1.14_amd64.deb
+1890d7b0ab47bd18178854f1814b117ba5c3de162ffd314fb67f75097694c7c2  linux/OMP.Desktop-0.1.14-1.x86_64.rpm
+```
+
 # OMP Desktop 0.1.13
 
 ## Русский
