@@ -226,3 +226,38 @@ Verdict: **clarified, not a production bug**.
 3. Проверить leading-edge state machines Rust и frontend на потерю batching либо лишние timers.
 4. Проверить достаточность unit-тестов, ALT real-PTY smoke и Windows `conpty_smoke`, включая корректность эмуляции cursor-position handshake.
 5. Не повторять H-4–H-10 без нового доказательства, что один из них блокирует текущий RC.
+
+## Раунд 3 — bounded finalize после ответов Kimi и Fabo
+
+Источники: `REVIEW-KIMI-R2.md` и раздел «Позиция Fabo — раунд 2» в `REVIEW-FABO.md`.
+
+### Решение Main
+
+| Находка                                                                  | Проверка                                                                                                                 | Решение                                                                                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **Б-1 Kimi / Р2-1 Fabo:** grandchild удерживает PTY после завершения OMP | Подтверждено regression-тестом: при queued exit и живом output sender прежний pipeline не эмитил exit в отведённое время | **Fixed:** после exit действует bounded drain 5 s; timeout всегда видим пользователю и прекращает приём позднего output |
+| **М-1 Kimi / Н2-1 Fabo:** строгий `read_exact(4)` в Windows smoke        | Реальный product path не затронут; риск относится только к переносимости теста между версиями ConPTY                     | Не блокирует RC; смягчение handshake-test вынесено отдельно, чтобы не смешивать с lifecycle fix                         |
+| **М-2:** нет отдельного fake-time теста H-2                              | Leading edge уже проверяется прямым `try_recv` contract и полным Rust suite                                              | Не блокирует RC                                                                                                         |
+| **М-3:** формулировка о xterm.js                                         | Product ordering обеспечивается собственным frontend batcher и `flush()`, а не внутренней эвристикой xterm.js            | Не блокирует RC; утверждение не используется как доказательство correctness                                             |
+
+### Реализация Б-1
+
+- Waiter после `child.wait()` по-прежнему закрывает writer/master до финализации, затем отправляет `PtyExitEvent` и отдельный zero-byte wake-up в bounded output queue. Wake-up исключает polling активных terminals и будит idle output-thread немедленно.
+- Получив exit, единственный output-thread продолжает drain до disconnect, но не дольше `PTY_EXIT_FINALIZE_TIMEOUT = 5 s`.
+- Нормальный EOF сохраняет строгий порядок: весь принятый output → `pty-exit`.
+- При timeout pipeline прекращает чтение output channel, поэтому reader отключается и поздний output после exit невозможен.
+- Аварийный exit получает `success = false` и явную ошибку `Вывод PTY обрезан: процесс-потомок удерживает консоль после завершения OMP`; та же ошибка отправляется как `pty-runtime` и отображается в exit-строке.
+- `finalize_terminal_exit` стал идемпотентным, поэтому fallback при исчезнувшем output-thread не может повторно эмитить exit.
+
+### Regression
+
+- До фикса `output_pipeline_bounds_exit_when_output_stays_connected` воспроизводил Б-1: `recv_timeout` завершался `Timeout`, пока sender оставался жив.
+- После фикса тот же тест получает ошибочный exit в bounded-время, проверяет `output_truncated`, точный error и невозможность отправить late output после финализации.
+- `output_pipeline_emits_exit_after_queued_output` остаётся зелёным и подтверждает отсутствие truncation на нормальном EOF.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: **69 passed** в 4 suites.
+- `npm test`: **23 passed**; `npm run build`, Prettier, `cargo fmt --check` и `git diff --check`: **passed**.
+- ALT real-PTY grandchild smoke: parent напечатал `grandchild-tail` и завершился, detached grandchild с игнорированием `SIGHUP` удерживал slave ещё 30 s; примерно через 5 s вкладка перешла в exited и показала красную строку `OMP завершён: Вывод PTY обрезан: процесс-потомок удерживает консоль после завершения OMP`, вместо бесконечного `exit_pending`.
+
+### Scope финального re-review
+
+Проверить только diff после `8759b69`: bounded state machine, wake-up contract, timeout error и два `output_pipeline_*` теста. H-2, H-3, T-1 и H-4–H-10 повторно не открывать без нового воспроизводимого блокера.

@@ -24,6 +24,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
+const PTY_EXIT_FINALIZE_TIMEOUT: Duration = Duration::from_secs(5);
+const PTY_EXIT_TRUNCATION_ERROR: &str =
+    "Вывод PTY обрезан: процесс-потомок удерживает консоль после завершения OMP";
 const PTY_OUTPUT_BATCH_LIMIT: usize = 64 * 1024;
 const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -184,6 +187,13 @@ struct PtyExitEvent {
     exit_code: Option<u32>,
     success: bool,
     error: Option<String>,
+    #[serde(skip)]
+    output_truncated: bool,
+}
+
+struct PtyExitSignal {
+    event_sender: mpsc::SyncSender<PtyExitEvent>,
+    output_waker: mpsc::SyncSender<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1670,26 +1680,88 @@ fn receive_timed_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec
     batch
 }
 
-fn drain_output_batches<Forward>(receiver: &mpsc::Receiver<Vec<u8>>, mut forward: Forward)
+enum OutputDrainResult {
+    OutputDisconnected,
+    Exit(PtyExitEvent),
+    ExitDisconnected,
+}
+
+fn try_output_exit(receiver: &mpsc::Receiver<PtyExitEvent>) -> Option<OutputDrainResult> {
+    match receiver.try_recv() {
+        Ok(event) => Some(OutputDrainResult::Exit(event)),
+        Err(mpsc::TryRecvError::Empty) => None,
+        Err(mpsc::TryRecvError::Disconnected) => Some(OutputDrainResult::ExitDisconnected),
+    }
+}
+
+fn drain_output_batches<Forward>(
+    output_receiver: &mpsc::Receiver<Vec<u8>>,
+    exit_receiver: &mpsc::Receiver<PtyExitEvent>,
+    mut forward: Forward,
+) -> OutputDrainResult
 where
     Forward: FnMut(&[u8]),
 {
     'idle: loop {
-        let first = match receiver.recv() {
+        let first = match output_receiver.recv() {
             Ok(first) => first,
-            Err(_) => return,
+            Err(_) => return OutputDrainResult::OutputDisconnected,
         };
-        let batch = receive_ready_output_batch(receiver, first);
-        forward(&batch);
+        let batch = receive_ready_output_batch(output_receiver, first);
+        if !batch.is_empty() {
+            forward(&batch);
+        }
+        if let Some(result) = try_output_exit(exit_receiver) {
+            return result;
+        }
 
         loop {
-            let first = match receiver.recv_timeout(PTY_OUTPUT_BATCH_INTERVAL) {
+            let first = match output_receiver.recv_timeout(PTY_OUTPUT_BATCH_INTERVAL) {
                 Ok(first) => first,
-                Err(mpsc::RecvTimeoutError::Timeout) => continue 'idle,
-                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let Some(result) = try_output_exit(exit_receiver) {
+                        return result;
+                    }
+                    continue 'idle;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return OutputDrainResult::OutputDisconnected;
+                }
             };
-            let batch = receive_timed_output_batch(receiver, first);
-            forward(&batch);
+            let batch = receive_timed_output_batch(output_receiver, first);
+            if !batch.is_empty() {
+                forward(&batch);
+            }
+            if let Some(result) = try_output_exit(exit_receiver) {
+                return result;
+            }
+        }
+    }
+}
+
+fn drain_output_after_exit<Forward>(
+    receiver: &mpsc::Receiver<Vec<u8>>,
+    timeout: Duration,
+    mut forward: Forward,
+) -> bool
+where
+    Forward: FnMut(&[u8]),
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(first) => {
+                let batch = receive_ready_output_batch(receiver, first);
+                if !batch.is_empty() {
+                    forward(&batch);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => return false,
+            Err(mpsc::RecvTimeoutError::Disconnected) => return true,
         }
     }
 }
@@ -1697,25 +1769,51 @@ where
 fn run_output_pipeline<Output, Exit>(
     output_receiver: mpsc::Receiver<Vec<u8>>,
     exit_receiver: mpsc::Receiver<PtyExitEvent>,
+    exit_finalize_timeout: Duration,
     mut output: Output,
     mut exit: Exit,
 ) where
     Output: FnMut(&[u8]),
     Exit: FnMut(PtyExitEvent),
 {
-    drain_output_batches(&output_receiver, |batch| output(batch));
-    if let Ok(event) = exit_receiver.recv() {
-        exit(event);
-    }
+    let event = match drain_output_batches(&output_receiver, &exit_receiver, |batch| output(batch))
+    {
+        OutputDrainResult::OutputDisconnected => match exit_receiver.recv() {
+            Ok(event) => event,
+            Err(_) => return,
+        },
+        OutputDrainResult::Exit(mut event) => {
+            if !drain_output_after_exit(&output_receiver, exit_finalize_timeout, |batch| {
+                output(batch)
+            }) {
+                event.success = false;
+                event.output_truncated = true;
+                event.error = Some(match event.error.take() {
+                    Some(error) => format!("{error}; {PTY_EXIT_TRUNCATION_ERROR}"),
+                    None => PTY_EXIT_TRUNCATION_ERROR.to_owned(),
+                });
+            }
+            event
+        }
+        OutputDrainResult::ExitDisconnected => return,
+    };
+    exit(event);
 }
 
 fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEvent) {
+    let runtime_error = event
+        .output_truncated
+        .then(|| event.error.clone())
+        .flatten();
     let should_emit = {
         let state = app.state::<TerminalState>();
         let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return;
         };
+        if process.exited {
+            return;
+        }
         process.exit_pending = false;
         process.exited = true;
         process.exit_code = event.exit_code;
@@ -1726,6 +1824,9 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
 
     emit_activity(app, terminal_id, "idle");
     if should_emit {
+        if let Some(error) = runtime_error {
+            emit_runtime_error(app, terminal_id, error);
+        }
         let _ = app.emit("pty-exit", event);
     }
 }
@@ -1739,6 +1840,7 @@ fn forward_output_batches(
     run_output_pipeline(
         output_receiver,
         exit_receiver,
+        PTY_EXIT_FINALIZE_TIMEOUT,
         |batch| route_output(&app, &terminal_id, batch),
         |event| finalize_terminal_exit(&app, &terminal_id, event),
     );
@@ -1748,8 +1850,9 @@ fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
     mut reader: Box<dyn Read + Send>,
-) -> Result<mpsc::SyncSender<PtyExitEvent>, String> {
+) -> Result<PtyExitSignal, String> {
     let (output_sender, output_receiver) = mpsc::sync_channel(PTY_OUTPUT_QUEUE_CAPACITY);
+    let output_waker = output_sender.clone();
     let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
     let output_app = app.clone();
     let output_terminal_id = terminal_id.clone();
@@ -1791,13 +1894,16 @@ fn spawn_reader(
         })
         .map_err(|error| format!("Не удалось запустить поток чтения PTY: {error}"))?;
 
-    Ok(exit_sender)
+    Ok(PtyExitSignal {
+        event_sender: exit_sender,
+        output_waker,
+    })
 }
 
 fn spawn_waiter<F>(
     app: AppHandle,
     terminal_id: String,
-    exit_sender: mpsc::SyncSender<PtyExitEvent>,
+    exit_signal: PtyExitSignal,
     wait: F,
 ) -> Result<(), String>
 where
@@ -1814,12 +1920,14 @@ where
                     exit_code: Some(status.exit_code()),
                     success: status.success(),
                     error: status.signal().map(|signal| format!("Сигнал: {signal}")),
+                    output_truncated: false,
                 },
                 Err(error) => PtyExitEvent {
                     terminal_id: terminal_id.clone(),
                     exit_code: None,
                     success: false,
                     error: Some(error.to_string()),
+                    output_truncated: false,
                 },
             };
 
@@ -1846,8 +1954,13 @@ where
             drop(master);
             drop(killer);
 
-            if let Err(error) = exit_sender.send(event) {
+            let fallback_event = event.clone();
+            if let Err(error) = exit_signal.event_sender.send(event) {
                 finalize_terminal_exit(&app, &terminal_id, error.0);
+                return;
+            }
+            if exit_signal.output_waker.send(Vec::new()).is_err() {
+                finalize_terminal_exit(&app, &terminal_id, fallback_event);
             }
         })
         .map(|_| ())
@@ -1985,7 +2098,7 @@ mod tests {
         receive_timed_output_batch, run_output_pipeline, runtime_event_from_line, thinking_cycle,
         validate_switch_request, PtyExitEvent, RuntimeWatchCursor, SwitchRequest,
         MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_OUTPUT_BATCH_LIMIT,
+        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -1993,7 +2106,8 @@ mod tests {
         ffi::OsStr,
         fs,
         sync::mpsc,
-        time::{SystemTime, UNIX_EPOCH},
+        thread,
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     fn switch_request() -> SwitchRequest {
@@ -2056,6 +2170,7 @@ mod tests {
                 exit_code: Some(0),
                 success: true,
                 error: None,
+                output_truncated: false,
             })
             .expect("queued exit");
         output_sender.send(b"first".to_vec()).expect("first output");
@@ -2069,6 +2184,7 @@ mod tests {
         run_output_pipeline(
             output_receiver,
             exit_receiver,
+            Duration::from_millis(50),
             |batch| {
                 events
                     .borrow_mut()
@@ -2081,6 +2197,44 @@ mod tests {
             events.into_inner(),
             vec!["output:first-second", "exit:true"]
         );
+    }
+
+    #[test]
+    fn output_pipeline_bounds_exit_when_output_stays_connected() {
+        let (output_sender, output_receiver) = mpsc::sync_channel(4);
+        let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
+        let (event_sender, event_receiver) = mpsc::channel();
+        exit_sender
+            .send(PtyExitEvent {
+                terminal_id: "terminal-1".to_owned(),
+                exit_code: Some(0),
+                success: true,
+                error: None,
+                output_truncated: false,
+            })
+            .expect("queued exit");
+        output_sender.send(Vec::new()).expect("exit wake-up");
+
+        let pipeline = thread::spawn(move || {
+            run_output_pipeline(
+                output_receiver,
+                exit_receiver,
+                Duration::from_millis(20),
+                |_| {},
+                move |event| event_sender.send(event).expect("forwarded exit"),
+            )
+        });
+
+        let event = event_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("exit must be bounded when PTY output remains connected");
+        pipeline.join().expect("output pipeline");
+
+        assert!(!event.success);
+        assert!(event.output_truncated);
+        assert_eq!(event.error.as_deref(), Some(PTY_EXIT_TRUNCATION_ERROR));
+        assert!(output_sender.send(b"late".to_vec()).is_err());
+        drop(exit_sender);
     }
 
     #[test]
