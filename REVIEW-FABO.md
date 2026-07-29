@@ -114,3 +114,30 @@
 **APPROVE RC** — при зафиксированном в `REVIEW.md` решении по Р2-1.
 
 — Fabo, раунд 2
+
+---
+
+# Позиция Fabo — раунд 3, финальный verdict (review/performance-rc.1 @ 36f46fe)
+
+Дата: 2026-07-29. Объект: только diff `8759b69...36f46fe` — коммит `36f46fe` «fix(pty): bound exit finalize when descendants hold console» (`terminal.rs` +174/−20, `REVIEW.md` раунд 3). По scope: bounded state machine, wake-up contract, timeout error, два `output_pipeline_*` теста. H-2/H-3/T-1/H-4–H-10 не переоткрываю.
+
+## Проверено
+
+1. **Bounded state machine — корректна.** `drain_output_batches` возвращает `OutputDrainResult` и проверяет `try_output_exit` после каждого форварднутого батча и на каждом idle-timeout: при burst exit детектируется максимум через один батч (~5 мс / 64 KiB), при idle — немедленно через wake-up. Нормальный EOF (`OutputDisconnected` → блокирующий `exit_receiver.recv()`) сохраняет строгий порядок «весь output → exit» без truncation. Leading-edge батчинг H-2 не затронут.
+2. **Wake-up contract — чист.** Waiter шлёт exit event, затем zero-byte wake-up в ту же bounded очередь: будит idle `recv()` без polling; пустые батчи не форвардятся (`!batch.is_empty()`), в т.ч. если wake-up приходит уже в after-exit drain. При полной очереди waiter блокируется до потребления — deadlock нет, pipeline её разбирает. Ошибка send exit → fallback-finalize + `return`; ошибка wake-up → fallback с клоном события. Оба безопасны, т.к. `finalize_terminal_exit` теперь идемпотентен (`if process.exited { return }`) — двойной `pty-exit` исключён. Close-до-exit даёт `ExitDisconnected` → тихий выход без emit — как в раунде 2.
+3. **Timeout error — соответствует решению Main раунда 1** («bounded watchdog только как аварийный путь с явной ошибкой, без молчаливой перестановки»): после `PTY_EXIT_FINALIZE_TIMEOUT = 5 s` pipeline перестаёт читать канал → receiver дропается → reader отключается — поздний output после exit конструктивно невозможен; exit получает `success = false`, явный текст truncation-ошибки и дубль в `pty-runtime`. Payload `pty-exit` не изменён (`#[serde(skip)]` на `output_truncated`) — инвариант 6 цел, фронт правомерно не тронут.
+4. **Тесты защищают контракт.** `output_pipeline_bounds_exit_when_output_stays_connected` честно воспроизводит Б-1/Р2-1 (живой sender + queued exit) и проверяет bounded-время, `output_truncated`, точный error и невозможность late output (`send` падает после финализации). `output_pipeline_emits_exit_after_queued_output` остался зелёным — нормальный EOF без truncation. ALT grandchild smoke (detach + игнор SIGHUP, exit-строка через ~5 s) покрывает реальный сценарий из моей фикстуры Р2-1. 69 cargo + 23 npm — зелёные.
+
+## Закрытие моих находок
+
+- **Р2-1 — CLOSED.** Реализован предпочтительный вариант 1 (аварийный bounded finalize с явной ошибкой), решение зафиксировано в `REVIEW.md` раунд 3.
+- **Н2-1 — принято решение Main** (отложено отдельным изменением, не блокирует RC) — согласен.
+- **Замечание (не находка):** в течение ≤ 5 s окна вывод grandchild отображается до truncation-строки — by design (drain хвоста), порядок не нарушается.
+
+## Итог
+
+Новых воспроизводимых блокеров нет. Обязательных изменений нет.
+
+**FINAL VERDICT: APPROVE RC.**
+
+— Fabo, раунд 3
