@@ -40,6 +40,16 @@ Recommended: `OMP.Desktop_0.1.15_x64-setup.exe` (Windows), `OMP.Desktop_0.1.15_a
 
 The GitHub Release includes `SHA256SUMS-windows.txt`, `SHA256SUMS-linux.txt`, signed updater bundles, and `release-assets-manifest.json` with per-asset SHA-256 values.
 
+## SHA-256 (0.1.15)
+
+```text
+bd0336ee214c3126122a691799e3f12aa8a877ca7bafa9df5ab26dc5b246d5e2  windows/OMP.Desktop_0.1.15_x64-setup.exe
+e0c501d3f4875aa6a18bc89586b1ce14e4ed5a9187fdeb48ce3019174ef61191  windows/OMP.Desktop_0.1.15_x64_en-US.msi
+101a173b4f6b24d7cf5b66378062e43d41a736c3e48e6984cbcf9843a4bdf91a  linux/OMP.Desktop_0.1.15_amd64.AppImage
+3a5a290ab3b4be4a2f0e392f9cc50f0d77fec1e23ec31ab13e86ff268742ecc4  linux/OMP.Desktop_0.1.15_amd64.deb
+57d4e2d61eb5879cc01487f8942d3c0a83108d27dd939b6639f5188ac3bd2c84  linux/OMP.Desktop-0.1.15-1.x86_64.rpm
+```
+
 # OMP Desktop 0.1.14
 
 ## Русский
