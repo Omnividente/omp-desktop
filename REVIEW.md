@@ -210,19 +210,19 @@ Verdict: **clarified, not a production bug**.
 
 ### Проверки раунда 2
 
-- `cargo test --manifest-path src-tauri/Cargo.toml`: **67 passed**.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: **68 passed** в 4 suites.
 - `npm test`: **23 passed**.
 - `npm run build`: **passed**.
 - ESLint, Prettier, `cargo fmt --check`, TypeScript LSP diagnostics: **passed**.
 - Новый Rust regression: даже если exit уже queued, `run_output_pipeline` выдаёт весь output раньше exit.
 - Новые Vitest contracts: leading chunk пишется сразу; trailing chunks coalesce; byte-limit и dispose сохраняются.
 - ALT real PTY smoke: fake OMP вывел 500 000 строк и немедленно завершился; в xterm последовательно видны `exit-order-499999`, затем строка `Процесс OMP завершён · код 0`; output после exit-строки отсутствует, child завершён.
-- Windows binary и Rust tests собираются и проходят на Windows. Изолированный Windows ConPTY E2E остаётся обязательным пунктом второго ревью; неудачная попытка с разделяемым app profile не засчитана как доказательство.
+- Новый Windows-only `conpty_smoke`: реальный `cmd.exe` печатает 1 000 строк и marker, тест эмулирует обязательный cursor-position handshake `ESC[6n` → `ESC[1;1R`, ждёт child, закрывает writer/master и подтверждает reader EOF, полный count и marker после последней строки; **passed за 0.15 s**.
 
 ### Scope второго ревью Kimi и Fabo
 
 1. Проверить lifecycle `exit_pending` и закрытие PTY handles на Unix/ConPTY.
 2. Проверить, что output-thread ownership действительно исключает поздний output после exit во всех attach/close races.
 3. Проверить leading-edge state machines Rust и frontend на потерю batching либо лишние timers.
-4. Оценить достаточность новых unit-тестов и ALT smoke; отдельно предложить минимальный изолированный Windows ConPTY smoke.
+4. Проверить достаточность unit-тестов, ALT real-PTY smoke и Windows `conpty_smoke`, включая корректность эмуляции cursor-position handshake.
 5. Не повторять H-4–H-10 без нового доказательства, что один из них блокирует текущий RC.
