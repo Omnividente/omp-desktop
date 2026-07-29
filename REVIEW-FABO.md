@@ -60,3 +60,57 @@
 - **MERGE READY: да, после Т-1 и явного решения по Н-1** (для RC достаточно варианта 2 — замер на Windows + зафиксированное решение в журнале ревью).
 
 — Fabo, раунд 1
+
+---
+
+# Позиция Fabo — раунд 2 (review/performance-rc.1 @ 22ca667)
+
+Дата: 2026-07-29. Объект: diff `647aee4...22ca667` (fix-коммит `3cbf59b` «fix(perf): order PTY exit and preserve leading-edge latency», +339/−94; test-коммит `22ca667` «test(pty): cover Windows ConPTY drain ordering», добавляет `src-tauri/tests/conpty_smoke.rs`). Прочитаны: `REVIEW.md` (раздел «Раунд 2 — implementation verdicts»), полные патчи обоих коммитов, `terminal.rs` и `TerminalView.tsx` @ HEAD целиком. H-4–H-10 не переоткрываю — нового блокирующего доказательства нет.
+
+## Confirmed fixes
+
+- **Н-1/H-1 (exit ordering) — FIXED.** Ownership-протокол корректен: `pty-output` и `pty-exit` эмитит один и тот же поток `pty-output-*` (`run_output_pipeline`): дренаж очереди вывода до disconnect канала, затем `exit_receiver.recv()` → `finalize_terminal_exit`. Эвристика 250 мс (`PTY_OUTPUT_DRAIN_TIMEOUT`) удалена полностью — порядок гарантирован по построению, а не по таймауту. Это и есть вариант 1 из моего раунда 1.
+- **H-2 (Rust leading-edge) — FIXED.** `drain_output_batches`: idle-состояние — блокирующий `recv()`; первый chunk после простоя уходит немедленно через `receive_ready_output_batch` (только `try_recv`, 0 мс); burst коалесцируется внутренним циклом `recv_timeout(5 ms)` (`receive_timed_output_batch`). Постоянной 5 мс задержки на одиночных chunk'ах больше нет.
+- **H-3 (frontend leading/trailing) — FIXED.** `enqueue`: при `timer === null && pending.length === 0` — немедленный `write` (leading) + `scheduleWindow` (trailing window); byte-limit путь: `clearTimer` → `writePending` → `scheduleWindow`. Изолированный ввод пишется с 0 мс, burst коалесцируется окнами 16 мс.
+- **Т-1 — закрыт.** Assertions переведены на `callbacks.size`; расхождение по `toHaveLength` признаю: targeted suite фактически проходил, замена сделана для ясности.
+- **Бонус:** handles (master/writer/killer) освобождаются при exit, а не при закрытии вкладки — раньше и чище, чем в baseline.
+
+## Ответы на вопросы 1–6
+
+1. **Ownership output → exit вместо timeout — правильный выбор.** Порядок обеспечивается конструктивно единственным эмиттером; таймаут был бы эвристикой с теми же рисками, что в раунде 1.
+2. **exit_pending: race-анализ чист.** `attach` vs `finalize` сериализованы мьютексом `processes` — exit не теряется ни в каком порядке. Close до exit: `Drop` убивает child; waiter при `get_mut == None` выходит ДО `send`; drop `exit_sender` → `recv` в pipeline ошибается → поток завершается: ни зависания, ни лишнего emit. Close при `exit_pending`: `Drop` не убивает повторно. `shutdown_all` эквивалентен. Handles дропаются вне мьютекса (`ClosePseudoConsole` безопасен). Утечек `TerminalProcess` не найдено: exited-записи живут в map до close — это baseline-поведение, не регрессия.
+3. **Закрытие writer/master после `child.wait` — достаточно** для Unix PTY (reader получает EOF/EIO от смерти child; slave дропнут при spawn) и ConPTY (EOF требует drop master — доказано `conpty_smoke`). Оговорка — Р2-1 ниже.
+4. **Оба батчера корректны:** FIFO, byte-limit, flush, dispose проверены по коду; хвост не теряется при `Disconnected` (накопленный батч отправляется до выхода). Постоянных 5/16 мс задержек на изолированном вводе нет (см. H-2/H-3). См. И2-1.
+5. **Тесты защищают реальный контракт:** `output_pipeline_emits_exit_after_queued_output` — инвариант «exit после очереди»; тройка Vitest — leading/trailing/byte-limit/dispose; `conpty_smoke` — EOF после drop master + порядок 1000 строк и маркера. Оговорка — Н2-1.
+6. **Более простая реализация — нет.** Одноканальный enum Data/Exit ломает сигнал «disconnect = EOF», шаринг sender'а и блокирует exit за полной очередью. Текущая схема (два канала + exit_pending) — минимальная корректная.
+
+## Unresolved blockers
+
+Нет.
+
+## Новые находки / regressions
+
+### Р2-1. [Medium, гипотеза] `terminal.rs` — ожидание exit теперь неограниченно по времени
+
+- **Доказательство:** `run_output_pipeline` дренирует вывод до disconnect, т.е. до EOF у reader'а. На Unix, если после смерти OMP остаётся осиротевший внук, держащий slave pty открытым (например, `sh -c 'sleep 30 >/dev/tty & exit 0'`), EOF не приходит — `pty-exit` не эмитится неограниченно долго: вкладка выглядит живой, но ввод отвергается (`exit_pending`). Escape hatch — закрыть вкладку, поэтому не blocker.
+- **Но:** решение Main в раунде 1 гласило «bounded watchdog допустим только как аварийный путь с явной ошибкой», а реализация убрала watchdog полностью — без зафиксированного решения в журнале.
+- **Варианты:** 1) аварийный watchdog 30–60 с после `exit_pending` с явной ошибкой в exit-строке (предпочтительно); 2) проверить, что OMP не оставляет держателей tty, и явно задокументировать отказ от watchdog.
+- **Проверка:** Unix-фикстура `sh -c 'sleep 30 >/dev/tty & exit 0'` — замерить время до exit-строки.
+
+### Н2-1. [Low] `src-tauri/tests/conpty_smoke.rs` — хрупкий handshake-assert
+
+- Тест делает `read_exact(4)` и строго требует, чтобы ПЕРВЫЕ байты были ровно `\x1b[6n`. Другие сборки Windows/ConPTY могут эмитить иные init-последовательности первыми → ложный красный CI. Fix: сканировать начальный вывод на подстроку `\x1b[6n`. Проверка: прогон на другой версии Windows.
+
+### И2-1. [Info] Частота IPC при sustained burst
+
+- Leading+trailing даёт до ~2 `write` на 16 мс цикл во фронте (было 1). Ограничено и приемлемо; учитывать при A/B-сравнениях CPU.
+
+## Минимальные обязательные изменения
+
+Блокирующих нет. Рекомендовано до merge: зафиксировать решение Main по Р2-1 (любой из двух вариантов); смягчить assert в `conpty_smoke` (Н2-1).
+
+## Финальный verdict
+
+**APPROVE RC** — при зафиксированном в `REVIEW.md` решении по Р2-1.
+
+— Fabo, раунд 2
