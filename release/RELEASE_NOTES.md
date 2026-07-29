@@ -1,3 +1,45 @@
+# OMP Desktop 0.1.15
+
+## Русский
+
+Релиз производительности и надёжности встроенного терминала OMP Desktop.
+
+### Что изменилось
+
+- **Меньше нагрузки при большом выводе**: PTY-данные передаются ограниченными батчами с backpressure вместо отдельного события на каждый небольшой фрагмент.
+- **Быстрый интерактивный отклик**: первый фрагмент после простоя отображается сразу, а последующий burst объединяется без постоянной задержки 5/16 мс.
+- **Строгий порядок завершения**: финальная строка процесса появляется только после уже принятого вывода; поздний вывод больше не может оказаться после неё.
+- **Защита от зависшего PTY**: если процесс-потомок удерживает консоль после завершения OMP, через 5 секунд терминал завершается с явной ошибкой обрезанного вывода вместо бесконечного ожидания.
+- **Спокойная отрисовка Linux**: отключены постоянное мигание курсора и плавная прокрутка, а индикаторы активности не запускают непрерывную анимацию.
+- **Новые regression-проверки**: добавлены тесты batching, output-before-exit и Windows ConPTY; сценарий зависшего потомка проверен на ALT Linux.
+- Версия обновлена до 0.1.15.
+
+Пользователи OMP Desktop 0.1.14 могут установить обновление встроенным updater.
+
+Рекомендуется `OMP.Desktop_0.1.15_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.15_amd64.AppImage` (Linux).
+
+## English
+
+A performance and reliability release for the built-in OMP Desktop terminal.
+
+### Changes
+
+- **Lower overhead during heavy output**: PTY data now travels in bounded batches with backpressure instead of one event per small fragment.
+- **Responsive interactive output**: the first chunk after idle is rendered immediately while subsequent bursts are coalesced without a permanent 5/16 ms delay.
+- **Strict exit ordering**: the process completion line is emitted only after already accepted output; late output can no longer appear after it.
+- **Stuck-PTY protection**: if a descendant keeps the console open after OMP exits, the terminal finalizes after 5 seconds with an explicit truncated-output error instead of waiting forever.
+- **Calmer Linux rendering**: continuous cursor blinking and smooth scrolling are disabled, and activity indicators no longer run a permanent animation.
+- **New regression coverage**: batching, output-before-exit, and Windows ConPTY tests were added; the descendant-held PTY scenario was exercised on ALT Linux.
+- Version bumped to 0.1.15.
+
+OMP Desktop 0.1.14 users can install this release through the built-in updater.
+
+Recommended: `OMP.Desktop_0.1.15_x64-setup.exe` (Windows), `OMP.Desktop_0.1.15_amd64.AppImage` (Linux).
+
+## Download verification
+
+The GitHub Release includes `SHA256SUMS-windows.txt`, `SHA256SUMS-linux.txt`, signed updater bundles, and `release-assets-manifest.json` with per-asset SHA-256 values.
+
 # OMP Desktop 0.1.14
 
 ## Русский
