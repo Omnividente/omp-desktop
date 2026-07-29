@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        mpsc, Mutex,
     },
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
@@ -23,6 +23,10 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
+const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
+const PTY_OUTPUT_BATCH_LIMIT: usize = 64 * 1024;
+const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
+const PTY_OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 // Deliberate 4 Hz polling: watchers exist only while the PTY is alive, and polling avoids
 // platform-specific rename/replacement gaps for OMP's append-only runtime files.
@@ -830,11 +834,19 @@ fn spawn_terminal_process(
         switch_input_overflow_notified: false,
     };
     lock_processes(terminals).insert(terminal_id.clone(), process);
-    if let Err(error) = spawn_reader(app.clone(), terminal_id.clone(), reader) {
-        drop(lock_processes(terminals).remove(&terminal_id));
-        return Err(error);
-    }
-    if let Err(error) = spawn_waiter(app.clone(), terminal_id.clone(), move || child.wait()) {
+    let output_drained = match spawn_reader(app.clone(), terminal_id.clone(), reader) {
+        Ok(output_drained) => output_drained,
+        Err(error) => {
+            drop(lock_processes(terminals).remove(&terminal_id));
+            return Err(error);
+        }
+    };
+    if let Err(error) = spawn_waiter(
+        app.clone(),
+        terminal_id.clone(),
+        output_drained,
+        move || child.wait(),
+    ) {
         drop(lock_processes(terminals).remove(&terminal_id));
         return Err(error);
     }
@@ -1613,11 +1625,58 @@ fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Res
         .map_err(|error| format!("Не удалось отправить ввод в OMP: {error}"))
 }
 
+fn receive_output_batch(receiver: &mpsc::Receiver<Vec<u8>>) -> Option<Vec<u8>> {
+    let mut batch = receiver.recv().ok()?;
+    let deadline = Instant::now() + PTY_OUTPUT_BATCH_INTERVAL;
+
+    while batch.len() < PTY_OUTPUT_BATCH_LIMIT {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(chunk) => batch.extend_from_slice(&chunk),
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    Some(batch)
+}
+
+fn forward_output_batches(
+    app: AppHandle,
+    terminal_id: String,
+    receiver: mpsc::Receiver<Vec<u8>>,
+    drained: mpsc::SyncSender<()>,
+) {
+    while let Some(batch) = receive_output_batch(&receiver) {
+        route_output(&app, &terminal_id, &batch);
+    }
+    let _ = drained.send(());
+}
+
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
     mut reader: Box<dyn Read + Send>,
-) -> Result<(), String> {
+) -> Result<mpsc::Receiver<()>, String> {
+    let (output_sender, output_receiver) = mpsc::sync_channel(PTY_OUTPUT_QUEUE_CAPACITY);
+    let (drained_sender, drained_receiver) = mpsc::sync_channel(1);
+    let output_app = app.clone();
+    let output_terminal_id = terminal_id.clone();
+
+    thread::Builder::new()
+        .name(format!("pty-output-{terminal_id}"))
+        .spawn(move || {
+            forward_output_batches(
+                output_app,
+                output_terminal_id,
+                output_receiver,
+                drained_sender,
+            )
+        })
+        .map_err(|error| format!("Не удалось запустить поток группировки PTY: {error}"))?;
+
     thread::Builder::new()
         .name(format!("pty-reader-{terminal_id}"))
         .spawn(move || {
@@ -1625,7 +1684,11 @@ fn spawn_reader(
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
-                    Ok(read) => route_output(&app, &terminal_id, &buffer[..read]),
+                    Ok(read) => {
+                        if output_sender.send(buffer[..read].to_vec()).is_err() {
+                            break;
+                        }
+                    }
                     Err(error) => {
                         emit_runtime_error(
                             &app,
@@ -1637,18 +1700,26 @@ fn spawn_reader(
                 }
             }
         })
-        .map(|_| ())
-        .map_err(|error| format!("Не удалось запустить поток чтения PTY: {error}"))
+        .map_err(|error| format!("Не удалось запустить поток чтения PTY: {error}"))?;
+
+    Ok(drained_receiver)
 }
 
-fn spawn_waiter<F>(app: AppHandle, terminal_id: String, wait: F) -> Result<(), String>
+fn spawn_waiter<F>(
+    app: AppHandle,
+    terminal_id: String,
+    output_drained: mpsc::Receiver<()>,
+    wait: F,
+) -> Result<(), String>
 where
     F: FnOnce() -> std::io::Result<portable_pty::ExitStatus> + Send + 'static,
 {
     thread::Builder::new()
         .name(format!("pty-waiter-{terminal_id}"))
         .spawn(move || {
-            let event = match wait() {
+            let status = wait();
+            let _ = output_drained.recv_timeout(PTY_OUTPUT_DRAIN_TIMEOUT);
+            let event = match status {
                 Ok(status) => PtyExitEvent {
                     terminal_id: terminal_id.clone(),
                     exit_code: Some(status.exit_code()),
@@ -1812,14 +1883,16 @@ mod tests {
     use super::{
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
-        poll_runtime_file, read_latest_activity, runtime_event_from_line, thinking_cycle,
-        validate_switch_request, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
-        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        poll_runtime_file, read_latest_activity, receive_output_batch, runtime_event_from_line,
+        thinking_cycle, validate_switch_request, RuntimeWatchCursor, SwitchRequest,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         collections::HashMap,
         ffi::OsStr,
         fs,
+        sync::mpsc,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1842,6 +1915,38 @@ mod tests {
             b"\x1bpprovider/model\r"
         );
         assert_eq!(OMP_THINKING_CYCLE_ESC, b"\x1b[Z");
+    }
+
+    #[test]
+    fn output_batch_preserves_chunk_order() {
+        let (sender, receiver) = mpsc::sync_channel(4);
+        sender.send(b"first".to_vec()).expect("first chunk");
+        sender.send(b"-second".to_vec()).expect("second chunk");
+        sender.send(b"-third".to_vec()).expect("third chunk");
+        drop(sender);
+
+        assert_eq!(
+            receive_output_batch(&receiver).as_deref(),
+            Some(b"first-second-third".as_slice())
+        );
+        assert!(receive_output_batch(&receiver).is_none());
+    }
+
+    #[test]
+    fn output_batch_flushes_at_size_limit() {
+        let (sender, receiver) = mpsc::sync_channel(8);
+        let chunk_size = PTY_OUTPUT_BATCH_LIMIT / 8;
+        for byte in 0_u8..8 {
+            sender
+                .send(vec![byte; chunk_size])
+                .expect("queued output chunk");
+        }
+
+        let batch = receive_output_batch(&receiver).expect("batched output");
+        assert_eq!(batch.len(), PTY_OUTPUT_BATCH_LIMIT);
+        assert_eq!(batch[0], 0);
+        assert_eq!(batch[chunk_size], 1);
+        assert_eq!(batch[PTY_OUTPUT_BATCH_LIMIT - 1], 7);
     }
 
     #[test]

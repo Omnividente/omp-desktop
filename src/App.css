@@ -790,7 +790,6 @@ button:disabled {
 .session-live-marker.is-thinking .session-live-dot {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
-  animation: pulse 1.15s ease-in-out infinite;
 }
 
 .session-live-marker b {
@@ -2543,7 +2542,6 @@ button:disabled {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
-  animation: pulse 1.15s ease-in-out infinite;
 }
 
 .status-dot {
@@ -2565,7 +2563,6 @@ button:disabled {
 .status-dot.is-thinking {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(185, 242, 124, 0.1);
-  animation: pulse 1.15s ease-in-out infinite;
 }
 
 .status-dot.is-error {
@@ -3143,7 +3140,6 @@ button:disabled {
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
 }
 
 ::-webkit-scrollbar {
@@ -3188,18 +3184,6 @@ button:disabled {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.08);
   }
 }
 

@@ -20,8 +20,11 @@ import {
   type MouseSelectionEdit,
   type TerminalCell,
 } from "./terminalInput"
+import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
 import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
 import type { Lang } from "./i18n"
+
+const IS_LINUX_RUNTIME = typeof navigator !== "undefined" && /\bLinux\b/i.test(navigator.userAgent)
 
 interface TerminalViewProps {
   tab: TerminalTab
@@ -88,7 +91,7 @@ export function TerminalView({
     }
 
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: !IS_LINUX_RUNTIME,
       cursorStyle: "bar",
       cursorWidth: 2,
       fontFamily: terminalFontFamilyRef.current,
@@ -98,7 +101,7 @@ export function TerminalView({
       letterSpacing: 0,
       lineHeight: 1.18,
       scrollback: 12_000,
-      smoothScrollDuration: 90,
+      smoothScrollDuration: IS_LINUX_RUNTIME ? 0 : 90,
       theme: {
         background: "#101312",
         foreground: "#d9dedb",
@@ -223,6 +226,32 @@ export function TerminalView({
     let lastCols = 0
     let lastRows = 0
     const unlisteners: UnlistenFn[] = []
+    const outputBatcher = createTerminalOutputBatcher((output) => terminal.write(output), {
+      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      cancel: (handle) => window.clearTimeout(handle),
+    })
+    let deferredOutput: Uint8Array[] = []
+    let outputReady = false
+    let exitHandled = false
+    let deferredExit: PtyExitEvent | null = null
+
+    const queueOutput = (output: Uint8Array) => {
+      if (outputReady) {
+        outputBatcher.enqueue(output)
+      } else {
+        deferredOutput.push(output)
+      }
+    }
+
+    const handleExit = (event: PtyExitEvent) => {
+      if (exitHandled) {
+        return
+      }
+      exitHandled = true
+      outputBatcher.flush()
+      terminal.write(exitLine(event))
+      onExitRef.current(event)
+    }
 
     const fit = () => {
       if (disposed || !activeRef.current || container.clientWidth === 0) {
@@ -255,7 +284,7 @@ export function TerminalView({
     const connect = async () => {
       const stopOutput = await listen<PtyOutputEvent>(`pty-output:${tab.id}`, ({ payload }) => {
         if (!disposed && payload.data) {
-          terminal.write(decodeBase64(payload.data))
+          queueOutput(decodeBase64(payload.data))
         }
       })
       if (disposed) {
@@ -266,8 +295,11 @@ export function TerminalView({
 
       const stopExit = await listen<PtyExitEvent>("pty-exit", ({ payload }) => {
         if (!disposed && payload.terminalId === tab.id) {
-          terminal.write(exitLine(payload))
-          onExitRef.current(payload)
+          if (outputReady) {
+            handleExit(payload)
+          } else {
+            deferredExit = payload
+          }
         }
       })
       if (disposed) {
@@ -283,17 +315,22 @@ export function TerminalView({
       if (attachment.data) {
         terminal.write(decodeBase64(attachment.data))
       }
+      outputReady = true
+      for (const output of deferredOutput) {
+        outputBatcher.enqueue(output)
+      }
+      deferredOutput = []
+      outputBatcher.flush()
       if (attachment.exited) {
-        const event: PtyExitEvent = {
+        handleExit({
           terminalId: tab.id,
           exitCode: attachment.exitCode,
           success: attachment.success,
           error: attachment.error,
-        }
-        terminal.write(exitLine(event))
-        onExitRef.current(event)
-      }
-      if (!attachment.exited) {
+        })
+      } else if (deferredExit) {
+        handleExit(deferredExit)
+      } else {
         onReadyRef.current(tab.id)
       }
       window.requestAnimationFrame(() => {
@@ -312,6 +349,8 @@ export function TerminalView({
 
     return () => {
       disposed = true
+      outputBatcher.dispose()
+      deferredOutput = []
       resizeObserver.disconnect()
       container.removeEventListener("mousedown", handleMouseDown)
       container.removeEventListener("mouseup", handleMouseUp)
