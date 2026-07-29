@@ -26,7 +26,6 @@ const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
 const PTY_OUTPUT_BATCH_LIMIT: usize = 64 * 1024;
 const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
-const PTY_OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 // Deliberate 4 Hz polling: watchers exist only while the PTY is alive, and polling avoids
 // platform-specific rename/replacement gaps for OMP's append-only runtime files.
@@ -64,15 +63,16 @@ pub struct TerminalState {
 }
 
 struct TerminalProcess {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    killer: Box<dyn ChildKiller + Send + Sync>,
+    master: Option<Box<dyn MasterPty + Send>>,
+    writer: Option<Box<dyn Write + Send>>,
+    killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     cwd: String,
     resume_path: Option<String>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
     pending_output: Vec<u8>,
     attached: bool,
+    exit_pending: bool,
     exited: bool,
     exit_code: Option<u32>,
     exit_success: bool,
@@ -87,8 +87,10 @@ struct TerminalProcess {
 }
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
-        if !self.exited {
-            let _ = self.killer.kill();
+        if !self.exited && !self.exit_pending {
+            if let Some(killer) = self.killer.as_mut() {
+                let _ = killer.kill();
+            }
         }
     }
 }
@@ -300,7 +302,7 @@ fn switch_terminal_blocking(
         if process.switch_pending {
             return Err("Смена модели уже выполняется".to_owned());
         }
-        if process.exited {
+        if process.exited || process.exit_pending {
             return Err("Процесс OMP уже завершён".to_owned());
         }
         (
@@ -332,7 +334,7 @@ fn switch_terminal_blocking(
         if process.switch_pending {
             return Err("Смена модели уже выполняется".to_owned());
         }
-        if process.exited {
+        if process.exited || process.exit_pending {
             return Err("Процесс OMP уже завершён".to_owned());
         }
         let should_spawn = process.resume_path.is_none();
@@ -370,10 +372,13 @@ fn finish_switch_input(terminal_id: &str, terminals: &TerminalState) -> Result<(
     if buffered.is_empty() {
         return Ok(());
     }
-    process
+    let writer = process
         .writer
+        .as_mut()
+        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+    writer
         .write_all(&buffered)
-        .and_then(|()| process.writer.flush())
+        .and_then(|()| writer.flush())
         .map_err(|error| format!("Не удалось восстановить ввод после смены модели: {error}"))
 }
 
@@ -671,13 +676,16 @@ fn write_switch_input(
     let process = processes
         .get_mut(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    if process.exited {
+    if process.exited || process.exit_pending {
         return Err("Процесс OMP уже завершён".to_owned());
     }
-    process
+    let writer = process
         .writer
+        .as_mut()
+        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+    writer
         .write_all(data)
-        .and_then(|()| process.writer.flush())
+        .and_then(|()| writer.flush())
         .map_err(|error| format!("Не удалось отправить команду смены модели в OMP: {error}"))
 }
 
@@ -686,7 +694,7 @@ fn ensure_terminal_alive(terminal_id: &str, terminals: &TerminalState) -> Result
     let process = processes
         .get(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    if process.exited {
+    if process.exited || process.exit_pending {
         Err("Процесс OMP завершился во время смены модели".to_owned())
     } else {
         Ok(())
@@ -812,15 +820,16 @@ fn spawn_terminal_process(
     let runtime_session_path = resume_path.clone();
 
     let process = TerminalProcess {
-        master: pair.master,
-        writer,
-        killer,
+        master: Some(pair.master),
+        writer: Some(writer),
+        killer: Some(killer),
         cwd: cwd.clone(),
         resume_path,
         terminal_sessions_dir,
         breadcrumb_snapshot,
         pending_output: Vec::new(),
         attached: false,
+        exit_pending: false,
         exited: false,
         exit_code: None,
         exit_success: false,
@@ -834,19 +843,16 @@ fn spawn_terminal_process(
         switch_input_overflow_notified: false,
     };
     lock_processes(terminals).insert(terminal_id.clone(), process);
-    let output_drained = match spawn_reader(app.clone(), terminal_id.clone(), reader) {
-        Ok(output_drained) => output_drained,
+    let output_exit = match spawn_reader(app.clone(), terminal_id.clone(), reader) {
+        Ok(output_exit) => output_exit,
         Err(error) => {
             drop(lock_processes(terminals).remove(&terminal_id));
             return Err(error);
         }
     };
-    if let Err(error) = spawn_waiter(
-        app.clone(),
-        terminal_id.clone(),
-        output_drained,
-        move || child.wait(),
-    ) {
+    if let Err(error) = spawn_waiter(app.clone(), terminal_id.clone(), output_exit, move || {
+        child.wait()
+    }) {
         drop(lock_processes(terminals).remove(&terminal_id));
         return Err(error);
     }
@@ -965,7 +971,11 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
         let Some(process) = processes.get(terminal_id) else {
             return true;
         };
-        if !process.restartable || process.resume_path.is_some() || process.exited {
+        if !process.restartable
+            || process.resume_path.is_some()
+            || process.exited
+            || process.exit_pending
+        {
             return true;
         }
         (
@@ -994,7 +1004,11 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
         let Some(process) = processes.get_mut(terminal_id) else {
             return true;
         };
-        if !process.restartable || process.resume_path.is_some() || process.exited {
+        if !process.restartable
+            || process.resume_path.is_some()
+            || process.exited
+            || process.exit_pending
+        {
             return true;
         }
         process.resume_path = Some(resume_path.clone());
@@ -1276,7 +1290,7 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     if process.resume_path.as_deref() != Some(session_path.as_str()) {
                         return;
                     }
-                    !process.exited
+                    !process.exited && !process.exit_pending
                 };
                 if !active {
                     emit_activity(&app, &terminal_id, "idle");
@@ -1565,8 +1579,11 @@ pub fn resize_terminal(
     let process = processes
         .get(&terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    process
+    let master = process
         .master
+        .as_ref()
+        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+    master
         .resize(PtySize {
             rows: rows.clamp(5, 300),
             cols: cols.clamp(20, 500),
@@ -1608,7 +1625,7 @@ fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Res
     let process = processes
         .get_mut(terminal_id)
         .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    if process.exited {
+    if process.exited || process.exit_pending {
         return Err("Процесс OMP уже завершён".to_owned());
     }
     if process.switch_pending {
@@ -1618,17 +1635,28 @@ fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Res
             data,
         );
     }
-    process
+    let writer = process
         .writer
+        .as_mut()
+        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+    writer
         .write_all(data)
-        .and_then(|()| process.writer.flush())
+        .and_then(|()| writer.flush())
         .map_err(|error| format!("Не удалось отправить ввод в OMP: {error}"))
 }
 
-fn receive_output_batch(receiver: &mpsc::Receiver<Vec<u8>>) -> Option<Vec<u8>> {
-    let mut batch = receiver.recv().ok()?;
-    let deadline = Instant::now() + PTY_OUTPUT_BATCH_INTERVAL;
+fn receive_ready_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec<u8>) -> Vec<u8> {
+    while batch.len() < PTY_OUTPUT_BATCH_LIMIT {
+        match receiver.try_recv() {
+            Ok(chunk) => batch.extend_from_slice(&chunk),
+            Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => break,
+        }
+    }
+    batch
+}
 
+fn receive_timed_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec<u8>) -> Vec<u8> {
+    let deadline = Instant::now() + PTY_OUTPUT_BATCH_INTERVAL;
     while batch.len() < PTY_OUTPUT_BATCH_LIMIT {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -1639,29 +1667,90 @@ fn receive_output_batch(receiver: &mpsc::Receiver<Vec<u8>>) -> Option<Vec<u8>> {
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+    batch
+}
 
-    Some(batch)
+fn drain_output_batches<Forward>(receiver: &mpsc::Receiver<Vec<u8>>, mut forward: Forward)
+where
+    Forward: FnMut(&[u8]),
+{
+    'idle: loop {
+        let first = match receiver.recv() {
+            Ok(first) => first,
+            Err(_) => return,
+        };
+        let batch = receive_ready_output_batch(receiver, first);
+        forward(&batch);
+
+        loop {
+            let first = match receiver.recv_timeout(PTY_OUTPUT_BATCH_INTERVAL) {
+                Ok(first) => first,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue 'idle,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
+            let batch = receive_timed_output_batch(receiver, first);
+            forward(&batch);
+        }
+    }
+}
+
+fn run_output_pipeline<Output, Exit>(
+    output_receiver: mpsc::Receiver<Vec<u8>>,
+    exit_receiver: mpsc::Receiver<PtyExitEvent>,
+    mut output: Output,
+    mut exit: Exit,
+) where
+    Output: FnMut(&[u8]),
+    Exit: FnMut(PtyExitEvent),
+{
+    drain_output_batches(&output_receiver, |batch| output(batch));
+    if let Ok(event) = exit_receiver.recv() {
+        exit(event);
+    }
+}
+
+fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEvent) {
+    let should_emit = {
+        let state = app.state::<TerminalState>();
+        let mut processes = lock_processes(&state);
+        let Some(process) = processes.get_mut(terminal_id) else {
+            return;
+        };
+        process.exit_pending = false;
+        process.exited = true;
+        process.exit_code = event.exit_code;
+        process.exit_success = event.success;
+        process.exit_error = event.error.clone();
+        process.attached
+    };
+
+    emit_activity(app, terminal_id, "idle");
+    if should_emit {
+        let _ = app.emit("pty-exit", event);
+    }
 }
 
 fn forward_output_batches(
     app: AppHandle,
     terminal_id: String,
-    receiver: mpsc::Receiver<Vec<u8>>,
-    drained: mpsc::SyncSender<()>,
+    output_receiver: mpsc::Receiver<Vec<u8>>,
+    exit_receiver: mpsc::Receiver<PtyExitEvent>,
 ) {
-    while let Some(batch) = receive_output_batch(&receiver) {
-        route_output(&app, &terminal_id, &batch);
-    }
-    let _ = drained.send(());
+    run_output_pipeline(
+        output_receiver,
+        exit_receiver,
+        |batch| route_output(&app, &terminal_id, batch),
+        |event| finalize_terminal_exit(&app, &terminal_id, event),
+    );
 }
 
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
     mut reader: Box<dyn Read + Send>,
-) -> Result<mpsc::Receiver<()>, String> {
+) -> Result<mpsc::SyncSender<PtyExitEvent>, String> {
     let (output_sender, output_receiver) = mpsc::sync_channel(PTY_OUTPUT_QUEUE_CAPACITY);
-    let (drained_sender, drained_receiver) = mpsc::sync_channel(1);
+    let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
     let output_app = app.clone();
     let output_terminal_id = terminal_id.clone();
 
@@ -1672,7 +1761,7 @@ fn spawn_reader(
                 output_app,
                 output_terminal_id,
                 output_receiver,
-                drained_sender,
+                exit_receiver,
             )
         })
         .map_err(|error| format!("Не удалось запустить поток группировки PTY: {error}"))?;
@@ -1702,13 +1791,13 @@ fn spawn_reader(
         })
         .map_err(|error| format!("Не удалось запустить поток чтения PTY: {error}"))?;
 
-    Ok(drained_receiver)
+    Ok(exit_sender)
 }
 
 fn spawn_waiter<F>(
     app: AppHandle,
     terminal_id: String,
-    output_drained: mpsc::Receiver<()>,
+    exit_sender: mpsc::SyncSender<PtyExitEvent>,
     wait: F,
 ) -> Result<(), String>
 where
@@ -1718,7 +1807,7 @@ where
         .name(format!("pty-waiter-{terminal_id}"))
         .spawn(move || {
             let status = wait();
-            let _ = output_drained.recv_timeout(PTY_OUTPUT_DRAIN_TIMEOUT);
+            let wait_failed = status.is_err();
             let event = match status {
                 Ok(status) => PtyExitEvent {
                     terminal_id: terminal_id.clone(),
@@ -1734,22 +1823,31 @@ where
                 },
             };
 
-            let should_emit = {
+            let (master, writer, mut killer) = {
                 let state = app.state::<TerminalState>();
                 let mut processes = lock_processes(&state);
                 let Some(process) = processes.get_mut(&terminal_id) else {
                     return;
                 };
-                process.exited = true;
-                process.exit_code = event.exit_code;
-                process.exit_success = event.success;
-                process.exit_error = event.error.clone();
-                process.attached
+                process.exit_pending = true;
+                (
+                    process.master.take(),
+                    process.writer.take(),
+                    process.killer.take(),
+                )
             };
 
-            emit_activity(&app, &terminal_id, "idle");
-            if should_emit {
-                let _ = app.emit("pty-exit", event);
+            if wait_failed {
+                if let Some(killer) = killer.as_mut() {
+                    let _ = killer.kill();
+                }
+            }
+            drop(writer);
+            drop(master);
+            drop(killer);
+
+            if let Err(error) = exit_sender.send(event) {
+                finalize_terminal_exit(&app, &terminal_id, error.0);
             }
         })
         .map(|_| ())
@@ -1883,12 +1981,14 @@ mod tests {
     use super::{
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
-        poll_runtime_file, read_latest_activity, receive_output_batch, runtime_event_from_line,
-        thinking_cycle, validate_switch_request, RuntimeWatchCursor, SwitchRequest,
+        poll_runtime_file, read_latest_activity, receive_ready_output_batch,
+        receive_timed_output_batch, run_output_pipeline, runtime_event_from_line, thinking_cycle,
+        validate_switch_request, PtyExitEvent, RuntimeWatchCursor, SwitchRequest,
         MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
         PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
+        cell::RefCell,
         collections::HashMap,
         ffi::OsStr,
         fs,
@@ -1918,35 +2018,69 @@ mod tests {
     }
 
     #[test]
-    fn output_batch_preserves_chunk_order() {
+    fn output_leading_batch_preserves_ready_chunk_order() {
         let (sender, receiver) = mpsc::sync_channel(4);
-        sender.send(b"first".to_vec()).expect("first chunk");
         sender.send(b"-second".to_vec()).expect("second chunk");
         sender.send(b"-third".to_vec()).expect("third chunk");
-        drop(sender);
 
         assert_eq!(
-            receive_output_batch(&receiver).as_deref(),
-            Some(b"first-second-third".as_slice())
+            receive_ready_output_batch(&receiver, b"first".to_vec()),
+            b"first-second-third"
         );
-        assert!(receive_output_batch(&receiver).is_none());
     }
 
     #[test]
-    fn output_batch_flushes_at_size_limit() {
+    fn output_timed_batch_flushes_at_size_limit() {
         let (sender, receiver) = mpsc::sync_channel(8);
         let chunk_size = PTY_OUTPUT_BATCH_LIMIT / 8;
-        for byte in 0_u8..8 {
+        for byte in 1_u8..8 {
             sender
                 .send(vec![byte; chunk_size])
                 .expect("queued output chunk");
         }
 
-        let batch = receive_output_batch(&receiver).expect("batched output");
+        let batch = receive_timed_output_batch(&receiver, vec![0; chunk_size]);
         assert_eq!(batch.len(), PTY_OUTPUT_BATCH_LIMIT);
         assert_eq!(batch[0], 0);
         assert_eq!(batch[chunk_size], 1);
         assert_eq!(batch[PTY_OUTPUT_BATCH_LIMIT - 1], 7);
+    }
+
+    #[test]
+    fn output_pipeline_emits_exit_after_queued_output() {
+        let (output_sender, output_receiver) = mpsc::sync_channel(4);
+        let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
+        exit_sender
+            .send(PtyExitEvent {
+                terminal_id: "terminal-1".to_owned(),
+                exit_code: Some(0),
+                success: true,
+                error: None,
+            })
+            .expect("queued exit");
+        output_sender.send(b"first".to_vec()).expect("first output");
+        output_sender
+            .send(b"-second".to_vec())
+            .expect("second output");
+        drop(output_sender);
+        drop(exit_sender);
+
+        let events = RefCell::new(Vec::new());
+        run_output_pipeline(
+            output_receiver,
+            exit_receiver,
+            |batch| {
+                events
+                    .borrow_mut()
+                    .push(format!("output:{}", String::from_utf8_lossy(batch)))
+            },
+            |event| events.borrow_mut().push(format!("exit:{}", event.success)),
+        );
+
+        assert_eq!(
+            events.into_inner(),
+            vec!["output:first-second", "exit:true"]
+        );
     }
 
     #[test]

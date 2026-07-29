@@ -29,8 +29,7 @@ export function createTerminalOutputBatcher(
     timer = null
   }
 
-  const flush = () => {
-    clearTimer()
+  const writePending = () => {
     if (disposed || length === 0) return
 
     const pending = chunks
@@ -51,16 +50,34 @@ export function createTerminalOutputBatcher(
     write(output)
   }
 
+  const endWindow = () => {
+    timer = null
+    writePending()
+  }
+
+  const scheduleWindow = () => {
+    timer = scheduler.schedule(endWindow, delayMs)
+  }
+
+  const flush = () => {
+    clearTimer()
+    writePending()
+  }
+
   const enqueue = (output: Uint8Array) => {
     if (disposed || output.length === 0) return
+    if (timer === null && length === 0) {
+      write(output)
+      scheduleWindow()
+      return
+    }
+
     chunks.push(output)
     length += output.length
     if (length >= maxBytes) {
-      flush()
-      return
-    }
-    if (timer === null) {
-      timer = scheduler.schedule(flush, delayMs)
+      clearTimer()
+      writePending()
+      scheduleWindow()
     }
   }
 
