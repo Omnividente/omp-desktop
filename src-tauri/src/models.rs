@@ -69,6 +69,8 @@ pub struct AppSettings {
     pub session_title_pins: BTreeMap<String, String>,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_app_font_family")]
+    pub app_font_family: String,
     #[serde(default = "default_terminal_font_family")]
     pub terminal_font_family: String,
     #[serde(default = "default_terminal_font_size")]
@@ -92,6 +94,7 @@ impl Default for AppSettings {
             recent_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
             language: default_language(),
+            app_font_family: default_app_font_family(),
             provider_env: HashMap::new(),
             provider_env_keys: Vec::new(),
             terminal_font_family: default_terminal_font_family(),
@@ -111,6 +114,7 @@ impl fmt::Debug for AppSettings {
             .field("recent_workspaces", &self.recent_workspaces)
             .field("session_title_pin_count", &self.session_title_pins.len())
             .field("language", &self.language)
+            .field("app_font_family", &self.app_font_family)
             .field("provider_env_keys", &self.provider_env_keys)
             .field("terminal_font_family", &self.terminal_font_family)
             .field("terminal_font_size", &self.terminal_font_size)
@@ -125,9 +129,16 @@ fn default_language() -> String {
     "ru".to_owned()
 }
 
+pub const DEFAULT_APP_FONT_FAMILY: &str =
+    "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif";
+
 pub const DEFAULT_TERMINAL_FONT_FAMILY: &str =
     "\"Cascadia Code\", \"Cascadia Mono\", \"JetBrains Mono\", \"Fira Code\", Consolas, monospace";
 pub const DEFAULT_TERMINAL_FONT_SIZE: u16 = 14;
+
+fn default_app_font_family() -> String {
+    DEFAULT_APP_FONT_FAMILY.to_owned()
+}
 
 fn default_terminal_font_family() -> String {
     DEFAULT_TERMINAL_FONT_FAMILY.to_owned()
@@ -165,6 +176,8 @@ pub struct SettingsUpdate {
     pub session_root: SettingsPatch<String>,
     #[serde(default)]
     pub language: SettingsPatch<String>,
+    #[serde(default)]
+    pub app_font_family: SettingsPatch<String>,
     #[serde(default)]
     pub terminal_font_family: SettingsPatch<String>,
     #[serde(default)]
@@ -272,6 +285,8 @@ pub struct OmpConfigSnapshot {
     pub advisor_enabled: bool,
     pub auto_resume: bool,
     pub default_thinking_level: Option<String>,
+    pub model_fallback_enabled: bool,
+    pub fallback_chains: BTreeMap<String, Vec<String>>,
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
@@ -285,6 +300,8 @@ pub struct OmpConfigSaveRequest {
     pub advisor_enabled: Option<bool>,
     pub auto_resume: Option<bool>,
     pub default_thinking_level: Option<String>,
+    pub model_fallback_enabled: Option<bool>,
+    pub fallback_chains: Option<HashMap<String, Vec<String>>>,
     pub provider_env: Option<HashMap<String, String>>,
 }
 
@@ -341,7 +358,7 @@ pub struct SessionTranscript {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, SettingsPatch, SettingsUpdate};
+    use super::{AppSettings, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY};
 
     #[test]
     fn app_settings_never_serialize_provider_secret_values() {
@@ -370,6 +387,7 @@ mod tests {
             settings.provider_env.get("A6API_KEY").map(String::as_str),
             Some("legacy-secret")
         );
+        assert_eq!(settings.app_font_family, DEFAULT_APP_FONT_FAMILY);
 
         let serialized = serde_json::to_string(&settings).expect("settings should serialize");
         assert!(!serialized.contains("legacy-secret"));
@@ -396,11 +414,13 @@ mod tests {
         let missing: SettingsUpdate = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(matches!(missing.omp_executable, SettingsPatch::Missing));
         assert!(matches!(missing.session_root, SettingsPatch::Missing));
+        assert!(matches!(missing.app_font_family, SettingsPatch::Missing));
 
         let patch: SettingsUpdate = serde_json::from_value(serde_json::json!({
             "ompExecutable": null,
             "sessionRoot": "D:/sessions",
-            "language": "en"
+            "language": "en",
+            "appFontFamily": "\"Segoe UI Variable\", sans-serif"
         }))
         .unwrap();
         assert!(matches!(patch.omp_executable, SettingsPatch::Set(None)));
@@ -408,5 +428,8 @@ mod tests {
             matches!(patch.session_root, SettingsPatch::Set(Some(value)) if value == "D:/sessions")
         );
         assert!(matches!(patch.language, SettingsPatch::Set(Some(value)) if value == "en"));
+        assert!(
+            matches!(patch.app_font_family, SettingsPatch::Set(Some(value)) if value == "\"Segoe UI Variable\", sans-serif")
+        );
     }
 }

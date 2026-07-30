@@ -15,8 +15,9 @@ use models::{
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
-    initialize_settings, normalize_optional, normalize_terminal_font_family,
-    normalize_terminal_font_size, save_settings, update_provider_secrets, SettingsState,
+    initialize_settings, normalize_app_font_family, normalize_optional,
+    normalize_terminal_font_family, normalize_terminal_font_size, save_settings,
+    update_provider_secrets, SettingsState,
 };
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
@@ -117,6 +118,10 @@ async fn update_settings(
                     snapshot.language = language;
                 }
             }
+            if let SettingsPatch::Set(value) = update.app_font_family {
+                snapshot.app_font_family = normalize_app_font_family(value);
+            }
+
             if let SettingsPatch::Set(value) = update.terminal_font_family {
                 snapshot.terminal_font_family = normalize_terminal_font_family(value);
             }

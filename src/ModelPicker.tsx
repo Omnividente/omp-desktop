@@ -1,53 +1,55 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-} from "react";
-import { Icon } from "./Icon";
-import { statusLabel, t, type Lang } from "./i18n";
-import type { OmpModelInfo } from "./types";
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
+import { Icon } from "./Icon"
+import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
+import type { OmpModelInfo } from "./types"
 
 interface ModelPickerProps {
-  language: Lang;
-  models: OmpModelInfo[];
-  onChange: (selector: string) => void;
-  onOpenChange: (open: boolean) => void;
-  open: boolean;
-  role: string;
-  value: string;
+  language: Lang
+  models: OmpModelInfo[]
+  onChange: (selector: string) => void
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  role: string
+  value: string
 }
 
-const THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/i;
+const THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/i
 
 export function splitSelector(selector: string): { base: string; thinking: string | null } {
-  const match = selector.match(THINKING_SUFFIX);
+  const match = selector.match(THINKING_SUFFIX)
   if (!match || match.index === undefined) {
-    return { base: selector, thinking: null };
+    return { base: selector, thinking: null }
   }
   return {
     base: selector.slice(0, match.index),
     thinking: match[1].toLowerCase(),
-  };
+  }
+}
+
+export function thinkingLevelsForModel(model: OmpModelInfo | undefined): string[] {
+  return model ? [...new Set(model.thinking)] : []
+}
+
+export function selectorWithThinking(selector: string, thinking: string | null): string {
+  const base = splitSelector(selector).base
+  return thinking ? `${base}:${thinking}` : base
 }
 
 function selectorForModel(model: OmpModelInfo, current: string): string {
-  const { thinking } = splitSelector(current);
+  const { thinking } = splitSelector(current)
   if (thinking && model.thinking.includes(thinking)) {
-    return `${model.selector}:${thinking}`;
+    return `${model.selector}:${thinking}`
   }
-  return model.selector;
+  return model.selector
 }
 
 export function matchesSelector(model: OmpModelInfo, selector: string): boolean {
-  const base = splitSelector(selector).base.toLowerCase();
+  const base = splitSelector(selector).base.toLowerCase()
   return (
     model.selector.toLowerCase() === base ||
     model.id.toLowerCase() === base ||
     `${model.provider}/${model.id}`.toLowerCase() === base
-  );
+  )
 }
 
 export function ModelPicker({
@@ -59,92 +61,92 @@ export function ModelPicker({
   role,
   value,
 }: ModelPickerProps) {
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const listboxRef = useRef<HTMLDivElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const panelId = `model-picker-${role.replace(/[^a-z0-9_-]/gi, "-")}`;
-  const selectedModel = models.find((model) => matchesSelector(model, value));
-  const selectedStatus = selectedModel?.status ?? (value ? "missing" : "unset");
+  const [query, setQuery] = useState("")
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const listboxRef = useRef<HTMLDivElement>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const panelId = `model-picker-${role.replace(/[^a-z0-9_-]/gi, "-")}`
+  const selectedModel = models.find((model) => matchesSelector(model, value))
+  const selectedStatus = selectedModel?.status ?? (value ? "missing" : "unset")
+  const configuredThinking = splitSelector(value).thinking
+  const thinkingLevels = thinkingLevelsForModel(selectedModel)
 
   const filteredModels = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
+    const normalized = query.trim().toLowerCase()
     return [...models]
       .sort((left, right) => {
         if (left.available !== right.available) {
-          return left.available ? -1 : 1;
+          return left.available ? -1 : 1
         }
-        return `${left.provider}/${left.name}`.localeCompare(
-          `${right.provider}/${right.name}`,
-        );
+        return `${left.provider}/${left.name}`.localeCompare(`${right.provider}/${right.name}`)
       })
       .filter((model) => {
-        if (!normalized) return true;
+        if (!normalized) return true
         return [model.name, model.provider, model.id, model.selector]
           .join(" ")
           .toLowerCase()
-          .includes(normalized);
-      });
-  }, [models, query]);
+          .includes(normalized)
+      })
+  }, [models, query])
 
   const setOpen = (next: boolean) => {
     if (!next) {
-      setQuery("");
-      setActiveIndex(-1);
+      setQuery("")
+      setActiveIndex(-1)
     }
-    onOpenChange(next);
-  };
+    onOpenChange(next)
+  }
 
   useEffect(() => {
-    if (!open) return;
-    const selectedIndex = filteredModels.findIndex((model) => matchesSelector(model, value));
-    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredModels.length > 0 ? 0 : -1);
-  }, [filteredModels, open, value]);
+    if (!open) return
+    const selectedIndex = filteredModels.findIndex((model) => matchesSelector(model, value))
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredModels.length > 0 ? 0 : -1)
+  }, [filteredModels, open, value])
 
   useEffect(() => {
     if (open) {
-      window.requestAnimationFrame(() => listboxRef.current?.focus());
+      window.requestAnimationFrame(() => listboxRef.current?.focus())
     }
-  }, [open]);
+  }, [open])
 
   const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (filteredModels.length === 0) return;
-    let nextIndex: number | null = null;
+    if (filteredModels.length === 0) return
+    let nextIndex: number | null = null
     if (event.key === "ArrowDown") {
-      nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % filteredModels.length;
+      nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % filteredModels.length
     } else if (event.key === "ArrowUp") {
-      nextIndex = activeIndex <= 0 ? filteredModels.length - 1 : activeIndex - 1;
+      nextIndex = activeIndex <= 0 ? filteredModels.length - 1 : activeIndex - 1
     } else if (event.key === "Home") {
-      nextIndex = 0;
+      nextIndex = 0
     } else if (event.key === "End") {
-      nextIndex = filteredModels.length - 1;
+      nextIndex = filteredModels.length - 1
     } else if (event.key === "Enter" || event.key === " ") {
       if (activeIndex >= 0) {
-        onChange(selectorForModel(filteredModels[activeIndex], value));
-        setOpen(false);
+        onChange(selectorForModel(filteredModels[activeIndex], value))
+        setOpen(false)
       }
-      event.preventDefault();
-      return;
+      event.preventDefault()
+      return
     }
     if (nextIndex !== null) {
-      event.preventDefault();
-      setActiveIndex(nextIndex);
-      window.requestAnimationFrame(() => optionRefs.current[nextIndex]?.focus());
+      event.preventDefault()
+      setActiveIndex(nextIndex)
+      window.requestAnimationFrame(() => optionRefs.current[nextIndex]?.focus())
     }
-  };
+  }
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
-    const nextTarget = event.relatedTarget;
+    const nextTarget = event.relatedTarget
     if (!nextTarget || !event.currentTarget.contains(nextTarget as Node)) {
-      setOpen(false);
+      setOpen(false)
     }
-  };
+  }
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape" && open) {
-      event.preventDefault();
-      setOpen(false);
+      event.preventDefault()
+      setOpen(false)
     }
-  };
+  }
 
   return (
     <div
@@ -160,15 +162,16 @@ export function ModelPicker({
         onClick={() => setOpen(!open)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" && !open) {
-            event.preventDefault();
-            setOpen(true);
+            event.preventDefault()
+            setOpen(true)
           }
         }}
         type="button"
       >
         <span className="model-picker-copy">
           <strong>
-            {selectedModel?.name ?? (value ? t(language, "customModel") : t(language, "statusUnset"))}
+            {selectedModel?.name ??
+              (value ? t(language, "customModel") : t(language, "statusUnset"))}
           </strong>
           <small>{value || t(language, "statusUnset")}</small>
         </span>
@@ -177,6 +180,29 @@ export function ModelPicker({
         </span>
         <Icon className="model-picker-chevron" name="chevron" size={15} />
       </button>
+
+      {thinkingLevels.length > 0 && (
+        <label className="model-picker-thinking">
+          <span>{t(language, "modelThinkingLevel")}</span>
+          <span className="model-picker-thinking-control">
+            <select
+              aria-label={t(language, "modelThinkingLevel")}
+              onChange={(event) =>
+                onChange(selectorWithThinking(value, event.target.value || null))
+              }
+              value={configuredThinking ?? ""}
+            >
+              <option value="">{t(language, "modelThinkingDefault")}</option>
+              {thinkingLevels.map((level) => (
+                <option key={level} value={level}>
+                  {thinkingLevelLabel(language, level)}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevron" size={12} />
+          </span>
+        </label>
+      )}
 
       {open && (
         <div className="model-picker-panel" id={panelId}>
@@ -192,7 +218,9 @@ export function ModelPicker({
           </label>
 
           <div
-            aria-activedescendant={activeIndex >= 0 ? `${panelId}-option-${activeIndex}` : undefined}
+            aria-activedescendant={
+              activeIndex >= 0 ? `${panelId}-option-${activeIndex}` : undefined
+            }
             aria-label={t(language, "chooseModel")}
             className="model-picker-options"
             onKeyDown={handleListboxKeyDown}
@@ -201,7 +229,7 @@ export function ModelPicker({
             tabIndex={0}
           >
             {filteredModels.map((model, index) => {
-              const selected = matchesSelector(model, value);
+              const selected = matchesSelector(model, value)
               return (
                 <button
                   aria-selected={selected}
@@ -209,12 +237,12 @@ export function ModelPicker({
                   id={`${panelId}-option-${index}`}
                   key={model.selector}
                   onClick={() => {
-                    onChange(selectorForModel(model, value));
-                    setOpen(false);
+                    onChange(selectorForModel(model, value))
+                    setOpen(false)
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
                   ref={(element) => {
-                    optionRefs.current[index] = element;
+                    optionRefs.current[index] = element
                   }}
                   role="option"
                   tabIndex={-1}
@@ -228,7 +256,7 @@ export function ModelPicker({
                     {statusLabel(language, model.status)}
                   </span>
                 </button>
-              );
+              )
             })}
             {filteredModels.length === 0 && (
               <div className="model-picker-empty">{t(language, "noModelsFound")}</div>
@@ -254,5 +282,5 @@ export function ModelPicker({
         </div>
       )}
     </div>
-  );
+  )
 }

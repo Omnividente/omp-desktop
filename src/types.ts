@@ -10,6 +10,7 @@ export interface AppSettings {
   recentWorkspaces: string[]
   sessionTitlePins: Record<string, string>
   language: "ru" | "en"
+  appFontFamily: string
   terminalFontFamily: string
   terminalFontSize: number
   providerEnvKeys: string[]
@@ -76,6 +77,8 @@ export interface BootstrapPayload {
 
 export interface SettingsUpdate {
   ompExecutable?: string | null
+  appFontFamily?: string | null
+
   terminalFontFamily?: string | null
   terminalFontSize?: number | null
   sessionRoot?: string | null
@@ -124,6 +127,8 @@ export interface OmpConfigSnapshot {
   advisorEnabled: boolean
   autoResume: boolean
   defaultThinkingLevel: string | null
+  modelFallbackEnabled: boolean
+  fallbackChains: Record<string, string[]>
   providerEnvKeys: string[]
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
@@ -135,6 +140,8 @@ export interface OmpConfigSaveRequest {
   advisorEnabled?: boolean | null
   autoResume?: boolean | null
   defaultThinkingLevel?: string | null
+  modelFallbackEnabled?: boolean | null
+  fallbackChains?: Record<string, string[]> | null
   providerEnv?: Record<string, string> | null
 }
 

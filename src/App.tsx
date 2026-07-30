@@ -1036,7 +1036,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={{ fontFamily: payload.settings.appFontFamily }}>
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}

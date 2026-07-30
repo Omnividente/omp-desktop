@@ -1,8 +1,8 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_TERMINAL_FONT_FAMILY,
-        DEFAULT_TERMINAL_FONT_SIZE,
+        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_APP_FONT_FAMILY,
+        DEFAULT_TERMINAL_FONT_FAMILY, DEFAULT_TERMINAL_FONT_SIZE,
     },
     omp_command::{run_omp_command, OmpOperation},
     secrets,
@@ -322,7 +322,7 @@ pub fn normalize_optional(value: Option<String>) -> Option<String> {
     })
 }
 
-pub fn normalize_terminal_font_family(value: Option<String>) -> String {
+fn normalize_font_family(value: Option<String>, default: &str) -> String {
     value
         .map(|value| {
             value
@@ -332,7 +332,15 @@ pub fn normalize_terminal_font_family(value: Option<String>) -> String {
                 .collect::<String>()
         })
         .filter(|value| !value.is_empty() && value.len() <= 256)
-        .unwrap_or_else(|| DEFAULT_TERMINAL_FONT_FAMILY.to_owned())
+        .unwrap_or_else(|| default.to_owned())
+}
+
+pub fn normalize_app_font_family(value: Option<String>) -> String {
+    normalize_font_family(value, DEFAULT_APP_FONT_FAMILY)
+}
+
+pub fn normalize_terminal_font_family(value: Option<String>) -> String {
+    normalize_font_family(value, DEFAULT_TERMINAL_FONT_FAMILY)
 }
 
 pub fn normalize_terminal_font_size(value: Option<u16>) -> u16 {

@@ -73,6 +73,8 @@ pub fn load_config_snapshot(
         advisor_enabled: extract_bool(&raw, "advisor.enabled").unwrap_or(false),
         auto_resume: extract_bool(&raw, "autoResume").unwrap_or(false),
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
+        model_fallback_enabled: extract_bool(&raw, "retry.modelFallback").unwrap_or(true),
+        fallback_chains: extract_string_lists(&raw, "retry.fallbackChains"),
         provider_env_keys: PROVIDER_ENV_KEYS
             .iter()
             .map(|key| (*key).to_owned())
@@ -291,6 +293,11 @@ pub fn save_config(
         .default_thinking_level
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
+    let expected_model_fallback = request.model_fallback_enabled;
+    let expected_fallback_chains = request
+        .fallback_chains
+        .map(normalize_fallback_chains)
+        .transpose()?;
     let roles_value = Value::Object(
         expected_roles
             .iter()
@@ -303,6 +310,33 @@ pub fn save_config(
         &roles_value,
         &app_settings.provider_env,
     )?;
+    if let Some(chains) = expected_fallback_chains.as_ref() {
+        let value = Value::Object(
+            chains
+                .iter()
+                .map(|(key, selectors)| {
+                    (
+                        key.clone(),
+                        Value::Array(selectors.iter().cloned().map(Value::String).collect()),
+                    )
+                })
+                .collect(),
+        );
+        set_omp_config(
+            &omp.executable,
+            "retry.fallbackChains",
+            &value,
+            &app_settings.provider_env,
+        )?;
+    }
+    if let Some(enabled) = expected_model_fallback {
+        set_omp_config(
+            &omp.executable,
+            "retry.modelFallback",
+            &Value::Bool(enabled),
+            &app_settings.provider_env,
+        )?;
+    }
 
     if let Some(enabled) = expected_advisor {
         set_omp_config(
@@ -336,6 +370,8 @@ pub fn save_config(
         expected_advisor,
         expected_auto_resume,
         expected_thinking.as_deref(),
+        expected_model_fallback,
+        expected_fallback_chains.as_ref(),
     )?;
     Ok(snapshot)
 }
@@ -346,6 +382,8 @@ fn verify_saved_config(
     expected_advisor: Option<bool>,
     expected_auto_resume: Option<bool>,
     expected_thinking: Option<&str>,
+    expected_model_fallback: Option<bool>,
+    expected_fallback_chains: Option<&BTreeMap<String, Vec<String>>>,
 ) -> Result<(), String> {
     let actual_roles = snapshot
         .roles
@@ -366,6 +404,12 @@ fn verify_saved_config(
         .is_some_and(|expected| snapshot.default_thinking_level.as_deref() != Some(expected))
     {
         return Err("OMP не применил уровень рассуждений".to_owned());
+    }
+    if expected_model_fallback.is_some_and(|expected| snapshot.model_fallback_enabled != expected) {
+        return Err("OMP не применил включение резервных моделей".to_owned());
+    }
+    if expected_fallback_chains.is_some_and(|expected| &snapshot.fallback_chains != expected) {
+        return Err("OMP не применил цепочки резервных моделей".to_owned());
     }
     Ok(())
 }
@@ -781,6 +825,28 @@ fn extract_roles(raw: &Value) -> BTreeMap<String, String> {
     roles
 }
 
+fn extract_string_lists(raw: &Value, key: &str) -> BTreeMap<String, Vec<String>> {
+    raw.pointer(&format!("/{key}/value"))
+        .and_then(Value::as_object)
+        .or_else(|| raw.get(key).and_then(Value::as_object))
+        .map(|map| {
+            map.iter()
+                .filter_map(|(name, value)| {
+                    let selectors = value
+                        .as_array()?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|selector| !selector.is_empty())
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>();
+                    Some((name.clone(), selectors))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn extract_bool(raw: &Value, key: &str) -> Option<bool> {
     raw.pointer(&format!("/{key}/value"))
         .and_then(Value::as_bool)
@@ -794,6 +860,52 @@ fn extract_string(raw: &Value, key: &str) -> Option<String> {
         .or_else(|| raw.get(key).and_then(Value::as_str).map(str::to_owned))
 }
 
+fn normalize_fallback_chains(
+    chains: HashMap<String, Vec<String>>,
+) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let mut normalized = BTreeMap::new();
+    for (key, selectors) in chains {
+        let key = key.trim().to_owned();
+        if key.is_empty() {
+            return Err("Ключ резервной цепочки не может быть пустым".to_owned());
+        }
+        validate_fallback_selector(&key)
+            .map_err(|error| format!("Некорректный ключ резервной цепочки `{key}`: {error}"))?;
+
+        if selectors.is_empty() {
+            return Err(format!("Резервная цепочка `{key}` не содержит моделей"));
+        }
+        let mut normalized_selectors = Vec::with_capacity(selectors.len());
+        for selector in selectors {
+            let selector = selector.trim().to_owned();
+            if selector.is_empty() {
+                return Err(format!("Резервная цепочка `{key}` содержит пустую модель"));
+            }
+            validate_fallback_selector(&selector).map_err(|error| {
+                format!("Некорректная резервная модель `{selector}` для `{key}`: {error}")
+            })?;
+            normalized_selectors.push(selector);
+        }
+        if normalized
+            .insert(key.clone(), normalized_selectors)
+            .is_some()
+        {
+            return Err(format!("Ключ резервной цепочки `{key}` указан повторно"));
+        }
+    }
+    Ok(normalized)
+}
+
+fn validate_fallback_selector(selector: &str) -> Result<(), String> {
+    let base = strip_thinking(selector);
+    if let Some(prefix) = base.strip_suffix("/*") {
+        if !prefix.is_empty() && prefix.split('/').all(valid_selector_segment) {
+            return Ok(());
+        }
+        return Err("wildcard должен иметь формат provider/* или provider/prefix/*".to_owned());
+    }
+    validate_role_selector(selector)
+}
 fn strip_thinking(selector: &str) -> String {
     match selector.rsplit_once(':') {
         Some((base, "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "auto")) => {
@@ -1056,6 +1168,43 @@ providers:
             "model?query",
         ] {
             assert!(validate_role_selector(selector).is_err(), "{selector}");
+        }
+    }
+
+    #[test]
+    fn fallback_config_extracts_wrapped_record() {
+        let raw = serde_json::json!({
+            "retry.fallbackChains": {
+                "value": {
+                    "default": ["provider/primary:high", "provider/backup:low"],
+                    "provider/*": ["other/*"]
+                }
+            }
+        });
+        let chains = extract_string_lists(&raw, "retry.fallbackChains");
+        assert_eq!(
+            chains.get("default"),
+            Some(&vec![
+                "provider/primary:high".to_owned(),
+                "provider/backup:low".to_owned(),
+            ])
+        );
+        assert_eq!(chains.get("provider/*"), Some(&vec!["other/*".to_owned()]));
+    }
+
+    #[test]
+    fn fallback_selector_validation_accepts_roles_models_and_wildcards() {
+        for selector in [
+            "default",
+            "provider/model:high",
+            "provider/*",
+            "openrouter/google/*",
+            "@slow:xhigh",
+        ] {
+            assert!(validate_fallback_selector(selector).is_ok(), "{selector}");
+        }
+        for selector in ["provider/", "provider/*/model", "provider/ bad/*"] {
+            assert!(validate_fallback_selector(selector).is_err(), "{selector}");
         }
     }
 
