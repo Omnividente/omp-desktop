@@ -1,3 +1,45 @@
+# OMP Desktop 0.1.16
+
+## Русский
+
+Релиз расширенных настроек моделей и внешнего вида OMP Desktop.
+
+### Что изменилось
+
+- **Резервные модели**: автоматический model fallback можно включать и отключать в настройках без ручного редактирования конфигурации OMP.
+- **Управляемые fallback-цепочки**: цепочки для роли, selector или wildcard редактируются списком; модели можно добавлять, удалять и переставлять в точном порядке обхода.
+- **Доступные уровни рассуждений**: для каждой выбранной модели показываются только поддерживаемые ею reasoning levels; уровень сохраняется прямо в selector роли или резервной модели.
+- **Шрифт всего интерфейса**: добавлен отдельный CSS font stack для меню, панелей и диалогов. Настройка терминального шрифта остаётся независимой.
+- **Явная область хранения**: каталог приходит из установленного OMP и `models.yml`, а роли и fallback сохраняются в общей локальной конфигурации OMP. Это сохранение между версиями Desktop, а не облачная синхронизация между компьютерами.
+- **Проверяемое сохранение**: backend нормализует и валидирует fallback selectors, применяет `retry.fallbackChains` и `retry.modelFallback`, затем перечитывает конфигурацию и подтверждает результат.
+- Версия обновлена до 0.1.16.
+
+Пользователи OMP Desktop 0.1.15 могут установить обновление встроенным updater.
+
+Рекомендуется `OMP.Desktop_0.1.16_x64-setup.exe` (Windows) и `OMP.Desktop_0.1.16_amd64.AppImage` (Linux).
+
+## English
+
+A release with expanded model controls and interface customization for OMP Desktop.
+
+### Changes
+
+- **Fallback models**: automatic model fallback can be enabled or disabled in Settings without manually editing OMP configuration.
+- **Editable fallback chains**: chains for a role, selector, or wildcard are managed as ordered lists; models can be added, removed, and reordered precisely.
+- **Available reasoning levels**: each selected model exposes only the reasoning levels it supports; the choice is persisted directly in the role or fallback selector.
+- **Application-wide interface font**: a separate CSS font stack now controls menus, panels, and dialogs. Terminal font settings remain independent.
+- **Explicit storage scope**: the catalog comes from the installed OMP and `models.yml`, while roles and fallbacks use shared local OMP configuration. This persists across Desktop versions but is not cloud synchronization between machines.
+- **Verified persistence**: the backend normalizes and validates fallback selectors, applies `retry.fallbackChains` and `retry.modelFallback`, then reloads configuration to confirm the saved result.
+- Version bumped to 0.1.16.
+
+OMP Desktop 0.1.15 users can install this release through the built-in updater.
+
+Recommended: `OMP.Desktop_0.1.16_x64-setup.exe` (Windows), `OMP.Desktop_0.1.16_amd64.AppImage` (Linux).
+
+## Download verification
+
+The GitHub Release includes `SHA256SUMS-windows.txt`, `SHA256SUMS-linux.txt`, signed updater bundles, and `release-assets-manifest.json` with per-asset SHA-256 values.
+
 # OMP Desktop 0.1.15
 
 ## Русский
