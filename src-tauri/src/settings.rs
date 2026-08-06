@@ -410,7 +410,7 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey};
-    use std::{sync::{mpsc, Arc, Mutex}, thread, time::{Duration, Instant}};
+    use std::time::Instant;
 
     fn resolution(executable: &str) -> OmpResolution {
         OmpResolution {
@@ -453,53 +453,22 @@ mod tests {
 
     #[test]
     fn resolution_cache_releases_lock_before_uncached_work() {
-        let cache = Arc::new(Mutex::new(OmpResolutionCache::default()));
-        let (started_sender, started_receiver) = mpsc::channel();
-        let (release_sender, release_receiver) = mpsc::channel();
-        let first_cache = Arc::clone(&cache);
-        let first = thread::spawn(move || {
-            resolve_omp_cached(
-                &first_cache,
-                OmpResolutionKey {
-                    configured: Some("omp-slow".to_owned()),
-                    ..OmpResolutionKey::default()
-                },
-                || {
-                    started_sender.send(()).unwrap();
-                    release_receiver.recv().unwrap();
-                    resolution("omp-slow")
-                },
-            )
-        });
-        started_receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("slow resolver did not start");
-
-        let second_cache = Arc::clone(&cache);
-        let (second_sender, second_receiver) = mpsc::channel();
-        let second = thread::spawn(move || {
-            let value = resolve_omp_cached(
-                &second_cache,
-                OmpResolutionKey {
-                    configured: Some("omp-fast".to_owned()),
-                    ..OmpResolutionKey::default()
-                },
-                || resolution("omp-fast"),
-            );
-            second_sender.send(value).unwrap();
-        });
-
-        let second_result = second_receiver.recv_timeout(Duration::from_millis(250));
-        release_sender.send(()).unwrap();
-        let first_result = first.join().expect("slow resolver panicked");
-        second.join().expect("fast resolver panicked");
-
-        assert_eq!(first_result.executable, "omp-slow");
-        assert_eq!(
-            second_result
-                .expect("uncached work was serialized by the global resolver lock")
-                .executable,
-            "omp-fast"
+        let cache = std::sync::Mutex::new(OmpResolutionCache::default());
+        let value = resolve_omp_cached(
+            &cache,
+            OmpResolutionKey {
+                configured: Some("omp-slow".to_owned()),
+                ..OmpResolutionKey::default()
+            },
+            || {
+                assert!(
+                    cache.try_lock().is_ok(),
+                    "uncached work ran while the global resolver lock was held"
+                );
+                resolution("omp-slow")
+            },
         );
+
+        assert_eq!(value.executable, "omp-slow");
     }
 }

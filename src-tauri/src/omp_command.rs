@@ -445,7 +445,10 @@ mod tests {
         let _ = release_sender.send(());
 
         assert!(matches!(result, Err(OmpCommandError::Timeout { .. })));
-        assert!(elapsed < Duration::from_secs(1), "reader timeout took {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "reader timeout took {elapsed:?}"
+        );
     }
 
     #[cfg(not(windows))]
