@@ -409,10 +409,7 @@ fn looks_like_path(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey,
-        OMP_RESOLUTION_TTL,
-    };
+    use super::{resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey};
     use std::{sync::{mpsc, Arc, Mutex}, thread, time::{Duration, Instant}};
 
     fn resolution(executable: &str) -> OmpResolution {
@@ -434,7 +431,9 @@ mod tests {
         cache.store(key.clone(), value.clone(), now);
 
         assert_eq!(cache.get(&key, now), Some(value));
-        assert!(cache.get(&key, now + OMP_RESOLUTION_TTL).is_none());
+        assert!(cache
+            .get(&key, now + super::OMP_RESOLUTION_TTL)
+            .is_none());
     }
 
     #[test]
