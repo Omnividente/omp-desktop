@@ -267,20 +267,8 @@ fn run_command(
         }
     };
 
-    let stdout = join_reader_until(
-        stdout_reader,
-        operation,
-        "stdout",
-        deadline,
-        limits.timeout,
-    )?;
-    let stderr = join_reader_until(
-        stderr_reader,
-        operation,
-        "stderr",
-        deadline,
-        limits.timeout,
-    )?;
+    let stdout = join_reader_until(stdout_reader, operation, "stdout", deadline, limits.timeout)?;
+    let stderr = join_reader_until(stderr_reader, operation, "stderr", deadline, limits.timeout)?;
     if stdout.truncated {
         return Err(OmpCommandError::OutputLimit {
             operation,
