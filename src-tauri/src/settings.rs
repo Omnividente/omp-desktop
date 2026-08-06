@@ -413,11 +413,7 @@ mod tests {
         resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey,
         OMP_RESOLUTION_TTL,
     };
-    use std::{
-        sync::{mpsc, Arc, Mutex},
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::{sync::{mpsc, Arc, Mutex}, thread, time::{Duration, Instant}};
 
     fn resolution(executable: &str) -> OmpResolution {
         OmpResolution {

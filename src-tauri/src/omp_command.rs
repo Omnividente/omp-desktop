@@ -240,7 +240,6 @@ fn run_command(
         Ok(reader) => reader,
         Err(error) => {
             kill_and_wait(&mut child);
-            drop(stdout_reader);
             return Err(OmpCommandError::ReaderSpawn {
                 operation,
                 stream: "stderr",
@@ -268,20 +267,10 @@ fn run_command(
         }
     };
 
-    let stdout = join_reader_until(
-        stdout_reader,
-        operation,
-        "stdout",
-        deadline,
-        limits.timeout,
-    )?;
-    let stderr = join_reader_until(
-        stderr_reader,
-        operation,
-        "stderr",
-        deadline,
-        limits.timeout,
-    )?;
+    let stdout =
+        join_reader_until(stdout_reader, operation, "stdout", deadline, limits.timeout)?;
+    let stderr =
+        join_reader_until(stderr_reader, operation, "stderr", deadline, limits.timeout)?;
     if stdout.truncated {
         return Err(OmpCommandError::OutputLimit {
             operation,
@@ -458,10 +447,7 @@ mod tests {
         let _ = release_sender.send(());
 
         assert!(matches!(result, Err(OmpCommandError::Timeout { .. })));
-        assert!(
-            elapsed < Duration::from_secs(1),
-            "reader timeout took {elapsed:?}"
-        );
+        assert!(elapsed < Duration::from_secs(1), "reader timeout took {elapsed:?}");
     }
 
     #[cfg(not(windows))]
