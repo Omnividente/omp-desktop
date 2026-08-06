@@ -431,9 +431,7 @@ mod tests {
         cache.store(key.clone(), value.clone(), now);
 
         assert_eq!(cache.get(&key, now), Some(value));
-        assert!(cache
-            .get(&key, now + super::OMP_RESOLUTION_TTL)
-            .is_none());
+        assert!(cache.get(&key, now + super::OMP_RESOLUTION_TTL).is_none());
     }
 
     #[test]
