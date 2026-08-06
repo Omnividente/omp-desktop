@@ -53,12 +53,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify isolated updater E2E signing configuration
+      - name: Verify isolated updater E2E public key
         env:
-          UPDATER_E2E_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY }}
           UPDATER_E2E_PUBLIC_KEY: ${{ vars.UPDATER_E2E_PUBLIC_KEY }}
         run: >-
-          node -e "for (const name of ['UPDATER_E2E_SIGNING_PRIVATE_KEY', 'UPDATER_E2E_PUBLIC_KEY']) if (!process.env[name]?.trim()) throw new Error(name + ' is required in the updater-e2e environment');"
+          node -e "const fs = require('node:fs'); const e2e = process.env.UPDATER_E2E_PUBLIC_KEY?.trim(); if (!e2e) throw new Error('UPDATER_E2E_PUBLIC_KEY is required in the updater-e2e environment'); const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8')); const production = config?.plugins?.updater?.pubkey?.trim(); if (!production) throw new Error('Production updater public key is missing in src-tauri/tauri.conf.json'); if (e2e === production) throw new Error('UPDATER_E2E_PUBLIC_KEY must differ from the production updater public key in src-tauri/tauri.conf.json');"
+
+      - name: Verify updater E2E signing secret
+        env:
+          UPDATER_E2E_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY }}
+        run: >-
+          node -e "if (!process.env.UPDATER_E2E_SIGNING_PRIVATE_KEY?.trim()) throw new Error('UPDATER_E2E_SIGNING_PRIVATE_KEY is required in the updater-e2e environment');"
 
       - name: Create updater E2E overlays
         env:

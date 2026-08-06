@@ -46,7 +46,11 @@ Use `npm ci` rather than updating the lockfile unless dependency changes are par
 
 Describe the motivation, implementation, user impact, verification performed, and any platform-specific limitations. Link related issues and include sanitized screenshots for visible UI changes. Mark checks that cannot be run locally and explain why.
 
-Release tags build unsigned installers and checksums as workflow artifacts. Creating or updating a GitHub Release and signing distributable files are separate maintainer actions.
+## Releases
+
+Production releases are tag-driven only. For a `v*.*.*` tag, the workflow validates the tag and package/Cargo/Tauri versions from the exact checked-out release SHA, requires that commit to be reachable from `main`, and runs the Ubuntu and Windows quality gate on that SHA. After all gates pass, the workflow signs artifacts and publishes the GitHub Release. The owner must configure and protect the `production-release` environment before adding its production signing secrets; manual or local production signing and publication are not supported release paths.
+
+Updater E2E uses separate test signing trust in the `updater-e2e` environment. Its public and private keys must never be the production updater keys. These environments, their protection rules, repository rulesets, and secrets are owner-managed prerequisites; this document does not assert that they are already configured.
 
 ## Current license status
 
