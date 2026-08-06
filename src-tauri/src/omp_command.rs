@@ -240,7 +240,7 @@ fn run_command(
         Ok(reader) => reader,
         Err(error) => {
             kill_and_wait(&mut child);
-            let _ = stdout_reader.join();
+            drop(stdout_reader);
             return Err(OmpCommandError::ReaderSpawn {
                 operation,
                 stream: "stderr",
@@ -256,8 +256,6 @@ fn run_command(
             Ok(None) if Instant::now() < deadline => thread::sleep(POLL_INTERVAL),
             Ok(None) => {
                 kill_and_wait(&mut child);
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
                 return Err(OmpCommandError::Timeout {
                     operation,
                     timeout: limits.timeout,
@@ -265,15 +263,25 @@ fn run_command(
             }
             Err(error) => {
                 kill_and_wait(&mut child);
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
                 return Err(OmpCommandError::Wait { operation, error });
             }
         }
     };
 
-    let stdout = join_reader(stdout_reader, operation, "stdout")?;
-    let stderr = join_reader(stderr_reader, operation, "stderr")?;
+    let stdout = join_reader_until(
+        stdout_reader,
+        operation,
+        "stdout",
+        deadline,
+        limits.timeout,
+    )?;
+    let stderr = join_reader_until(
+        stderr_reader,
+        operation,
+        "stderr",
+        deadline,
+        limits.timeout,
+    )?;
     if stdout.truncated {
         return Err(OmpCommandError::OutputLimit {
             operation,
@@ -321,6 +329,23 @@ fn read_bounded(mut reader: impl Read, limit: usize) -> io::Result<BoundedRead> 
         truncated |= keep < read;
     }
     Ok(BoundedRead { bytes, truncated })
+}
+
+fn join_reader_until(
+    reader: thread::JoinHandle<io::Result<BoundedRead>>,
+    operation: &'static str,
+    stream: &'static str,
+    deadline: Instant,
+    timeout: Duration,
+) -> Result<BoundedRead, OmpCommandError> {
+    while !reader.is_finished() {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(OmpCommandError::Timeout { operation, timeout });
+        }
+        thread::sleep(POLL_INTERVAL.min(remaining));
+    }
+    join_reader(reader, operation, stream)
 }
 
 fn join_reader(
@@ -408,5 +433,55 @@ mod tests {
             CommandLimits::new(Duration::from_millis(50), 1024),
         );
         assert!(matches!(result, Err(OmpCommandError::Timeout { .. })));
+    }
+
+    #[test]
+    fn reader_wait_is_bounded_by_command_deadline() {
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let reader = thread::spawn(move || {
+            let _ = release_receiver.recv();
+            Ok::<_, io::Error>(BoundedRead {
+                bytes: Vec::new(),
+                truncated: false,
+            })
+        });
+        let timeout = Duration::from_millis(50);
+        let started = Instant::now();
+        let result = join_reader_until(
+            reader,
+            "reader-timeout-test",
+            "stdout",
+            started + timeout,
+            timeout,
+        );
+        let elapsed = started.elapsed();
+        let _ = release_sender.send(());
+
+        assert!(matches!(result, Err(OmpCommandError::Timeout { .. })));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "reader timeout took {elapsed:?}"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn timeout_is_not_extended_by_descendant_holding_output_pipe() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 2 & wait"]);
+        let timeout = Duration::from_millis(50);
+        let started = Instant::now();
+        let result = run_command(
+            command,
+            "inherited-pipe-timeout-test",
+            CommandLimits::new(timeout, 1024),
+        );
+        let elapsed = started.elapsed();
+
+        assert!(matches!(result, Err(OmpCommandError::Timeout { .. })));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "timeout waited for an inherited pipe for {elapsed:?}"
+        );
     }
 }

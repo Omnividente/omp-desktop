@@ -208,16 +208,37 @@ pub fn resolve_omp(app: &AppHandle, settings: &AppSettings) -> OmpResolution {
         local_app_data: env::var_os("LOCALAPPDATA"),
         home: app.path().home_dir().ok(),
     };
-    let mut cache = OMP_RESOLUTION_CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    resolve_omp_cached(&OMP_RESOLUTION_CACHE, key, || {
+        resolve_omp_uncached(app, settings)
+    })
+}
+
+fn resolve_omp_cached<F>(
+    cache: &Mutex<OmpResolutionCache>,
+    key: OmpResolutionKey,
+    resolve: F,
+) -> OmpResolution
+where
+    F: FnOnce() -> OmpResolution,
+{
     let now = Instant::now();
-    if let Some(resolution) = cache.get(&key, now) {
+    if let Some(resolution) = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(&key, now)
+    {
         return resolution;
     }
 
-    let resolution = resolve_omp_uncached(app, settings);
-    cache.store(key, resolution.clone(), Instant::now());
+    let resolution = resolve();
+    let now = Instant::now();
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cached) = cache.get(&key, now) {
+        return cached;
+    }
+    cache.store(key, resolution.clone(), now);
     resolution
 }
 
@@ -388,8 +409,22 @@ fn looks_like_path(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{OmpResolution, OmpResolutionCache, OmpResolutionKey, OMP_RESOLUTION_TTL};
-    use std::time::Instant;
+    use super::{
+        resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey,
+        OMP_RESOLUTION_TTL,
+    };
+    use std::{
+        sync::{mpsc, Arc, Mutex},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    fn resolution(executable: &str) -> OmpResolution {
+        OmpResolution {
+            executable: executable.to_owned(),
+            version: Some("omp/17.1.3".to_owned()),
+        }
+    }
 
     #[test]
     fn resolution_cache_reuses_matching_key_until_ttl() {
@@ -398,10 +433,7 @@ mod tests {
             configured: Some("omp-a".to_owned()),
             ..OmpResolutionKey::default()
         };
-        let value = OmpResolution {
-            executable: "omp-a".to_owned(),
-            version: Some("omp/17.1.3".to_owned()),
-        };
+        let value = resolution("omp-a");
         let mut cache = OmpResolutionCache::default();
         cache.store(key.clone(), value.clone(), now);
 
@@ -421,15 +453,60 @@ mod tests {
             ..OmpResolutionKey::default()
         };
         let mut cache = OmpResolutionCache::default();
-        cache.store(
-            first,
-            OmpResolution {
-                executable: "omp-a".to_owned(),
-                version: None,
-            },
-            now,
-        );
+        cache.store(first, resolution("omp-a"), now);
 
         assert!(cache.get(&second, now).is_none());
+    }
+
+    #[test]
+    fn resolution_cache_releases_lock_before_uncached_work() {
+        let cache = Arc::new(Mutex::new(OmpResolutionCache::default()));
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let first_cache = Arc::clone(&cache);
+        let first = thread::spawn(move || {
+            resolve_omp_cached(
+                &first_cache,
+                OmpResolutionKey {
+                    configured: Some("omp-slow".to_owned()),
+                    ..OmpResolutionKey::default()
+                },
+                || {
+                    started_sender.send(()).unwrap();
+                    release_receiver.recv().unwrap();
+                    resolution("omp-slow")
+                },
+            )
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("slow resolver did not start");
+
+        let second_cache = Arc::clone(&cache);
+        let (second_sender, second_receiver) = mpsc::channel();
+        let second = thread::spawn(move || {
+            let value = resolve_omp_cached(
+                &second_cache,
+                OmpResolutionKey {
+                    configured: Some("omp-fast".to_owned()),
+                    ..OmpResolutionKey::default()
+                },
+                || resolution("omp-fast"),
+            );
+            second_sender.send(value).unwrap();
+        });
+
+        let second_result = second_receiver.recv_timeout(Duration::from_millis(250));
+        release_sender.send(()).unwrap();
+        let first_result = first.join().expect("slow resolver panicked");
+        second.join().expect("fast resolver panicked");
+
+        assert_eq!(first_result.executable, "omp-slow");
+        assert_eq!(
+            second_result
+                .expect("uncached work was serialized by the global resolver lock")
+                .executable,
+            "omp-fast"
+        );
     }
 }
