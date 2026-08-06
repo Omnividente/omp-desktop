@@ -156,13 +156,18 @@ jobs:
     environment: production-release
     runs-on: ubuntu-latest
     steps:
+      - name: Check out release SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
       - name: Generate and upload release assets manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          version=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/package.json" | jq -r .version)
+          version=$(node -p "require('./package.json').version")
           tag="v${version}"
           rm -rf release-assets
           mkdir -p release-assets
@@ -200,7 +205,7 @@ jobs:
               platform,
               bytes: metadata.size,
               sha256,
-              downloadUrl: `https://github.com/${process.env.RELEASE_REPOSITORY}/releases/download/${process.env.RELEASE_TAG}/${encodeURIComponent(name)}`,
+              downloadUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.RELEASE_REPOSITORY}/releases/download/${process.env.RELEASE_TAG}/${encodeURIComponent(name)}`,
             });
           }
           assets.sort((left, right) => left.name.localeCompare(right.name));
@@ -220,5 +225,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version=$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/package.json" | jq -r .version)
+          version=$(node -p "require('./package.json').version")
           gh release edit "v${version}" --repo "$GITHUB_REPOSITORY" --draft=false
