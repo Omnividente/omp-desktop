@@ -1487,6 +1487,13 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
     }
 }
 
+fn strip_thinking_suffix(selector: &str) -> String {
+    match selector.rsplit_once(':') {
+        Some((base, suffix)) if THINKING_LEVELS.contains(&suffix) => base.to_owned(),
+        _ => selector.to_owned(),
+    }
+}
+
 fn runtime_error_message(value: &Value) -> Option<String> {
     let message = value.get("message").unwrap_or(value);
     if message.get("role").and_then(Value::as_str) != Some("assistant")
@@ -1514,9 +1521,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             Some(PtyRuntimeEvent {
                 terminal_id: terminal_id.to_owned(),
                 kind: PtyRuntimeEventKind::RetryFallbackApplied,
-                model: fallback_to
-                    .as_deref()
-                    .map(|selector| selector.split(':').next().unwrap_or(selector).to_owned()),
+                model: fallback_to.as_deref().map(strip_thinking_suffix),
                 model_role: None,
                 thinking_level: None,
                 configured_thinking_level: None,
@@ -2379,6 +2384,29 @@ mod tests {
         let mut invalid_thinking = switch_request();
         invalid_thinking.supported_thinking.push("turbo".to_owned());
         assert!(validate_switch_request(&invalid_thinking).is_err());
+    }
+
+    #[test]
+    fn retry_fallback_model_strips_only_a_known_final_thinking_suffix() {
+        for (selector, expected_model) in [
+            ("openai/gpt-5.6:high", "openai/gpt-5.6"),
+            ("ollama/llama3.1:8b", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:high", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal"),
+        ] {
+            let line = serde_json::json!({
+                "type": "retry_fallback_applied",
+                "from": "provider/primary",
+                "to": selector,
+                "role": "default",
+            })
+            .to_string();
+            let event = runtime_event_from_line("terminal-1", line.as_bytes())
+                .expect("fallback event should parse");
+
+            assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
+            assert_eq!(event.fallback_to.as_deref(), Some(selector), "{selector}");
+        }
     }
 
     #[test]

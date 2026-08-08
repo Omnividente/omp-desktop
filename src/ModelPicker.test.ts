@@ -18,12 +18,21 @@ const model: OmpModelInfo = {
   thinking: ["low", "high"],
 }
 
+const taggedModel: OmpModelInfo = {
+  ...model,
+  provider: "ollama",
+  id: "llama3.1:8b",
+  selector: "ollama/llama3.1:8b",
+  name: "Llama 3.1 8B",
+}
+
 describe("splitSelector", () => {
   it.each([
     ["claude-sonnet-4:off", "off"],
     ["claude-sonnet-4:HIGH", "high"],
     ["anthropic/claude-sonnet-4-20250514:xhigh", "xhigh"],
     ["claude-sonnet-4:auto", "auto"],
+    ["ollama/llama3.1:8b:high", "high"],
   ])("splits the supported thinking suffix from %s", (selector, thinking) => {
     expect(splitSelector(selector)).toEqual({
       base: selector.slice(0, selector.lastIndexOf(":")),
@@ -34,6 +43,14 @@ describe("splitSelector", () => {
   it("keeps an unsupported suffix as part of the selector", () => {
     expect(splitSelector("claude-sonnet-4:turbo")).toEqual({
       base: "claude-sonnet-4:turbo",
+      thinking: null,
+    })
+    expect(splitSelector("ollama/llama3.1:8b")).toEqual({
+      base: "ollama/llama3.1:8b",
+      thinking: null,
+    })
+    expect(splitSelector("ollama/llama3.1:8b:internal")).toEqual({
+      base: "ollama/llama3.1:8b:internal",
       thinking: null,
     })
   })
@@ -52,6 +69,11 @@ describe("matchesSelector", () => {
   it("rejects another model selector", () => {
     expect(matchesSelector(model, "anthropic/claude-opus-4")).toBe(false)
   })
+
+  it("matches an Ollama tag with or without a final thinking suffix", () => {
+    expect(matchesSelector(taggedModel, "ollama/llama3.1:8b")).toBe(true)
+    expect(matchesSelector(taggedModel, "ollama/llama3.1:8b:high")).toBe(true)
+  })
 })
 
 describe("thinking selector controls", () => {
@@ -67,5 +89,8 @@ describe("thinking selector controls", () => {
       "anthropic/claude-sonnet-4:high",
     )
     expect(selectorWithThinking("ollama/qwen3:30b", null)).toBe("ollama/qwen3:30b")
+    expect(selectorWithThinking("ollama/llama3.1:8b", "high")).toBe(
+      "ollama/llama3.1:8b:high",
+    )
   })
 })
