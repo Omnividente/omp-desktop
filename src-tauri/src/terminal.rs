@@ -203,16 +203,32 @@ struct PtySessionEvent {
     session: crate::models::SessionSummary,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PtyRuntimeEventKind {
+    Activity,
+    RuntimeError,
+    ModelChange,
+    RetryFallbackApplied,
+    ThinkingLevelChange,
+    ModelError,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PtyRuntimeEvent {
     terminal_id: String,
+    kind: PtyRuntimeEventKind,
     model: Option<String>,
     model_role: Option<String>,
     thinking_level: Option<String>,
     configured_thinking_level: Option<String>,
     activity: Option<String>,
     error_message: Option<String>,
+    fallback_from: Option<String>,
+    fallback_to: Option<String>,
+    fallback_role: Option<String>,
+    resolved_model_is_fallback: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -411,9 +427,14 @@ impl SessionRuntimeState {
     }
 
     fn apply(&mut self, event: PtyRuntimeEvent) {
+        let model_role = if event.kind == PtyRuntimeEventKind::RetryFallbackApplied {
+            Some("fallback".to_owned())
+        } else {
+            event.model_role
+        };
         if let Some(model) = event.model {
             self.model = Some(model);
-            self.model_role = Some(event.model_role.unwrap_or_else(|| "default".to_owned()));
+            self.model_role = Some(model_role.unwrap_or_else(|| "default".to_owned()));
         }
         if let Some(thinking_level) = event.thinking_level {
             self.thinking_level = Some(thinking_level);
@@ -1231,51 +1252,75 @@ fn poll_runtime_file<F, R>(
     }
 }
 
-fn emit_activity_event(app: &AppHandle, terminal_id: &str, activity: &str) {
-    let _ = app.emit(
-        "pty-runtime",
+fn runtime_event_for_emit(
+    thinking: &mut bool,
+    event: PtyRuntimeEvent,
+) -> Option<PtyRuntimeEvent> {
+    let Some(activity) = event.activity.as_deref() else {
+        return Some(event);
+    };
+    let next_thinking = activity == "thinking";
+    let changed = *thinking != next_thinking;
+    *thinking = next_thinking;
+    if event.kind == PtyRuntimeEventKind::Activity && next_thinking && !changed {
+        None
+    } else {
+        Some(event)
+    }
+}
+
+fn emit_runtime_event(app: &AppHandle, event: PtyRuntimeEvent) {
+    let event = {
+        let state = app.state::<TerminalState>();
+        let mut processes = lock_processes(&state);
+        let Some(process) = processes.get_mut(&event.terminal_id) else {
+            return;
+        };
+        runtime_event_for_emit(&mut process.thinking, event)
+    };
+    if let Some(event) = event {
+        let _ = app.emit("pty-runtime", event);
+    }
+}
+
+fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
+    emit_runtime_event(
+        app,
         PtyRuntimeEvent {
             terminal_id: terminal_id.to_owned(),
+            kind: PtyRuntimeEventKind::Activity,
             model: None,
             model_role: None,
             thinking_level: None,
             configured_thinking_level: None,
             activity: Some(activity.to_owned()),
             error_message: None,
+            fallback_from: None,
+            fallback_to: None,
+            fallback_role: None,
+            resolved_model_is_fallback: None,
         },
     );
 }
 
 fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
-    let _ = app.emit(
-        "pty-runtime",
+    emit_runtime_event(
+        app,
         PtyRuntimeEvent {
             terminal_id: terminal_id.to_owned(),
+            kind: PtyRuntimeEventKind::RuntimeError,
             model: None,
             model_role: None,
             thinking_level: None,
             configured_thinking_level: None,
             activity: Some("error".to_owned()),
             error_message: Some(message),
+            fallback_from: None,
+            fallback_to: None,
+            fallback_role: None,
+            resolved_model_is_fallback: None,
         },
     );
-}
-
-fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
-    let should_emit = {
-        let state = app.state::<TerminalState>();
-        let mut processes = lock_processes(&state);
-        let Some(process) = processes.get_mut(terminal_id) else {
-            return;
-        };
-        let thinking = activity == "thinking";
-        let changed = process.thinking != thinking;
-        process.thinking = thinking;
-        changed || !thinking
-    };
-    if should_emit {
-        emit_activity_event(app, terminal_id, activity);
-    }
 }
 
 fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: String) {
@@ -1313,11 +1358,7 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     || emit_activity(&app, &terminal_id, "idle"),
                     |runtime_line| {
                         if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
-                            if let Some(activity) = event.activity.as_deref() {
-                                emit_activity(&app, &terminal_id, activity);
-                            } else {
-                                let _ = app.emit("pty-runtime", event);
-                            }
+                            emit_runtime_event(&app, event);
                         }
                     },
                 );
@@ -1461,34 +1502,48 @@ fn runtime_error_message(value: &Value) -> Option<String> {
         return None;
     }
 
-    let raw = message.get("errorMessage").and_then(Value::as_str)?;
-    let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut chars = compact.chars();
-    let mut summary = chars.by_ref().take(240).collect::<String>();
-    if chars.next().is_some() {
-        summary.push('…');
-    }
-    Some(summary)
+    message
+        .get("errorMessage")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeEvent> {
     let value = serde_json::from_slice::<Value>(line).ok()?;
     let activity = activity_from_value(&value).map(str::to_owned);
     match value.get("type").and_then(Value::as_str)? {
-        "retry_fallback_applied" => Some(PtyRuntimeEvent {
-            terminal_id: terminal_id.to_owned(),
-            model: value
-                .get("to")
-                .and_then(Value::as_str)
-                .map(|selector| selector.split(':').next().unwrap_or(selector).to_owned()),
-            model_role: Some("fallback".to_owned()),
-            thinking_level: None,
-            configured_thinking_level: None,
-            activity: Some("thinking".to_owned()),
-            error_message: None,
-        }),
+        "retry_fallback_applied" => {
+            let fallback_to = value.get("to").and_then(Value::as_str).map(str::to_owned);
+            Some(PtyRuntimeEvent {
+                terminal_id: terminal_id.to_owned(),
+                kind: PtyRuntimeEventKind::RetryFallbackApplied,
+                model: fallback_to.as_deref().map(|selector| {
+                    selector
+                        .split(':')
+                        .next()
+                        .unwrap_or(selector)
+                        .to_owned()
+                }),
+                model_role: None,
+                thinking_level: None,
+                configured_thinking_level: None,
+                activity: Some("thinking".to_owned()),
+                error_message: None,
+                fallback_from: value
+                    .get("from")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                fallback_to,
+                fallback_role: value
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                resolved_model_is_fallback: None,
+            })
+        }
         "model_change" => Some(PtyRuntimeEvent {
             terminal_id: terminal_id.to_owned(),
+            kind: PtyRuntimeEventKind::ModelChange,
             model: value
                 .get("model")
                 .and_then(Value::as_str)
@@ -1498,6 +1553,12 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             configured_thinking_level: None,
             activity: None,
             error_message: None,
+            fallback_from: None,
+            fallback_to: None,
+            fallback_role: None,
+            resolved_model_is_fallback: value
+                .get("resolvedModelIsFallback")
+                .and_then(Value::as_bool),
         }),
         "thinking_level_change" => {
             let thinking_level = value
@@ -1511,23 +1572,40 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 .or_else(|| thinking_level.clone());
             Some(PtyRuntimeEvent {
                 terminal_id: terminal_id.to_owned(),
+                kind: PtyRuntimeEventKind::ThinkingLevelChange,
                 model: None,
                 model_role: None,
                 thinking_level,
                 configured_thinking_level,
                 activity: None,
                 error_message: None,
+                fallback_from: None,
+                fallback_to: None,
+                fallback_role: None,
+                resolved_model_is_fallback: None,
             })
         }
-        "message" | "custom" => activity.map(|activity| PtyRuntimeEvent {
-            terminal_id: terminal_id.to_owned(),
-            model: None,
-            model_role: None,
-            thinking_level: None,
-            configured_thinking_level: None,
-            activity: Some(activity),
-            error_message: runtime_error_message(&value),
-        }),
+        "message" | "custom" => {
+            let error_message = runtime_error_message(&value);
+            activity.map(|activity| PtyRuntimeEvent {
+                terminal_id: terminal_id.to_owned(),
+                kind: if error_message.is_some() {
+                    PtyRuntimeEventKind::ModelError
+                } else {
+                    PtyRuntimeEventKind::Activity
+                },
+                model: None,
+                model_role: None,
+                thinking_level: None,
+                configured_thinking_level: None,
+                activity: Some(activity),
+                error_message,
+                fallback_from: None,
+                fallback_to: None,
+                fallback_role: None,
+                resolved_model_is_fallback: None,
+            })
+        }
         _ => None,
     }
 }
@@ -2095,10 +2173,11 @@ mod tests {
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
         poll_runtime_file, read_latest_activity, receive_ready_output_batch,
-        receive_timed_output_batch, run_output_pipeline, runtime_event_from_line, thinking_cycle,
-        validate_switch_request, PtyExitEvent, RuntimeWatchCursor, SwitchRequest,
-        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        receive_timed_output_batch, run_output_pipeline, runtime_event_for_emit,
+        runtime_event_from_line, thinking_cycle, validate_switch_request, PtyExitEvent,
+        PtyRuntimeEventKind, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -2319,8 +2398,8 @@ mod tests {
     fn runtime_lines_report_model_role_and_configured_thinking() {
         let payload = concat!(
             "{\"type\":\"custom_message\",\"content\":\"ignored\"}\n",
-            "{\"type\":\"model_change\",\"model\":\"provider/new\",\"role\":\"fallback\"}\n",
-            "{\"type\":\"retry_fallback_applied\",\"to\":\"provider/fallback:high\",\"role\":\"default\"}\n",
+            "{\"type\":\"model_change\",\"model\":\"provider/new\",\"role\":\"fallback\",\"resolvedModelIsFallback\":true}\n",
+            "{\"type\":\"retry_fallback_applied\",\"from\":\"provider/primary\",\"to\":\"provider/fallback:high\",\"role\":\"default\"}\n",
             "{\"type\":\"thinking_level_change\",\"thinkingLevel\":\"high\",\"configured\":\"auto\"}\n"
         )
         .as_bytes();
@@ -2341,12 +2420,59 @@ mod tests {
         });
 
         assert_eq!(events.len(), 3);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelChange);
         assert_eq!(events[0].model.as_deref(), Some("provider/new"));
         assert_eq!(events[0].model_role.as_deref(), Some("fallback"));
+        assert_eq!(events[0].resolved_model_is_fallback, Some(true));
+        assert_eq!(events[1].kind, PtyRuntimeEventKind::RetryFallbackApplied);
         assert_eq!(events[1].model.as_deref(), Some("provider/fallback"));
-        assert_eq!(events[1].model_role.as_deref(), Some("fallback"));
+        assert!(events[1].model_role.is_none());
+        assert_eq!(events[1].fallback_from.as_deref(), Some("provider/primary"));
+        assert_eq!(
+            events[1].fallback_to.as_deref(),
+            Some("provider/fallback:high")
+        );
+        assert_eq!(events[1].fallback_role.as_deref(), Some("default"));
         assert_eq!(events[2].thinking_level.as_deref(), Some("high"));
         assert_eq!(events[2].configured_thinking_level.as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn runtime_dispatch_preserves_model_fallback_and_error_payloads() {
+        let lines: &[&[u8]] = &[
+            br#"{"type":"model_change","model":"provider/new","role":"review","resolvedModelIsFallback":true}"#,
+            br#"{"type":"retry_fallback_applied","from":"provider/primary","to":"provider/fallback:high","role":"default"}"#,
+            br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Cloud API error (429):\n  Individual quota reached"}}"#,
+        ];
+        let mut thinking = true;
+        let events = lines
+            .iter()
+            .filter_map(|line| runtime_event_from_line("terminal-1", line))
+            .filter_map(|event| runtime_event_for_emit(&mut thinking, event))
+            .collect::<Vec<_>>();
+
+        assert_eq!(events.len(), 3);
+        let model = serde_json::to_value(&events[0]).expect("model event should serialize");
+        assert_eq!(model["kind"], "modelChange");
+        assert_eq!(model["model"], "provider/new");
+        assert_eq!(model["modelRole"], "review");
+        assert_eq!(model["resolvedModelIsFallback"], true);
+
+        let fallback = serde_json::to_value(&events[1]).expect("fallback event should serialize");
+        assert_eq!(fallback["kind"], "retryFallbackApplied");
+        assert_eq!(fallback["model"], "provider/fallback");
+        assert_eq!(fallback["fallbackFrom"], "provider/primary");
+        assert_eq!(fallback["fallbackTo"], "provider/fallback:high");
+        assert_eq!(fallback["fallbackRole"], "default");
+        assert!(fallback["modelRole"].is_null());
+
+        let error = serde_json::to_value(&events[2]).expect("error event should serialize");
+        assert_eq!(error["kind"], "modelError");
+        assert_eq!(error["activity"], "error");
+        assert_eq!(
+            error["errorMessage"],
+            "Cloud API error (429):\n  Individual quota reached"
+        );
     }
 
     #[test]
@@ -2385,10 +2511,11 @@ mod tests {
             br#"{"type":"message","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Cloud API error (429):\n  Individual quota reached"}}"#,
         )
         .expect("failed model turn should emit runtime state");
+        assert_eq!(failed.kind, PtyRuntimeEventKind::ModelError);
         assert_eq!(failed.activity.as_deref(), Some("error"));
         assert_eq!(
             failed.error_message.as_deref(),
-            Some("Cloud API error (429): Individual quota reached")
+            Some("Cloud API error (429):\n  Individual quota reached")
         );
 
         let recovered = runtime_event_from_line(
