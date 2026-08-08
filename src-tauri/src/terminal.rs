@@ -1489,7 +1489,13 @@ fn activity_from_value(value: &Value) -> Option<&'static str> {
 
 fn strip_thinking_suffix(selector: &str) -> String {
     match selector.rsplit_once(':') {
-        Some((base, suffix)) if THINKING_LEVELS.contains(&suffix) => base.to_owned(),
+        Some((base, suffix))
+            if THINKING_LEVELS
+                .iter()
+                .any(|level| suffix.eq_ignore_ascii_case(level)) =>
+        {
+            base.to_owned()
+        }
         _ => selector.to_owned(),
     }
 }
@@ -2392,6 +2398,8 @@ mod tests {
             ("openai/gpt-5.6:high", "openai/gpt-5.6"),
             ("ollama/llama3.1:8b", "ollama/llama3.1:8b"),
             ("ollama/llama3.1:8b:high", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:HIGH", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:HiGh", "ollama/llama3.1:8b"),
             ("ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal"),
         ] {
             let line = serde_json::json!({
