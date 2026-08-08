@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest"
+import { applyRuntimeEventToTab, runtimeEventFeedback } from "./runtimeEvents"
+import type { PtyRuntimeEvent, TerminalTab } from "./types"
+
+const tab: TerminalTab = {
+  id: "terminal-1",
+  label: "Session",
+  pinnedTitle: null,
+  cwd: "/tmp/project",
+  processId: 1,
+  sessionId: "session-1",
+  sessionPath: "/tmp/session.jsonl",
+  status: "running",
+  activity: "idle",
+  exitCode: null,
+  success: null,
+  kind: "agent",
+  switching: false,
+  currentModel: "provider/primary",
+  currentModelRole: "default",
+  currentThinking: "medium",
+  currentThinkingConfigured: "medium",
+}
+
+function event(overrides: Partial<PtyRuntimeEvent>): PtyRuntimeEvent {
+  return {
+    terminalId: "terminal-1",
+    kind: "activity",
+    model: null,
+    modelRole: null,
+    thinkingLevel: null,
+    configuredThinkingLevel: null,
+    activity: null,
+    errorMessage: null,
+    fallbackFrom: null,
+    fallbackTo: null,
+    fallbackRole: null,
+    resolvedModelIsFallback: null,
+    ...overrides,
+  }
+}
+
+describe("runtime event contract", () => {
+  it("applies model-change payload to the terminal tab", () => {
+    const updated = applyRuntimeEventToTab(
+      tab,
+      event({
+        kind: "modelChange",
+        model: "provider/new",
+        modelRole: "review",
+        resolvedModelIsFallback: true,
+      }),
+    )
+
+    expect(updated.currentModel).toBe("provider/new")
+    expect(updated.currentModelRole).toBe("review")
+  })
+
+  it("uses fallback metadata without treating the upstream role as a fallback marker", () => {
+    const fallback = event({
+      kind: "retryFallbackApplied",
+      model: "provider/fallback",
+      fallbackFrom: "provider/primary",
+      fallbackTo: "provider/fallback:high",
+      fallbackRole: "default",
+      activity: "thinking",
+    })
+
+    expect(runtimeEventFeedback(fallback)).toEqual({ kind: "fallback", model: "fallback" })
+    expect(applyRuntimeEventToTab(tab, fallback)).toMatchObject({
+      currentModel: "provider/fallback",
+      currentModelRole: "fallback",
+      activity: "thinking",
+    })
+    expect(fallback.fallbackRole).toBe("default")
+  })
+
+  it("preserves the exact model error for frontend feedback", () => {
+    const message = "Cloud API error (429):\n  Individual quota reached"
+    const failure = event({
+      kind: "modelError",
+      activity: "error",
+      errorMessage: message,
+    })
+
+    expect(runtimeEventFeedback(failure)).toEqual({ kind: "error", message })
+    expect(applyRuntimeEventToTab(tab, failure).activity).toBe("error")
+  })
+})
