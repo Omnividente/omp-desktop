@@ -1252,10 +1252,7 @@ fn poll_runtime_file<F, R>(
     }
 }
 
-fn runtime_event_for_emit(
-    thinking: &mut bool,
-    event: PtyRuntimeEvent,
-) -> Option<PtyRuntimeEvent> {
+fn runtime_event_for_emit(thinking: &mut bool, event: PtyRuntimeEvent) -> Option<PtyRuntimeEvent> {
     let Some(activity) = event.activity.as_deref() else {
         return Some(event);
     };
@@ -1517,27 +1514,17 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             Some(PtyRuntimeEvent {
                 terminal_id: terminal_id.to_owned(),
                 kind: PtyRuntimeEventKind::RetryFallbackApplied,
-                model: fallback_to.as_deref().map(|selector| {
-                    selector
-                        .split(':')
-                        .next()
-                        .unwrap_or(selector)
-                        .to_owned()
-                }),
+                model: fallback_to
+                    .as_deref()
+                    .map(|selector| selector.split(':').next().unwrap_or(selector).to_owned()),
                 model_role: None,
                 thinking_level: None,
                 configured_thinking_level: None,
                 activity: Some("thinking".to_owned()),
                 error_message: None,
-                fallback_from: value
-                    .get("from")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                fallback_from: value.get("from").and_then(Value::as_str).map(str::to_owned),
                 fallback_to,
-                fallback_role: value
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
+                fallback_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
                 resolved_model_is_fallback: None,
             })
         }
