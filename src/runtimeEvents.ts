@@ -2,9 +2,7 @@ import { splitSelector } from "./ModelPicker"
 import type { PtyRuntimeEvent, TerminalTab } from "./types"
 
 export type RuntimeEventFeedback =
-  | { kind: "fallback"; model: string }
-  | { kind: "error"; message: string }
-  | null
+  { kind: "fallback"; model: string } | { kind: "error"; message: string } | null
 
 export function runtimeEventFeedback(event: PtyRuntimeEvent): RuntimeEventFeedback {
   if (event.kind === "retryFallbackApplied") {
@@ -50,10 +48,7 @@ export function runtimeFeedbackDedupeKey(
   return ["runtime-error", ...scope, feedback.message].join("|")
 }
 
-export function applyRuntimeEventToTab(
-  tab: TerminalTab,
-  event: PtyRuntimeEvent,
-): TerminalTab {
+export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent): TerminalTab {
   if (tab.id !== event.terminalId) return tab
 
   return {
@@ -63,11 +58,10 @@ export function applyRuntimeEventToTab(
       event.model === null
         ? tab.currentModelRole
         : event.kind === "retryFallbackApplied"
-          ? "fallback"
+          ? (event.fallbackRole ?? event.modelRole ?? tab.currentModelRole)
           : (event.modelRole ?? "default"),
     currentThinking: event.thinkingLevel ?? tab.currentThinking,
-    currentThinkingConfigured:
-      event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
+    currentThinkingConfigured: event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
     activity: event.activity ?? tab.activity,
   }
 }

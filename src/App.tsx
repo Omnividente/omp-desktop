@@ -26,6 +26,7 @@ import {
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
 import { ClientUpdateNotice } from "./ClientUpdateNotice"
+import { IncidentCenter } from "./IncidentCenter"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
@@ -35,6 +36,15 @@ import {
   runtimeEventFeedback,
   runtimeFeedbackDedupeKey,
 } from "./runtimeEvents"
+import {
+  activeRuntimeTerminalCount,
+  applyRuntimeIncidentEvent,
+  clearResolvedRuntimeIncidents,
+  createRuntimeIncidentState,
+  endRuntimeIncidentTerminal,
+  runtimeHealthStatus,
+  type RuntimeHealthStatus,
+} from "./runtimeIncidents"
 import { SettingsPanel } from "./SettingsPanel"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
@@ -111,6 +121,13 @@ function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
+    createRuntimeIncidentState(Date.now()),
+  )
+  const [incidentCenterOpen, setIncidentCenterOpen] = useState(false)
+  const incidentCenterTriggerRef = useRef<HTMLButtonElement>(null)
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
@@ -335,6 +352,12 @@ function App() {
 
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
+      const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+      const now = Date.now()
+      setRuntimeIncidentState((current) => {
+        const next = applyRuntimeIncidentEvent(current, event, now, terminal?.label ?? null)
+        return terminal ? next : endRuntimeIncidentTerminal(next, event.terminalId, now)
+      })
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -461,6 +484,18 @@ function App() {
   const selectedSession =
     workspaceSessions.find((session) => session.id === selectedSessionId) ?? null
 
+  const runtimeStatusByTerminal = useMemo<Record<string, RuntimeHealthStatus>>(
+    () =>
+      Object.fromEntries(
+        tabs.map((tab) => [tab.id, runtimeHealthStatus(runtimeIncidentState, tab.id)]),
+      ),
+    [runtimeIncidentState, tabs],
+  )
+  const activeRuntimeTerminals = useMemo(
+    () => activeRuntimeTerminalCount(runtimeIncidentState),
+    [runtimeIncidentState],
+  )
+
   const focusTab = useCallback(
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
@@ -472,6 +507,11 @@ function App() {
     },
     [tabs],
   )
+
+  const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
+  const clearResolvedIncidents = useCallback(() => {
+    setRuntimeIncidentState((current) => clearResolvedRuntimeIncidents(current, Date.now()))
+  }, [])
 
   const selectSession = useCallback(
     (session: SessionSummary) => {
@@ -783,6 +823,9 @@ function App() {
 
   const performCloseTab = useCallback(
     (terminalId: string) => {
+      setRuntimeIncidentState((current) =>
+        endRuntimeIncidentTerminal(current, terminalId, Date.now()),
+      )
       if (pendingUpdateRestartRef.current?.updateTerminalId === terminalId) {
         pendingUpdateRestartRef.current = null
       }
@@ -931,6 +974,9 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      setRuntimeIncidentState((current) =>
+        endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
+      )
       if (completionNotifiedRef.current.has(event.terminalId)) return
       completionNotifiedRef.current.add(event.terminalId)
       pendingInitialInputRef.current.delete(event.terminalId)
@@ -1046,7 +1092,11 @@ function App() {
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}
+        incidentActiveTerminalCount={activeRuntimeTerminals}
+        incidentCenterOpen={incidentCenterOpen}
+        incidentTriggerRef={incidentCenterTriggerRef}
         language={lang}
+        onOpenIncidentCenter={() => setIncidentCenterOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
@@ -1118,12 +1168,25 @@ function App() {
           onSwitch={(tabId, model, thinking) => void switchTerminalRuntime(tabId, model, thinking)}
           onToggleTitlePin={toggleTabTitlePin}
           runtime={payload.runtime}
+          runtimeStatusByTerminal={runtimeStatusByTerminal}
           selectedSession={selectedSession}
           selectedWorkspace={selectedWorkspace}
           tabs={tabs}
           workspaceSessions={workspaceSessions}
         />
       </div>
+
+      {incidentCenterOpen && (
+        <IncidentCenter
+          incidents={runtimeIncidentState.incidents}
+          language={lang}
+          onClearResolved={clearResolvedIncidents}
+          onClose={closeIncidentCenter}
+          onFocusTerminal={focusTab}
+          returnFocusRef={incidentCenterTriggerRef}
+          tabs={tabs}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsPanel

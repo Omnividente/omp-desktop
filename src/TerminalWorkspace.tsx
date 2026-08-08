@@ -1,5 +1,6 @@
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
+import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import { SessionControls } from "./SessionControls"
 import { TerminalView } from "./TerminalView"
 import type {
@@ -20,6 +21,7 @@ interface TerminalWorkspaceProps {
   launching: string | null
   ompConfig: OmpConfigSnapshot | null
   runtime: RuntimeInfo
+  runtimeStatusByTerminal: Record<string, RuntimeHealthStatus>
   selectedSession: SessionSummary | null
   selectedWorkspace: WorkspaceSummary | null
   tabs: TerminalTab[]
@@ -45,6 +47,7 @@ export function TerminalWorkspace({
   launching,
   ompConfig,
   runtime,
+  runtimeStatusByTerminal,
   selectedSession,
   selectedWorkspace,
   tabs,
@@ -80,80 +83,100 @@ export function TerminalWorkspace({
   }
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
+  const activeRuntimeStatus = activeTab
+    ? (runtimeStatusByTerminal[activeTab.id] ?? "normal")
+    : "normal"
   return (
     <main className="main-stage">
       <div className="terminal-workspace">
         <div className="terminal-tabs">
           <div className="terminal-tabs-scroll">
-            {tabs.map((tab) => (
-              <div
-                className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity}`}
-                draggable
-                key={tab.id}
-                onDragOver={(event) => event.preventDefault()}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData("text/plain", tab.id)
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const draggedId = event.dataTransfer.getData("text/plain")
-                  if (draggedId && draggedId !== tab.id) {
-                    onReorderTabs?.(draggedId, tab.id)
-                  }
-                }}
-              >
-                <button
-                  aria-label={`${tab.label} — ${tab.activity === "thinking" ? t(language, "sessionThinkingTitle") : tab.activity === "error" ? t(language, "sessionErrorTitle") : tab.status === "running" ? t(language, "sessionOpenTitle") : t(language, "close")}`}
-                  onClick={() => onFocusTab(tab.id)}
-                  title={
-                    tab.activity === "thinking"
+            {tabs.map((tab) => {
+              const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
+              const visualStatus =
+                runtimeStatus !== "normal"
+                  ? runtimeStatus
+                  : tab.activity === "thinking"
+                    ? "thinking"
+                    : "normal"
+              const accessibleStatus =
+                runtimeStatus === "error"
+                  ? t(language, "sessionErrorTitle")
+                  : runtimeStatus === "fallback"
+                    ? t(language, "sessionFallbackTitle")
+                    : tab.activity === "thinking"
                       ? t(language, "sessionThinkingTitle")
-                      : tab.activity === "error"
-                        ? t(language, "sessionErrorTitle")
-                        : undefined
-                  }
-                  type="button"
+                      : tab.status === "running"
+                        ? t(language, "sessionOpenTitle")
+                        : t(language, "close")
+
+              return (
+                <div
+                  className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity} is-runtime-${runtimeStatus}`}
+                  draggable
+                  key={tab.id}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData("text/plain", tab.id)
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    const draggedId = event.dataTransfer.getData("text/plain")
+                    if (draggedId && draggedId !== tab.id) {
+                      onReorderTabs?.(draggedId, tab.id)
+                    }
+                  }}
                 >
-                  <span className={`status-dot is-${tab.status} is-${tab.activity}`} />
-                  <Icon name="terminal" size={14} />
-                  <span className="terminal-tab-label">{tab.label}</span>
-                  {tab.activity === "thinking" && (
-                    <span aria-live="polite" className="terminal-tab-thinking">
-                      <span className="thinking-pulse" />
-                      {t(language, "thinkingShort")}
-                    </span>
-                  )}
-                  {tab.activity === "error" && (
-                    <span aria-live="assertive" className="terminal-tab-error">
-                      {t(language, "sessionErrorShort")}
-                    </span>
-                  )}
-                </button>
-                {tab.sessionPath && (
                   <button
-                    aria-pressed={tab.pinnedTitle !== null}
-                    className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
-                    disabled={tab.switching}
-                    onClick={() => onToggleTitlePin(tab)}
-                    title={t(language, tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
+                    aria-label={`${tab.label} — ${accessibleStatus}`}
+                    onClick={() => onFocusTab(tab.id)}
+                    title={accessibleStatus}
                     type="button"
                   >
-                    <Icon name="pin" size={12} />
+                    <span className={`status-dot is-${tab.status} is-${visualStatus}`} />
+                    <Icon name="terminal" size={14} />
+                    <span className="terminal-tab-label">{tab.label}</span>
+                    {runtimeStatus === "normal" && tab.activity === "thinking" && (
+                      <span aria-live="polite" className="terminal-tab-thinking">
+                        <span className="thinking-pulse" />
+                        {t(language, "thinkingShort")}
+                      </span>
+                    )}
+                    {runtimeStatus === "error" && (
+                      <span aria-live="assertive" className="terminal-tab-error">
+                        {t(language, "sessionErrorShort")}
+                      </span>
+                    )}
+                    {runtimeStatus === "fallback" && (
+                      <span className="terminal-tab-fallback">{t(language, "fallbackActive")}</span>
+                    )}
                   </button>
-                )}
-                <button
-                  className="tab-close"
-                  disabled={tab.switching}
-                  onClick={() => onCloseTab(tab.id)}
-                  title={
-                    tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")
-                  }
-                  type="button"
-                >
-                  <Icon name="close" size={13} />
-                </button>
-              </div>
-            ))}
+                  {tab.sessionPath && (
+                    <button
+                      aria-pressed={tab.pinnedTitle !== null}
+                      className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
+                      disabled={tab.switching}
+                      onClick={() => onToggleTitlePin(tab)}
+                      title={t(language, tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
+                      type="button"
+                    >
+                      <Icon name="pin" size={12} />
+                    </button>
+                  )}
+                  <button
+                    className="tab-close"
+                    disabled={tab.switching}
+                    onClick={() => onCloseTab(tab.id)}
+                    title={
+                      tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")
+                    }
+                    type="button"
+                  >
+                    <Icon name="close" size={13} />
+                  </button>
+                </div>
+              )
+            })}
             <button
               className="new-tab-button"
               disabled={!selectedWorkspace || launching !== null}
@@ -171,6 +194,7 @@ export function TerminalWorkspace({
                 lang={language}
                 ompConfig={ompConfig}
                 onSwitch={onSwitch}
+                runtimeStatus={activeRuntimeStatus}
                 tab={activeTab}
               />
             )}
