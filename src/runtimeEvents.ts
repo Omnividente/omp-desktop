@@ -22,6 +22,33 @@ export function runtimeEventFeedback(event: PtyRuntimeEvent): RuntimeEventFeedba
   return null
 }
 
+/**
+ * Identity of a piece of runtime feedback, used to coalesce exact repeats.
+ *
+ * Retries emit the same feedback many times, but a different terminal, role,
+ * fallback edge, or failure reason is a different incident and must stay
+ * separate.
+ */
+export function runtimeFeedbackDedupeKey(
+  event: PtyRuntimeEvent,
+  feedback: NonNullable<RuntimeEventFeedback>,
+): string {
+  const scope = [event.terminalId, event.kind, event.modelRole ?? ""]
+
+  if (feedback.kind === "fallback") {
+    return [
+      "runtime-fallback",
+      ...scope,
+      event.fallbackRole ?? "",
+      event.fallbackFrom ?? "",
+      event.fallbackTo ?? event.model ?? "",
+      feedback.model,
+    ].join("|")
+  }
+
+  return ["runtime-error", ...scope, feedback.message].join("|")
+}
+
 export function applyRuntimeEventToTab(
   tab: TerminalTab,
   event: PtyRuntimeEvent,
