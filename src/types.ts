@@ -190,14 +190,27 @@ export interface PtySessionEvent {
   session: SessionSummary
 }
 
+export type PtyRuntimeEventKind =
+  | "activity"
+  | "runtimeError"
+  | "modelChange"
+  | "retryFallbackApplied"
+  | "thinkingLevelChange"
+  | "modelError"
+
 export interface PtyRuntimeEvent {
   terminalId: string
+  kind: PtyRuntimeEventKind
   model: string | null
   modelRole: string | null
   thinkingLevel: string | null
   configuredThinkingLevel: string | null
   activity: TerminalActivity | null
   errorMessage: string | null
+  fallbackFrom: string | null
+  fallbackTo: string | null
+  fallbackRole: string | null
+  resolvedModelIsFallback: boolean | null
 }
 
 export interface PtyUpdateEvent {
