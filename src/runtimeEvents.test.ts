@@ -75,6 +75,34 @@ describe("runtime event contract", () => {
     expect(fallback.fallbackRole).toBe("default")
   })
 
+  it.each([
+    ["openai/gpt-5.6:high", "openai/gpt-5.6", "gpt-5.6"],
+    ["ollama/llama3.1:8b", "ollama/llama3.1:8b", "llama3.1:8b"],
+    ["ollama/llama3.1:8b:high", "ollama/llama3.1:8b", "llama3.1:8b"],
+    [
+      "ollama/llama3.1:8b:internal",
+      "ollama/llama3.1:8b:internal",
+      "llama3.1:8b:internal",
+    ],
+  ])(
+    "keeps fallbackTo exact while applying %s as currentModel %s",
+    (fallbackTo, model, feedbackModel) => {
+      const fallback = event({
+        kind: "retryFallbackApplied",
+        model,
+        fallbackTo,
+        activity: "thinking",
+      })
+
+      expect(runtimeEventFeedback(fallback)).toEqual({
+        kind: "fallback",
+        model: feedbackModel,
+      })
+      expect(applyRuntimeEventToTab(tab, fallback).currentModel).toBe(model)
+      expect(fallback.fallbackTo).toBe(fallbackTo)
+    },
+  )
+
   it("preserves the exact model error for frontend feedback", () => {
     const message = "Cloud API error (429):\n  Individual quota reached"
     const failure = event({
