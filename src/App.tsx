@@ -30,6 +30,7 @@ import { Icon } from "./Icon"
 import { matchesSelector, splitSelector } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
+import { applyRuntimeEventToTab, runtimeEventFeedback } from "./runtimeEvents"
 import { SettingsPanel } from "./SettingsPanel"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
@@ -320,29 +321,13 @@ function App() {
 
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
-      if (event.model && event.modelRole === "fallback") {
-        const model = event.model.split("/").at(-1) ?? event.model
-        showNotice(t(lang, "fallbackSwitched").replace("{model}", model))
+      const feedback = runtimeEventFeedback(event)
+      if (feedback?.kind === "fallback") {
+        showNotice(t(lang, "fallbackSwitched").replace("{model}", feedback.model))
+      } else if (feedback?.kind === "error") {
+        showError(feedback.message)
       }
-      if (event.errorMessage) {
-        showError(event.errorMessage)
-      }
-      setTabs((current) =>
-        current.map((tab) =>
-          tab.id === event.terminalId
-            ? {
-                ...tab,
-                currentModel: event.model ?? tab.currentModel,
-                currentModelRole:
-                  event.model !== null ? (event.modelRole ?? "default") : tab.currentModelRole,
-                currentThinking: event.thinkingLevel ?? tab.currentThinking,
-                currentThinkingConfigured:
-                  event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
-                activity: event.activity ?? tab.activity,
-              }
-            : tab,
-        ),
-      )
+      setTabs((current) => current.map((tab) => applyRuntimeEventToTab(tab, event)))
     }).catch((error) => {
       if (!disposed) showError(errorMessage(error, lang))
       return null
