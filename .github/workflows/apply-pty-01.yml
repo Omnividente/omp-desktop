@@ -1,0 +1,397 @@
+name: Apply PTY-01 remote patch
+
+on:
+  push:
+    branches:
+      - fix/pty-01-fallback-model-selector
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply focused selector patch
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match in {path}, found {count}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_once(
+              "src-tauri/src/terminal.rs",
+              "fn runtime_error_message(value: &Value) -> Option<String> {",
+              """fn strip_thinking_suffix(selector: &str) -> String {
+              match selector.rsplit_once(':') {
+                  Some((base, suffix)) if THINKING_LEVELS.contains(&suffix) => base.to_owned(),
+                  _ => selector.to_owned(),
+              }
+          }
+
+          fn runtime_error_message(value: &Value) -> Option<String> {""",
+          )
+          replace_once(
+              "src-tauri/src/terminal.rs",
+              """                model: fallback_to
+                              .as_deref()
+                              .map(|selector| selector.split(':').next().unwrap_or(selector).to_owned()),""",
+              "                model: fallback_to.as_deref().map(strip_thinking_suffix),",
+          )
+          replace_once(
+              "src-tauri/src/terminal.rs",
+              """        let mut invalid_thinking = switch_request();
+                  invalid_thinking.supported_thinking.push(\"turbo\".to_owned());
+                  assert!(validate_switch_request(&invalid_thinking).is_err());
+              }
+
+              #[test]
+              fn runtime_lines_report_model_role_and_configured_thinking() {""",
+              """        let mut invalid_thinking = switch_request();
+                  invalid_thinking.supported_thinking.push(\"turbo\".to_owned());
+                  assert!(validate_switch_request(&invalid_thinking).is_err());
+              }
+
+              #[test]
+              fn retry_fallback_model_strips_only_a_known_final_thinking_suffix() {
+                  for (selector, expected_model) in [
+                      (\"openai/gpt-5.6:high\", \"openai/gpt-5.6\"),
+                      (\"ollama/llama3.1:8b\", \"ollama/llama3.1:8b\"),
+                      (\"ollama/llama3.1:8b:high\", \"ollama/llama3.1:8b\"),
+                      (\"ollama/llama3.1:8b:internal\", \"ollama/llama3.1:8b:internal\"),
+                  ] {
+                      let line = serde_json::json!({
+                          \"type\": \"retry_fallback_applied\",
+                          \"from\": \"provider/primary\",
+                          \"to\": selector,
+                          \"role\": \"default\",
+                      })
+                      .to_string();
+                      let event = runtime_event_from_line(\"terminal-1\", line.as_bytes())
+                          .expect(\"fallback event should parse\");
+
+                      assert_eq!(event.model.as_deref(), Some(expected_model), \"{selector}\");
+                      assert_eq!(event.fallback_to.as_deref(), Some(selector), \"{selector}\");
+                  }
+              }
+
+              #[test]
+              fn runtime_lines_report_model_role_and_configured_thinking() {""",
+          )
+
+          Path("src/runtimeEvents.ts").write_text(r'''import { splitSelector } from "./ModelPicker"
+          import type { PtyRuntimeEvent, TerminalTab } from "./types"
+
+          export type RuntimeEventFeedback =
+            | { kind: "fallback"; model: string }
+            | { kind: "error"; message: string }
+            | null
+
+          export function runtimeEventFeedback(event: PtyRuntimeEvent): RuntimeEventFeedback {
+            if (event.kind === "retryFallbackApplied") {
+              const selector = event.fallbackTo ?? event.model
+              if (selector) {
+                const modelSelector = splitSelector(selector).base
+                return {
+                  kind: "fallback",
+                  model: modelSelector.split("/").at(-1) ?? modelSelector,
+                }
+              }
+            }
+            if (event.errorMessage) {
+              return { kind: "error", message: event.errorMessage }
+            }
+            return null
+          }
+
+          /**
+           * Identity of a piece of runtime feedback, used to coalesce exact repeats.
+           *
+           * Retries emit the same feedback many times, but a different terminal, role,
+           * fallback edge, or failure reason is a different incident and must stay
+           * separate.
+           */
+          export function runtimeFeedbackDedupeKey(
+            event: PtyRuntimeEvent,
+            feedback: NonNullable<RuntimeEventFeedback>,
+          ): string {
+            const scope = [event.terminalId, event.kind, event.modelRole ?? ""]
+
+            if (feedback.kind === "fallback") {
+              return [
+                "runtime-fallback",
+                ...scope,
+                event.fallbackRole ?? "",
+                event.fallbackFrom ?? "",
+                event.fallbackTo ?? event.model ?? "",
+                feedback.model,
+              ].join("|")
+            }
+
+            return ["runtime-error", ...scope, feedback.message].join("|")
+          }
+
+          export function applyRuntimeEventToTab(
+            tab: TerminalTab,
+            event: PtyRuntimeEvent,
+          ): TerminalTab {
+            if (tab.id !== event.terminalId) return tab
+
+            return {
+              ...tab,
+              currentModel: event.model ?? tab.currentModel,
+              currentModelRole:
+                event.model === null
+                  ? tab.currentModelRole
+                  : event.kind === "retryFallbackApplied"
+                    ? "fallback"
+                    : (event.modelRole ?? "default"),
+              currentThinking: event.thinkingLevel ?? tab.currentThinking,
+              currentThinkingConfigured:
+                event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
+              activity: event.activity ?? tab.activity,
+            }
+          }
+          ''', encoding="utf-8")
+
+          Path("src/runtimeEvents.test.ts").write_text(r'''import { describe, expect, it } from "vitest"
+          import { applyRuntimeEventToTab, runtimeEventFeedback } from "./runtimeEvents"
+          import type { PtyRuntimeEvent, TerminalTab } from "./types"
+
+          const tab: TerminalTab = {
+            id: "terminal-1",
+            label: "Session",
+            pinnedTitle: null,
+            cwd: "/tmp/project",
+            processId: 1,
+            sessionId: "session-1",
+            sessionPath: "/tmp/session.jsonl",
+            status: "running",
+            activity: "idle",
+            exitCode: null,
+            success: null,
+            kind: "agent",
+            switching: false,
+            currentModel: "provider/primary",
+            currentModelRole: "default",
+            currentThinking: "medium",
+            currentThinkingConfigured: "medium",
+          }
+
+          function event(overrides: Partial<PtyRuntimeEvent>): PtyRuntimeEvent {
+            return {
+              terminalId: "terminal-1",
+              kind: "activity",
+              model: null,
+              modelRole: null,
+              thinkingLevel: null,
+              configuredThinkingLevel: null,
+              activity: null,
+              errorMessage: null,
+              fallbackFrom: null,
+              fallbackTo: null,
+              fallbackRole: null,
+              resolvedModelIsFallback: null,
+              ...overrides,
+            }
+          }
+
+          describe("runtime event contract", () => {
+            it("applies model-change payload to the terminal tab", () => {
+              const updated = applyRuntimeEventToTab(
+                tab,
+                event({
+                  kind: "modelChange",
+                  model: "provider/new",
+                  modelRole: "review",
+                  resolvedModelIsFallback: true,
+                }),
+              )
+
+              expect(updated.currentModel).toBe("provider/new")
+              expect(updated.currentModelRole).toBe("review")
+            })
+
+            it("uses fallback metadata without treating the upstream role as a fallback marker", () => {
+              const fallback = event({
+                kind: "retryFallbackApplied",
+                model: "provider/fallback",
+                fallbackFrom: "provider/primary",
+                fallbackTo: "provider/fallback:high",
+                fallbackRole: "default",
+                activity: "thinking",
+              })
+
+              expect(runtimeEventFeedback(fallback)).toEqual({ kind: "fallback", model: "fallback" })
+              expect(applyRuntimeEventToTab(tab, fallback)).toMatchObject({
+                currentModel: "provider/fallback",
+                currentModelRole: "fallback",
+                activity: "thinking",
+              })
+              expect(fallback.fallbackRole).toBe("default")
+            })
+
+            it.each([
+              ["openai/gpt-5.6:high", "openai/gpt-5.6", "gpt-5.6"],
+              ["ollama/llama3.1:8b", "ollama/llama3.1:8b", "llama3.1:8b"],
+              ["ollama/llama3.1:8b:high", "ollama/llama3.1:8b", "llama3.1:8b"],
+              [
+                "ollama/llama3.1:8b:internal",
+                "ollama/llama3.1:8b:internal",
+                "llama3.1:8b:internal",
+              ],
+            ])(
+              "keeps fallbackTo exact while applying %s as currentModel %s",
+              (fallbackTo, model, feedbackModel) => {
+                const fallback = event({
+                  kind: "retryFallbackApplied",
+                  model,
+                  fallbackTo,
+                  activity: "thinking",
+                })
+
+                expect(runtimeEventFeedback(fallback)).toEqual({
+                  kind: "fallback",
+                  model: feedbackModel,
+                })
+                expect(applyRuntimeEventToTab(tab, fallback).currentModel).toBe(model)
+                expect(fallback.fallbackTo).toBe(fallbackTo)
+              },
+            )
+
+            it("preserves the exact model error for frontend feedback", () => {
+              const message = "Cloud API error (429):\n  Individual quota reached"
+              const failure = event({
+                kind: "modelError",
+                activity: "error",
+                errorMessage: message,
+              })
+
+              expect(runtimeEventFeedback(failure)).toEqual({ kind: "error", message })
+              expect(applyRuntimeEventToTab(tab, failure).activity).toBe("error")
+            })
+          })
+          ''', encoding="utf-8")
+
+          Path("src/ModelPicker.test.ts").write_text(r'''import { describe, expect, it } from "vitest"
+          import {
+            matchesSelector,
+            selectorWithThinking,
+            splitSelector,
+            thinkingLevelsForModel,
+          } from "./ModelPicker"
+          import type { OmpModelInfo } from "./types"
+
+          const model: OmpModelInfo = {
+            provider: "anthropic",
+            id: "claude-sonnet-4-20250514",
+            selector: "claude-sonnet-4",
+            name: "Claude Sonnet 4",
+            available: true,
+            status: "ready",
+            detail: null,
+            thinking: ["low", "high"],
+          }
+
+          const taggedModel: OmpModelInfo = {
+            ...model,
+            provider: "ollama",
+            id: "llama3.1:8b",
+            selector: "ollama/llama3.1:8b",
+            name: "Llama 3.1 8B",
+          }
+
+          describe("splitSelector", () => {
+            it.each([
+              ["claude-sonnet-4:off", "off"],
+              ["claude-sonnet-4:HIGH", "high"],
+              ["anthropic/claude-sonnet-4-20250514:xhigh", "xhigh"],
+              ["claude-sonnet-4:auto", "auto"],
+              ["ollama/llama3.1:8b:high", "high"],
+            ])("splits the supported thinking suffix from %s", (selector, thinking) => {
+              expect(splitSelector(selector)).toEqual({
+                base: selector.slice(0, selector.lastIndexOf(":")),
+                thinking,
+              })
+            })
+
+            it("keeps an unsupported suffix as part of the selector", () => {
+              expect(splitSelector("claude-sonnet-4:turbo")).toEqual({
+                base: "claude-sonnet-4:turbo",
+                thinking: null,
+              })
+              expect(splitSelector("ollama/llama3.1:8b")).toEqual({
+                base: "ollama/llama3.1:8b",
+                thinking: null,
+              })
+              expect(splitSelector("ollama/llama3.1:8b:internal")).toEqual({
+                base: "ollama/llama3.1:8b:internal",
+                thinking: null,
+              })
+            })
+          })
+
+          describe("matchesSelector", () => {
+            it.each([
+              "claude-sonnet-4",
+              "CLAUDE-SONNET-4:HIGH",
+              "claude-sonnet-4-20250514",
+              "anthropic/claude-sonnet-4-20250514:low",
+            ])("matches the model's canonical selector or id form: %s", (selector) => {
+              expect(matchesSelector(model, selector)).toBe(true)
+            })
+
+            it("rejects another model selector", () => {
+              expect(matchesSelector(model, "anthropic/claude-opus-4")).toBe(false)
+            })
+
+            it("matches an Ollama tag with or without a final thinking suffix", () => {
+              expect(matchesSelector(taggedModel, "ollama/llama3.1:8b")).toBe(true)
+              expect(matchesSelector(taggedModel, "ollama/llama3.1:8b:high")).toBe(true)
+            })
+          })
+
+          describe("thinking selector controls", () => {
+            it("offers only the levels reported for the selected model", () => {
+              expect(thinkingLevelsForModel({ ...model, thinking: ["low", "high", "low"] })).toEqual([
+                "low",
+                "high",
+              ])
+            })
+
+            it("replaces or removes a configured thinking suffix", () => {
+              expect(selectorWithThinking("anthropic/claude-sonnet-4:low", "high")).toBe(
+                "anthropic/claude-sonnet-4:high",
+              )
+              expect(selectorWithThinking("ollama/qwen3:30b", null)).toBe("ollama/qwen3:30b")
+              expect(selectorWithThinking("ollama/llama3.1:8b", "high")).toBe(
+                "ollama/llama3.1:8b:high",
+              )
+            })
+          })
+          ''', encoding="utf-8")
+
+          Path(".github/workflows/apply-pty-01.yml").unlink()
+          PY
+
+      - name: Commit focused patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/terminal.rs src/runtimeEvents.ts src/runtimeEvents.test.ts src/ModelPicker.test.ts .github/workflows/apply-pty-01.yml
+          git commit -m "fix(runtime): preserve tagged fallback selectors (PTY-01)"
+          git push origin HEAD:fix/pty-01-fallback-model-selector
