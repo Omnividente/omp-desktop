@@ -8,11 +8,15 @@
  * - `items` never holds more than `MAX_TOASTS` entries, so a burst cannot build
  *   a hidden backlog that is replayed wave after wave once the visible toasts
  *   disappear.
- * - Exact repeats (same `dedupeKey`) coalesce into the live toast and only bump
- *   its counter. Coalescing never extends the lifetime, so a continuous stream
- *   cannot pin a permanent notification on screen.
+ * - Exact repeats (same explicit `dedupeKey`) coalesce into the live toast and
+ *   only bump its counter. Coalescing never extends the lifetime, so a
+ *   continuous stream cannot pin a permanent notification on screen.
  * - A dismissed key stays muted for `TOAST_MUTE_MS`, so neither a manual nor an
  *   automatic dismissal is undone by the events that are still arriving.
+ * - Coalescing and mute protection apply only to requests with an explicit
+ *   `dedupeKey`. Plain notice/error requests stay independent: two manual
+ *   actions with the same outcome produce two separate notifications, and the
+ *   same message may resurface immediately after a dismissal.
  */
 
 export type ToastKind = "error" | "notice"
@@ -37,10 +41,12 @@ export interface ToastRequest {
   kind: ToastKind
   message: string
   /**
-   * Identity used to coalesce exact repeats. Defaults to kind + message so two
-   * independent events never merge. Callers that know more about the source
-   * event (terminal, role, fallback edge, reason) pass a key that keeps those
-   * variants apart.
+   * Identity used to coalesce exact repeats and to mute a dismissed toast
+   * against replay. Callers that know more about the source event (terminal,
+   * role, fallback edge, reason) pass a key that keeps those variants apart.
+   * When omitted, the toast is fully independent: it never merges with other
+   * toasts and is never suppressed after a dismissal, so plain
+   * showNotice/showError keep behaving like ordinary standalone notifications.
    */
   dedupeKey?: string
 }
@@ -55,7 +61,8 @@ export interface ToastItem {
   truncated: boolean
   /** Occurrences coalesced into this toast, including the first one. */
   count: number
-  dedupeKey: string
+  /** Explicit coalescing/mute identity, or null for a standalone toast. */
+  dedupeKey: string | null
   createdAt: number
   updatedAt: number
 }
@@ -75,8 +82,12 @@ export function createToastState(): ToastState {
   return { items: [], muted: [], sequence: 0 }
 }
 
-export function toastDedupeKey(request: ToastRequest): string {
-  return request.dedupeKey ?? `${request.kind}:${request.message}`
+/**
+ * Coalescing identity of a request. Requests without an explicit key return
+ * null and skip both coalescing and mute/replay protection entirely.
+ */
+export function toastDedupeKey(request: ToastRequest): string | null {
+  return request.dedupeKey ?? null
 }
 
 /**
@@ -94,7 +105,7 @@ export function clampToastMessage(message: string): { message: string; truncated
   let text = lines.slice(0, MAX_TOAST_LINES).join("\n")
 
   if (text.length > MAX_TOAST_CHARS) {
-    text = `${text.slice(0, MAX_TOAST_CHARS).trimEnd()}\u2026`
+    text = `${text.slice(0, MAX_TOAST_CHARS).trimEnd()}…`
     truncated = true
   }
 
@@ -112,18 +123,21 @@ function isMuted(muted: MutedToastKey[], key: string, now: number): boolean {
 
 export function enqueueToast(state: ToastState, request: ToastRequest, now: number): ToastState {
   const dedupeKey = toastDedupeKey(request)
-  const liveIndex = state.items.findIndex((item) => item.dedupeKey === dedupeKey)
 
-  if (liveIndex >= 0) {
-    const live = state.items[liveIndex]
-    const items = state.items.slice()
-    items[liveIndex] = { ...live, count: live.count + 1, updatedAt: now }
-    return { ...state, items }
-  }
+  if (dedupeKey !== null) {
+    const liveIndex = state.items.findIndex((item) => item.dedupeKey === dedupeKey)
 
-  if (isMuted(state.muted, dedupeKey, now)) {
-    // Same reference on purpose: a suppressed repeat must not re-render the UI.
-    return state
+    if (liveIndex >= 0) {
+      const live = state.items[liveIndex]
+      const items = state.items.slice()
+      items[liveIndex] = { ...live, count: live.count + 1, updatedAt: now }
+      return { ...state, items }
+    }
+
+    if (isMuted(state.muted, dedupeKey, now)) {
+      // Same reference on purpose: a suppressed repeat must not re-render the UI.
+      return state
+    }
   }
 
   const sequence = state.sequence + 1
@@ -154,12 +168,21 @@ export function dismissToast(state: ToastState, id: string, now: number): ToastS
   const dismissed = state.items.find((item) => item.id === id)
   if (!dismissed) return state
 
+  const items = state.items.filter((item) => item.id !== id)
+  const dismissedKey = dismissed.dedupeKey
+
+  if (dismissedKey === null) {
+    // A standalone toast has no identity to protect, so there is nothing to
+    // mute: the same plain notice/error may resurface immediately.
+    return { items, muted: pruneMuted(state.muted, now), sequence: state.sequence }
+  }
+
   return {
-    items: state.items.filter((item) => item.id !== id),
+    items,
     muted: pruneMuted(
       [
-        ...state.muted.filter((entry) => entry.key !== dismissed.dedupeKey),
-        { key: dismissed.dedupeKey, until: now + TOAST_MUTE_MS },
+        ...state.muted.filter((entry) => entry.key !== dismissedKey),
+        { key: dismissedKey, until: now + TOAST_MUTE_MS },
       ],
       now,
     ),
@@ -169,7 +192,8 @@ export function dismissToast(state: ToastState, id: string, now: number): ToastS
 
 /**
  * Mirrors the per-toast timeout owned by the container: a toast that reached its
- * lifetime is dismissed exactly like a manual dismissal, muting included.
+ * lifetime is dismissed exactly like a manual dismissal, muting included for
+ * toasts with an explicit dedupe key.
  */
 export function expireToasts(state: ToastState, now: number): ToastState {
   return state.items

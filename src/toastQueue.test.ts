@@ -242,6 +242,60 @@ describe("dismiss and replay protection", () => {
   })
 })
 
+describe("plain toasts without a dedupeKey", () => {
+  const plainNotice: ToastRequest = { kind: "notice", message: "Session deleted" }
+
+  it("keeps two identical plain notices as independent toasts", () => {
+    let state = enqueueToast(createToastState(), plainNotice, 1_000)
+    state = enqueueToast(state, plainNotice, 1_050)
+
+    expect(state.items).toHaveLength(2)
+    expect(state.items.every((item) => item.count === 1)).toBe(true)
+  })
+
+  it("shows the same plain notice again immediately after a manual dismiss", () => {
+    let state = enqueueToast(createToastState(), plainNotice, 1_000)
+    state = dismissToast(state, state.items[0].id, 1_100)
+    expect(state.muted).toHaveLength(0)
+
+    state = enqueueToast(state, plainNotice, 1_150)
+
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0]).toMatchObject({ kind: "notice", message: "Session deleted", count: 1 })
+  })
+
+  it("shows the same plain error again immediately after expiry", () => {
+    const plainError: ToastRequest = { kind: "error", message: "Project directory is required" }
+    let state = enqueueToast(createToastState(), plainError, 0)
+
+    state = expireToasts(state, TOAST_TTL_MS)
+    expect(state.items).toHaveLength(0)
+    expect(state.muted).toHaveLength(0)
+
+    state = enqueueToast(state, plainError, TOAST_TTL_MS + 10)
+
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0].count).toBe(1)
+  })
+
+  it("still coalesces and replay-protects requests with an explicit dedupeKey", () => {
+    const request = toastFor(errorEvent)
+    let state = enqueueToast(createToastState(), request, 1_000)
+    state = enqueueToast(state, request, 1_050)
+
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0].count).toBe(2)
+
+    state = dismissToast(state, state.items[0].id, 1_100)
+    state = enqueueToast(state, request, 1_150)
+    expect(state.items).toHaveLength(0)
+
+    state = enqueueToast(state, request, 1_100 + TOAST_MUTE_MS + 1)
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0].count).toBe(1)
+  })
+})
+
 describe("independent notice and error events", () => {
   it("keeps unrelated notices and errors as separate toasts in order", () => {
     let state = createToastState()
@@ -300,7 +354,7 @@ describe("long and multi-line messages", () => {
 
   it("coalesces repeats of a long error instead of stacking them", () => {
     const message = `stream error:\n${"y".repeat(2_000)}`
-    const { state, created } = replay({ kind: "error", message }, 100)
+    const { state, created } = replay({ kind: "error", message, dedupeKey: "runtime:long" }, 100)
 
     expect(created).toBe(1)
     expect(state.items).toHaveLength(1)
