@@ -30,13 +30,23 @@ import { Icon } from "./Icon"
 import { matchesSelector, splitSelector } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
-import { applyRuntimeEventToTab, runtimeEventFeedback } from "./runtimeEvents"
+import {
+  applyRuntimeEventToTab,
+  runtimeEventFeedback,
+  runtimeFeedbackDedupeKey,
+} from "./runtimeEvents"
 import { SettingsPanel } from "./SettingsPanel"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
 import { TranscriptModal } from "./TranscriptModal"
 import { UpdateNotice } from "./UpdateNotice"
-import { ToastContainer, type ToastItem } from "./ToastContainer"
+import { ToastContainer } from "./ToastContainer"
+import {
+  createToastState,
+  dismissToast as dismissToastFromState,
+  enqueueToast,
+  type ToastRequest,
+} from "./toastQueue"
 import type {
   BootstrapPayload,
   CodexSessionSummary,
@@ -108,7 +118,7 @@ function App() {
   const readyTerminalIdsRef = useRef(new Set<string>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(true)
-  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
@@ -154,18 +164,22 @@ function App() {
   }, [])
 
   useWindowActivity(tabs, activeTabId)
-  const showError = useCallback((message: string) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    setToasts((current) => [...current, { id, kind: "error", message }])
+  const pushToast = useCallback((request: ToastRequest) => {
+    setToastState((current) => enqueueToast(current, request, Date.now()))
   }, [])
 
-  const showNotice = useCallback((message: string) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    setToasts((current) => [...current, { id, kind: "notice", message }])
-  }, [])
+  const showError = useCallback(
+    (message: string) => pushToast({ kind: "error", message }),
+    [pushToast],
+  )
+
+  const showNotice = useCallback(
+    (message: string) => pushToast({ kind: "notice", message }),
+    [pushToast],
+  )
 
   const dismissToast = useCallback((id: string) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id))
+    setToastState((current) => dismissToastFromState(current, id, Date.now()))
   }, [])
   const {
     update: clientUpdate,
@@ -322,10 +336,17 @@ function App() {
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
       const feedback = runtimeEventFeedback(event)
-      if (feedback?.kind === "fallback") {
-        showNotice(t(lang, "fallbackSwitched").replace("{model}", feedback.model))
-      } else if (feedback?.kind === "error") {
-        showError(feedback.message)
+      if (feedback) {
+        // Retries repeat the same feedback: coalesce exact repeats, but keep
+        // different terminals, roles, fallback edges, and reasons separate.
+        pushToast({
+          kind: feedback.kind === "fallback" ? "notice" : "error",
+          message:
+            feedback.kind === "fallback"
+              ? t(lang, "fallbackSwitched").replace("{model}", feedback.model)
+              : feedback.message,
+          dedupeKey: runtimeFeedbackDedupeKey(event, feedback),
+        })
       }
       setTabs((current) => current.map((tab) => applyRuntimeEventToTab(tab, event)))
     }).catch((error) => {
@@ -358,7 +379,7 @@ function App() {
       void unlistenRuntime.then((stop) => stop?.())
       void unlistenUpdate.then((stop) => stop?.())
     }
-  }, [applyPayload, lang, payload?.runtime.ompVersion, showError, showNotice])
+  }, [applyPayload, lang, payload?.runtime.ompVersion, pushToast, showError])
 
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true)
@@ -1169,7 +1190,7 @@ function App() {
         />
       )}
 
-      <ToastContainer language={lang} onDismiss={dismissToast} toasts={toasts} />
+      <ToastContainer language={lang} onDismiss={dismissToast} toasts={toastState.items} />
     </div>
   )
 }
