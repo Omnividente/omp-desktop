@@ -61,9 +61,16 @@ interface HarnessProps {
   onClearResolved: () => void
   onClose: () => void
   onFocusTerminal: (terminalId: string) => void
+  tabs?: TerminalTab[]
 }
 
-function Harness({ initialIncidents, onClearResolved, onClose, onFocusTerminal }: HarnessProps) {
+function Harness({
+  initialIncidents,
+  onClearResolved,
+  onClose,
+  onFocusTerminal,
+  tabs = [tab],
+}: HarnessProps) {
   const [incidents, setIncidents] = useState(initialIncidents)
   const [open, setOpen] = useState(true)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -89,7 +96,7 @@ function Harness({ initialIncidents, onClearResolved, onClose, onFocusTerminal }
           }}
           onFocusTerminal={onFocusTerminal}
           returnFocusRef={triggerRef}
-          tabs={[tab]}
+          tabs={tabs}
         />
       )}
     </>
@@ -123,7 +130,7 @@ describe("Runtime Incident Center modal contract", () => {
     vi.unstubAllGlobals()
   })
 
-  async function renderCenter(initialIncidents: RuntimeIncident[]) {
+  async function renderCenter(initialIncidents: RuntimeIncident[], tabs: TerminalTab[] = [tab]) {
     await act(() => {
       root.render(
         <Harness
@@ -131,6 +138,7 @@ describe("Runtime Incident Center modal contract", () => {
           onClearResolved={onClearResolved}
           onClose={onClose}
           onFocusTerminal={onFocusTerminal}
+          tabs={tabs}
         />,
       )
     })
@@ -168,6 +176,39 @@ describe("Runtime Incident Center modal contract", () => {
       }),
     )
     expect(document.activeElement).toBe(last)
+  })
+
+  it("keeps a trailing reason disclosure inside the Tab cycle", async () => {
+    await renderCenter(
+      [runtimeIncident({ reason: `Cloud API error:\n${"quota detail ".repeat(30)}` })],
+      [],
+    )
+
+    const summary = container.querySelector<HTMLElement>("summary")
+    const first = container.querySelector<HTMLButtonElement>('[aria-label="Закрыть"]')
+    summary?.focus()
+    summary?.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }),
+    )
+
+    expect(document.activeElement).toBe(first)
+  })
+
+  it("makes siblings mounted after the dialog inert and restores them on close", async () => {
+    await renderCenter([runtimeIncident()])
+    const lateSibling = document.createElement("aside")
+
+    await act(async () => {
+      container.appendChild(lateSibling)
+      await Promise.resolve()
+    })
+    expect(lateSibling.hasAttribute("inert")).toBe(true)
+    expect(lateSibling.getAttribute("aria-hidden")).toBe("true")
+
+    await act(() => container.querySelector<HTMLButtonElement>('[aria-label="Закрыть"]')?.click())
+    expect(lateSibling.hasAttribute("inert")).toBe(false)
+    expect(lateSibling.hasAttribute("aria-hidden")).toBe(false)
+    lateSibling.remove()
   })
 
   it("closes only the top dialog on Escape and restores trigger focus", async () => {

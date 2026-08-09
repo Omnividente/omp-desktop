@@ -114,7 +114,7 @@ export function applyRuntimeIncidentEvent(
     const reason = hasReason(event.errorMessage) ? event.errorMessage : null
     if (reason === null && event.activity !== "error") return state
 
-    return upsertIncident(
+    return upsertDetailedError(
       state,
       {
         terminalId: event.terminalId,
@@ -167,7 +167,8 @@ export function applyRuntimeIncidentEvent(
   if (event.kind !== "modelChange") return state
 
   const fallbackState =
-    event.resolvedModelIsFallback ?? (event.modelRole === "fallback" ? true : null)
+    event.resolvedModelIsFallback ??
+    (event.modelRole === "fallback" ? true : event.modelRole !== null ? false : null)
   if (fallbackState === true) {
     let next = resolveErrors(state, event.terminalId, "recoveredThroughFallback", now)
     const existing = findMatchingRetryFallback(next, event)
@@ -305,6 +306,51 @@ function groupingKey(incident: NewIncident): string {
     incident.fallbackTo,
     incident.reason,
   ])
+}
+
+function upsertDetailedError(
+  state: RuntimeIncidentState,
+  incident: NewIncident,
+  now: number,
+): RuntimeIncidentState {
+  const genericIndex = state.incidents.findIndex(
+    (candidate) =>
+      candidate.terminalId === incident.terminalId &&
+      candidate.status === "active" &&
+      candidate.sourceKind === "activity" &&
+      candidate.reason === null &&
+      (candidate.kind === "modelError" || candidate.kind === "runtimeError"),
+  )
+  if (genericIndex < 0) return upsertIncident(state, incident, now)
+
+  const key = groupingKey(incident)
+  const matchingDetailed = state.incidents.findIndex(
+    (candidate, index) => index !== genericIndex && candidate.groupingKey === key,
+  )
+  if (matchingDetailed >= 0) {
+    return upsertIncident(
+      {
+        ...state,
+        incidents: state.incidents.filter((_, index) => index !== genericIndex),
+      },
+      incident,
+      now,
+    )
+  }
+
+  const generic = state.incidents[genericIndex]
+  const incidents = [...state.incidents]
+  incidents[genericIndex] = {
+    ...generic,
+    ...incident,
+    groupingKey: key,
+    terminalLabel: incident.terminalLabel ?? generic.terminalLabel,
+    status: "active",
+    lastSeenAt: now,
+    resolvedAt: null,
+    resolutionReason: null,
+  }
+  return { ...state, incidents }
 }
 
 function upsertIncident(

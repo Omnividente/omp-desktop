@@ -20,7 +20,7 @@ interface IncidentCenterProps {
 
 type IncidentFilter = "active" | "all"
 const DIALOG_FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function IncidentCenter({
   incidents,
@@ -51,21 +51,34 @@ export function IncidentCenter({
     const returnFocusTarget = returnFocusRef.current
     const panel = panelRef.current
     const backdrop = panel?.parentElement
-    const backgroundElements = backdrop?.parentElement
-      ? Array.from(backdrop.parentElement.children)
-          .filter((element): element is HTMLElement => element instanceof HTMLElement)
-          .filter((element) => element !== backdrop)
-          .map((element) => ({
-            element,
-            previousAriaHidden: element.getAttribute("aria-hidden"),
-            hadInert: element.hasAttribute("inert"),
-          }))
-      : []
-
-    for (const { element } of backgroundElements) {
+    const backgroundRoot = backdrop?.parentElement
+    const backgroundElements = new Map<
+      HTMLElement,
+      { previousAriaHidden: string | null; hadInert: boolean }
+    >()
+    const makeBackgroundInert = (element: Element) => {
+      if (
+        !(element instanceof HTMLElement) ||
+        element === backdrop ||
+        backgroundElements.has(element)
+      ) {
+        return
+      }
+      backgroundElements.set(element, {
+        previousAriaHidden: element.getAttribute("aria-hidden"),
+        hadInert: element.hasAttribute("inert"),
+      })
       element.setAttribute("aria-hidden", "true")
       element.setAttribute("inert", "")
     }
+    const syncBackground = () => {
+      if (!backgroundRoot) return
+      for (const element of backgroundRoot.children) makeBackgroundInert(element)
+    }
+
+    syncBackground()
+    const backgroundObserver = backgroundRoot ? new MutationObserver(syncBackground) : null
+    if (backgroundRoot) backgroundObserver?.observe(backgroundRoot, { childList: true })
     initialFocusRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -101,7 +114,8 @@ export function IncidentCenter({
     window.addEventListener("keydown", handleKeyDown, true)
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true)
-      for (const { element, previousAriaHidden, hadInert } of backgroundElements) {
+      backgroundObserver?.disconnect()
+      for (const [element, { previousAriaHidden, hadInert }] of backgroundElements) {
         if (previousAriaHidden === null) element.removeAttribute("aria-hidden")
         else element.setAttribute("aria-hidden", previousAriaHidden)
         if (!hadInert) element.removeAttribute("inert")

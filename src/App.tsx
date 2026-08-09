@@ -1092,6 +1092,7 @@ function App() {
         closeTranscript()
         return
       }
+      if (incidentCenterOpen || settingsOpen || codexOpen || transcriptSession) return
       const target = event.target as HTMLElement | null
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return
       const modifier = event.ctrlKey || event.metaKey
@@ -1108,7 +1109,17 @@ function App() {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [activeTabId, closeTab, closeTranscript, launchSession, openFolder, transcriptSession])
+  }, [
+    activeTabId,
+    closeTab,
+    closeTranscript,
+    codexOpen,
+    incidentCenterOpen,
+    launchSession,
+    openFolder,
+    settingsOpen,
+    transcriptSession,
+  ])
 
   if (!payload) {
     return (

@@ -130,6 +130,25 @@ describe("runtime incident grouping", () => {
     expect(state.incidents[0]).toMatchObject({ kind: "modelError", count: 1 })
   })
 
+  it("upgrades a generic active error when detailed evidence arrives", () => {
+    let state = apply(
+      createRuntimeIncidentState(0),
+      runtimeEvent({ kind: "activity", activity: "error" }),
+      2_500,
+    )
+    state = apply(state, errorEvent(), 2_600)
+
+    expect(state.incidents).toHaveLength(1)
+    expect(state.incidents[0]).toMatchObject({
+      kind: "modelError",
+      sourceKind: "modelError",
+      reason: "stream error: 429 Too Many Requests",
+      count: 1,
+      firstSeenAt: 2_500,
+      lastSeenAt: 2_600,
+    })
+  })
+
   it("keeps a model error visible when its reason is blank", () => {
     const state = apply(createRuntimeIncidentState(0), errorEvent({ errorMessage: "  \n " }), 2_600)
 
@@ -221,7 +240,7 @@ describe("runtime incident transitions", () => {
       runtimeEvent({
         kind: "modelChange",
         model: "provider/unknown",
-        modelRole: "default",
+        modelRole: null,
         resolvedModelIsFallback: null,
       }),
       1_100,
@@ -234,7 +253,7 @@ describe("runtime incident transitions", () => {
         kind: "modelChange",
         model: "provider/primary",
         modelRole: "default",
-        resolvedModelIsFallback: false,
+        resolvedModelIsFallback: null,
       }),
       1_200,
     )
@@ -332,7 +351,7 @@ describe("runtime incident transitions", () => {
         kind: "modelChange",
         model: "provider/primary",
         modelRole: "default",
-        resolvedModelIsFallback: false,
+        resolvedModelIsFallback: null,
       }),
       1_100,
     )
