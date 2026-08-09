@@ -31,6 +31,7 @@ export function IncidentCenter({
 }: IncidentCenterProps) {
   const [filter, setFilter] = useState<IncidentFilter>("active")
   const initialFocusRef = useRef<HTMLButtonElement>(null)
+  const restoreTriggerFocusRef = useRef(true)
   const latestFirst = useMemo(() => runtimeIncidentsLatestFirst(incidents), [incidents])
   const visibleIncidents = useMemo(
     () =>
@@ -55,13 +56,16 @@ export function IncidentCenter({
     window.addEventListener("keydown", handleKeyDown)
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
-      window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      if (restoreTriggerFocusRef.current) {
+        window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      }
     }
   }, [onClose, returnFocusRef])
 
   const focusTerminal = (terminalId: string) => {
-    onClose()
+    restoreTriggerFocusRef.current = false
     onFocusTerminal(terminalId)
+    onClose()
   }
 
   return (

@@ -92,6 +92,21 @@ type SessionLaunchTarget = Pick<
   | "thinkingLevel"
   | "configuredThinkingLevel"
 >
+const MAX_ENDED_RUNTIME_TERMINALS = 256
+
+function rememberEndedRuntimeTerminal(terminalIds: string[], terminalId: string): void {
+  const existing = terminalIds.indexOf(terminalId)
+  if (existing >= 0) terminalIds.splice(existing, 1)
+  terminalIds.push(terminalId)
+  if (terminalIds.length > MAX_ENDED_RUNTIME_TERMINALS) {
+    terminalIds.splice(0, terminalIds.length - MAX_ENDED_RUNTIME_TERMINALS)
+  }
+}
+
+function forgetEndedRuntimeTerminal(terminalIds: string[], terminalId: string): void {
+  const existing = terminalIds.indexOf(terminalId)
+  if (existing >= 0) terminalIds.splice(existing, 1)
+}
 
 async function notifyTerminalCompletion(
   tab: TerminalTab,
@@ -128,6 +143,7 @@ function App() {
   )
   const [incidentCenterOpen, setIncidentCenterOpen] = useState(false)
   const incidentCenterTriggerRef = useRef<HTMLButtonElement>(null)
+  const endedRuntimeTerminalIdsRef = useRef<string[]>([])
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
@@ -302,6 +318,7 @@ function App() {
     let disposed = false
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
       if (disposed) return
+      forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       const { session } = event
       discoveredSessionsRef.current.set(event.terminalId, session)
       setPayload((current) => {
@@ -352,12 +369,12 @@ function App() {
 
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
+      if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
       const now = Date.now()
-      setRuntimeIncidentState((current) => {
-        const next = applyRuntimeIncidentEvent(current, event, now, terminal?.label ?? null)
-        return terminal ? next : endRuntimeIncidentTerminal(next, event.terminalId, now)
-      })
+      setRuntimeIncidentState((current) =>
+        applyRuntimeIncidentEvent(current, event, now, terminal?.label ?? null),
+      )
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -580,6 +597,7 @@ function App() {
       setLaunching(launchKey)
       try {
         const started = await startTerminal(cwd, session?.filePath ?? null)
+        forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
         const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null
         const runtimeSession = session ?? discoveredSession
         const defaultSelector =
@@ -659,6 +677,7 @@ function App() {
     setLaunching("update")
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"])
+      forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
       pendingUpdateRestartRef.current = {
         updateTerminalId: started.terminalId,
         sourceTab,
@@ -823,6 +842,7 @@ function App() {
 
   const performCloseTab = useCallback(
     (terminalId: string) => {
+      rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, terminalId, Date.now()),
       )
@@ -974,6 +994,7 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
       )
