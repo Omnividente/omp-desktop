@@ -16,6 +16,7 @@ jobs:
   validate-tag:
     name: Validate release tag
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -60,6 +61,7 @@ jobs:
       contents: write
     environment: production-release
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -155,6 +157,7 @@ jobs:
       contents: write
     environment: production-release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out release SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -172,6 +175,8 @@ jobs:
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
+          RELEASE_VERSION="$version" RELEASE_TAG="$tag" node .github/scripts/verify-release-assets.mjs release-assets
+          rm -f release-assets/release-assets-manifest.json
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";
           import { readFile, readdir, stat, writeFile } from "node:fs/promises";
@@ -196,9 +201,11 @@ jobs:
               ? "signature"
               : lower === "latest.json"
                 ? "updater-manifest"
-                : /\.nsis\.zip$|\.msi\.zip$|\.tar\.gz$/.test(lower)
-                  ? "updater-bundle"
-                  : "installer";
+                : lower.startsWith("sha256sums-")
+                  ? "checksum"
+                  : /\.nsis\.zip$|\.msi\.zip$|\.tar\.gz$/.test(lower)
+                    ? "updater-bundle"
+                    : "installer";
             assets.push({
               name,
               kind,

@@ -88,9 +88,12 @@ Verification:
 
 ```bash
 npm run build
+npm run test:release-assets
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
+
+The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Before a draft release becomes public, the release workflow verifies platform installers, updater signatures, `latest.json`, and both checksum files.
 
 Create native packages:
 
@@ -106,6 +109,7 @@ npm run tauri build
 - `src-tauri/src/settings.rs` — runtime detection and persisted local settings.
 - `src-tauri/src/resource_health.rs` — low-frequency RAM, swap, disk and direct-process sampling.
 - `src-tauri/src/lib.rs` — Tauri command surface and application lifecycle.
+- `.github/scripts/verify-release-assets.mjs` — final signed-asset and checksum publication gate.
 
 ## Privacy and security
 
