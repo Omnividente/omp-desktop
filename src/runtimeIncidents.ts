@@ -167,8 +167,7 @@ export function applyRuntimeIncidentEvent(
   if (event.kind !== "modelChange") return state
 
   const fallbackState =
-    event.resolvedModelIsFallback ??
-    (event.modelRole === "fallback" ? true : event.modelRole !== null ? false : null)
+    event.resolvedModelIsFallback ?? (event.modelRole === "fallback" ? true : null)
   if (fallbackState === true) {
     let next = resolveErrors(state, event.terminalId, "recoveredThroughFallback", now)
     const existing = findMatchingRetryFallback(next, event)
@@ -196,12 +195,14 @@ export function applyRuntimeIncidentEvent(
     return next
   }
 
+  const role = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
   if (fallbackState === false) {
-    const role = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
     return resolveFallbacks(state, event.terminalId, role, "primaryRestored", now)
   }
 
-  return state
+  if (event.modelRole === null || event.model === null) return state
+  if (findMatchingActiveFallback(state, event)) return state
+  return resolveFallbacks(state, event.terminalId, role, "primaryRestored", now)
 }
 
 export function endRuntimeIncidentTerminal(
@@ -495,32 +496,42 @@ function findMatchingRetryFallback(
   state: RuntimeIncidentState,
   event: RuntimeEvent,
 ): RuntimeIncident | null {
-  const eventRole = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
   return (
-    state.incidents.find((incident) => {
-      if (
-        incident.status !== "active" ||
-        incident.kind !== "fallback" ||
-        incident.sourceKind !== "retryFallbackApplied" ||
-        incident.terminalId !== event.terminalId
-      ) {
-        return false
-      }
-
-      const roleIsExplicit =
-        event.fallbackRole !== null || (event.modelRole !== null && event.modelRole !== "fallback")
-      const roleMatches = !roleIsExplicit || incident.role === eventRole || incident.role === null
-      const fromMatches =
-        event.fallbackFrom === null || incident.fallbackFrom === event.fallbackFrom
-      const targetMatches =
-        event.model !== null
-          ? incident.model === event.model
-          : event.fallbackTo !== null
-            ? incident.fallbackTo === event.fallbackTo
-            : true
-      return roleMatches && fromMatches && targetMatches
-    }) ?? null
+    state.incidents.find(
+      (incident) =>
+        incident.sourceKind === "retryFallbackApplied" && fallbackIncidentMatches(incident, event),
+    ) ?? null
   )
+}
+
+function findMatchingActiveFallback(
+  state: RuntimeIncidentState,
+  event: RuntimeEvent,
+): RuntimeIncident | null {
+  return state.incidents.find((incident) => fallbackIncidentMatches(incident, event)) ?? null
+}
+
+function fallbackIncidentMatches(incident: RuntimeIncident, event: RuntimeEvent): boolean {
+  if (
+    incident.status !== "active" ||
+    incident.kind !== "fallback" ||
+    incident.terminalId !== event.terminalId
+  ) {
+    return false
+  }
+
+  const eventRole = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
+  const roleIsExplicit =
+    event.fallbackRole !== null || (event.modelRole !== null && event.modelRole !== "fallback")
+  const roleMatches = !roleIsExplicit || incident.role === eventRole || incident.role === null
+  const fromMatches = event.fallbackFrom === null || incident.fallbackFrom === event.fallbackFrom
+  const targetMatches =
+    event.model !== null
+      ? incident.model === event.model
+      : event.fallbackTo !== null
+        ? incident.fallbackTo === event.fallbackTo
+        : true
+  return roleMatches && fromMatches && targetMatches
 }
 
 function normalizeFallbackRole(role: string | null): string | null {

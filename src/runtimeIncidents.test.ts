@@ -349,6 +349,19 @@ describe("runtime incident transitions", () => {
       state,
       runtimeEvent({
         kind: "modelChange",
+        model: "provider/fallback",
+        modelRole: "default",
+        resolvedModelIsFallback: null,
+      }),
+      1_050,
+    )
+    expect(state.incidents[0].status).toBe("active")
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
         model: "provider/primary",
         modelRole: "default",
         resolvedModelIsFallback: null,
@@ -377,6 +390,76 @@ describe("runtime incident transitions", () => {
 
     expect(state.incidents).toHaveLength(1)
     expect(state.incidents[0]).toMatchObject({ sourceKind: "retryFallbackApplied", count: 1 })
+  })
+
+  it("keeps retry fallback active when a matching model change omits the boolean", () => {
+    let state = apply(createRuntimeIncidentState(0), fallbackEvent(), 1_000)
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/fallback",
+        modelRole: "default",
+        resolvedModelIsFallback: null,
+      }),
+      1_100,
+    )
+
+    expect(state.incidents).toHaveLength(1)
+    expect(state.incidents[0]).toMatchObject({
+      sourceKind: "retryFallbackApplied",
+      status: "active",
+      count: 1,
+    })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: null,
+        modelRole: "default",
+        resolvedModelIsFallback: null,
+      }),
+      1_150,
+    )
+    expect(state.incidents[0].status).toBe("active")
+
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/primary",
+        modelRole: "default",
+        resolvedModelIsFallback: null,
+      }),
+      1_200,
+    )
+    expect(state.incidents[0]).toMatchObject({
+      status: "resolved",
+      resolutionReason: "primaryRestored",
+    })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("normal")
+  })
+
+  it("gives an explicit primary signal priority over a matching fallback target", () => {
+    let state = apply(createRuntimeIncidentState(0), fallbackEvent(), 1_000)
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/fallback",
+        modelRole: "default",
+        resolvedModelIsFallback: false,
+      }),
+      1_100,
+    )
+
+    expect(state.incidents[0]).toMatchObject({
+      status: "resolved",
+      resolutionReason: "primaryRestored",
+    })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("normal")
   })
 
   it("reopens a resolved exact incident on recurrence", () => {

@@ -1145,6 +1145,12 @@ struct RuntimeLineCheckpoint {
     timestamp_nanos: Option<i128>,
 }
 
+impl RuntimeLineCheckpoint {
+    fn matches(&self, other: &Self) -> bool {
+        self.timestamp_nanos == other.timestamp_nanos && self.key.matches(&other.key)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct RuntimeEventWatermark {
     timestamp_nanos: Option<i128>,
@@ -1211,6 +1217,7 @@ impl RuntimeEventWatermark {
 
 #[derive(Default)]
 struct RuntimeWatchCursor {
+    initialized: bool,
     offset: u64,
     identity: Option<RuntimeFileIdentity>,
     anchor: Vec<u8>,
@@ -1220,45 +1227,54 @@ struct RuntimeWatchCursor {
     watermark: RuntimeEventWatermark,
 }
 
+struct RuntimeFileScan {
+    file: fs::File,
+    scanned_length: u64,
+    current_length: u64,
+}
+
+struct RuntimeRecovery {
+    file: fs::File,
+    length: u64,
+    cursor: RuntimeWatchCursor,
+    filter: Option<RuntimeEventWatermark>,
+}
+
 impl RuntimeWatchCursor {
     fn at_end(path: &Path) -> Self {
-        let mut checkpoint = None;
-        let mut watermark = RuntimeEventWatermark::default();
-        let length = scan_runtime_file(path, |_, _, line| {
-            observe_runtime_line(&mut checkpoint, &mut watermark, line);
-        })
-        .or_else(|| fs::metadata(path).ok().map(|metadata| metadata.len()))
-        .unwrap_or(0);
-        let mut cursor = Self::at_offset(path, length);
-        cursor.checkpoint = checkpoint;
-        cursor.watermark = watermark;
-        cursor
+        let Ok(file) = fs::File::open(path) else {
+            return Self::default();
+        };
+        Self::baseline(file).unwrap_or_default()
     }
 
-    fn at_offset(path: &Path, offset: u64) -> Self {
-        let mut cursor = Self {
-            line: Vec::with_capacity(1024),
-            anchor: Vec::with_capacity(RUNTIME_FILE_ANCHOR),
-            ..Self::default()
-        };
-        let Ok(mut file) = fs::File::open(path) else {
-            return cursor;
-        };
-        let Ok(metadata) = file.metadata() else {
-            return cursor;
-        };
-        cursor.identity = Some(RuntimeFileIdentity::from_metadata(&metadata));
-        cursor.offset = offset.min(metadata.len());
-        let anchor_start = cursor.offset.saturating_sub(RUNTIME_FILE_ANCHOR as u64);
-        let anchor_length = (cursor.offset - anchor_start) as usize;
-        if anchor_length > 0 && file.seek(SeekFrom::Start(anchor_start)).is_ok() && {
-            cursor.anchor.resize(anchor_length, 0);
-            file.read_exact(&mut cursor.anchor).is_ok()
-        } {
-            return cursor;
+    fn baseline(file: fs::File) -> Option<Self> {
+        let mut checkpoint = None;
+        let mut watermark = RuntimeEventWatermark::default();
+        let mut scanned = scan_runtime_file(file, |_, _, line| {
+            observe_runtime_line(&mut checkpoint, &mut watermark, line);
+        })?;
+        let mut cursor = Self::at_offset(&mut scanned.file, scanned.scanned_length)?;
+        cursor.checkpoint = checkpoint;
+        cursor.watermark = watermark;
+        Some(cursor)
+    }
+
+    fn at_offset(file: &mut fs::File, offset: u64) -> Option<Self> {
+        let metadata = file.metadata().ok()?;
+        if metadata.len() < offset {
+            return None;
         }
-        cursor.anchor.clear();
-        cursor
+        Some(Self {
+            initialized: true,
+            offset,
+            identity: Some(RuntimeFileIdentity::from_metadata(&metadata)),
+            anchor: read_runtime_anchor(file, offset)?,
+            line: Vec::with_capacity(1024),
+            line_overflow: false,
+            checkpoint: None,
+            watermark: RuntimeEventWatermark::default(),
+        })
     }
 
     fn anchor_matches(&self, file: &mut fs::File) -> bool {
@@ -1280,22 +1296,35 @@ impl RuntimeWatchCursor {
     }
 
     fn record_anchor(&mut self, data: &[u8]) {
-        if data.len() >= RUNTIME_FILE_ANCHOR {
-            self.anchor.clear();
-            self.anchor
-                .extend_from_slice(&data[data.len() - RUNTIME_FILE_ANCHOR..]);
-            return;
-        }
-        let overflow = self
-            .anchor
-            .len()
-            .saturating_add(data.len())
-            .saturating_sub(RUNTIME_FILE_ANCHOR);
-        if overflow > 0 {
-            self.anchor.drain(..overflow);
-        }
-        self.anchor.extend_from_slice(data);
+        record_runtime_anchor(&mut self.anchor, data);
     }
+}
+
+fn read_runtime_anchor(file: &mut fs::File, offset: u64) -> Option<Vec<u8>> {
+    let anchor_start = offset.saturating_sub(RUNTIME_FILE_ANCHOR as u64);
+    let anchor_length = usize::try_from(offset - anchor_start).ok()?;
+    let mut anchor = vec![0_u8; anchor_length];
+    if anchor_length > 0 {
+        file.seek(SeekFrom::Start(anchor_start)).ok()?;
+        file.read_exact(&mut anchor).ok()?;
+    }
+    Some(anchor)
+}
+
+fn record_runtime_anchor(anchor: &mut Vec<u8>, data: &[u8]) {
+    if data.len() >= RUNTIME_FILE_ANCHOR {
+        anchor.clear();
+        anchor.extend_from_slice(&data[data.len() - RUNTIME_FILE_ANCHOR..]);
+        return;
+    }
+    let overflow = anchor
+        .len()
+        .saturating_add(data.len())
+        .saturating_sub(RUNTIME_FILE_ANCHOR);
+    if overflow > 0 {
+        anchor.drain(..overflow);
+    }
+    anchor.extend_from_slice(data);
 }
 
 fn runtime_line_checkpoint(line: &[u8]) -> Option<RuntimeLineCheckpoint> {
@@ -1324,26 +1353,32 @@ fn observe_runtime_line(
     *checkpoint = Some(next);
 }
 
-fn scan_runtime_file<F>(path: &Path, mut on_line: F) -> Option<u64>
+fn scan_runtime_file<F>(mut file: fs::File, mut on_line: F) -> Option<RuntimeFileScan>
 where
     F: FnMut(u64, u64, &[u8]),
 {
-    let mut file = fs::File::open(path).ok()?;
-    let length = file.metadata().ok()?.len();
+    let metadata = file.metadata().ok()?;
+    let identity = RuntimeFileIdentity::from_metadata(&metadata);
+    let length = metadata.len();
+    file.seek(SeekFrom::Start(0)).ok()?;
+
     let mut remaining = length;
     let mut absolute = 0_u64;
     let mut line_start = 0_u64;
     let mut line = Vec::with_capacity(1024);
     let mut line_overflow = false;
+    let mut end_anchor = Vec::with_capacity(RUNTIME_FILE_ANCHOR);
     let mut buffer = [0_u8; 8192];
     while remaining > 0 {
         let chunk = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
         let read = file.read(&mut buffer[..chunk]).ok()?;
         if read == 0 {
-            break;
+            return None;
         }
+        let data = &buffer[..read];
+        record_runtime_anchor(&mut end_anchor, data);
         remaining = remaining.saturating_sub(read as u64);
-        for byte in &buffer[..read] {
+        for byte in data {
             absolute = absolute.saturating_add(1);
             if *byte == b'\n' {
                 if !line_overflow {
@@ -1365,27 +1400,41 @@ where
     if !line_overflow && !line.is_empty() && serde_json::from_slice::<Value>(&line).is_ok() {
         on_line(line_start, absolute, &line);
     }
-    Some(absolute)
+
+    let current_metadata = file.metadata().ok()?;
+    if RuntimeFileIdentity::from_metadata(&current_metadata) != identity
+        || current_metadata.len() < length
+        || read_runtime_anchor(&mut file, length)? != end_anchor
+    {
+        return None;
+    }
+    Some(RuntimeFileScan {
+        file,
+        scanned_length: length,
+        current_length: current_metadata.len(),
+    })
 }
 
-fn recover_runtime_cursor(path: &Path, cursor: &mut RuntimeWatchCursor) {
+fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option<RuntimeRecovery> {
     let previous_checkpoint = cursor.checkpoint.clone();
     let previous_watermark = cursor.watermark.clone();
-    // Resume after the exact prior checkpoint when possible. If compaction removed it, accept
-    // only timestamped events not present at the previous high-water mark; older history becomes
-    // the new baseline instead of being replayed as fresh incidents.
+    // An exact, unique prior checkpoint is the strongest boundary. If it disappeared, is
+    // ambiguous, or appears after a timestamped unseen event, filter every candidate against the
+    // previous high-water mark. Unordered legacy rows cannot be classified and stay baseline-only.
     let mut matching_checkpoint_end = None;
+    let mut checkpoint_matches = 0_usize;
     let mut first_unseen_start = None;
     let mut baseline_checkpoint = None;
     let mut baseline_watermark = RuntimeEventWatermark::default();
-    let Some(length) = scan_runtime_file(path, |start, end, line| {
+    let mut scanned = scan_runtime_file(file, |start, end, line| {
         let Some(candidate) = runtime_line_checkpoint(line) else {
             return;
         };
         if previous_checkpoint
             .as_ref()
-            .is_some_and(|checkpoint| checkpoint.key.matches(&candidate.key))
+            .is_some_and(|checkpoint| checkpoint.matches(&candidate))
         {
+            checkpoint_matches = checkpoint_matches.saturating_add(1);
             matching_checkpoint_end = Some(end);
         }
         if first_unseen_start.is_none() && previous_watermark.is_unseen_after(&candidate) {
@@ -1393,16 +1442,30 @@ fn recover_runtime_cursor(path: &Path, cursor: &mut RuntimeWatchCursor) {
         }
         baseline_watermark.observe(&candidate);
         baseline_checkpoint = Some(candidate);
-    }) else {
-        return;
+    })?;
+
+    let exact_checkpoint_end = (checkpoint_matches == 1)
+        .then_some(matching_checkpoint_end)
+        .flatten();
+    let use_watermark = match (first_unseen_start, exact_checkpoint_end) {
+        (Some(unseen), Some(checkpoint_end)) => unseen < checkpoint_end,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let (resume_offset, filter) = if use_watermark {
+        (
+            first_unseen_start.unwrap_or(scanned.scanned_length),
+            Some(previous_watermark.clone()),
+        )
+    } else if let Some(checkpoint_end) = exact_checkpoint_end {
+        (checkpoint_end, None)
+    } else {
+        (scanned.scanned_length, None)
     };
 
-    let resume_offset = matching_checkpoint_end
-        .or(first_unseen_start)
-        .unwrap_or(length);
-    let has_unseen_tail = resume_offset < length;
-    let mut next = RuntimeWatchCursor::at_offset(path, resume_offset);
-    if has_unseen_tail {
+    let has_scanned_tail = resume_offset < scanned.scanned_length;
+    let mut next = RuntimeWatchCursor::at_offset(&mut scanned.file, resume_offset)?;
+    if has_scanned_tail {
         next.checkpoint = previous_checkpoint;
         next.watermark = previous_watermark;
     } else {
@@ -1410,13 +1473,48 @@ fn recover_runtime_cursor(path: &Path, cursor: &mut RuntimeWatchCursor) {
         next.watermark = previous_watermark;
         next.watermark.merge(&baseline_watermark);
     }
-    *cursor = next;
+    let length = scanned.file.metadata().ok()?.len();
+    if length < scanned.current_length || length < next.offset {
+        return None;
+    }
+    Some(RuntimeRecovery {
+        file: scanned.file,
+        length,
+        cursor: next,
+        filter,
+    })
+}
+
+fn process_runtime_line<F>(
+    checkpoint: &mut Option<RuntimeLineCheckpoint>,
+    watermark: &mut RuntimeEventWatermark,
+    recovery_watermark: Option<&RuntimeEventWatermark>,
+    line: &[u8],
+    on_line: &mut F,
+) where
+    F: FnMut(&[u8]),
+{
+    let candidate = runtime_line_checkpoint(line);
+    let should_emit = match recovery_watermark {
+        Some(previous) => candidate
+            .as_ref()
+            .is_some_and(|next| previous.is_unseen_after(next)),
+        None => true,
+    };
+    if let Some(next) = candidate {
+        watermark.observe(&next);
+        *checkpoint = Some(next);
+    }
+    if should_emit {
+        on_line(line);
+    }
 }
 
 fn read_runtime_tail<F>(
     file: &mut fs::File,
     length: u64,
     cursor: &mut RuntimeWatchCursor,
+    recovery_watermark: Option<&RuntimeEventWatermark>,
     on_line: &mut F,
 ) where
     F: FnMut(&[u8]),
@@ -1446,8 +1544,13 @@ fn read_runtime_tail<F>(
             ..
         } = cursor;
         feed_runtime_lines(data, line, line_overflow, |runtime_line| {
-            observe_runtime_line(checkpoint, watermark, runtime_line);
-            on_line(runtime_line);
+            process_runtime_line(
+                checkpoint,
+                watermark,
+                recovery_watermark,
+                runtime_line,
+                on_line,
+            );
         });
     }
 
@@ -1457,8 +1560,13 @@ fn read_runtime_tail<F>(
     {
         let mut completed = Vec::with_capacity(cursor.line.capacity());
         std::mem::swap(&mut completed, &mut cursor.line);
-        observe_runtime_line(&mut cursor.checkpoint, &mut cursor.watermark, &completed);
-        on_line(&completed);
+        process_runtime_line(
+            &mut cursor.checkpoint,
+            &mut cursor.watermark,
+            recovery_watermark,
+            &completed,
+            on_line,
+        );
         completed.clear();
         cursor.line = completed;
     }
@@ -1476,6 +1584,13 @@ fn poll_runtime_file<F, R>(
     let Ok(mut file) = fs::File::open(path) else {
         return;
     };
+    if !cursor.initialized {
+        if let Some(next) = RuntimeWatchCursor::baseline(file) {
+            *cursor = next;
+        }
+        return;
+    }
+
     let Ok(metadata) = file.metadata() else {
         return;
     };
@@ -1486,25 +1601,20 @@ fn poll_runtime_file<F, R>(
         || !cursor.anchor_matches(&mut file);
     if reset {
         on_reset();
-        recover_runtime_cursor(path, cursor);
-        let Ok(mut recovered_file) = fs::File::open(path) else {
+        let Some(recovery) = recover_runtime_cursor(file, cursor) else {
             return;
         };
-        let Ok(recovered_metadata) = recovered_file.metadata() else {
-            return;
-        };
-        read_runtime_tail(
-            &mut recovered_file,
-            recovered_metadata.len(),
-            cursor,
-            &mut on_line,
-        );
+        let RuntimeRecovery {
+            mut file,
+            length,
+            cursor: next,
+            filter,
+        } = recovery;
+        *cursor = next;
+        read_runtime_tail(&mut file, length, cursor, filter.as_ref(), &mut on_line);
         return;
     }
-    if cursor.identity.is_none() {
-        cursor.identity = Some(identity);
-    }
-    read_runtime_tail(&mut file, length, cursor, &mut on_line);
+    read_runtime_tail(&mut file, length, cursor, None, &mut on_line);
 }
 
 fn runtime_event_for_emit(thinking: &mut bool, event: PtyRuntimeEvent) -> Option<PtyRuntimeEvent> {
@@ -2365,10 +2475,11 @@ mod tests {
     use super::{
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
-        poll_runtime_file, receive_ready_output_batch, receive_timed_output_batch,
-        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line, thinking_cycle,
-        validate_switch_request, PtyExitEvent, PtyRuntimeEventKind, RuntimeWatchCursor,
-        SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
+        receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
+        runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
+        PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
         PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
@@ -2782,6 +2893,44 @@ mod tests {
     }
 
     #[test]
+    fn runtime_watcher_baselines_history_after_transient_absence() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-absent-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut events = Vec::new();
+
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"error-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}\n",
+        )
+        .expect("late historical fixture should be writable");
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+        assert!(events.is_empty());
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("late historical fixture should be appendable");
+        file.write_all(
+            b"{\"type\":\"message\",\"id\":\"user-2\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("live activity should be appendable");
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+        fs::remove_file(&path).expect("late historical fixture should be removable");
+
+        assert_eq!(events.len(), 1);
+        let event =
+            runtime_event_from_line("terminal-1", &events[0]).expect("live activity should parse");
+        assert_eq!(event.activity.as_deref(), Some("thinking"));
+    }
+
+    #[test]
     fn runtime_watcher_catches_up_events_after_rewrite() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -2871,7 +3020,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_watcher_filters_history_and_keeps_new_detailed_errors() {
+    fn runtime_watcher_filters_every_watermark_recovery_line() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -2893,9 +3042,9 @@ mod tests {
         fs::write(
             &path,
             concat!(
-                "{\"type\":\"message\",\"id\":\"historical-error\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}\n",
-                "{\"type\":\"retry_fallback_applied\",\"id\":\"historical-fallback\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
-                "{\"type\":\"message\",\"id\":\"live-error\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"live failure\"}}\n"
+                "{\"type\":\"message\",\"id\":\"historical-before\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical before\"}}\n",
+                "{\"type\":\"message\",\"id\":\"live-error\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"live failure\"}}\n",
+                "{\"type\":\"retry_fallback_applied\",\"id\":\"historical-after\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n"
             ),
         )
         .expect("watermark replacement should be writable");
@@ -2916,6 +3065,182 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelError);
         assert_eq!(events[0].error_message.as_deref(), Some("live failure"));
+    }
+
+    #[test]
+    fn runtime_watcher_distinguishes_reused_ids_by_timestamp() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-reused-id-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("reused id directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("reused id baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("reused id baseline should be rotatable");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"retry_fallback_applied\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
+                "{\"type\":\"message\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n"
+            ),
+        )
+        .expect("reused id replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("reused id directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+    }
+
+    #[test]
+    fn runtime_watcher_uses_watermark_for_ambiguous_legacy_checkpoints() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-ambiguous-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("ambiguous checkpoint directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"old-user\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n"
+            ),
+        )
+        .expect("ambiguous checkpoint baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("ambiguous checkpoint baseline should be rotatable");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"live-error\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"live failure\"}}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n"
+            ),
+        )
+        .expect("ambiguous checkpoint replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("ambiguous checkpoint directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelError);
+        assert_eq!(events[0].error_message.as_deref(), Some("live failure"));
+    }
+
+    #[test]
+    fn runtime_recovery_keeps_one_open_snapshot_across_a_second_rotation() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-double-rotation-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("double rotation directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"old-user\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("double rotation baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("double rotation baseline should be rotatable");
+        fs::write(
+            &path,
+            b"{\"type\":\"retry_fallback_applied\",\"id\":\"segment-1\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
+        )
+        .expect("first replacement should be writable");
+        let held_file = fs::File::open(&path).expect("first replacement should be openable");
+        fs::rename(&path, directory.join("segment-1.jsonl"))
+            .expect("first replacement should remain rotatable while open");
+        fs::write(
+            &path,
+            b"{\"type\":\"model_change\",\"id\":\"segment-2\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"model\":\"provider/fallback\",\"role\":\"fallback\"}\n",
+        )
+        .expect("second replacement should be writable");
+
+        let RuntimeRecovery {
+            mut file,
+            length,
+            cursor: next,
+            filter,
+        } = recover_runtime_cursor(held_file, &cursor)
+            .expect("held replacement should recover as one snapshot");
+        cursor = next;
+        let mut ids = Vec::new();
+        read_runtime_tail(
+            &mut file,
+            length,
+            &mut cursor,
+            filter.as_ref(),
+            &mut |line| {
+                let value = serde_json::from_slice::<serde_json::Value>(line)
+                    .expect("recovered line should stay valid JSON");
+                ids.push(
+                    value["id"]
+                        .as_str()
+                        .expect("recovered id should exist")
+                        .to_owned(),
+                );
+            },
+        );
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                let value = serde_json::from_slice::<serde_json::Value>(line)
+                    .expect("next rotation line should stay valid JSON");
+                ids.push(
+                    value["id"]
+                        .as_str()
+                        .expect("next rotation id should exist")
+                        .to_owned(),
+                );
+            },
+        );
+        fs::remove_dir_all(&directory).expect("double rotation directory should be removable");
+
+        assert_eq!(ids, ["segment-1", "segment-2"]);
     }
 
     #[test]
