@@ -2526,15 +2526,17 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::RuntimeFileIdentity;
     use super::{
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
         poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
         receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
         runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        PtyExitEvent, PtyRuntimeEventKind, RuntimeFileIdentity, RuntimeRecovery,
-        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
