@@ -1,27 +1,24 @@
-import { Icon } from "./Icon";
-import { t } from "./i18n";
-import { SessionList, type SessionListProps } from "./SessionList";
-import type { WorkspaceSummary } from "./types";
-import { normalizedPath } from "./uiUtils";
+import { Icon } from "./Icon"
+import { t } from "./i18n"
+import { SessionList, type SessionListProps } from "./SessionList"
+import type { WorkspaceSummary } from "./types"
 
 interface ProjectRailProps {
-  workspaces: WorkspaceSummary[];
-  selectedWorkspace: WorkspaceSummary | null;
-  platform: string;
-  sessionList: SessionListProps;
-  onOpenFolder: () => void;
-  onSelectWorkspace: (path: string) => void;
+  workspaces: WorkspaceSummary[]
+  selectedWorkspace: WorkspaceSummary | null
+  sessionList: SessionListProps
+  onOpenFolder: () => void
+  onSelectWorkspace: (key: string) => void
 }
 
 export function ProjectRail({
   workspaces,
   selectedWorkspace,
-  platform,
   sessionList,
   onOpenFolder,
   onSelectWorkspace,
 }: ProjectRailProps) {
-  const { lang } = sessionList;
+  const { lang } = sessionList
   return (
     <aside className="project-rail">
       <div className="section-title">
@@ -32,16 +29,13 @@ export function ProjectRail({
       </div>
       <nav className="project-list" aria-label={t(lang, "projects")}>
         {workspaces.map((workspace) => {
-          const active = selectedWorkspace
-            ? normalizedPath(workspace.path, platform) ===
-              normalizedPath(selectedWorkspace.path, platform)
-            : false;
+          const active = selectedWorkspace?.key === workspace.key
           return (
             <button
               aria-expanded={active}
               className={`project-item${active ? " is-active is-expanded" : ""}`}
-              key={normalizedPath(workspace.path, platform)}
-              onClick={() => onSelectWorkspace(workspace.path)}
+              key={workspace.key}
+              onClick={() => onSelectWorkspace(workspace.key)}
               title={workspace.path}
               type="button"
             >
@@ -59,7 +53,7 @@ export function ProjectRail({
               </span>
               {workspace.pinned && <span className="pin-dot" title="pinned" />}
             </button>
-          );
+          )
         })}
       </nav>
       <SessionList {...sessionList} />
@@ -73,5 +67,5 @@ export function ProjectRail({
         <small>{t(lang, "newSessionShortcut")}</small>
       </div>
     </aside>
-  );
+  )
 }

@@ -10,8 +10,9 @@ mod update;
 #[cfg(feature = "updater-e2e")]
 mod updater_e2e;
 use models::{
-    AppError, AppSettings, BootstrapPayload, CodexSessionSummary, OmpConfigSaveRequest,
-    OmpConfigSnapshot, OmpUpdateInfo, SessionTranscript, SettingsPatch, SettingsUpdate,
+    AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
+    ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, SessionTranscript, SettingsPatch,
+    SettingsSavePayload, SettingsSaveRequest, SettingsUpdate,
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
@@ -95,48 +96,86 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
     .await
 }
 
+fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
+    if let SettingsPatch::Set(value) = &update.omp_executable {
+        snapshot.omp_executable = normalize_optional(value.clone());
+    }
+    if let SettingsPatch::Set(value) = &update.session_root {
+        snapshot.session_root = normalize_optional(value.clone());
+    }
+    if let SettingsPatch::Set(Some(language)) = &update.language {
+        if let Some(language) = normalize_optional(Some(language.clone())) {
+            snapshot.language = language;
+        }
+    }
+    if let SettingsPatch::Set(value) = &update.app_font_family {
+        snapshot.app_font_family = normalize_app_font_family(value.clone());
+    }
+    if let SettingsPatch::Set(value) = &update.terminal_font_family {
+        snapshot.terminal_font_family = normalize_terminal_font_family(value.clone());
+    }
+    if let SettingsPatch::Set(value) = &update.terminal_font_size {
+        snapshot.terminal_font_size = normalize_terminal_font_size(*value);
+    }
+}
+
 #[tauri::command]
-async fn update_settings(
-    update: SettingsUpdate,
+async fn save_settings_bundle(
+    request: SettingsSaveRequest,
     app: AppHandle,
-) -> Result<BootstrapPayload, AppError> {
+) -> Result<SettingsSavePayload, AppError> {
     run_blocking(
         "сохранения настроек",
         "settings_save_failed",
         "Не удалось сохранить настройки",
         move || {
             let state = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&state)?;
-            if let SettingsPatch::Set(value) = update.omp_executable {
-                snapshot.omp_executable = normalize_optional(value);
-            }
-            if let SettingsPatch::Set(value) = update.session_root {
-                snapshot.session_root = normalize_optional(value);
-            }
-            if let SettingsPatch::Set(Some(language)) = update.language {
-                if let Some(language) = normalize_optional(Some(language)) {
-                    snapshot.language = language;
-                }
-            }
-            if let SettingsPatch::Set(value) = update.app_font_family {
-                snapshot.app_font_family = normalize_app_font_family(value);
-            }
+            let previous = settings_snapshot(&state)?;
+            let mut next = previous.clone();
+            apply_settings_update(&mut next, &request.update);
+            let provider_env = match &request.update.provider_env {
+                SettingsPatch::Set(Some(values)) => Some(values.clone()),
+                SettingsPatch::Missing | SettingsPatch::Set(None) => None,
+            };
 
-            if let SettingsPatch::Set(value) = update.terminal_font_family {
-                snapshot.terminal_font_family = normalize_terminal_font_family(value);
-            }
-            if let SettingsPatch::Set(value) = update.terminal_font_size {
-                snapshot.terminal_font_size = normalize_terminal_font_size(value);
-            }
-            if let SettingsPatch::Set(Some(provider_env)) = update.provider_env {
-                update_provider_secrets(&app, &mut snapshot, provider_env)?;
-            }
-            save_settings(&app, &snapshot)?;
-            *state
-                .0
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
-            build_bootstrap(&app, &snapshot)
+            let omp_config = if let Some(mut config) = request.omp_config {
+                if config.provider_env.is_none() {
+                    config.provider_env = provider_env;
+                }
+                Some(omp_bridge::save_config(&app, &state, next, config)?)
+            } else {
+                let credentials_changed = if let Some(values) = provider_env {
+                    update_provider_secrets(&app, &mut next, values)?;
+                    true
+                } else {
+                    false
+                };
+                settings::resolve_transaction(save_settings(&app, &next), || {
+                    let mut rollback_errors = Vec::new();
+                    if credentials_changed {
+                        if let Err(rollback_error) =
+                            settings::restore_provider_secrets(&app, &next, &previous)
+                        {
+                            rollback_errors.push(rollback_error);
+                        }
+                    }
+                    if let Err(rollback_error) = save_settings(&app, &previous) {
+                        rollback_errors.push(rollback_error);
+                    }
+                    rollback_errors
+                })?;
+                *state
+                    .0
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
+                None
+            };
+            let committed = settings_snapshot(&state)?;
+            let bootstrap = build_bootstrap(&app, &committed)?;
+            Ok(SettingsSavePayload {
+                bootstrap,
+                omp_config,
+            })
         },
     )
     .await
@@ -206,21 +245,21 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
 }
 
 #[tauri::command]
-async fn import_session(
-    path: String,
-    target_cwd: String,
+async fn import_sessions(
+    requests: Vec<ImportSessionRequest>,
     app: AppHandle,
-) -> Result<BootstrapPayload, AppError> {
+) -> Result<ImportBatchPayload, AppError> {
     run_blocking(
-        "импорта сессии",
+        "импорта сессий",
         "session_import_failed",
-        "Не удалось импортировать сессию",
+        "Не удалось импортировать сессии",
         move || {
             let settings = app.state::<SettingsState>();
             let snapshot = settings_snapshot(&settings)?;
             let root = settings::session_root(&app, &snapshot)?;
-            sessions::import_session(&path, &target_cwd, &root)?;
-            build_bootstrap(&app, &snapshot)
+            let items = sessions::import_sessions(&requests, &root);
+            let bootstrap = build_bootstrap(&app, &snapshot)?;
+            Ok(ImportBatchPayload { bootstrap, items })
         },
     )
     .await
@@ -278,23 +317,6 @@ async fn load_omp_config(
         "omp_config_load_failed",
         "Не удалось загрузить настройки OMP",
         move || omp_bridge::load_config_snapshot(&app, &snapshot),
-    )
-    .await
-}
-
-#[tauri::command]
-async fn save_omp_config(
-    request: OmpConfigSaveRequest,
-    app: AppHandle,
-) -> Result<OmpConfigSnapshot, AppError> {
-    run_blocking(
-        "сохранения настроек OMP",
-        "omp_config_save_failed",
-        "Не удалось сохранить настройки OMP",
-        move || {
-            let settings = app.state::<SettingsState>();
-            omp_bridge::save_config(&app, &settings, request)
-        },
     )
     .await
 }
@@ -374,14 +396,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             add_workspace,
-            update_settings,
+            save_settings_bundle,
             set_session_title_pin,
             delete_session,
-            import_session,
+            import_sessions,
             list_codex_sessions,
             read_session_transcript,
             load_omp_config,
-            save_omp_config,
             check_omp_update,
             terminal::start_terminal,
             terminal::switch_terminal,

@@ -33,6 +33,7 @@ export interface SessionSummary {
   title: string
   pinnedTitle: string | null
   cwd: string
+  projectKey: string
   filePath: string
   createdAt: string
   updatedAt: number
@@ -58,9 +59,11 @@ export interface SessionTranscript {
   session: SessionSummary
   entries: TranscriptEntry[]
   updatedAt: number
+  truncated: boolean
 }
 
 export interface WorkspaceSummary {
+  key: string
   path: string
   name: string
   sessionCount: number
@@ -73,6 +76,28 @@ export interface BootstrapPayload {
   runtime: RuntimeInfo
   workspaces: WorkspaceSummary[]
   sessions: SessionSummary[]
+}
+
+export type ImportMode = "skip" | "update" | "copy"
+
+export interface ImportSessionRequest {
+  path: string
+  targetCwd: string
+  mode: ImportMode
+}
+
+export type ImportItemStatus = "imported" | "updated" | "copied" | "skipped" | "failed"
+
+export interface ImportItemResult {
+  sourcePath: string
+  destinationPath: string | null
+  status: ImportItemStatus
+  message: string | null
+}
+
+export interface ImportBatchPayload {
+  bootstrap: BootstrapPayload
+  items: ImportItemResult[]
 }
 
 export interface SettingsUpdate {
@@ -143,6 +168,16 @@ export interface OmpConfigSaveRequest {
   modelFallbackEnabled?: boolean | null
   fallbackChains?: Record<string, string[]> | null
   providerEnv?: Record<string, string> | null
+}
+
+export interface SettingsSaveRequest {
+  update: SettingsUpdate
+  ompConfig: OmpConfigSaveRequest | null
+}
+
+export interface SettingsSavePayload {
+  bootstrap: BootstrapPayload
+  ompConfig: OmpConfigSnapshot | null
 }
 
 export interface OmpUpdateInfo {

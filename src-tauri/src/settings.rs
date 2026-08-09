@@ -175,6 +175,20 @@ pub fn update_provider_secrets(
     Ok(())
 }
 
+pub fn restore_provider_secrets(
+    app: &AppHandle,
+    current: &AppSettings,
+    previous: &AppSettings,
+) -> Result<(), String> {
+    secrets::replace_provider_secrets(
+        app,
+        &current.provider_env_keys,
+        &previous.provider_env,
+        &previous.provider_env_keys,
+    )?;
+    Ok(())
+}
+
 pub fn session_root(app: &AppHandle, settings: &AppSettings) -> Result<PathBuf, String> {
     if let Some(path) = settings
         .session_root
@@ -368,6 +382,26 @@ pub fn normalize_terminal_font_size(value: Option<u16>) -> u16 {
     value.unwrap_or(DEFAULT_TERMINAL_FONT_SIZE).clamp(8, 32)
 }
 
+pub fn resolve_transaction<T, F>(result: Result<T, String>, rollback: F) -> Result<T, String>
+where
+    F: FnOnce() -> Vec<String>,
+{
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let rollback_errors = rollback();
+            if rollback_errors.is_empty() {
+                Err(error)
+            } else {
+                Err(format!(
+                    "{error}; откат не завершён: {}",
+                    rollback_errors.join("; ")
+                ))
+            }
+        }
+    }
+}
+
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -409,8 +443,11 @@ fn looks_like_path(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_omp_cached, OmpResolution, OmpResolutionCache, OmpResolutionKey};
-    use std::time::Instant;
+    use super::{
+        resolve_omp_cached, resolve_transaction, OmpResolution, OmpResolutionCache,
+        OmpResolutionKey,
+    };
+    use std::{cell::Cell, time::Instant};
 
     fn resolution(executable: &str) -> OmpResolution {
         OmpResolution {
@@ -470,5 +507,33 @@ mod tests {
         );
 
         assert_eq!(value.executable, "omp-slow");
+    }
+
+    #[test]
+    fn failed_persistence_restores_credentials_and_settings() {
+        let credentials = Cell::new("new credential");
+        let settings = Cell::new("new settings");
+
+        let result = resolve_transaction::<(), _>(Err("disk write failed".to_owned()), || {
+            credentials.set("old credential");
+            settings.set("old settings");
+            Vec::new()
+        });
+
+        assert_eq!(result, Err("disk write failed".to_owned()));
+        assert_eq!(credentials.get(), "old credential");
+        assert_eq!(settings.get(), "old settings");
+    }
+
+    #[test]
+    fn rollback_failure_is_reported_with_primary_error() {
+        let result = resolve_transaction::<(), _>(Err("disk write failed".to_owned()), || {
+            vec!["credential rollback failed".to_owned()]
+        });
+
+        assert_eq!(
+            result,
+            Err("disk write failed; откат не завершён: credential rollback failed".to_owned())
+        );
     }
 }

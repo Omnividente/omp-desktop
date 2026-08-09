@@ -1,7 +1,9 @@
 use crate::{
+    diagnostics,
     models::{
-        AppSettings, BootstrapPayload, CodexSessionSummary, SessionSummary, SessionTranscript,
-        TranscriptEntry, TranscriptEntryCategory, WorkspaceSummary,
+        AppSettings, BootstrapPayload, CodexSessionSummary, ImportItemResult, ImportItemStatus,
+        ImportMode, ImportSessionRequest, SessionSummary, SessionTranscript, TranscriptEntry,
+        TranscriptEntryCategory, WorkspaceSummary,
     },
     settings::runtime_info,
 };
@@ -9,7 +11,7 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env, fs,
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
@@ -21,6 +23,13 @@ use time::OffsetDateTime;
 const TITLE_SLOT_BYTES: usize = 256;
 const CODEX_DISCOVERY_MAX_LINES: usize = 80;
 const CODEX_DISCOVERY_MAX_BYTES: usize = 256 * 1024;
+const SESSION_SUMMARY_REGION_BYTES: usize = 2 * 1024 * 1024;
+const TRANSCRIPT_PREFIX_BYTES: usize = 4 * 1024 * 1024;
+const TRANSCRIPT_TAIL_BYTES: usize = 12 * 1024 * 1024;
+const MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_IMPORT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_IMPORT_ARTIFACT_ENTRIES: usize = 10_000;
+const MAX_IMPORT_ARTIFACT_DEPTH: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SessionFileStamp {
@@ -32,6 +41,7 @@ struct SessionFileStamp {
 struct CachedSessionSummary {
     stamp: SessionFileStamp,
     summary: SessionSummary,
+    thread_names_stamp: u64,
 }
 
 static SESSION_SUMMARY_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedSessionSummary>>> =
@@ -57,16 +67,30 @@ fn session_file_stamp(path: &Path) -> Result<SessionFileStamp, String> {
     })
 }
 
+fn thread_names_stamp(thread_names: &HashMap<String, String>) -> u64 {
+    let mut entries = thread_names.iter().collect::<Vec<_>>();
+    entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+    let mut hash = 0xcbf29ce484222325_u64;
+    for (id, title) in entries {
+        for byte in id.bytes().chain(std::iter::once(0)).chain(title.bytes()) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    hash
+}
+
 fn parse_session_cached(
     path: &Path,
     thread_names: &HashMap<String, String>,
+    names_stamp: u64,
 ) -> Result<Option<SessionSummary>, String> {
     let stamp = session_file_stamp(path)?;
     if let Some(summary) = session_summary_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(path)
-        .filter(|cached| cached.stamp == stamp)
+        .filter(|cached| cached.stamp == stamp && cached.thread_names_stamp == names_stamp)
         .map(|cached| cached.summary.clone())
     {
         return Ok(Some(summary));
@@ -82,6 +106,7 @@ fn parse_session_cached(
             CachedSessionSummary {
                 stamp,
                 summary: summary.clone(),
+                thread_names_stamp: names_stamp,
             },
         );
     } else {
@@ -111,6 +136,14 @@ pub fn build_bootstrap(
 }
 
 pub fn path_key(path: &str) -> String {
+    let resolved = Path::new(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let normalized = normalize_windows_verbatim_path(resolved);
+    lexical_path_key(&normalized.to_string_lossy())
+}
+
+fn lexical_path_key(path: &str) -> String {
     let normalized = path.replace('\\', "/");
     let normalized = normalized.trim_end_matches('/');
     if cfg!(windows) {
@@ -120,11 +153,30 @@ pub fn path_key(path: &str) -> String {
     }
 }
 
+pub fn canonical_project_path(path: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(path);
+    if !candidate.is_dir() {
+        return Err(format!("Папка проекта не найдена: {}", candidate.display()));
+    }
+    candidate
+        .canonicalize()
+        .map(normalize_windows_verbatim_path)
+        .map_err(|error| {
+            format!(
+                "Не удалось определить физический путь {}: {error}",
+                candidate.display()
+            )
+        })
+}
+
 pub(crate) fn apply_session_title_pin(
     session: &mut SessionSummary,
     pins: &BTreeMap<String, String>,
 ) {
-    session.pinned_title = pins.get(&path_key(&session.file_path)).cloned();
+    session.pinned_title = pins
+        .get(&path_key(&session.file_path))
+        .or_else(|| pins.get(&lexical_path_key(&session.file_path)))
+        .cloned();
     if let Some(title) = session.pinned_title.as_ref() {
         session.title.clone_from(title);
     }
@@ -310,21 +362,34 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
     }
 }
 
-pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
-    let root = session_root.canonicalize().map_err(|error| {
-        format!(
-            "Не удалось открыть папку сессий {}: {error}",
-            session_root.display()
-        )
-    })?;
+pub fn validated_session_file(path: &str, session_root: &Path) -> Result<PathBuf, String> {
+    let root = session_root
+        .canonicalize()
+        .map(normalize_windows_verbatim_path)
+        .map_err(|error| {
+            format!(
+                "Не удалось открыть папку сессий {}: {error}",
+                session_root.display()
+            )
+        })?;
     let file = Path::new(path)
         .canonicalize()
+        .map(normalize_windows_verbatim_path)
         .map_err(|error| format!("Файл сессии не найден: {path}: {error}"))?;
     if !file.starts_with(&root)
-        || file.extension().and_then(|value| value.to_str()) != Some("jsonl")
+        || file
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case("jsonl"))
+        || !file.is_file()
     {
-        return Err("Можно удалять только JSONL-файлы из папки сессий OMP".to_owned());
+        return Err("Разрешены только JSONL-файлы из папки сессий OMP".to_owned());
     }
+    Ok(file)
+}
+
+pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
+    let file = validated_session_file(path, session_root)?;
 
     let artifact_dir = file.with_extension("");
     if let Ok(metadata) = fs::symlink_metadata(&artifact_dir) {
@@ -348,68 +413,258 @@ pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
         .map_err(|error| format!("Не удалось удалить сессию {}: {error}", file.display()))
 }
 
-pub fn import_session(path: &str, target_cwd: &str, session_root: &Path) -> Result<String, String> {
-    let source = Path::new(path);
-    if !source.is_file() {
-        return Err(format!("Файл сессии не найден: {path}"));
+pub fn import_sessions(
+    requests: &[ImportSessionRequest],
+    session_root: &Path,
+) -> Vec<ImportItemResult> {
+    requests
+        .iter()
+        .map(|request| match import_session(request, session_root) {
+            Ok(result) => result,
+            Err(message) => ImportItemResult {
+                source_path: request.path.clone(),
+                destination_path: None,
+                status: ImportItemStatus::Failed,
+                message: Some(message),
+            },
+        })
+        .collect()
+}
+
+fn import_session(
+    request: &ImportSessionRequest,
+    session_root: &Path,
+) -> Result<ImportItemResult, String> {
+    let source = validated_external_import_source(&request.path)?;
+    let target = canonical_project_path(request.target_cwd.trim())?;
+    let target_cwd = target.to_string_lossy().into_owned();
+    let bytes = read_bounded_import_source(&source)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let imported = if looks_like_codex_session(&text) {
+        import_codex_session(
+            &source,
+            &text,
+            &bytes,
+            &target_cwd,
+            session_root,
+            request.mode,
+        )?
+    } else {
+        import_omp_session(&source, &bytes, &target_cwd, session_root, request.mode)?
+    };
+    Ok(ImportItemResult {
+        source_path: request.path.clone(),
+        destination_path: Some(imported.path.to_string_lossy().into_owned()),
+        status: imported.status,
+        message: None,
+    })
+}
+
+fn import_size_error() -> String {
+    format!(
+        "Файл импорта больше поддерживаемого лимита {} MiB",
+        MAX_IMPORT_BYTES / (1024 * 1024)
+    )
+}
+
+fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(source)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", source.display()))?;
+    let metadata = file.metadata().map_err(|error| {
+        format!(
+            "Не удалось прочитать метаданные {}: {error}",
+            source.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
     }
-    let target_cwd = target_cwd.trim();
-    if target_cwd.is_empty() || !Path::new(target_cwd).is_dir() {
-        return Err(format!("Целевая папка проекта не найдена: {target_cwd}"));
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(import_size_error());
     }
 
-    let bytes = fs::read(source)
+    let (bytes, overflow) = read_import_bytes(file, MAX_IMPORT_BYTES)
         .map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
-    let text = String::from_utf8_lossy(&bytes);
-    if looks_like_codex_session(&text) {
-        import_codex_session(source, &text, target_cwd, session_root)
-    } else {
-        import_omp_session(source, &bytes, target_cwd, session_root)
+    if overflow {
+        return Err(import_size_error());
     }
+    Ok(bytes)
+}
+
+fn read_import_bytes<R: Read>(reader: R, max_bytes: u64) -> io::Result<(Vec<u8>, bool)> {
+    let mut bytes = Vec::new();
+    reader.take(max_bytes + 1).read_to_end(&mut bytes)?;
+    let overflow = bytes.len() as u64 > max_bytes;
+    if overflow {
+        bytes.truncate(max_bytes as usize);
+    }
+    Ok((bytes, overflow))
+}
+
+fn validated_external_import_source(path: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(path);
+    let metadata = fs::symlink_metadata(candidate)
+        .map_err(|error| format!("Файл сессии не найден: {path}: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(import_size_error());
+    }
+    if candidate
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("jsonl"))
+    {
+        return Err("Импортировать можно только JSONL-файл".to_owned());
+    }
+    candidate
+        .canonicalize()
+        .map(normalize_windows_verbatim_path)
+        .map_err(|error| format!("Не удалось определить путь {path}: {error}"))
+}
+
+struct TranscriptRegions {
+    prefix: Vec<u8>,
+    tail: Vec<u8>,
+    truncated: bool,
 }
 
 pub fn read_session_transcript(
     path: &str,
     session_root: &Path,
 ) -> Result<SessionTranscript, String> {
-    let root = session_root.canonicalize().map_err(|error| {
-        format!(
-            "Не удалось открыть папку сессий {}: {error}",
-            session_root.display()
-        )
-    })?;
-    let path = Path::new(path)
-        .canonicalize()
-        .map_err(|error| format!("Файл сессии не найден: {path}: {error}"))?;
-    if !path.starts_with(&root)
-        || path.extension().and_then(|extension| extension.to_str()) != Some("jsonl")
-    {
-        return Err("Можно читать только JSONL-файлы из папки сессий OMP".to_owned());
-    }
+    read_session_transcript_with_limits(
+        path,
+        session_root,
+        TRANSCRIPT_PREFIX_BYTES,
+        TRANSCRIPT_TAIL_BYTES,
+    )
+}
 
+fn read_session_transcript_with_limits(
+    path: &str,
+    session_root: &Path,
+    prefix_limit: usize,
+    tail_limit: usize,
+) -> Result<SessionTranscript, String> {
+    let path = validated_session_file(path, session_root)?;
     let session = parse_session(&path)?
         .ok_or_else(|| format!("Не удалось найти session header в {}", path.display()))?;
-    let file = fs::File::open(&path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
-    let reader = std::io::BufReader::new(file);
+    let regions = read_transcript_regions(&path, prefix_limit, tail_limit)?;
     let mut entries = Vec::new();
-
-    for (line_index, line) in std::io::BufRead::lines(reader).enumerate() {
-        let line =
-            line.map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Some(entry) = transcript_entry_from_value(&value, line_index) {
-            entries.push(entry);
-        }
-    }
+    let mut line_index = 0_usize;
+    parse_transcript_region(&regions.prefix, &mut line_index, &mut entries);
+    parse_transcript_region(&regions.tail, &mut line_index, &mut entries);
 
     Ok(SessionTranscript {
         session,
         entries,
         updated_at: modified_millis(&path),
+        truncated: regions.truncated,
     })
+}
+
+fn read_transcript_regions(
+    path: &Path,
+    prefix_limit: usize,
+    tail_limit: usize,
+) -> Result<TranscriptRegions, String> {
+    if prefix_limit == 0 || tail_limit == 0 {
+        return Err("Лимиты чтения транскрипта должны быть больше нуля".to_owned());
+    }
+    let total_limit = prefix_limit
+        .checked_add(tail_limit)
+        .ok_or_else(|| "Лимит чтения транскрипта слишком велик".to_owned())?;
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let declared_size = file
+        .metadata()
+        .map_err(|error| {
+            format!(
+                "Не удалось прочитать метаданные {}: {error}",
+                path.display()
+            )
+        })?
+        .len();
+
+    if declared_size <= total_limit as u64 {
+        let mut full = Vec::new();
+        Read::by_ref(&mut file)
+            .take(total_limit as u64 + 1)
+            .read_to_end(&mut full)
+            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        if full.len() <= total_limit {
+            return Ok(TranscriptRegions {
+                prefix: full,
+                tail: Vec::new(),
+                truncated: false,
+            });
+        }
+    }
+
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("Не удалось перейти к началу {}: {error}", path.display()))?;
+    let mut prefix = Vec::with_capacity(prefix_limit);
+    Read::by_ref(&mut file)
+        .take(prefix_limit as u64)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Не удалось прочитать начало {}: {error}", path.display()))?;
+    trim_trailing_partial_line(&mut prefix);
+
+    let current_size = file
+        .metadata()
+        .map_err(|error| format!("Не удалось обновить метаданные {}: {error}", path.display()))?
+        .len()
+        .max(declared_size);
+    file.seek(SeekFrom::Start(
+        current_size.saturating_sub(tail_limit as u64),
+    ))
+    .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
+    let mut tail = Vec::with_capacity(tail_limit);
+    Read::by_ref(&mut file)
+        .take(tail_limit as u64)
+        .read_to_end(&mut tail)
+        .map_err(|error| format!("Не удалось прочитать конец {}: {error}", path.display()))?;
+    if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
+        tail.drain(..=first_newline);
+    } else {
+        tail.clear();
+    }
+
+    Ok(TranscriptRegions {
+        prefix,
+        tail,
+        truncated: true,
+    })
+}
+
+fn trim_trailing_partial_line(bytes: &mut Vec<u8>) {
+    if bytes.last() == Some(&b'\n') {
+        return;
+    }
+    if let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+        bytes.truncate(last_newline + 1);
+    } else {
+        bytes.clear();
+    }
+}
+
+fn parse_transcript_region(
+    region: &[u8],
+    line_index: &mut usize,
+    entries: &mut Vec<TranscriptEntry>,
+) {
+    for line in region.split(|byte| *byte == b'\n') {
+        let current_index = *line_index;
+        *line_index = line_index.saturating_add(1);
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if let Some(entry) = transcript_entry_from_value(&value, current_index) {
+            entries.push(entry);
+        }
+    }
 }
 
 fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<TranscriptEntry> {
@@ -626,123 +881,683 @@ fn deduplicate_codex_sessions(mut sessions: Vec<CodexSessionSummary>) -> Vec<Cod
     sessions
 }
 
+#[derive(Debug)]
+struct ImportedSession {
+    path: PathBuf,
+    status: ImportItemStatus,
+}
+
+struct ImportDestination {
+    path: PathBuf,
+    session_id: String,
+    status: ImportItemStatus,
+    should_write: bool,
+}
+
+fn stable_import_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn import_destination(
+    session_root: &Path,
+    target_cwd: &str,
+    source_kind: &str,
+    source_id: &str,
+    mode: ImportMode,
+) -> Result<ImportDestination, String> {
+    let destination_directory = session_root.join(encode_session_dir_name(target_cwd));
+    fs::create_dir_all(&destination_directory).map_err(|error| {
+        format!(
+            "Не удалось создать {}: {error}",
+            destination_directory.display()
+        )
+    })?;
+    let import_key = stable_import_hash(format!("{source_kind}\0{source_id}").as_bytes());
+    let stem = format!("imported-{source_kind}-{import_key:016x}");
+    let primary = destination_directory.join(format!("{stem}.jsonl"));
+    let primary_exists = match fs::symlink_metadata(&primary) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(format!(
+                    "Путь назначения импорта занят посторонним объектом: {}",
+                    primary.display()
+                ));
+            }
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(format!(
+                "Не удалось проверить назначение импорта {}: {error}",
+                primary.display()
+            ))
+        }
+    };
+    if primary_exists
+        && mode != ImportMode::Copy
+        && !existing_import_matches_source(&primary, source_kind, source_id)?
+    {
+        return Err(format!(
+            "Конфликт идентификатора импорта: {} принадлежит другому источнику",
+            primary.display()
+        ));
+    }
+
+    match mode {
+        ImportMode::Skip if primary_exists => Ok(ImportDestination {
+            path: primary,
+            session_id: stem,
+            status: ImportItemStatus::Skipped,
+            should_write: false,
+        }),
+        ImportMode::Update => Ok(ImportDestination {
+            status: if primary_exists {
+                ImportItemStatus::Updated
+            } else {
+                ImportItemStatus::Imported
+            },
+            path: primary,
+            session_id: stem,
+            should_write: true,
+        }),
+        ImportMode::Copy => {
+            let mut copy_index = 1_u64;
+            loop {
+                let copy_stem = format!("{stem}-copy-{copy_index}");
+                let path = destination_directory.join(format!("{copy_stem}.jsonl"));
+                if !path.exists() {
+                    break Ok(ImportDestination {
+                        path,
+                        session_id: copy_stem,
+                        status: ImportItemStatus::Copied,
+                        should_write: true,
+                    });
+                }
+                copy_index = copy_index
+                    .checked_add(1)
+                    .ok_or_else(|| "Исчерпан диапазон имён копий импорта".to_owned())?;
+            }
+        }
+        ImportMode::Skip => Ok(ImportDestination {
+            path: primary,
+            session_id: stem,
+            status: ImportItemStatus::Imported,
+            should_write: true,
+        }),
+    }
+}
+
+fn existing_import_matches_source(
+    path: &Path,
+    source_kind: &str,
+    source_id: &str,
+) -> Result<bool, String> {
+    let file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let mut prefix = Vec::new();
+    file.take(64 * 1024)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+    for line in prefix.split(|byte| *byte == b'\n').take(16) {
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some("session") {
+            continue;
+        }
+        let direct_match = value.get("importSource").is_some_and(|source| {
+            source.get("type").and_then(Value::as_str) == Some(source_kind)
+                && source.get("id").and_then(Value::as_str) == Some(source_id)
+        });
+        let codex_match = source_kind == "codex"
+            && value.get("parentSession").and_then(Value::as_str)
+                == Some(format!("codex:{source_id}").as_str());
+        return Ok(direct_match || codex_match);
+    }
+    Ok(false)
+}
+
+#[derive(Clone, Copy)]
+struct ArtifactLimits {
+    max_bytes: u64,
+    max_entries: usize,
+    max_depth: usize,
+}
+
+struct ArtifactBudget {
+    bytes: u64,
+    entries: usize,
+}
+
+fn stage_import_artifacts(source: &Path, destination: &Path) -> Result<Option<PathBuf>, String> {
+    stage_import_artifacts_with_limits(
+        source,
+        destination,
+        ArtifactLimits {
+            max_bytes: MAX_IMPORT_ARTIFACT_BYTES,
+            max_entries: MAX_IMPORT_ARTIFACT_ENTRIES,
+            max_depth: MAX_IMPORT_ARTIFACT_DEPTH,
+        },
+    )
+}
+
+fn stage_import_artifacts_with_limits(
+    source: &Path,
+    destination: &Path,
+    limits: ArtifactLimits,
+) -> Result<Option<PathBuf>, String> {
+    let source_artifacts = source.with_extension("");
+    let metadata = match fs::symlink_metadata(&source_artifacts) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Не удалось проверить артефакты {}: {error}",
+                source_artifacts.display()
+            ))
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!(
+            "Артефакты импорта должны быть обычным каталогом: {}",
+            source_artifacts.display()
+        ));
+    }
+
+    let staging = create_import_sidecar_directory(destination, "artifacts-stage")?;
+    let mut budget = ArtifactBudget {
+        bytes: 0,
+        entries: 0,
+    };
+    if let Err(error) =
+        copy_import_artifact_directory(&source_artifacts, &staging, 0, &limits, &mut budget)
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    Ok(Some(staging))
+}
+
+fn create_import_sidecar_directory(destination: &Path, label: &str) -> Result<PathBuf, String> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let stem = destination
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("import");
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{stem}.{label}.{}.{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось создать временный каталог рядом с {}: {error}",
+                    destination.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "Не удалось создать уникальный временный каталог рядом с {}",
+        destination.display()
+    ))
+}
+
+fn unique_import_sidecar_path(destination: &Path, label: &str) -> Result<PathBuf, String> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let stem = destination
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("import");
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{stem}.{label}.{}.{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        match fs::symlink_metadata(&candidate) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(candidate),
+            Ok(_) => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось проверить временный путь {}: {error}",
+                    candidate.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "Не удалось подобрать уникальный временный путь рядом с {}",
+        destination.display()
+    ))
+}
+
+fn copy_import_artifact_directory(
+    source: &Path,
+    destination: &Path,
+    depth: usize,
+    limits: &ArtifactLimits,
+    budget: &mut ArtifactBudget,
+) -> Result<(), String> {
+    if depth > limits.max_depth {
+        return Err(format!(
+            "Артефакты импорта глубже поддерживаемого лимита {}",
+            limits.max_depth
+        ));
+    }
+    let source_metadata = fs::symlink_metadata(source)
+        .map_err(|error| format!("Не удалось проверить {}: {error}", source.display()))?;
+    if source_metadata.file_type().is_symlink() || !source_metadata.is_dir() {
+        return Err(format!(
+            "Артефакты импорта содержат ссылку или не-каталог: {}",
+            source.display()
+        ));
+    }
+    let entries = fs::read_dir(source)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+        budget.entries = budget
+            .entries
+            .checked_add(1)
+            .ok_or_else(|| "Слишком много артефактов импорта".to_owned())?;
+        if budget.entries > limits.max_entries {
+            return Err(format!(
+                "Артефактов импорта больше поддерживаемого лимита {}",
+                limits.max_entries
+            ));
+        }
+
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path)
+            .map_err(|error| format!("Не удалось проверить {}: {error}", source_path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "Артефакты импорта не могут содержать ссылки: {}",
+                source_path.display()
+            ));
+        }
+        if metadata.is_dir() {
+            fs::create_dir(&destination_path).map_err(|error| {
+                format!("Не удалось создать {}: {error}", destination_path.display())
+            })?;
+            copy_import_artifact_directory(
+                &source_path,
+                &destination_path,
+                depth + 1,
+                limits,
+                budget,
+            )?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(format!(
+                "Артефакты импорта могут содержать только обычные файлы и каталоги: {}",
+                source_path.display()
+            ));
+        }
+
+        let input = fs::File::open(&source_path)
+            .map_err(|error| format!("Не удалось открыть {}: {error}", source_path.display()))?;
+        let opened_metadata = fs::symlink_metadata(&source_path).map_err(|error| {
+            format!(
+                "Не удалось повторно проверить {}: {error}",
+                source_path.display()
+            )
+        })?;
+        if opened_metadata.file_type().is_symlink()
+            || !input
+                .metadata()
+                .map_err(|error| {
+                    format!(
+                        "Не удалось прочитать метаданные {}: {error}",
+                        source_path.display()
+                    )
+                })?
+                .is_file()
+        {
+            return Err(format!(
+                "Артефакты импорта не могут содержать ссылки: {}",
+                source_path.display()
+            ));
+        }
+        let remaining = limits.max_bytes.saturating_sub(budget.bytes);
+        if metadata.len() > remaining {
+            return Err(format!(
+                "Артефакты импорта больше поддерживаемого лимита {} MiB",
+                limits.max_bytes / (1024 * 1024)
+            ));
+        }
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination_path)
+            .map_err(|error| {
+                format!("Не удалось создать {}: {error}", destination_path.display())
+            })?;
+        let copied = io::copy(&mut input.take(remaining + 1), &mut output).map_err(|error| {
+            format!("Не удалось скопировать {}: {error}", source_path.display())
+        })?;
+        if copied > remaining {
+            return Err(format!(
+                "Артефакты импорта больше поддерживаемого лимита {} MiB",
+                limits.max_bytes / (1024 * 1024)
+            ));
+        }
+        output.sync_all().map_err(|error| {
+            format!(
+                "Не удалось сохранить {}: {error}",
+                destination_path.display()
+            )
+        })?;
+        budget.bytes += copied;
+    }
+    Ok(())
+}
+
+fn remove_import_artifacts(path: &Path) -> Result<(), String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Не удалось проверить {}: {error}", path.display())),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!(
+            "Отказ удаления постороннего объекта на пути артефактов {}",
+            path.display()
+        ));
+    }
+    fs::remove_dir_all(path)
+        .map_err(|error| format!("Не удалось удалить артефакты {}: {error}", path.display()))
+}
+
+fn commit_import(
+    destination: &Path,
+    body: &[u8],
+    staged_artifacts: Option<PathBuf>,
+) -> Result<(), String> {
+    commit_import_with(
+        destination,
+        body,
+        staged_artifacts,
+        atomic_write_file,
+        |source, target| {
+            fs::rename(source, target).map_err(|error| {
+                format!(
+                    "Не удалось переместить {} в {}: {error}",
+                    source.display(),
+                    target.display()
+                )
+            })
+        },
+    )
+}
+
+fn commit_import_with<W, R>(
+    destination: &Path,
+    body: &[u8],
+    staged_artifacts: Option<PathBuf>,
+    mut write_session: W,
+    mut rename: R,
+) -> Result<(), String>
+where
+    W: FnMut(&Path, &[u8]) -> Result<(), String>,
+    R: FnMut(&Path, &Path) -> Result<(), String>,
+{
+    // A JSONL-only update must not erase artifacts that are absent from the selected source.
+    let Some(staging) = staged_artifacts else {
+        return write_session(destination, body);
+    };
+    // Swap artifacts under reversible sibling names, then commit the JSONL last. Every failure
+    // before the JSONL write restores the prior artifact directory or reports the rollback path.
+    let target_artifacts = destination.with_extension("");
+    let existing_metadata = match fs::symlink_metadata(&target_artifacts) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!(
+                "Не удалось проверить артефакты {}: {error}",
+                target_artifacts.display()
+            ));
+        }
+    };
+    if existing_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink() || !metadata.is_dir())
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!(
+            "Нельзя заменить посторонний объект на пути артефактов {}",
+            target_artifacts.display()
+        ));
+    }
+
+    let backup = if existing_metadata.is_some() {
+        let backup = match unique_import_sidecar_path(destination, "artifacts-backup") {
+            Ok(backup) => backup,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(error);
+            }
+        };
+        if let Err(error) = rename(&target_artifacts, &backup) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        Some(backup)
+    } else {
+        None
+    };
+
+    if let Err(error) = rename(&staging, &target_artifacts) {
+        let mut rollback_errors = Vec::new();
+        if let Some(backup) = backup.as_ref() {
+            if let Err(rollback_error) = rename(backup, &target_artifacts) {
+                rollback_errors.push(rollback_error);
+            }
+        }
+        if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
+            if cleanup_error.kind() != io::ErrorKind::NotFound {
+                rollback_errors.push(format!(
+                    "Не удалось очистить {}: {cleanup_error}",
+                    staging.display()
+                ));
+            }
+        }
+        return Err(import_transaction_error(error, rollback_errors));
+    }
+
+    if let Err(error) = write_session(destination, body) {
+        let mut rollback_errors = Vec::new();
+        let moved_new_aside = match rename(&target_artifacts, &staging) {
+            Ok(()) => true,
+            Err(rollback_error) => {
+                rollback_errors.push(rollback_error);
+                false
+            }
+        };
+        if moved_new_aside {
+            if let Some(backup) = backup.as_ref() {
+                if let Err(rollback_error) = rename(backup, &target_artifacts) {
+                    rollback_errors.push(rollback_error);
+                }
+            }
+            if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
+                if cleanup_error.kind() != io::ErrorKind::NotFound {
+                    rollback_errors.push(format!(
+                        "Не удалось очистить {}: {cleanup_error}",
+                        staging.display()
+                    ));
+                }
+            }
+        }
+        return Err(import_transaction_error(error, rollback_errors));
+    }
+
+    if let Some(backup) = backup {
+        if let Err(error) = remove_import_artifacts(&backup) {
+            diagnostics::warn("session.import.cleanup", &error);
+        }
+    }
+    Ok(())
+}
+
+fn import_transaction_error(primary: String, rollback_errors: Vec<String>) -> String {
+    if rollback_errors.is_empty() {
+        primary
+    } else {
+        format!(
+            "{primary}; откат не завершён: {}",
+            rollback_errors.join("; ")
+        )
+    }
+}
+
 fn import_omp_session(
     source: &Path,
     bytes: &[u8],
     target_cwd: &str,
     session_root: &Path,
-) -> Result<String, String> {
+    mode: ImportMode,
+) -> Result<ImportedSession, String> {
     let text = String::from_utf8_lossy(bytes);
-    let mut lines = text.lines();
-    let first = lines
-        .next()
-        .ok_or_else(|| "Пустой файл сессии".to_owned())?;
-    let second = lines
-        .next()
-        .ok_or_else(|| "В файле нет session header".to_owned())?;
-
-    let mut header: Value = serde_json::from_str(second)
-        .map_err(|error| format!("Некорректный session header: {error}"))?;
-    if header.get("type").and_then(Value::as_str) != Some("session") {
-        // maybe first line is header for legacy files
-        if let Ok(legacy) = serde_json::from_str::<Value>(first) {
-            if legacy.get("type").and_then(Value::as_str) == Some("session") {
-                header = legacy;
-            } else {
-                return Err("Это не OMP session JSONL".to_owned());
+    if text.trim().is_empty() {
+        return Err("Пустой файл сессии".to_owned());
+    }
+    let mut header = None;
+    let mut title_slot = None;
+    for line in text.lines().take(12) {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        match value.get("type").and_then(Value::as_str) {
+            Some("session") if header.is_none() => header = Some(value),
+            Some("title") => {
+                title_slot = value
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
             }
-        } else {
-            return Err("Это не OMP session JSONL".to_owned());
+            _ => {}
         }
     }
-
-    header["cwd"] = Value::String(target_cwd.to_owned());
-    if header.get("id").and_then(Value::as_str).is_none() {
-        header["id"] = Value::String(format!("{:08x}", rand::random::<u32>()));
+    let mut header = header.ok_or_else(|| "В файле нет session header".to_owned())?;
+    let source_id = header
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("content-{:016x}", stable_import_hash(bytes)));
+    let destination = import_destination(session_root, target_cwd, "omp", &source_id, mode)?;
+    if !destination.should_write {
+        return Ok(ImportedSession {
+            path: destination.path,
+            status: destination.status,
+        });
     }
+
     let now = now_iso();
     let title = header
         .get("title")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .or_else(|| {
-            serde_json::from_str::<Value>(first).ok().and_then(|value| {
-                value
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-        })
+        .or(title_slot)
         .unwrap_or_else(|| "Imported session".to_owned());
+    header["id"] = Value::String(destination.session_id.clone());
+    header["cwd"] = Value::String(target_cwd.to_owned());
+    header["importSource"] = serde_json::json!({
+        "type": "omp",
+        "id": source_id.clone(),
+        "fingerprint": format!("{:016x}", stable_import_hash(bytes)),
+        "path": source.to_string_lossy(),
+    });
 
     let mut body = serialize_title_slot(&title, Some("user"), &now)?;
     body.push_str(&serde_json::to_string(&header).unwrap_or_default());
     body.push('\n');
-    for line in text.lines().skip(2) {
+    for line in text.lines() {
         if line.trim().is_empty() {
             continue;
         }
-        // skip old title/session headers if present
         if let Ok(value) = serde_json::from_str::<Value>(line) {
-            match value.get("type").and_then(Value::as_str) {
-                Some("title") | Some("session") => continue,
-                _ => {}
+            if matches!(
+                value.get("type").and_then(Value::as_str),
+                Some("title" | "session")
+            ) {
+                continue;
             }
         }
         body.push_str(line);
         body.push('\n');
     }
+    let marker = serde_json::json!({
+        "type": "custom",
+        "id": format!("{:08x}", rand::random::<u32>()),
+        "timestamp": now,
+        "customType": "omp-desktop-import",
+        "data": {
+            "sourceType": "omp",
+            "sourceId": source_id,
+            "sourcePath": source.to_string_lossy(),
+            "sourceFingerprint": format!("{:016x}", stable_import_hash(bytes)),
+        }
+    });
+    body.push_str(&serde_json::to_string(&marker).unwrap_or_default());
+    body.push('\n');
 
-    let dest_dir = session_root.join(encode_session_dir_name(target_cwd));
-    fs::create_dir_all(&dest_dir)
-        .map_err(|error| format!("Не удалось создать {}: {error}", dest_dir.display()))?;
-    let file_name = source
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("imported-session.jsonl");
-    let mut dest = dest_dir.join(file_name);
-    if dest.exists() {
-        dest = dest_dir.join(format!("imported-{}-{}", now.replace(':', "-"), file_name));
-    }
-    atomic_write_file(&dest, body.as_bytes())?;
-
-    let artifact_dir = source.with_extension("");
-    if artifact_dir.is_dir() {
-        let target_artifact = dest_dir.join(
-            dest.file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .as_ref(),
-        );
-        let mut options = fs_extra::dir::CopyOptions::new();
-        options.copy_inside = true;
-        options.overwrite = true;
-        let _ = fs_extra::dir::copy(&artifact_dir, &target_artifact, &options);
-    }
-
-    Ok(dest.to_string_lossy().into_owned())
+    let staged_artifacts = stage_import_artifacts(source, &destination.path)?;
+    commit_import(&destination.path, body.as_bytes(), staged_artifacts)?;
+    Ok(ImportedSession {
+        path: destination.path,
+        status: destination.status,
+    })
 }
 
 fn import_codex_session(
     source: &Path,
     text: &str,
+    bytes: &[u8],
     target_cwd: &str,
     session_root: &Path,
-) -> Result<String, String> {
+    mode: ImportMode,
+) -> Result<ImportedSession, String> {
     let summary = parse_codex_session(source)?
         .ok_or_else(|| "Не удалось разобрать Codex session".to_owned())?;
+    let destination = import_destination(session_root, target_cwd, "codex", &summary.id, mode)?;
+    if !destination.should_write {
+        return Ok(ImportedSession {
+            path: destination.path,
+            status: destination.status,
+        });
+    }
     let now = now_iso();
-    let session_id = format!("{:08x}{:08x}", rand::random::<u32>(), rand::random::<u32>());
     let mut body = serialize_title_slot(&summary.title, Some("user"), &now)?;
     let header = serde_json::json!({
         "type": "session",
         "version": 3,
-        "id": session_id,
+        "id": destination.session_id.clone(),
         "timestamp": summary.created_at.clone().if_empty(&now),
         "cwd": target_cwd,
         "title": summary.title,
         "titleSource": "user",
         "parentSession": format!("codex:{}", summary.id),
+        "importSource": {
+            "type": "codex",
+            "id": summary.id,
+            "fingerprint": format!("{:016x}", stable_import_hash(bytes)),
+            "path": source.to_string_lossy(),
+        },
     });
     body.push_str(&serde_json::to_string(&header).unwrap_or_default());
     body.push('\n');
@@ -866,26 +1681,23 @@ fn import_codex_session(
         "id": format!("{:08x}", rand::random::<u32>()),
         "parentId": parent,
         "timestamp": now,
-        "customType": "imported-from-codex",
+        "customType": "omp-desktop-import",
         "data": {
+            "sourceType": "codex",
             "sourcePath": source.to_string_lossy(),
             "sourceId": summary.id,
             "sourceCwd": summary.cwd,
+            "sourceFingerprint": format!("{:016x}", stable_import_hash(bytes)),
         }
     });
     body.push_str(&serde_json::to_string(&note).unwrap_or_default());
     body.push('\n');
 
-    let dest_dir = session_root.join(encode_session_dir_name(target_cwd));
-    fs::create_dir_all(&dest_dir)
-        .map_err(|error| format!("Не удалось создать {}: {error}", dest_dir.display()))?;
-    let dest = dest_dir.join(format!(
-        "{}-codex-{}.jsonl",
-        now.replace(':', "-"),
-        &session_id[..8.min(session_id.len())]
-    ));
-    atomic_write_file(&dest, body.as_bytes())?;
-    Ok(dest.to_string_lossy().into_owned())
+    commit_import(&destination.path, body.as_bytes(), None)?;
+    Ok(ImportedSession {
+        path: destination.path,
+        status: destination.status,
+    })
 }
 
 fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
@@ -901,23 +1713,23 @@ fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
 
     let mut files = Vec::new();
     collect_jsonl_files(root, 0, 3, &mut files)?;
+    let current_files = files.iter().cloned().collect::<HashSet<_>>();
     let thread_names = load_codex_thread_names();
+    let names_stamp = thread_names_stamp(&thread_names);
     let mut sessions = files
         .into_iter()
-        .filter_map(|path| parse_session_cached(&path, &thread_names).ok().flatten())
+        .filter_map(|path| {
+            parse_session_cached(&path, &thread_names, names_stamp)
+                .ok()
+                .flatten()
+        })
         .collect::<Vec<_>>();
+    session_summary_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .retain(|path, _| current_files.contains(path));
 
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-    let mut seen_empty_cwd = HashSet::new();
-    sessions.retain(|session| {
-        let is_empty = !session.has_messages
-            && (session.title == "Новая сессия" || session.title.trim().is_empty());
-        if !is_empty {
-            true
-        } else {
-            seen_empty_cwd.insert(session.cwd.clone())
-        }
-    });
     Ok(sessions)
 }
 
@@ -961,9 +1773,13 @@ fn collect_jsonl_files(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
+        let is_import_sidecar = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with('.') && name.contains(".artifacts-"));
 
         if file_type.is_dir() && depth < max_depth {
-            if !artifact_directory_names.contains(&entry.file_name()) {
+            if !is_import_sidecar && !artifact_directory_names.contains(&entry.file_name()) {
                 collect_jsonl_files(&path, depth + 1, max_depth, files)?;
             }
             continue;
@@ -992,7 +1808,8 @@ fn collect_jsonl_files(
 
 pub(crate) fn parse_session(path: &Path) -> Result<Option<SessionSummary>, String> {
     let thread_names = load_codex_thread_names();
-    parse_session_cached(path, &thread_names)
+    let names_stamp = thread_names_stamp(&thread_names);
+    parse_session_cached(path, &thread_names, names_stamp)
 }
 
 fn restorable_session_model(
@@ -1006,14 +1823,71 @@ fn restorable_session_model(
     }
 }
 
+struct SessionSummaryRegions {
+    prefix: Vec<u8>,
+    tail: Vec<u8>,
+    truncated: bool,
+}
+
+fn read_session_summary_regions(path: &Path) -> Result<SessionSummaryRegions, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let size = file
+        .metadata()
+        .map_err(|error| {
+            format!(
+                "Не удалось прочитать метаданные {}: {error}",
+                path.display()
+            )
+        })?
+        .len();
+    let full_read_limit = (SESSION_SUMMARY_REGION_BYTES * 2) as u64;
+    if size <= full_read_limit {
+        let mut prefix = Vec::with_capacity(size as usize);
+        file.read_to_end(&mut prefix)
+            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        return Ok(SessionSummaryRegions {
+            prefix,
+            tail: Vec::new(),
+            truncated: false,
+        });
+    }
+
+    let mut prefix = Vec::with_capacity(SESSION_SUMMARY_REGION_BYTES);
+    Read::by_ref(&mut file)
+        .take(SESSION_SUMMARY_REGION_BYTES as u64)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Не удалось прочитать начало {}: {error}", path.display()))?;
+    file.seek(SeekFrom::Start(
+        size.saturating_sub(SESSION_SUMMARY_REGION_BYTES as u64),
+    ))
+    .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
+    let mut tail = Vec::with_capacity(SESSION_SUMMARY_REGION_BYTES);
+    file.read_to_end(&mut tail)
+        .map_err(|error| format!("Не удалось прочитать конец {}: {error}", path.display()))?;
+    if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
+        tail.drain(..=first_newline);
+    } else {
+        tail.clear();
+    }
+    Ok(SessionSummaryRegions {
+        prefix,
+        tail,
+        truncated: true,
+    })
+}
+
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|candidate| candidate == needle)
+}
+
 fn parse_session_with_names(
     path: &Path,
     thread_names: &HashMap<String, String>,
 ) -> Result<Option<SessionSummary>, String> {
-    let file = fs::File::open(path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut line = String::with_capacity(1024);
+    let regions = read_session_summary_regions(path)?;
     let mut line_index = 0_usize;
     let mut id = None;
     let mut cwd = None;
@@ -1027,26 +1901,26 @@ fn parse_session_with_names(
     let mut configured_thinking_level = None;
     let mut has_messages = false;
 
-    loop {
-        line.clear();
-        let bytes = std::io::BufRead::read_line(&mut reader, &mut line)
-            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-        if bytes == 0 {
-            break;
+    for line in regions
+        .prefix
+        .split(|byte| *byte == b'\n')
+        .chain(regions.tail.split(|byte| *byte == b'\n'))
+    {
+        if line.is_empty() {
+            continue;
         }
-
         let parse_prefix = line_index < 12;
         line_index += 1;
         if !parse_prefix
-            && !line.contains("\"model_change\"")
-            && !line.contains("\"thinking_level_change\"")
-            && !line.contains("\"title_change\"")
-            && !line.contains("\"message\"")
+            && !bytes_contain(line, b"\"model_change\"")
+            && !bytes_contain(line, b"\"thinking_level_change\"")
+            && !bytes_contain(line, b"\"title_change\"")
+            && !bytes_contain(line, b"\"message\"")
         {
             continue;
         }
 
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
             continue;
         };
         match value.get("type").and_then(Value::as_str) {
@@ -1112,6 +1986,11 @@ fn parse_session_with_names(
             _ => {}
         }
     }
+    if regions.truncated && !has_messages {
+        // A multi-megabyte session is never hidden merely because all dialogue fell in the
+        // skipped middle region. The sidebar may over-report a service-only file, but not lose it.
+        has_messages = true;
+    }
     let model = restorable_session_model(&models, last_model_role.as_deref());
 
     let (Some(id), Some(cwd)) = (id, cwd) else {
@@ -1130,6 +2009,7 @@ fn parse_session_with_names(
             .or(indexed_title)
             .unwrap_or_else(|| "Новая сессия".to_owned()),
         pinned_title: None,
+        project_key: path_key(&cwd),
         cwd,
         file_path: path.to_string_lossy().into_owned(),
         created_at: created_at.unwrap_or_default(),
@@ -1309,9 +2189,21 @@ fn truncate_preview(value: &str) -> String {
         .collect()
 }
 fn looks_like_codex_session(text: &str) -> bool {
-    text.contains("\"type\":\"session_meta\"")
-        || text.contains("\"originator\":\"codex")
-        || text.contains("\"type\":\"turn_context\"")
+    let bytes = text.as_bytes();
+    let prefix = &bytes[..bytes.len().min(CODEX_DISCOVERY_MAX_BYTES)];
+    prefix
+        .split(|byte| *byte == b'\n')
+        .take(CODEX_DISCOVERY_MAX_LINES)
+        .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
+        .any(|value| {
+            matches!(
+                value.get("type").and_then(Value::as_str),
+                Some("session_meta" | "turn_context")
+            ) || value
+                .get("originator")
+                .and_then(Value::as_str)
+                .is_some_and(|originator| originator.starts_with("codex"))
+        })
 }
 
 fn extract_text_content(content: Option<&Value>) -> String {
@@ -1340,42 +2232,47 @@ fn build_workspaces(
     sessions: &[SessionSummary],
     recent_workspaces: &[String],
 ) -> Vec<WorkspaceSummary> {
-    let recent_rank: HashMap<String, usize> = recent_workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, path)| (path_key(path), index))
-        .collect();
+    let mut recent_rank = HashMap::<String, usize>::new();
+    for (index, path) in recent_workspaces.iter().enumerate() {
+        recent_rank.entry(path_key(path)).or_insert(index);
+    }
     let mut workspaces = HashMap::<String, WorkspaceSummary>::new();
 
     for path in recent_workspaces {
         let key = path_key(path);
-        workspaces.entry(key).or_insert_with(|| WorkspaceSummary {
-            path: path.clone(),
-            name: workspace_name(path),
-            session_count: 0,
-            last_active: 0,
-            pinned: true,
-        });
+        workspaces
+            .entry(key.clone())
+            .or_insert_with(|| WorkspaceSummary {
+                key,
+                path: path.clone(),
+                name: workspace_name(path),
+                session_count: 0,
+                last_active: 0,
+                pinned: true,
+            });
     }
 
     for session in sessions {
-        let key = path_key(&session.cwd);
-        let workspace = workspaces.entry(key).or_insert_with(|| WorkspaceSummary {
-            path: session.cwd.clone(),
-            name: workspace_name(&session.cwd),
-            session_count: 0,
-            last_active: 0,
-            pinned: false,
-        });
+        let key = session.project_key.clone();
+        let workspace = workspaces
+            .entry(key.clone())
+            .or_insert_with(|| WorkspaceSummary {
+                key,
+                path: session.cwd.clone(),
+                name: workspace_name(&session.cwd),
+                session_count: 0,
+                last_active: 0,
+                pinned: false,
+            });
         workspace.session_count += 1;
         workspace.last_active = workspace.last_active.max(session.updated_at);
-        workspace.pinned |= recent_rank.contains_key(&path_key(&workspace.path));
+        workspace.pinned |= recent_rank.contains_key(&session.project_key);
     }
 
     let mut result: Vec<_> = workspaces.into_values().collect();
     result.sort_by(|left, right| {
-        let left_rank = recent_rank.get(&path_key(&left.path)).copied();
-        let right_rank = recent_rank.get(&path_key(&right.path)).copied();
+        let left_rank = recent_rank.get(&left.key).copied();
+        let right_rank = recent_rank.get(&right.key).copied();
         match (left_rank, right_rank) {
             (Some(left), Some(right)) => left.cmp(&right),
             (Some(_), None) => std::cmp::Ordering::Less,
@@ -1545,18 +2442,23 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_session_title_pin, atomic_write_file, atomic_write_file_with, collect_jsonl_files,
-        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
-        encode_session_dir_name, import_session, parse_codex_session_with_names, parse_session,
-        parse_session_with_names, path_key, read_codex_discovery_prefix, read_session_transcript,
-        restorable_session_model, scan_sessions, serialize_title_slot, CodexSessionSummary,
+        apply_session_title_pin, atomic_write_file, atomic_write_file_with, build_workspaces,
+        collect_jsonl_files, commit_import_with, deduplicate_codex_sessions, delete_session,
+        encode_relative_session_dir_name, encode_session_dir_name, import_destination,
+        import_session, parse_codex_session_with_names, parse_session, parse_session_with_names,
+        path_key, read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
+        read_session_transcript_with_limits, restorable_session_model, scan_sessions,
+        serialize_title_slot, stage_import_artifacts_with_limits, validated_external_import_source,
+        ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
         SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
-        CODEX_DISCOVERY_MAX_LINES,
+        CODEX_DISCOVERY_MAX_LINES, MAX_IMPORT_BYTES,
     };
     use std::{
         collections::{BTreeMap, HashMap},
         fs, io,
-        time::{SystemTime, UNIX_EPOCH},
+        io::{Seek, SeekFrom, Write},
+        path::Path,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     #[test]
@@ -1566,6 +2468,42 @@ mod tests {
         assert!(key.contains("/Projects/") || key.contains("/projects/"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn path_key_resolves_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-path-key-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let alias = root.join("project-alias");
+        fs::create_dir_all(&project).expect("project fixture should be creatable");
+        symlink(&project, &alias).expect("symlink fixture should be creatable");
+
+        assert_eq!(
+            path_key(project.to_string_lossy().as_ref()),
+            path_key(alias.to_string_lossy().as_ref())
+        );
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn path_key_normalizes_case_verbatim_and_unc_forms() {
+        assert_eq!(path_key(r"\\?\C:\Work\OMP"), path_key(r"c:\work\omp\"));
+        assert_eq!(
+            path_key(r"\\?\UNC\Server\Share\Project"),
+            path_key(r"\\server\share\project\")
+        );
+    }
+
     #[test]
     fn pinned_title_overrides_dynamic_title_by_normalized_path() {
         let mut session = SessionSummary {
@@ -1573,6 +2511,7 @@ mod tests {
             title: "Dynamic activity title".to_owned(),
             pinned_title: None,
             cwd: "D:/Projects/OMP".to_owned(),
+            project_key: path_key("D:/Projects/OMP"),
             file_path: r"D:\Sessions\session.jsonl".to_owned(),
             created_at: String::new(),
             updated_at: 1,
@@ -1867,6 +2806,7 @@ mod tests {
 
         let transcript = read_session_transcript(path.to_string_lossy().as_ref(), &root)
             .expect("transcript should be readable");
+        assert!(!transcript.truncated);
         assert_eq!(transcript.session.id, "session-id");
         assert_eq!(transcript.entries.len(), 3);
         assert_eq!(transcript.entries[0].text, "First line\nSecond line");
@@ -1902,8 +2842,59 @@ mod tests {
         fs::remove_file(external).expect("external fixture should be removable");
         fs::remove_dir_all(root).expect("fixture root should be removable");
     }
+
     #[test]
-    fn scan_sessions_retains_titled_and_deduplicates_empty_untitled_sessions() {
+    fn transcript_reader_bounds_work_and_marks_the_omitted_middle() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-bounded-transcript-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = root.join("project").join("large.jsonl");
+        fs::create_dir_all(path.parent().expect("fixture parent should exist"))
+            .expect("fixture directory should be writable");
+        let mut file = fs::File::create(&path).expect("fixture should be creatable");
+        writeln!(
+            file,
+            r#"{{"type":"session","id":"bounded-session","cwd":"/tmp/project"}}"#
+        )
+        .expect("session header should be writable");
+        writeln!(
+            file,
+            r#"{{"type":"message","id":"first","message":{{"role":"user","content":"first"}}}}"#
+        )
+        .expect("first message should be writable");
+        file.write_all(&vec![b'x'; 1_200])
+            .expect("omitted middle should be writable");
+        file.write_all(b"\n")
+            .expect("middle delimiter should be writable");
+        file.write_all(&[0xff, 0xfe, b'\n'])
+            .expect("invalid UTF-8 fixture should be writable");
+        writeln!(
+            file,
+            r#"{{"type":"message","id":"latest","message":{{"role":"assistant","content":"latest"}}}}"#
+        )
+        .expect("latest message should be writable");
+        drop(file);
+
+        let transcript =
+            read_session_transcript_with_limits(path.to_string_lossy().as_ref(), &root, 512, 512)
+                .expect("bounded transcript should be readable");
+        let ids = transcript
+            .entries
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(transcript.truncated);
+        assert_eq!(ids, ["first", "latest"]);
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+    #[test]
+    fn scan_sessions_retains_every_empty_session() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -1946,7 +2937,7 @@ mod tests {
         fs::write(&titled, titled_content).expect("titled fixture should be writable");
 
         let sessions = scan_sessions(&root).expect("sessions should be scannable");
-        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions.len(), 4);
         assert!(sessions.iter().any(|s| s.title == "Real work session"));
         assert!(sessions
             .iter()
@@ -1956,13 +2947,13 @@ mod tests {
                 .iter()
                 .filter(|s| !s.has_messages && s.title == "Новая сессия")
                 .count(),
-            1
+            2
         );
 
         fs::remove_dir_all(root).expect("test root should be removable");
     }
     #[test]
-    fn scan_sessions_ignores_system_only_and_roleless_custom_messages_and_deduplicates_them() {
+    fn scan_sessions_retains_system_only_and_roleless_custom_sessions() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -2010,8 +3001,8 @@ mod tests {
         let sessions = scan_sessions(&root).expect("sessions should be scannable");
         assert_eq!(
             sessions.len(),
-            1,
-            "Multiple empty/system-only sessions must deduplicate to 1"
+            2,
+            "Session inventory must not silently hide empty entries"
         );
 
         fs::remove_dir_all(root).expect("test root should be removable");
@@ -2244,12 +3235,19 @@ mod tests {
             .trim_start_matches(r"\\?\")
             .to_owned();
 
-        let imported_path = import_session(
-            source.to_string_lossy().as_ref(),
-            &project_path,
+        let imported = import_session(
+            &ImportSessionRequest {
+                path: source.to_string_lossy().into_owned(),
+                target_cwd: project_path,
+                mode: ImportMode::Skip,
+            },
             &session_root,
         )
         .expect("Codex fixture should import");
+        assert_eq!(imported.status, ImportItemStatus::Imported);
+        let imported_path = imported
+            .destination_path
+            .expect("successful import should have a destination");
         let imported = fs::read_to_string(imported_path).expect("import should be readable");
         let assistant = imported
             .lines()
@@ -2297,5 +3295,624 @@ mod tests {
             .pointer("/message/timestamp")
             .and_then(serde_json::Value::as_u64)
             .is_some());
+    }
+    #[test]
+    fn omp_import_supports_one_line_sessions_and_explicit_repeat_modes() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-omp-import-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&project).expect("project fixture should be creatable");
+        let source_artifacts = source.with_extension("");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::write(source_artifacts.join("kept.log"), "original artifact")
+            .expect("source artifact should be writable");
+        fs::write(
+            &source,
+            concat!(
+                r#"{"type":"session","id":"source-one","timestamp":"2026-07-20T11:10:00Z","cwd":"/tmp/source"}"#,
+                "\n"
+            ),
+        )
+        .expect("source fixture should be writable");
+        let request = ImportSessionRequest {
+            path: source.to_string_lossy().into_owned(),
+            target_cwd: project.to_string_lossy().into_owned(),
+            mode: ImportMode::Skip,
+        };
+
+        let first =
+            import_session(&request, &session_root).expect("one-line session should import");
+        assert_eq!(first.status, ImportItemStatus::Imported);
+        let first_path = first
+            .destination_path
+            .as_deref()
+            .expect("successful import should have a destination");
+        let first_body = fs::read_to_string(first_path).expect("import should be readable");
+        assert!(first_body.contains(r#""customType":"omp-desktop-import""#));
+        let imported_artifacts = Path::new(first_path).with_extension("");
+        assert_eq!(
+            fs::read_to_string(imported_artifacts.join("kept.log"))
+                .expect("imported artifact should be readable"),
+            "original artifact"
+        );
+
+        let repeated = import_session(&request, &session_root).expect("repeat should be handled");
+        assert_eq!(repeated.status, ImportItemStatus::Skipped);
+        assert_eq!(repeated.destination_path.as_deref(), Some(first_path));
+
+        let moved_source = root.join("moved-source.jsonl");
+        fs::copy(&source, &moved_source).expect("moved source fixture should be writable");
+        let moved = import_session(
+            &ImportSessionRequest {
+                path: moved_source.to_string_lossy().into_owned(),
+                ..request.clone()
+            },
+            &session_root,
+        )
+        .expect("source lineage should survive a path change");
+        assert_eq!(moved.status, ImportItemStatus::Skipped);
+        assert_eq!(moved.destination_path.as_deref(), Some(first_path));
+        fs::remove_dir_all(&source_artifacts)
+            .expect("source artifacts should be removable before update");
+
+        fs::write(
+            &source,
+            concat!(
+                r#"{"type":"session","id":"source-one","timestamp":"2026-07-20T11:10:00Z","cwd":"/tmp/source"}"#,
+                "\n",
+                r#"{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"text","text":"updated source"}]}}"#,
+                "\n"
+            ),
+        )
+        .expect("updated source should be writable");
+        let updated = import_session(
+            &ImportSessionRequest {
+                mode: ImportMode::Update,
+                ..request.clone()
+            },
+            &session_root,
+        )
+        .expect("update mode should replace the import");
+        assert_eq!(updated.status, ImportItemStatus::Updated);
+        let updated_path = updated
+            .destination_path
+            .as_deref()
+            .expect("updated import should have a destination");
+        assert!(fs::read_to_string(updated_path)
+            .expect("updated import should be readable")
+            .contains("updated source"));
+        assert_eq!(
+            fs::read_to_string(imported_artifacts.join("kept.log"))
+                .expect("update without source artifacts must preserve destination artifacts"),
+            "original artifact"
+        );
+
+        let copied = import_session(
+            &ImportSessionRequest {
+                mode: ImportMode::Copy,
+                ..request
+            },
+            &session_root,
+        )
+        .expect("copy mode should create another import");
+        assert_eq!(copied.status, ImportItemStatus::Copied);
+        assert_ne!(copied.destination_path.as_deref(), Some(updated_path));
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn import_destination_rejects_a_mismatched_existing_source_identity() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-collision-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = import_destination(
+            &root,
+            "/tmp/project",
+            "omp",
+            "expected-source",
+            ImportMode::Update,
+        )
+        .expect("empty destination should be selectable");
+        fs::write(
+            &destination.path,
+            concat!(
+                r#"{"type":"session","id":"occupied","cwd":"/tmp/project","importSource":{"type":"omp","id":"different-source"}}"#,
+                "\n"
+            ),
+        )
+        .expect("colliding fixture should be writable");
+
+        let error = match import_destination(
+            &root,
+            "/tmp/project",
+            "omp",
+            "expected-source",
+            ImportMode::Update,
+        ) {
+            Ok(_) => panic!("mismatched source identity must not be overwritten"),
+            Err(error) => error,
+        };
+        assert!(error.contains("Конфликт идентификатора импорта"));
+        assert!(fs::read_to_string(&destination.path)
+            .expect("colliding fixture should remain readable")
+            .contains("different-source"));
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn artifact_commit_failure_restores_the_previous_session_and_artifacts() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-rollback-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("session.jsonl");
+        let target_artifacts = destination.with_extension("");
+        let staging = root.join("staging");
+        fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
+        fs::create_dir_all(&staging).expect("staging should be creatable");
+        fs::write(&destination, b"old session").expect("old session should be writable");
+        fs::write(target_artifacts.join("old.log"), b"old artifact")
+            .expect("old artifact should be writable");
+        fs::write(staging.join("new.log"), b"new artifact")
+            .expect("new artifact should be writable");
+
+        let mut rename_calls = 0_usize;
+        let error = commit_import_with(
+            &destination,
+            b"new session",
+            Some(staging.clone()),
+            atomic_write_file,
+            |source, target| {
+                rename_calls += 1;
+                if rename_calls == 2 {
+                    Err("injected artifact commit failure".to_owned())
+                } else {
+                    fs::rename(source, target).map_err(|error| error.to_string())
+                }
+            },
+        )
+        .expect_err("artifact commit failure must fail the import");
+
+        assert!(error.contains("injected artifact commit failure"));
+        assert_eq!(
+            fs::read(&destination).expect("session should remain readable"),
+            b"old session"
+        );
+        assert_eq!(
+            fs::read(target_artifacts.join("old.log"))
+                .expect("old artifact should remain readable"),
+            b"old artifact"
+        );
+        assert!(!target_artifacts.join("new.log").exists());
+        assert!(!staging.exists());
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn session_commit_failure_rolls_back_the_artifact_swap() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-session-rollback-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("session.jsonl");
+        let target_artifacts = destination.with_extension("");
+        let staging = root.join("staging");
+        fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
+        fs::create_dir_all(&staging).expect("staging should be creatable");
+        fs::write(&destination, b"old session").expect("old session should be writable");
+        fs::write(target_artifacts.join("old.log"), b"old artifact")
+            .expect("old artifact should be writable");
+        fs::write(staging.join("new.log"), b"new artifact")
+            .expect("new artifact should be writable");
+
+        let error = commit_import_with(
+            &destination,
+            b"new session",
+            Some(staging.clone()),
+            |_path, _body| Err("injected session commit failure".to_owned()),
+            |source, target| fs::rename(source, target).map_err(|error| error.to_string()),
+        )
+        .expect_err("session commit failure must fail the import");
+
+        assert!(error.contains("injected session commit failure"));
+        assert_eq!(
+            fs::read(&destination).expect("session should remain readable"),
+            b"old session"
+        );
+        assert_eq!(
+            fs::read(target_artifacts.join("old.log"))
+                .expect("old artifact should remain readable"),
+            b"old artifact"
+        );
+        assert!(!target_artifacts.join("new.log").exists());
+        assert!(!staging.exists());
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn artifact_staging_enforces_the_production_budget_shape() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-budget-{}-{nonce}",
+            std::process::id()
+        ));
+        let source = root.join("source.jsonl");
+        let source_artifacts = source.with_extension("");
+        let destination = root.join("destination").join("session.jsonl");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::create_dir_all(
+            destination
+                .parent()
+                .expect("destination parent should exist"),
+        )
+        .expect("destination parent should be creatable");
+        fs::write(&source, b"{}\n").expect("source should be writable");
+        fs::write(source_artifacts.join("large.bin"), vec![0_u8; 65])
+            .expect("oversized artifact should be writable");
+
+        let error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 10,
+                max_depth: 4,
+            },
+        )
+        .expect_err("artifact byte budget must be enforced");
+        assert!(error.contains("лимита"));
+
+        fs::remove_dir_all(&source_artifacts).expect("byte fixture should be removable");
+        fs::create_dir_all(&source_artifacts).expect("entry fixture should be creatable");
+        fs::write(source_artifacts.join("one"), b"1").expect("first entry should be writable");
+        fs::write(source_artifacts.join("two"), b"2").expect("second entry should be writable");
+        let entry_error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 1,
+                max_depth: 4,
+            },
+        )
+        .expect_err("artifact entry budget must be enforced");
+        assert!(entry_error.contains("Артефактов импорта больше"));
+
+        fs::remove_dir_all(&source_artifacts).expect("entry fixture should be removable");
+        fs::create_dir_all(source_artifacts.join("one").join("two"))
+            .expect("depth fixture should be creatable");
+        let depth_error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 10,
+                max_depth: 1,
+            },
+        )
+        .expect_err("artifact depth budget must be enforced");
+        assert!(depth_error.contains("глубже поддерживаемого лимита"));
+        assert!(
+            fs::read_dir(
+                destination
+                    .parent()
+                    .expect("destination parent should exist")
+            )
+            .expect("destination parent should be readable")
+            .all(|entry| !entry
+                .expect("directory entry should be readable")
+                .file_name()
+                .to_string_lossy()
+                .contains("artifacts-stage")),
+            "failed staging must not leave transaction directories"
+        );
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_staging_rejects_nested_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-symlink-{}-{nonce}",
+            std::process::id()
+        ));
+        let source = root.join("source.jsonl");
+        let source_artifacts = source.with_extension("");
+        let outside = root.join("outside.txt");
+        let destination = root.join("destination").join("session.jsonl");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::create_dir_all(
+            destination
+                .parent()
+                .expect("destination parent should exist"),
+        )
+        .expect("destination parent should be creatable");
+        fs::write(&source, b"{}\n").expect("source should be writable");
+        fs::write(&outside, b"must not be copied").expect("outside fixture should be writable");
+        symlink(&outside, source_artifacts.join("leak.txt"))
+            .expect("artifact symlink should be creatable");
+
+        let error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 1_024,
+                max_entries: 10,
+                max_depth: 4,
+            },
+        )
+        .expect_err("nested symlinks must be rejected");
+        assert!(error.contains("ссыл"));
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn omp_import_reports_artifact_failure_before_committing_session() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-import-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&project).expect("project fixture should be creatable");
+        fs::write(
+            &source,
+            r#"{"type":"session","id":"artifact-source","cwd":"/tmp/source"}"#,
+        )
+        .expect("source fixture should be writable");
+        fs::write(source.with_extension(""), "not a directory")
+            .expect("invalid artifact fixture should be writable");
+
+        let error = import_session(
+            &ImportSessionRequest {
+                path: source.to_string_lossy().into_owned(),
+                target_cwd: project.to_string_lossy().into_owned(),
+                mode: ImportMode::Skip,
+            },
+            &session_root,
+        )
+        .expect_err("invalid artifacts must fail the import");
+        assert!(error.contains("Артефакты"));
+        let mut imported_files = Vec::new();
+        collect_jsonl_files(&session_root, 0, 3, &mut imported_files)
+            .expect("empty import destination should remain scannable");
+        assert!(imported_files.is_empty());
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn workspace_counts_use_physical_project_identity() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-workspace-key-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        fs::create_dir_all(&project).expect("project fixture should be creatable");
+        let alias = project.join("..").join("project");
+        let project_path = project.to_string_lossy().into_owned();
+        let alias_path = alias.to_string_lossy().into_owned();
+        assert_eq!(path_key(&project_path), path_key(&alias_path));
+
+        let session = |id: &str, cwd: String, updated_at| SessionSummary {
+            id: id.to_owned(),
+            title: id.to_owned(),
+            pinned_title: None,
+            project_key: path_key(&cwd),
+            cwd,
+            file_path: format!("{id}.jsonl"),
+            created_at: String::new(),
+            updated_at,
+            model: None,
+            thinking_level: None,
+            configured_thinking_level: None,
+            source: "omp".to_owned(),
+            has_messages: false,
+        };
+        let workspaces = build_workspaces(
+            &[
+                session("one", project_path.clone(), 1),
+                session("two", alias_path.clone(), 2),
+            ],
+            &[project_path, alias_path],
+        );
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].session_count, 2);
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn five_hundred_megabyte_summary_stays_within_two_second_budget() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-large-summary-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be creatable");
+        let project = root.join("project");
+        fs::create_dir_all(&project).expect("project should be creatable");
+        let path = root.join("large.jsonl");
+        let mut file = fs::File::create(&path).expect("large fixture should be creatable");
+        writeln!(
+            file,
+            "{}",
+            serde_json::json!({
+                "type": "session",
+                "id": "large-session",
+                "cwd": project.to_string_lossy(),
+            })
+        )
+        .expect("session header should be writable");
+        writeln!(
+            file,
+            "{}",
+            serde_json::json!({
+                "type": "message",
+                "id": "m1",
+                "message": { "role": "user", "content": "hello" },
+            })
+        )
+        .expect("message should be writable");
+        let logical_size = 500_u64 * 1024 * 1024;
+        file.set_len(logical_size)
+            .expect("large fixture should be extendable");
+        let tail = serde_json::json!({
+            "type": "model_change",
+            "model": "provider/latest",
+            "role": "default",
+        })
+        .to_string();
+        file.seek(SeekFrom::Start(logical_size - tail.len() as u64 - 2))
+            .expect("large fixture tail should be seekable");
+        write!(file, "\n{tail}\n").expect("tail should be writable");
+        drop(file);
+
+        let started = Instant::now();
+        let summary = parse_session_with_names(&path, &HashMap::new())
+            .expect("large summary should parse")
+            .expect("large summary should be recognized");
+        let elapsed = started.elapsed();
+        assert_eq!(summary.id, "large-session");
+        assert_eq!(summary.model.as_deref(), Some("provider/latest"));
+        assert!(summary.has_messages);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "500 MB summary exceeded 2 s budget: {elapsed:?}"
+        );
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn import_rejects_files_above_the_explicit_memory_budget() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-import-cap-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let file = fs::File::create(&path).expect("fixture should be creatable");
+        file.set_len(MAX_IMPORT_BYTES + 1)
+            .expect("fixture should be extendable");
+        drop(file);
+
+        let error = validated_external_import_source(path.to_string_lossy().as_ref())
+            .expect_err("oversized import should fail before reading its contents");
+        assert!(error.contains("256 MiB"));
+
+        let (bounded, overflow) = read_import_bytes(io::Cursor::new(vec![0_u8; 65]), 64)
+            .expect("bounded reader should consume its fixture");
+        assert!(overflow);
+        assert_eq!(bounded.len(), 64);
+
+        fs::remove_file(path).expect("fixture should be removable");
+    }
+
+    #[test]
+    #[ignore = "manual 10k-session cold/warm discovery benchmark"]
+    fn ten_thousand_session_discovery_meets_cold_and_warm_budgets() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-10k-scan-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let sessions = root.join("sessions");
+        fs::create_dir_all(&project).expect("project should be creatable");
+        fs::create_dir_all(&sessions).expect("session root should be creatable");
+        for index in 0..10_000 {
+            let body = serde_json::json!({
+                "type": "session",
+                "id": format!("session-{index}"),
+                "cwd": project.to_string_lossy(),
+            });
+            fs::write(
+                sessions.join(format!("session-{index}.jsonl")),
+                format!("{body}\n"),
+            )
+            .expect("session fixture should be writable");
+        }
+
+        let cold_started = Instant::now();
+        assert_eq!(
+            scan_sessions(&sessions)
+                .expect("cold scan should succeed")
+                .len(),
+            10_000
+        );
+        let cold = cold_started.elapsed();
+        let warm_started = Instant::now();
+        assert_eq!(
+            scan_sessions(&sessions)
+                .expect("warm scan should succeed")
+                .len(),
+            10_000
+        );
+        let warm = warm_started.elapsed();
+        eprintln!("10k session scan: cold={cold:?}, warm={warm:?}");
+        assert!(
+            cold < Duration::from_secs(10),
+            "cold scan exceeded 10 s: {cold:?}"
+        );
+        assert!(
+            warm < Duration::from_secs(3),
+            "warm scan exceeded 3 s: {warm:?}"
+        );
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
     }
 }

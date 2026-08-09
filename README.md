@@ -17,9 +17,11 @@
 - Проекты и недавние рабочие папки в боковой панели.
 - Автоматическое обнаружение стандартных JSONL-сессий OMP.
 - Поиск, открытие и возобновление существующих сессий.
+- Идемпотентный импорт OMP и Codex JSONL с режимами «пропустить», «обновить» и «создать копию»: JSONL ограничен 256 MiB, связанные артефакты копируются транзакционно без ссылок и ограничены 512 MiB, 10 000 записей и глубиной 16 каталогов.
+- Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину.
 - Несколько одновременно работающих терминальных вкладок.
 - Настоящий нативный PTY с изменением размера, прерыванием и корректным завершением процессов.
-- Настраиваемые путь к OMP, аргументы запуска, shell, тема и размер шрифта.
+- Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -52,9 +54,11 @@ sudo apt install ./OMP-Desktop_*_amd64.deb
 - Project sidebar with persisted recent workspaces.
 - Automatic discovery of standard OMP JSONL sessions.
 - Search, open, and resume existing sessions.
+- Idempotent OMP and Codex JSONL import with skip, update, and copy modes: JSONL is capped at 256 MiB; related artifacts are copied transactionally without links and capped at 512 MiB, 10,000 entries, and 16 directory levels.
+- Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle.
 - Multiple concurrent terminal tabs.
 - A real native PTY with resize, interrupt, and reliable process cleanup.
-- Configurable OMP executable, launch arguments, shell, theme, and terminal font size.
+- Configurable OMP executable, session root, models, language, and fonts.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation
@@ -98,6 +102,6 @@ npm run tauri build
 
 ## Privacy and security
 
-OMP Desktop stores only local application preferences such as recent folders and executable paths. It does not copy provider credentials or upload session files; authentication and model traffic remain inside the OMP process. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
+OMP Desktop stores local application preferences and provider-key names in `settings.json`. Provider credential values are stored in the operating-system credential store; when that store is unavailable, the app uses a fallback in the per-user application directory (`0600` on Unix, inherited per-user ACLs on Windows) and shows a warning. Import copies the selected JSONL session and a bounded tree of regular artifact files into the configured local OMP session root; links and special files are rejected. OMP Desktop does not upload session files; authentication and model traffic remain inside the OMP process. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
 
 This is an independent community desktop client and is not part of the OMP CLI distribution.

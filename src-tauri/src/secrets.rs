@@ -124,7 +124,31 @@ pub fn update_provider_secrets(
     requested: HashMap<String, String>,
 ) -> Result<LoadedSecrets, String> {
     let (next, next_keys) = merge_requested_secrets(current, requested);
-    let stale = configured_keys
+    store_provider_secrets(app, configured_keys, next, next_keys)
+}
+
+pub fn replace_provider_secrets(
+    app: &AppHandle,
+    current_keys: &[String],
+    values: &HashMap<String, String>,
+    configured_keys: &[String],
+) -> Result<LoadedSecrets, String> {
+    let next = values
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut next_keys = configured_keys.iter().cloned().collect::<BTreeSet<_>>();
+    next_keys.extend(next.keys().cloned());
+    store_provider_secrets(app, current_keys, next, next_keys)
+}
+
+fn store_provider_secrets(
+    app: &AppHandle,
+    current_keys: &[String],
+    next: BTreeMap<String, String>,
+    next_keys: BTreeSet<String>,
+) -> Result<LoadedSecrets, String> {
+    let stale = current_keys
         .iter()
         .filter(|key| !next_keys.contains(*key))
         .cloned()
