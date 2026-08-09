@@ -26,6 +26,7 @@ import {
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
 import { ClientUpdateNotice } from "./ClientUpdateNotice"
+import { IncidentCenter } from "./IncidentCenter"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
@@ -35,6 +36,15 @@ import {
   runtimeEventFeedback,
   runtimeFeedbackDedupeKey,
 } from "./runtimeEvents"
+import {
+  activeRuntimeTerminalCount,
+  applyRuntimeIncidentEvent,
+  clearResolvedRuntimeIncidents,
+  createRuntimeIncidentState,
+  endRuntimeIncidentTerminal,
+  runtimeHealthStatus,
+  type RuntimeHealthStatus,
+} from "./runtimeIncidents"
 import { SettingsPanel } from "./SettingsPanel"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
@@ -82,6 +92,21 @@ type SessionLaunchTarget = Pick<
   | "thinkingLevel"
   | "configuredThinkingLevel"
 >
+const MAX_ENDED_RUNTIME_TERMINALS = 256
+
+function rememberEndedRuntimeTerminal(terminalIds: string[], terminalId: string): void {
+  const existing = terminalIds.indexOf(terminalId)
+  if (existing >= 0) terminalIds.splice(existing, 1)
+  terminalIds.push(terminalId)
+  if (terminalIds.length > MAX_ENDED_RUNTIME_TERMINALS) {
+    terminalIds.splice(0, terminalIds.length - MAX_ENDED_RUNTIME_TERMINALS)
+  }
+}
+
+function forgetEndedRuntimeTerminal(terminalIds: string[], terminalId: string): void {
+  const existing = terminalIds.indexOf(terminalId)
+  if (existing >= 0) terminalIds.splice(existing, 1)
+}
 
 async function notifyTerminalCompletion(
   tab: TerminalTab,
@@ -111,12 +136,24 @@ function App() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
+    createRuntimeIncidentState(Date.now()),
+  )
+  const [incidentCenterOpen, setIncidentCenterOpen] = useState(false)
+  const incidentCenterTriggerRef = useRef<HTMLButtonElement>(null)
+  const endedRuntimeTerminalIdsRef = useRef<string[]>([])
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
   const pendingInitialInputRef = useRef(new Map<string, string>())
   const readyTerminalIdsRef = useRef(new Set<string>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
+    terminalId: string
+    sequence: number
+  } | null>(null)
   const [refreshing, setRefreshing] = useState(true)
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
@@ -143,6 +180,10 @@ function App() {
     void loadOmpConfig().then(setOmpConfig).catch(console.error)
   }, [payload?.runtime.ompAvailable])
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru"
+  const langRef = useRef(lang)
+  langRef.current = lang
+  const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
+  ompVersionRef.current = payload?.runtime.ompVersion ?? null
   const {
     transcriptSession,
     transcript,
@@ -285,6 +326,7 @@ function App() {
     let disposed = false
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
       if (disposed) return
+      forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       const { session } = event
       discoveredSessionsRef.current.set(event.terminalId, session)
       setPayload((current) => {
@@ -326,15 +368,21 @@ function App() {
           if (!disposed) applyPayload(next)
         })
         .catch((error) => {
-          if (!disposed) showError(errorMessage(error, lang))
+          if (!disposed) showError(errorMessage(error, langRef.current))
         })
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
+      if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
+      const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+      const now = Date.now()
+      setRuntimeIncidentState((current) =>
+        applyRuntimeIncidentEvent(current, event, now, terminal?.label ?? null),
+      )
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -343,14 +391,14 @@ function App() {
           kind: feedback.kind === "fallback" ? "notice" : "error",
           message:
             feedback.kind === "fallback"
-              ? t(lang, "fallbackSwitched").replace("{model}", feedback.model)
+              ? t(langRef.current, "fallbackSwitched").replace("{model}", feedback.model)
               : feedback.message,
           dedupeKey: runtimeFeedbackDedupeKey(event, feedback),
         })
       }
       setTabs((current) => current.map((tab) => applyRuntimeEventToTab(tab, event)))
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
@@ -362,14 +410,14 @@ function App() {
           ? current
           : {
               hasUpdate: true,
-              currentVersion: payload?.runtime.ompVersion ?? null,
+              currentVersion: ompVersionRef.current,
               latestVersion: null,
               message: "",
             },
       )
       setUpdateNoticeVisible(true)
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
@@ -379,7 +427,7 @@ function App() {
       void unlistenRuntime.then((stop) => stop?.())
       void unlistenUpdate.then((stop) => stop?.())
     }
-  }, [applyPayload, lang, payload?.runtime.ompVersion, pushToast, showError])
+  }, [applyPayload, pushToast, showError])
 
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true)
@@ -461,6 +509,18 @@ function App() {
   const selectedSession =
     workspaceSessions.find((session) => session.id === selectedSessionId) ?? null
 
+  const runtimeStatusByTerminal = useMemo<Record<string, RuntimeHealthStatus>>(
+    () =>
+      Object.fromEntries(
+        tabs.map((tab) => [tab.id, runtimeHealthStatus(runtimeIncidentState, tab.id)]),
+      ),
+    [runtimeIncidentState, tabs],
+  )
+  const activeRuntimeTerminals = useMemo(
+    () => activeRuntimeTerminalCount(runtimeIncidentState),
+    [runtimeIncidentState],
+  )
+
   const focusTab = useCallback(
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
@@ -472,6 +532,28 @@ function App() {
     },
     [tabs],
   )
+  const focusTerminal = useCallback(
+    (tabId: string) => {
+      if (!tabs.some((tab) => tab.id === tabId)) return
+      focusTab(tabId)
+      setTerminalFocusRequest((current) => ({
+        terminalId: tabId,
+        sequence: (current?.sequence ?? 0) + 1,
+      }))
+    },
+    [focusTab, tabs],
+  )
+
+  const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
+  const openIncidentCenter = useCallback(() => {
+    setSettingsOpen(false)
+    setCodexOpen(false)
+    closeTranscript()
+    setIncidentCenterOpen(true)
+  }, [closeTranscript])
+  const clearResolvedIncidents = useCallback(() => {
+    setRuntimeIncidentState((current) => clearResolvedRuntimeIncidents(current, Date.now()))
+  }, [])
 
   const selectSession = useCallback(
     (session: SessionSummary) => {
@@ -540,6 +622,7 @@ function App() {
       setLaunching(launchKey)
       try {
         const started = await startTerminal(cwd, session?.filePath ?? null)
+        forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
         const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null
         const runtimeSession = session ?? discoveredSession
         const defaultSelector =
@@ -619,6 +702,7 @@ function App() {
     setLaunching("update")
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"])
+      forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
       pendingUpdateRestartRef.current = {
         updateTerminalId: started.terminalId,
         sourceTab,
@@ -783,6 +867,10 @@ function App() {
 
   const performCloseTab = useCallback(
     (terminalId: string) => {
+      rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, terminalId)
+      setRuntimeIncidentState((current) =>
+        endRuntimeIncidentTerminal(current, terminalId, Date.now()),
+      )
       if (pendingUpdateRestartRef.current?.updateTerminalId === terminalId) {
         pendingUpdateRestartRef.current = null
       }
@@ -931,6 +1019,10 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
+      setRuntimeIncidentState((current) =>
+        endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
+      )
       if (completionNotifiedRef.current.has(event.terminalId)) return
       completionNotifiedRef.current.add(event.terminalId)
       pendingInitialInputRef.current.delete(event.terminalId)
@@ -1000,6 +1092,7 @@ function App() {
         closeTranscript()
         return
       }
+      if (incidentCenterOpen || settingsOpen || codexOpen || transcriptSession) return
       const target = event.target as HTMLElement | null
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return
       const modifier = event.ctrlKey || event.metaKey
@@ -1016,7 +1109,17 @@ function App() {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [activeTabId, closeTab, closeTranscript, launchSession, openFolder, transcriptSession])
+  }, [
+    activeTabId,
+    closeTab,
+    closeTranscript,
+    codexOpen,
+    incidentCenterOpen,
+    launchSession,
+    openFolder,
+    settingsOpen,
+    transcriptSession,
+  ])
 
   if (!payload) {
     return (
@@ -1046,7 +1149,11 @@ function App() {
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}
+        incidentActiveTerminalCount={activeRuntimeTerminals}
+        incidentCenterOpen={incidentCenterOpen}
+        incidentTriggerRef={incidentCenterTriggerRef}
         language={lang}
+        onOpenIncidentCenter={openIncidentCenter}
         onOpenSettings={() => setSettingsOpen(true)}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
@@ -1101,6 +1208,7 @@ function App() {
         />
         <TerminalWorkspace
           activeTabId={activeTabId}
+          focusRequest={terminalFocusRequest}
           language={lang}
           terminalFontFamily={payload.settings.terminalFontFamily}
           terminalFontSize={payload.settings.terminalFontSize}
@@ -1118,12 +1226,25 @@ function App() {
           onSwitch={(tabId, model, thinking) => void switchTerminalRuntime(tabId, model, thinking)}
           onToggleTitlePin={toggleTabTitlePin}
           runtime={payload.runtime}
+          runtimeStatusByTerminal={runtimeStatusByTerminal}
           selectedSession={selectedSession}
           selectedWorkspace={selectedWorkspace}
           tabs={tabs}
           workspaceSessions={workspaceSessions}
         />
       </div>
+
+      {incidentCenterOpen && (
+        <IncidentCenter
+          incidents={runtimeIncidentState.incidents}
+          language={lang}
+          onClearResolved={clearResolvedIncidents}
+          onClose={closeIncidentCenter}
+          onFocusTerminal={focusTerminal}
+          returnFocusRef={incidentCenterTriggerRef}
+          tabs={tabs}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsPanel

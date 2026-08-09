@@ -29,6 +29,7 @@ const IS_LINUX_RUNTIME = typeof navigator !== "undefined" && /\bLinux\b/i.test(n
 interface TerminalViewProps {
   tab: TerminalTab
   active: boolean
+  focusRequestSequence: number
   language: Lang
   terminalFontFamily: string
   terminalFontSize: number
@@ -58,6 +59,7 @@ function exitLine(event: PtyExitEvent): string {
 export function TerminalView({
   tab,
   active,
+  focusRequestSequence,
   language,
   terminalFontFamily,
   terminalFontSize,
@@ -390,7 +392,7 @@ export function TerminalView({
       }
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [active, tab.id])
+  }, [active, focusRequestSequence, tab.id])
 
   return (
     <div

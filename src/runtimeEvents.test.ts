@@ -69,7 +69,7 @@ describe("runtime event contract", () => {
     expect(runtimeEventFeedback(fallback)).toEqual({ kind: "fallback", model: "fallback" })
     expect(applyRuntimeEventToTab(tab, fallback)).toMatchObject({
       currentModel: "provider/fallback",
-      currentModelRole: "fallback",
+      currentModelRole: "default",
       activity: "thinking",
     })
     expect(fallback.fallbackRole).toBe("default")
@@ -79,11 +79,7 @@ describe("runtime event contract", () => {
     ["openai/gpt-5.6:high", "openai/gpt-5.6", "gpt-5.6"],
     ["ollama/llama3.1:8b", "ollama/llama3.1:8b", "llama3.1:8b"],
     ["ollama/llama3.1:8b:high", "ollama/llama3.1:8b", "llama3.1:8b"],
-    [
-      "ollama/llama3.1:8b:internal",
-      "ollama/llama3.1:8b:internal",
-      "llama3.1:8b:internal",
-    ],
+    ["ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal", "llama3.1:8b:internal"],
   ])(
     "keeps fallbackTo exact while applying %s as currentModel %s",
     (fallbackTo, model, feedbackModel) => {
@@ -113,5 +109,11 @@ describe("runtime event contract", () => {
 
     expect(runtimeEventFeedback(failure)).toEqual({ kind: "error", message })
     expect(applyRuntimeEventToTab(tab, failure).activity).toBe("error")
+  })
+
+  it("does not enqueue a blank runtime error toast", () => {
+    expect(
+      runtimeEventFeedback(event({ kind: "modelError", activity: "error", errorMessage: "  \n " })),
+    ).toBeNull()
   })
 })

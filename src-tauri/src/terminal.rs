@@ -21,6 +21,7 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
@@ -35,6 +36,7 @@ static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 const RUNTIME_FILE_ANCHOR: usize = 64;
 const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;
+const MAX_RUNTIME_WATERMARK_KEYS: usize = 256;
 const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
 ];
@@ -1082,12 +1084,16 @@ struct RuntimeFileIdentity {
     device: u64,
     #[cfg(unix)]
     inode: u64,
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    file_id: Option<(u32, u64)>,
+    #[cfg(windows)]
+    creation_time: u64,
+    #[cfg(all(not(unix), not(windows)))]
     created_at: Option<u128>,
 }
 
 impl RuntimeFileIdentity {
-    fn from_metadata(metadata: &fs::Metadata) -> Self {
+    fn from_file(_file: &fs::File, metadata: &fs::Metadata) -> Self {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -1097,7 +1103,34 @@ impl RuntimeFileIdentity {
                 inode: metadata.ino(),
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            use std::{mem::MaybeUninit, os::windows::io::AsRawHandle};
+            use windows_sys::Win32::Storage::FileSystem::{
+                GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            };
+
+            let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+            let file_id = if unsafe {
+                GetFileInformationByHandle(_file.as_raw_handle(), information.as_mut_ptr())
+            } == 0
+            {
+                None
+            } else {
+                let information = unsafe { information.assume_init() };
+                Some((
+                    information.dwVolumeSerialNumber,
+                    (u64::from(information.nFileIndexHigh) << 32)
+                        | u64::from(information.nFileIndexLow),
+                ))
+            };
+            Self {
+                file_id,
+                creation_time: metadata.creation_time(),
+            }
+        }
+        #[cfg(all(not(unix), not(windows)))]
         {
             Self {
                 created_at: metadata
@@ -1110,48 +1143,190 @@ impl RuntimeFileIdentity {
     }
 }
 
+// Rewrites normally retain the last JSONL event, so its id (or exact legacy line) is the
+// strongest recovery point. The bounded timestamp watermark is the fallback for disjoint
+// rotated segments: current OMP events carry RFC 3339 timestamps and unique top-level ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RuntimeLineKey {
+    id: Option<String>,
+    line_without_id: Option<Vec<u8>>,
+}
+
+impl RuntimeLineKey {
+    fn from_value_and_line(value: &Value, line: &[u8]) -> Self {
+        let id = value.get("id").and_then(Value::as_str).map(str::to_owned);
+        Self {
+            line_without_id: id.is_none().then(|| line.to_vec()),
+            id,
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        match (&self.id, &other.id) {
+            (Some(left), Some(right)) => left == right,
+            (None, None) => self.line_without_id == other.line_without_id,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RuntimeLineCheckpoint {
+    key: RuntimeLineKey,
+    timestamp_nanos: Option<i128>,
+}
+
+impl RuntimeLineCheckpoint {
+    fn matches(&self, other: &Self) -> bool {
+        self.timestamp_nanos == other.timestamp_nanos && self.key.matches(&other.key)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct RuntimeEventWatermark {
+    timestamp_nanos: Option<i128>,
+    keys: Vec<RuntimeLineKey>,
+}
+
+impl RuntimeEventWatermark {
+    fn push_key(&mut self, key: RuntimeLineKey) {
+        if self.keys.iter().any(|existing| existing.matches(&key)) {
+            return;
+        }
+        if self.keys.len() >= MAX_RUNTIME_WATERMARK_KEYS {
+            self.keys.remove(0);
+        }
+        self.keys.push(key);
+    }
+
+    fn observe(&mut self, checkpoint: &RuntimeLineCheckpoint) {
+        let Some(timestamp) = checkpoint.timestamp_nanos else {
+            return;
+        };
+        match self.timestamp_nanos {
+            None => {
+                self.timestamp_nanos = Some(timestamp);
+                self.keys.push(checkpoint.key.clone());
+            }
+            Some(current) if timestamp > current => {
+                self.timestamp_nanos = Some(timestamp);
+                self.keys.clear();
+                self.keys.push(checkpoint.key.clone());
+            }
+            Some(current) if timestamp == current => {
+                self.push_key(checkpoint.key.clone());
+            }
+            Some(_) => {}
+        }
+    }
+
+    fn is_unseen_after(&self, checkpoint: &RuntimeLineCheckpoint) -> bool {
+        let (Some(current), Some(candidate)) = (self.timestamp_nanos, checkpoint.timestamp_nanos)
+        else {
+            return false;
+        };
+        candidate > current
+            || (candidate == current && !self.keys.iter().any(|key| key.matches(&checkpoint.key)))
+    }
+
+    fn merge(&mut self, other: &Self) {
+        let Some(other_timestamp) = other.timestamp_nanos else {
+            return;
+        };
+        match self.timestamp_nanos {
+            None => *self = other.clone(),
+            Some(current) if other_timestamp > current => *self = other.clone(),
+            Some(current) if other_timestamp == current => {
+                for key in &other.keys {
+                    self.push_key(key.clone());
+                }
+            }
+            Some(_) => {}
+        }
+    }
+}
+
 #[derive(Default)]
 struct RuntimeWatchCursor {
+    initialized: bool,
     offset: u64,
     identity: Option<RuntimeFileIdentity>,
     anchor: Vec<u8>,
     line: Vec<u8>,
     line_overflow: bool,
+    checkpoint: Option<RuntimeLineCheckpoint>,
+    watermark: RuntimeEventWatermark,
+}
+
+struct RuntimeFileScan {
+    file: fs::File,
+    scanned_length: u64,
+    current_length: u64,
+}
+
+#[derive(Clone)]
+enum RuntimeRecoveryFilter {
+    Watermark(RuntimeEventWatermark),
+    Checkpoint(RuntimeEventWatermark),
+}
+
+impl RuntimeRecoveryFilter {
+    fn should_emit(&self, candidate: Option<&RuntimeLineCheckpoint>) -> bool {
+        match (self, candidate) {
+            (Self::Watermark(previous), Some(next)) => previous.is_unseen_after(next),
+            (Self::Watermark(_), None) => false,
+            (Self::Checkpoint(previous), Some(next)) => {
+                previous.timestamp_nanos.is_none()
+                    || next.timestamp_nanos.is_none()
+                    || previous.is_unseen_after(next)
+            }
+            (Self::Checkpoint(_), None) => true,
+        }
+    }
+}
+
+struct RuntimeRecovery {
+    file: fs::File,
+    length: u64,
+    cursor: RuntimeWatchCursor,
+    filter: Option<RuntimeRecoveryFilter>,
 }
 
 impl RuntimeWatchCursor {
     fn at_end(path: &Path) -> Self {
-        let mut cursor = Self {
-            line: Vec::with_capacity(1024),
-            anchor: Vec::with_capacity(RUNTIME_FILE_ANCHOR),
-            ..Self::default()
+        let Ok(file) = fs::File::open(path) else {
+            return Self::default();
         };
-        let Ok(mut file) = fs::File::open(path) else {
-            return cursor;
-        };
-        let Ok(metadata) = file.metadata() else {
-            return cursor;
-        };
-        cursor.identity = Some(RuntimeFileIdentity::from_metadata(&metadata));
-        cursor.offset = metadata.len();
-        let anchor_start = cursor.offset.saturating_sub(RUNTIME_FILE_ANCHOR as u64);
-        let anchor_length = (cursor.offset - anchor_start) as usize;
-        if anchor_length > 0 && file.seek(SeekFrom::Start(anchor_start)).is_ok() && {
-            cursor.anchor.resize(anchor_length, 0);
-            file.read_exact(&mut cursor.anchor).is_ok()
-        } {
-            return cursor;
-        }
-        cursor.anchor.clear();
-        cursor
+        Self::baseline(file).unwrap_or_default()
     }
 
-    fn reset(&mut self, identity: Option<RuntimeFileIdentity>) {
-        self.offset = 0;
-        self.identity = identity;
-        self.anchor.clear();
-        self.line.clear();
-        self.line_overflow = false;
+    fn baseline(file: fs::File) -> Option<Self> {
+        let mut checkpoint = None;
+        let mut watermark = RuntimeEventWatermark::default();
+        let mut scanned = scan_runtime_file(file, |_, _, line| {
+            observe_runtime_line(&mut checkpoint, &mut watermark, line);
+        })?;
+        let mut cursor = Self::at_offset(&mut scanned.file, scanned.scanned_length)?;
+        cursor.checkpoint = checkpoint;
+        cursor.watermark = watermark;
+        Some(cursor)
+    }
+
+    fn at_offset(file: &mut fs::File, offset: u64) -> Option<Self> {
+        let metadata = file.metadata().ok()?;
+        if metadata.len() < offset {
+            return None;
+        }
+        Some(Self {
+            initialized: true,
+            offset,
+            identity: Some(RuntimeFileIdentity::from_file(file, &metadata)),
+            anchor: read_runtime_anchor(file, offset)?,
+            line: Vec::with_capacity(1024),
+            line_overflow: false,
+            checkpoint: None,
+            watermark: RuntimeEventWatermark::default(),
+        })
     }
 
     fn anchor_matches(&self, file: &mut fs::File) -> bool {
@@ -1173,62 +1348,234 @@ impl RuntimeWatchCursor {
     }
 
     fn record_anchor(&mut self, data: &[u8]) {
-        if data.len() >= RUNTIME_FILE_ANCHOR {
-            self.anchor.clear();
-            self.anchor
-                .extend_from_slice(&data[data.len() - RUNTIME_FILE_ANCHOR..]);
-            return;
-        }
-        let overflow = self
-            .anchor
-            .len()
-            .saturating_add(data.len())
-            .saturating_sub(RUNTIME_FILE_ANCHOR);
-        if overflow > 0 {
-            self.anchor.drain(..overflow);
-        }
-        self.anchor.extend_from_slice(data);
+        record_runtime_anchor(&mut self.anchor, data);
     }
 }
 
-fn poll_runtime_file<F, R>(
-    path: &Path,
-    cursor: &mut RuntimeWatchCursor,
-    mut on_reset: R,
-    mut on_line: F,
+fn read_runtime_anchor(file: &mut fs::File, offset: u64) -> Option<Vec<u8>> {
+    let anchor_start = offset.saturating_sub(RUNTIME_FILE_ANCHOR as u64);
+    let anchor_length = usize::try_from(offset - anchor_start).ok()?;
+    let mut anchor = vec![0_u8; anchor_length];
+    if anchor_length > 0 {
+        file.seek(SeekFrom::Start(anchor_start)).ok()?;
+        file.read_exact(&mut anchor).ok()?;
+    }
+    Some(anchor)
+}
+
+fn record_runtime_anchor(anchor: &mut Vec<u8>, data: &[u8]) {
+    if data.len() >= RUNTIME_FILE_ANCHOR {
+        anchor.clear();
+        anchor.extend_from_slice(&data[data.len() - RUNTIME_FILE_ANCHOR..]);
+        return;
+    }
+    let overflow = anchor
+        .len()
+        .saturating_add(data.len())
+        .saturating_sub(RUNTIME_FILE_ANCHOR);
+    if overflow > 0 {
+        anchor.drain(..overflow);
+    }
+    anchor.extend_from_slice(data);
+}
+
+fn runtime_line_checkpoint(line: &[u8]) -> Option<RuntimeLineCheckpoint> {
+    let value = serde_json::from_slice::<Value>(line).ok()?;
+    let timestamp_nanos = value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/message/timestamp").and_then(Value::as_str))
+        .and_then(|timestamp| OffsetDateTime::parse(timestamp, &Rfc3339).ok())
+        .map(OffsetDateTime::unix_timestamp_nanos);
+    Some(RuntimeLineCheckpoint {
+        key: RuntimeLineKey::from_value_and_line(&value, line),
+        timestamp_nanos,
+    })
+}
+
+fn observe_runtime_line(
+    checkpoint: &mut Option<RuntimeLineCheckpoint>,
+    watermark: &mut RuntimeEventWatermark,
+    line: &[u8],
+) {
+    let Some(next) = runtime_line_checkpoint(line) else {
+        return;
+    };
+    watermark.observe(&next);
+    *checkpoint = Some(next);
+}
+
+fn scan_runtime_file<F>(mut file: fs::File, mut on_line: F) -> Option<RuntimeFileScan>
+where
+    F: FnMut(u64, u64, &[u8]),
+{
+    let metadata = file.metadata().ok()?;
+    let identity = RuntimeFileIdentity::from_file(&file, &metadata);
+    let length = metadata.len();
+    file.seek(SeekFrom::Start(0)).ok()?;
+
+    let mut remaining = length;
+    let mut absolute = 0_u64;
+    let mut line_start = 0_u64;
+    let mut line = Vec::with_capacity(1024);
+    let mut line_overflow = false;
+    let mut end_anchor = Vec::with_capacity(RUNTIME_FILE_ANCHOR);
+    let mut buffer = [0_u8; 8192];
+    while remaining > 0 {
+        let chunk = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+        let read = file.read(&mut buffer[..chunk]).ok()?;
+        if read == 0 {
+            return None;
+        }
+        let data = &buffer[..read];
+        record_runtime_anchor(&mut end_anchor, data);
+        remaining = remaining.saturating_sub(read as u64);
+        for byte in data {
+            absolute = absolute.saturating_add(1);
+            if *byte == b'\n' {
+                if !line_overflow {
+                    on_line(line_start, absolute, &line);
+                }
+                line.clear();
+                line_overflow = false;
+                line_start = absolute;
+            } else if !line_overflow {
+                if line.len() < MAX_RUNTIME_EVENT_LINE {
+                    line.push(*byte);
+                } else {
+                    line.clear();
+                    line_overflow = true;
+                }
+            }
+        }
+    }
+    if !line_overflow && !line.is_empty() && serde_json::from_slice::<Value>(&line).is_ok() {
+        on_line(line_start, absolute, &line);
+    }
+
+    let current_metadata = file.metadata().ok()?;
+    if RuntimeFileIdentity::from_file(&file, &current_metadata) != identity
+        || current_metadata.len() < length
+        || read_runtime_anchor(&mut file, length)? != end_anchor
+    {
+        return None;
+    }
+    Some(RuntimeFileScan {
+        file,
+        scanned_length: length,
+        current_length: current_metadata.len(),
+    })
+}
+
+fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option<RuntimeRecovery> {
+    let previous_checkpoint = cursor.checkpoint.clone();
+    let previous_watermark = cursor.watermark.clone();
+    // An exact, unique prior checkpoint is the strongest boundary. If it disappeared, is
+    // ambiguous, or appears after a timestamped unseen event, filter every candidate against the
+    // previous high-water mark. Unordered legacy rows cannot be classified and stay baseline-only.
+    let mut matching_checkpoint_end = None;
+    let mut checkpoint_matches = 0_usize;
+    let mut first_unseen_start = None;
+    let mut baseline_checkpoint = None;
+    let mut baseline_watermark = RuntimeEventWatermark::default();
+    let mut scanned = scan_runtime_file(file, |start, end, line| {
+        let Some(candidate) = runtime_line_checkpoint(line) else {
+            return;
+        };
+        if previous_checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.matches(&candidate))
+        {
+            checkpoint_matches = checkpoint_matches.saturating_add(1);
+            matching_checkpoint_end = Some(end);
+        }
+        if first_unseen_start.is_none() && previous_watermark.is_unseen_after(&candidate) {
+            first_unseen_start = Some(start);
+        }
+        baseline_watermark.observe(&candidate);
+        baseline_checkpoint = Some(candidate);
+    })?;
+
+    let exact_checkpoint_end = (checkpoint_matches == 1)
+        .then_some(matching_checkpoint_end)
+        .flatten();
+    let use_watermark = match (first_unseen_start, exact_checkpoint_end) {
+        (Some(unseen), Some(checkpoint_end)) => unseen < checkpoint_end,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let (resume_offset, filter) = if use_watermark {
+        (
+            first_unseen_start.unwrap_or(scanned.scanned_length),
+            Some(RuntimeRecoveryFilter::Watermark(previous_watermark.clone())),
+        )
+    } else if let Some(checkpoint_end) = exact_checkpoint_end {
+        (
+            checkpoint_end,
+            Some(RuntimeRecoveryFilter::Checkpoint(
+                previous_watermark.clone(),
+            )),
+        )
+    } else {
+        (scanned.scanned_length, None)
+    };
+
+    let has_scanned_tail = resume_offset < scanned.scanned_length;
+    let mut next = RuntimeWatchCursor::at_offset(&mut scanned.file, resume_offset)?;
+    if has_scanned_tail {
+        next.checkpoint = previous_checkpoint;
+        next.watermark = previous_watermark;
+    } else {
+        next.checkpoint = baseline_checkpoint.or(previous_checkpoint);
+        next.watermark = previous_watermark;
+        next.watermark.merge(&baseline_watermark);
+    }
+    let length = scanned.file.metadata().ok()?.len();
+    if length < scanned.current_length || length < next.offset {
+        return None;
+    }
+    Some(RuntimeRecovery {
+        file: scanned.file,
+        length,
+        cursor: next,
+        filter,
+    })
+}
+
+fn process_runtime_line<F>(
+    checkpoint: &mut Option<RuntimeLineCheckpoint>,
+    watermark: &mut RuntimeEventWatermark,
+    recovery_filter: Option<&RuntimeRecoveryFilter>,
+    line: &[u8],
+    on_line: &mut F,
 ) where
     F: FnMut(&[u8]),
-    R: FnMut(),
 {
-    let Ok(mut file) = fs::File::open(path) else {
-        if cursor.identity.is_some()
-            || cursor.offset != 0
-            || !cursor.line.is_empty()
-            || cursor.line_overflow
-        {
-            cursor.reset(None);
-            on_reset();
-        }
-        return;
-    };
-    let Ok(metadata) = file.metadata() else {
-        return;
-    };
-    let identity = RuntimeFileIdentity::from_metadata(&metadata);
-    let length = metadata.len();
-    let reset = cursor.identity.is_some_and(|known| known != identity)
-        || length < cursor.offset
-        || !cursor.anchor_matches(&mut file);
-    if reset {
-        cursor.reset(Some(identity));
-        on_reset();
-    } else if cursor.identity.is_none() {
-        cursor.identity = Some(identity);
+    let candidate = runtime_line_checkpoint(line);
+    let should_emit = recovery_filter
+        .map(|filter| filter.should_emit(candidate.as_ref()))
+        .unwrap_or(true);
+    if let Some(next) = candidate {
+        watermark.observe(&next);
+        *checkpoint = Some(next);
     }
+    if should_emit {
+        on_line(line);
+    }
+}
+
+fn read_runtime_tail<F>(
+    file: &mut fs::File,
+    length: u64,
+    cursor: &mut RuntimeWatchCursor,
+    recovery_filter: Option<&RuntimeRecoveryFilter>,
+    on_line: &mut F,
+) where
+    F: FnMut(&[u8]),
+{
     if length <= cursor.offset || file.seek(SeekFrom::Start(cursor.offset)).is_err() {
         return;
     }
-
     let mut remaining = length - cursor.offset;
     let mut buffer = [0_u8; 8192];
     while remaining > 0 {
@@ -1243,13 +1590,85 @@ fn poll_runtime_file<F, R>(
         cursor.offset = cursor.offset.saturating_add(read as u64);
         remaining = remaining.saturating_sub(read as u64);
         cursor.record_anchor(data);
-        feed_runtime_lines(
-            data,
-            &mut cursor.line,
-            &mut cursor.line_overflow,
-            &mut on_line,
-        );
+        let RuntimeWatchCursor {
+            line,
+            line_overflow,
+            checkpoint,
+            watermark,
+            ..
+        } = cursor;
+        feed_runtime_lines(data, line, line_overflow, |runtime_line| {
+            process_runtime_line(
+                checkpoint,
+                watermark,
+                recovery_filter,
+                runtime_line,
+                on_line,
+            );
+        });
     }
+
+    if !cursor.line_overflow
+        && !cursor.line.is_empty()
+        && serde_json::from_slice::<Value>(&cursor.line).is_ok()
+    {
+        let mut completed = Vec::with_capacity(cursor.line.capacity());
+        std::mem::swap(&mut completed, &mut cursor.line);
+        process_runtime_line(
+            &mut cursor.checkpoint,
+            &mut cursor.watermark,
+            recovery_filter,
+            &completed,
+            on_line,
+        );
+        completed.clear();
+        cursor.line = completed;
+    }
+}
+
+fn poll_runtime_file<F, R>(
+    path: &Path,
+    cursor: &mut RuntimeWatchCursor,
+    mut on_reset: R,
+    mut on_line: F,
+) where
+    F: FnMut(&[u8]),
+    R: FnMut(),
+{
+    let Ok(mut file) = fs::File::open(path) else {
+        return;
+    };
+    if !cursor.initialized {
+        if let Some(next) = RuntimeWatchCursor::baseline(file) {
+            *cursor = next;
+        }
+        return;
+    }
+
+    let Ok(metadata) = file.metadata() else {
+        return;
+    };
+    let identity = RuntimeFileIdentity::from_file(&file, &metadata);
+    let length = metadata.len();
+    let reset = cursor.identity.is_some_and(|known| known != identity)
+        || length < cursor.offset
+        || !cursor.anchor_matches(&mut file);
+    if reset {
+        on_reset();
+        let Some(recovery) = recover_runtime_cursor(file, cursor) else {
+            return;
+        };
+        let RuntimeRecovery {
+            mut file,
+            length,
+            cursor: next,
+            filter,
+        } = recovery;
+        *cursor = next;
+        read_runtime_tail(&mut file, length, cursor, filter.as_ref(), &mut on_line);
+        return;
+    }
+    read_runtime_tail(&mut file, length, cursor, None, &mut on_line);
 }
 
 fn runtime_event_for_emit(thinking: &mut bool, event: PtyRuntimeEvent) -> Option<PtyRuntimeEvent> {
@@ -1280,26 +1699,6 @@ fn emit_runtime_event(app: &AppHandle, event: PtyRuntimeEvent) {
     }
 }
 
-fn emit_activity(app: &AppHandle, terminal_id: &str, activity: &str) {
-    emit_runtime_event(
-        app,
-        PtyRuntimeEvent {
-            terminal_id: terminal_id.to_owned(),
-            kind: PtyRuntimeEventKind::Activity,
-            model: None,
-            model_role: None,
-            thinking_level: None,
-            configured_thinking_level: None,
-            activity: Some(activity.to_owned()),
-            error_message: None,
-            fallback_from: None,
-            fallback_to: None,
-            fallback_role: None,
-            resolved_model_is_fallback: None,
-        },
-    );
-}
-
 fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
     emit_runtime_event(
         app,
@@ -1328,9 +1727,6 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
         .spawn(move || {
             let path = PathBuf::from(&session_path);
             let mut cursor = RuntimeWatchCursor::at_end(&path);
-            if let Some(activity) = read_latest_activity(&path) {
-                emit_activity(&app, &terminal_id, &activity);
-            }
 
             loop {
                 let active = {
@@ -1345,14 +1741,13 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     !process.exited && !process.exit_pending
                 };
                 if !active {
-                    emit_activity(&app, &terminal_id, "idle");
                     return;
                 }
 
                 poll_runtime_file(
                     &path,
                     &mut cursor,
-                    || emit_activity(&app, &terminal_id, "idle"),
+                    || {},
                     |runtime_line| {
                         if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
                             emit_runtime_event(&app, event);
@@ -1400,41 +1795,6 @@ fn feed_runtime_lines<F>(
         *line_overflow = false;
         data = &data[newline + 1..];
     }
-}
-
-fn read_latest_activity(path: &Path) -> Option<String> {
-    let mut file = fs::File::open(path).ok()?;
-    let mut latest = None;
-    let mut buffer = [0_u8; 8192];
-    let mut line = Vec::with_capacity(1024);
-    let mut line_overflow = false;
-    loop {
-        let read = file.read(&mut buffer).ok()?;
-        if read == 0 {
-            break;
-        }
-        feed_runtime_lines(
-            &buffer[..read],
-            &mut line,
-            &mut line_overflow,
-            |candidate| {
-                if let Some(activity) = activity_from_line(candidate) {
-                    latest = Some(activity.to_owned());
-                }
-            },
-        );
-    }
-    if !line_overflow && !line.is_empty() {
-        if let Some(activity) = activity_from_line(&line) {
-            latest = Some(activity.to_owned());
-        }
-    }
-    latest
-}
-
-fn activity_from_line(line: &[u8]) -> Option<&'static str> {
-    let value = serde_json::from_slice::<Value>(line).ok()?;
-    activity_from_value(&value)
 }
 
 fn activity_from_value(value: &Value) -> Option<&'static str> {
@@ -1545,7 +1905,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             model: value
                 .get("model")
                 .and_then(Value::as_str)
-                .map(str::to_owned),
+                .map(strip_thinking_suffix),
             model_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
             thinking_level: None,
             configured_thinking_level: None,
@@ -1898,7 +2258,6 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
         process.attached
     };
 
-    emit_activity(app, terminal_id, "idle");
     if should_emit {
         if let Some(error) = runtime_error {
             emit_runtime_error(app, terminal_id, error);
@@ -2167,21 +2526,24 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::RuntimeFileIdentity;
     use super::{
         append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
         feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
-        poll_runtime_file, read_latest_activity, receive_ready_output_batch,
-        receive_timed_output_batch, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, thinking_cycle, validate_switch_request, PtyExitEvent,
-        PtyRuntimeEventKind, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
-        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
-        PTY_OUTPUT_BATCH_LIMIT,
+        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
+        receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
+        runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
+        PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
         collections::HashMap,
         ffi::OsStr,
         fs,
+        io::Write,
         sync::mpsc,
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -2418,6 +2780,27 @@ mod tests {
     }
 
     #[test]
+    fn model_change_model_strips_only_a_known_final_thinking_suffix() {
+        for (selector, expected_model) in [
+            ("openai/gpt-5.6:high", "openai/gpt-5.6"),
+            ("ollama/llama3.1:8b", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:HIGH", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal"),
+        ] {
+            let line = serde_json::json!({
+                "type": "model_change",
+                "model": selector,
+                "role": "default",
+            })
+            .to_string();
+            let event = runtime_event_from_line("terminal-1", line.as_bytes())
+                .expect("model change should parse");
+
+            assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
+        }
+    }
+
+    #[test]
     fn runtime_lines_report_model_role_and_configured_thinking() {
         let payload = concat!(
             "{\"type\":\"custom_message\",\"content\":\"ignored\"}\n",
@@ -2551,7 +2934,471 @@ mod tests {
     }
 
     #[test]
-    fn runtime_watcher_resets_and_replays_rewritten_or_rotated_files() {
+    fn runtime_cursor_does_not_replay_a_historical_error() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-seed-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"error-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"old failure\"}}\n",
+        )
+        .expect("historical error fixture should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut events = Vec::new();
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("historical error fixture should be appendable");
+        file.write_all(
+            b"{\"type\":\"message\",\"id\":\"user-2\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("live activity should be appendable");
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+        fs::remove_file(&path).expect("historical error fixture should be removable");
+
+        assert_eq!(events.len(), 1);
+        let event =
+            runtime_event_from_line("terminal-1", &events[0]).expect("live activity should parse");
+        assert_eq!(event.activity.as_deref(), Some("thinking"));
+    }
+
+    #[test]
+    fn runtime_watcher_baselines_history_after_transient_absence() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-absent-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut events = Vec::new();
+
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"error-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}\n",
+        )
+        .expect("late historical fixture should be writable");
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+        assert!(events.is_empty());
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("late historical fixture should be appendable");
+        file.write_all(
+            b"{\"type\":\"message\",\"id\":\"user-2\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("live activity should be appendable");
+        poll_runtime_file(&path, &mut cursor, || {}, |line| events.push(line.to_vec()));
+        fs::remove_file(&path).expect("late historical fixture should be removable");
+
+        assert_eq!(events.len(), 1);
+        let event =
+            runtime_event_from_line("terminal-1", &events[0]).expect("live activity should parse");
+        assert_eq!(event.activity.as_deref(), Some("thinking"));
+    }
+
+    #[test]
+    fn runtime_watcher_catches_up_events_after_rewrite() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-rewrite-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("rewrite fixture directory should be writable");
+        let path = directory.join("session.jsonl");
+        let baseline = concat!(
+            "{\"type\":\"session\",\"id\":\"session-1\",\"timestamp\":\"2026-08-09T10:00:00Z\"}\n",
+            "{\"type\":\"message\",\"id\":\"user-1\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"user\"}}\n"
+        );
+        fs::write(&path, baseline).expect("baseline fixture should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::write(
+            &path,
+            format!(
+                "{{\"type\":\"title_change\",\"id\":\"title-0\",\"timestamp\":\"2026-08-09T09:59:59Z\",\"title\":\"rewritten\"}}\n{baseline}{{\"type\":\"retry_fallback_applied\",\"id\":\"fallback-1\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}}\n{{\"type\":\"model_change\",\"id\":\"model-1\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"model\":\"provider/fallback\",\"role\":\"fallback\"}}\n"
+            ),
+        )
+        .expect("rewritten fixture should be writable");
+        let mut resets = 0;
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("rewrite fixture directory should be removable");
+
+        assert_eq!(resets, 1);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+        assert_eq!(events[1].kind, PtyRuntimeEventKind::ModelChange);
+    }
+
+    #[test]
+    fn runtime_watcher_filters_timestamped_history_after_exact_checkpoint() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-exact-filter-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("exact filter directory should be writable");
+        let path = directory.join("session.jsonl");
+        let checkpoint = "{\"type\":\"message\",\"id\":\"checkpoint\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n";
+        fs::write(&path, checkpoint).expect("exact filter baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::write(
+            &path,
+            format!(
+                "{{\"type\":\"title_change\",\"id\":\"title\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"title\":\"rewritten\"}}\n{checkpoint}{{\"type\":\"message\",\"id\":\"historical-error\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"message\":{{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}}}\n{{\"type\":\"message\",\"message\":{{\"role\":\"user\"}}}}\n{{\"type\":\"retry_fallback_applied\",\"id\":\"live-fallback\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}}\n"
+            ),
+        )
+        .expect("exact filter replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("exact filter directory should be removable");
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::Activity);
+        assert_eq!(events[0].activity.as_deref(), Some("thinking"));
+        assert_eq!(events[1].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+    }
+
+    #[test]
+    fn runtime_watcher_catches_up_a_disjoint_rotated_segment() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-rotation-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("rotation fixture directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"old-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("old segment should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("session.old.jsonl"))
+            .expect("old segment should be rotatable");
+        fs::write(
+            &path,
+            b"{\"type\":\"retry_fallback_applied\",\"id\":\"new-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
+        )
+        .expect("new segment should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("rotation fixture directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+    }
+
+    #[test]
+    fn runtime_watcher_filters_every_watermark_recovery_line() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-watermark-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("watermark fixture directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"old-user\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("watermark baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("session.old.jsonl"))
+            .expect("watermark baseline should be rotatable");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"historical-before\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical before\"}}\n",
+                "{\"type\":\"message\",\"id\":\"live-error\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"live failure\"}}\n",
+                "{\"type\":\"retry_fallback_applied\",\"id\":\"historical-after\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n"
+            ),
+        )
+        .expect("watermark replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("watermark fixture directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelError);
+        assert_eq!(events[0].error_message.as_deref(), Some("live failure"));
+    }
+
+    #[test]
+    fn runtime_watcher_distinguishes_reused_ids_by_timestamp() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-reused-id-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("reused id directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("reused id baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("reused id baseline should be rotatable");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"retry_fallback_applied\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
+                "{\"type\":\"message\",\"id\":\"shared\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n"
+            ),
+        )
+        .expect("reused id replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("reused id directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+    }
+
+    #[test]
+    fn runtime_watcher_uses_watermark_for_ambiguous_legacy_checkpoints() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-ambiguous-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("ambiguous checkpoint directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"old-user\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n"
+            ),
+        )
+        .expect("ambiguous checkpoint baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("ambiguous checkpoint baseline should be rotatable");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"live-error\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"live failure\"}}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n",
+                "{\"type\":\"custom\",\"customType\":\"tool_execution_end\"}\n"
+            ),
+        )
+        .expect("ambiguous checkpoint replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("ambiguous checkpoint directory should be removable");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelError);
+        assert_eq!(events[0].error_message.as_deref(), Some("live failure"));
+    }
+
+    #[test]
+    fn runtime_recovery_keeps_one_open_snapshot_across_a_second_rotation() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-double-rotation-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("double rotation directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(
+            &path,
+            b"{\"type\":\"message\",\"id\":\"old-user\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("double rotation baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::rename(&path, directory.join("baseline.jsonl"))
+            .expect("double rotation baseline should be rotatable");
+        fs::write(
+            &path,
+            b"{\"type\":\"retry_fallback_applied\",\"id\":\"segment-1\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}\n",
+        )
+        .expect("first replacement should be writable");
+        let held_file = fs::File::open(&path).expect("first replacement should be openable");
+
+        fs::rename(&path, directory.join("segment-1.jsonl"))
+            .expect("first replacement should remain rotatable while open");
+        fs::write(
+            &path,
+            b"{\"type\":\"model_change\",\"id\":\"segment-2\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"model\":\"provider/fallback\",\"role\":\"fallback\"}\n",
+        )
+        .expect("second replacement should be writable");
+
+        let RuntimeRecovery {
+            mut file,
+            length,
+            cursor: next,
+            filter,
+        } = recover_runtime_cursor(held_file, &cursor)
+            .expect("held replacement should recover as one snapshot");
+        cursor = next;
+        let mut ids = Vec::new();
+        read_runtime_tail(
+            &mut file,
+            length,
+            &mut cursor,
+            filter.as_ref(),
+            &mut |line| {
+                let value = serde_json::from_slice::<serde_json::Value>(line)
+                    .expect("recovered line should stay valid JSON");
+                ids.push(
+                    value["id"]
+                        .as_str()
+                        .expect("recovered id should exist")
+                        .to_owned(),
+                );
+            },
+        );
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                let value = serde_json::from_slice::<serde_json::Value>(line)
+                    .expect("next rotation line should stay valid JSON");
+                ids.push(
+                    value["id"]
+                        .as_str()
+                        .expect("next rotation id should exist")
+                        .to_owned(),
+                );
+            },
+        );
+        fs::remove_dir_all(&directory).expect("double rotation directory should be removable");
+
+        assert_eq!(ids, ["segment-1", "segment-2"]);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn runtime_file_identity_changes_across_a_windows_replacement() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-windows-identity-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("identity directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(&path, b"old\n").expect("old identity fixture should be writable");
+        let old_file = fs::File::open(&path).expect("old identity fixture should be openable");
+        let old_metadata = old_file
+            .metadata()
+            .expect("old identity metadata should be readable");
+        let old_identity = RuntimeFileIdentity::from_file(&old_file, &old_metadata);
+
+        fs::rename(&path, directory.join("old.jsonl"))
+            .expect("old identity fixture should remain rotatable while open");
+        fs::write(&path, b"new\n").expect("new identity fixture should be writable");
+        let new_file = fs::File::open(&path).expect("new identity fixture should be openable");
+        let new_metadata = new_file
+            .metadata()
+            .expect("new identity metadata should be readable");
+        let new_identity = RuntimeFileIdentity::from_file(&new_file, &new_metadata);
+        fs::remove_dir_all(&directory).expect("identity directory should be removable");
+
+        assert!(old_identity.file_id.is_some());
+        assert!(new_identity.file_id.is_some());
+        assert_ne!(old_identity, new_identity);
+    }
+
+    #[test]
+    fn runtime_watcher_skips_unordered_legacy_history_after_reset() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -2586,7 +3433,7 @@ mod tests {
 
         fs::write(
             &path,
-            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"name\":\"finished\"}],\"stopReason\":\"stop\"}}\n",
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}\n",
         )
         .expect("runtime fixture should be rewritable");
         poll_runtime_file(
@@ -2600,7 +3447,25 @@ mod tests {
             },
         );
         assert_eq!(resets, 1);
-        assert_eq!(activities, ["idle"]);
+        assert!(activities.is_empty());
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("rewritten runtime fixture should be appendable");
+        file.write_all(b"{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n")
+            .expect("new runtime activity should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
+        assert_eq!(activities, ["thinking"]);
 
         fs::rename(&path, directory.join("rotated.jsonl"))
             .expect("runtime fixture should be rotatable");
@@ -2619,14 +3484,34 @@ mod tests {
                 }
             },
         );
+        assert_eq!(resets, 2);
+        assert_eq!(activities, ["thinking"]);
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("rotated runtime fixture should be appendable");
+        file.write_all(
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}\n",
+        )
+        .expect("post-rotation activity should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
         fs::remove_dir_all(&directory).expect("fixture directory should be removable");
 
-        assert_eq!(resets, 2);
-        assert_eq!(activities, ["idle", "thinking"]);
+        assert_eq!(activities, ["thinking", "idle"]);
     }
 
     #[test]
-    fn latest_activity_skips_oversized_lines_and_accepts_final_line_without_newline() {
+    fn runtime_cursor_baselines_oversized_and_final_historical_lines() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -2638,14 +3523,43 @@ mod tests {
         let mut contents = vec![b'x'; MAX_RUNTIME_EVENT_LINE + 1];
         contents.push(b'\n');
         contents.extend_from_slice(
-            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}",
+            b"{\"type\":\"message\",\"id\":\"idle-1\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}",
         );
         fs::write(&path, contents).expect("activity fixture should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut activities = Vec::new();
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
 
-        let activity = read_latest_activity(&path);
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("activity fixture should be appendable");
+        file.write_all(
+            b"\n{\"type\":\"message\",\"id\":\"user-2\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"message\":{\"role\":\"user\"}}\n",
+        )
+        .expect("live activity should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
         fs::remove_file(&path).expect("activity fixture should be removable");
 
-        assert_eq!(activity.as_deref(), Some("idle"));
+        assert_eq!(activities, ["thinking"]);
     }
 
     #[test]

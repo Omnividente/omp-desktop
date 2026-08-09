@@ -1,32 +1,46 @@
-import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
-import type { OmpUpdateInfo, RuntimeInfo, WorkspaceSummary } from "./types";
+import type { Ref } from "react"
+import { Icon } from "./Icon"
+import { t, type Lang } from "./i18n"
+import type { OmpUpdateInfo, RuntimeInfo, WorkspaceSummary } from "./types"
 
 interface TopbarProps {
-  appVersion: string;
-  checkingUpdate: boolean;
-  language: Lang;
-  refreshing: boolean;
-  runtime: RuntimeInfo;
-  selectedWorkspace: WorkspaceSummary | null;
-  updateInfo: OmpUpdateInfo | null;
-  onOpenSettings: () => void;
-  onRefresh: () => void;
-  onUpdate: () => void;
+  appVersion: string
+  checkingUpdate: boolean
+  incidentActiveTerminalCount: number
+  incidentCenterOpen: boolean
+  incidentTriggerRef: Ref<HTMLButtonElement>
+  language: Lang
+  refreshing: boolean
+  runtime: RuntimeInfo
+  selectedWorkspace: WorkspaceSummary | null
+  updateInfo: OmpUpdateInfo | null
+  onOpenIncidentCenter: () => void
+  onOpenSettings: () => void
+  onRefresh: () => void
+  onUpdate: () => void
 }
 
 export function Topbar({
   appVersion,
   checkingUpdate,
+  incidentActiveTerminalCount,
+  incidentCenterOpen,
+  incidentTriggerRef,
   language,
   refreshing,
   runtime,
   selectedWorkspace,
   updateInfo,
+  onOpenIncidentCenter,
   onOpenSettings,
   onRefresh,
   onUpdate,
 }: TopbarProps) {
+  const incidentLabel = t(
+    language,
+    incidentActiveTerminalCount > 0 ? "incidentOpenWithCount" : "incidentOpen",
+  ).replace("{count}", String(incidentActiveTerminalCount))
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -72,6 +86,28 @@ export function Topbar({
           </button>
         )}
         <button
+          aria-expanded={incidentCenterOpen}
+          aria-haspopup="dialog"
+          aria-label={incidentLabel}
+          className={`icon-button incident-center-trigger${incidentActiveTerminalCount > 0 ? " has-active" : ""}`}
+          onClick={onOpenIncidentCenter}
+          ref={incidentTriggerRef}
+          title={incidentLabel}
+          type="button"
+        >
+          <Icon name="history" />
+          {incidentActiveTerminalCount > 0 && (
+            <span aria-hidden="true" className="incident-center-badge">
+              {incidentActiveTerminalCount > 99 ? "99+" : incidentActiveTerminalCount}
+            </span>
+          )}
+        </button>
+        <span aria-atomic="true" aria-live="polite" className="sr-only">
+          {incidentActiveTerminalCount > 0
+            ? incidentLabel
+            : t(language, "incidentNoActiveTerminals")}
+        </span>
+        <button
           className={`icon-button${refreshing ? " is-spinning" : ""}`}
           disabled={refreshing}
           onClick={onRefresh}
@@ -90,5 +126,5 @@ export function Topbar({
         </button>
       </div>
     </header>
-  );
+  )
 }
