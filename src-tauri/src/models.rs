@@ -412,6 +412,7 @@ pub struct SessionTranscript {
     pub session: SessionSummary,
     pub entries: Vec<TranscriptEntry>,
     pub updated_at: u64,
+    pub truncated: bool,
 }
 
 #[cfg(test)]

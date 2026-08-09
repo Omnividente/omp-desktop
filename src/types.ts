@@ -59,6 +59,7 @@ export interface SessionTranscript {
   session: SessionSummary
   entries: TranscriptEntry[]
   updatedAt: number
+  truncated: boolean
 }
 
 export interface WorkspaceSummary {

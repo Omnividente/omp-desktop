@@ -101,6 +101,12 @@ export function TranscriptModal({
             </button>
           </div>
         </header>
+        {transcript?.truncated && (
+          <div className="transcript-truncated" role="status">
+            <Icon name="alert" size={14} />
+            <span>{t(lang, "transcriptTruncated")}</span>
+          </div>
+        )}
 
         {transcript && transcript.entries.length > 0 && (
           <div className="transcript-toolbar">

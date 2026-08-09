@@ -1,4 +1,5 @@
 use crate::{
+    diagnostics,
     models::{
         AppSettings, BootstrapPayload, CodexSessionSummary, ImportItemResult, ImportItemStatus,
         ImportMode, ImportSessionRequest, SessionSummary, SessionTranscript, TranscriptEntry,
@@ -23,7 +24,12 @@ const TITLE_SLOT_BYTES: usize = 256;
 const CODEX_DISCOVERY_MAX_LINES: usize = 80;
 const CODEX_DISCOVERY_MAX_BYTES: usize = 256 * 1024;
 const SESSION_SUMMARY_REGION_BYTES: usize = 2 * 1024 * 1024;
+const TRANSCRIPT_PREFIX_BYTES: usize = 4 * 1024 * 1024;
+const TRANSCRIPT_TAIL_BYTES: usize = 12 * 1024 * 1024;
 const MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_IMPORT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_IMPORT_ARTIFACT_ENTRIES: usize = 10_000;
+const MAX_IMPORT_ARTIFACT_DEPTH: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SessionFileStamp {
@@ -432,8 +438,7 @@ fn import_session(
     let source = validated_external_import_source(&request.path)?;
     let target = canonical_project_path(request.target_cwd.trim())?;
     let target_cwd = target.to_string_lossy().into_owned();
-    let bytes = fs::read(&source)
-        .map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+    let bytes = read_bounded_import_source(&source)?;
     let text = String::from_utf8_lossy(&bytes);
     let imported = if looks_like_codex_session(&text) {
         import_codex_session(
@@ -455,6 +460,47 @@ fn import_session(
     })
 }
 
+fn import_size_error() -> String {
+    format!(
+        "Файл импорта больше поддерживаемого лимита {} MiB",
+        MAX_IMPORT_BYTES / (1024 * 1024)
+    )
+}
+
+fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(source)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", source.display()))?;
+    let metadata = file.metadata().map_err(|error| {
+        format!(
+            "Не удалось прочитать метаданные {}: {error}",
+            source.display()
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
+        return Err(import_size_error());
+    }
+
+    let (bytes, overflow) = read_import_bytes(file, MAX_IMPORT_BYTES)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+    if overflow {
+        return Err(import_size_error());
+    }
+    Ok(bytes)
+}
+
+fn read_import_bytes<R: Read>(reader: R, max_bytes: u64) -> io::Result<(Vec<u8>, bool)> {
+    let mut bytes = Vec::new();
+    reader.take(max_bytes + 1).read_to_end(&mut bytes)?;
+    let overflow = bytes.len() as u64 > max_bytes;
+    if overflow {
+        bytes.truncate(max_bytes as usize);
+    }
+    Ok((bytes, overflow))
+}
+
 fn validated_external_import_source(path: &str) -> Result<PathBuf, String> {
     let candidate = Path::new(path);
     let metadata = fs::symlink_metadata(candidate)
@@ -463,10 +509,7 @@ fn validated_external_import_source(path: &str) -> Result<PathBuf, String> {
         return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
     }
     if metadata.len() > MAX_IMPORT_BYTES {
-        return Err(format!(
-            "Файл импорта больше поддерживаемого лимита {} MiB",
-            MAX_IMPORT_BYTES / (1024 * 1024)
-        ));
+        return Err(import_size_error());
     }
     if candidate
         .extension()
@@ -481,35 +524,147 @@ fn validated_external_import_source(path: &str) -> Result<PathBuf, String> {
         .map_err(|error| format!("Не удалось определить путь {path}: {error}"))
 }
 
+struct TranscriptRegions {
+    prefix: Vec<u8>,
+    tail: Vec<u8>,
+    truncated: bool,
+}
+
 pub fn read_session_transcript(
     path: &str,
     session_root: &Path,
 ) -> Result<SessionTranscript, String> {
-    let path = validated_session_file(path, session_root)?;
+    read_session_transcript_with_limits(
+        path,
+        session_root,
+        TRANSCRIPT_PREFIX_BYTES,
+        TRANSCRIPT_TAIL_BYTES,
+    )
+}
 
+fn read_session_transcript_with_limits(
+    path: &str,
+    session_root: &Path,
+    prefix_limit: usize,
+    tail_limit: usize,
+) -> Result<SessionTranscript, String> {
+    let path = validated_session_file(path, session_root)?;
     let session = parse_session(&path)?
         .ok_or_else(|| format!("Не удалось найти session header в {}", path.display()))?;
-    let file = fs::File::open(&path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
-    let reader = std::io::BufReader::new(file);
+    let regions = read_transcript_regions(&path, prefix_limit, tail_limit)?;
     let mut entries = Vec::new();
-
-    for (line_index, line) in std::io::BufRead::lines(reader).enumerate() {
-        let line =
-            line.map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Some(entry) = transcript_entry_from_value(&value, line_index) {
-            entries.push(entry);
-        }
-    }
+    let mut line_index = 0_usize;
+    parse_transcript_region(&regions.prefix, &mut line_index, &mut entries);
+    parse_transcript_region(&regions.tail, &mut line_index, &mut entries);
 
     Ok(SessionTranscript {
         session,
         entries,
         updated_at: modified_millis(&path),
+        truncated: regions.truncated,
     })
+}
+
+fn read_transcript_regions(
+    path: &Path,
+    prefix_limit: usize,
+    tail_limit: usize,
+) -> Result<TranscriptRegions, String> {
+    if prefix_limit == 0 || tail_limit == 0 {
+        return Err("Лимиты чтения транскрипта должны быть больше нуля".to_owned());
+    }
+    let total_limit = prefix_limit
+        .checked_add(tail_limit)
+        .ok_or_else(|| "Лимит чтения транскрипта слишком велик".to_owned())?;
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let declared_size = file
+        .metadata()
+        .map_err(|error| {
+            format!(
+                "Не удалось прочитать метаданные {}: {error}",
+                path.display()
+            )
+        })?
+        .len();
+
+    if declared_size <= total_limit as u64 {
+        let mut full = Vec::new();
+        Read::by_ref(&mut file)
+            .take(total_limit as u64 + 1)
+            .read_to_end(&mut full)
+            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+        if full.len() <= total_limit {
+            return Ok(TranscriptRegions {
+                prefix: full,
+                tail: Vec::new(),
+                truncated: false,
+            });
+        }
+    }
+
+    file.seek(SeekFrom::Start(0))
+        .map_err(|error| format!("Не удалось перейти к началу {}: {error}", path.display()))?;
+    let mut prefix = Vec::with_capacity(prefix_limit);
+    Read::by_ref(&mut file)
+        .take(prefix_limit as u64)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Не удалось прочитать начало {}: {error}", path.display()))?;
+    trim_trailing_partial_line(&mut prefix);
+
+    let current_size = file
+        .metadata()
+        .map_err(|error| format!("Не удалось обновить метаданные {}: {error}", path.display()))?
+        .len()
+        .max(declared_size);
+    file.seek(SeekFrom::Start(
+        current_size.saturating_sub(tail_limit as u64),
+    ))
+    .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
+    let mut tail = Vec::with_capacity(tail_limit);
+    Read::by_ref(&mut file)
+        .take(tail_limit as u64)
+        .read_to_end(&mut tail)
+        .map_err(|error| format!("Не удалось прочитать конец {}: {error}", path.display()))?;
+    if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
+        tail.drain(..=first_newline);
+    } else {
+        tail.clear();
+    }
+
+    Ok(TranscriptRegions {
+        prefix,
+        tail,
+        truncated: true,
+    })
+}
+
+fn trim_trailing_partial_line(bytes: &mut Vec<u8>) {
+    if bytes.last() == Some(&b'\n') {
+        return;
+    }
+    if let Some(last_newline) = bytes.iter().rposition(|byte| *byte == b'\n') {
+        bytes.truncate(last_newline + 1);
+    } else {
+        bytes.clear();
+    }
+}
+
+fn parse_transcript_region(
+    region: &[u8],
+    line_index: &mut usize,
+    entries: &mut Vec<TranscriptEntry>,
+) {
+    for line in region.split(|byte| *byte == b'\n') {
+        let current_index = *line_index;
+        *line_index = line_index.saturating_add(1);
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if let Some(entry) = transcript_entry_from_value(&value, current_index) {
+            entries.push(entry);
+        }
+    }
 }
 
 fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<TranscriptEntry> {
@@ -765,16 +920,43 @@ fn import_destination(
     let import_key = stable_import_hash(format!("{source_kind}\0{source_id}").as_bytes());
     let stem = format!("imported-{source_kind}-{import_key:016x}");
     let primary = destination_directory.join(format!("{stem}.jsonl"));
+    let primary_exists = match fs::symlink_metadata(&primary) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(format!(
+                    "Путь назначения импорта занят посторонним объектом: {}",
+                    primary.display()
+                ));
+            }
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(format!(
+                "Не удалось проверить назначение импорта {}: {error}",
+                primary.display()
+            ))
+        }
+    };
+    if primary_exists
+        && mode != ImportMode::Copy
+        && !existing_import_matches_source(&primary, source_kind, source_id)?
+    {
+        return Err(format!(
+            "Конфликт идентификатора импорта: {} принадлежит другому источнику",
+            primary.display()
+        ));
+    }
 
     match mode {
-        ImportMode::Skip if primary.exists() => Ok(ImportDestination {
+        ImportMode::Skip if primary_exists => Ok(ImportDestination {
             path: primary,
             session_id: stem,
             status: ImportItemStatus::Skipped,
             should_write: false,
         }),
         ImportMode::Update => Ok(ImportDestination {
-            status: if primary.exists() {
+            status: if primary_exists {
                 ImportItemStatus::Updated
             } else {
                 ImportItemStatus::Imported
@@ -796,7 +978,9 @@ fn import_destination(
                         should_write: true,
                     });
                 }
-                copy_index = copy_index.saturating_add(1);
+                copy_index = copy_index
+                    .checked_add(1)
+                    .ok_or_else(|| "Исчерпан диапазон имён копий импорта".to_owned())?;
             }
         }
         ImportMode::Skip => Ok(ImportDestination {
@@ -808,7 +992,65 @@ fn import_destination(
     }
 }
 
+fn existing_import_matches_source(
+    path: &Path,
+    source_kind: &str,
+    source_id: &str,
+) -> Result<bool, String> {
+    let file = fs::File::open(path)
+        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
+    let mut prefix = Vec::new();
+    file.take(64 * 1024)
+        .read_to_end(&mut prefix)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
+    for line in prefix.split(|byte| *byte == b'\n').take(16) {
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some("session") {
+            continue;
+        }
+        let direct_match = value.get("importSource").is_some_and(|source| {
+            source.get("type").and_then(Value::as_str) == Some(source_kind)
+                && source.get("id").and_then(Value::as_str) == Some(source_id)
+        });
+        let codex_match = source_kind == "codex"
+            && value.get("parentSession").and_then(Value::as_str)
+                == Some(format!("codex:{source_id}").as_str());
+        return Ok(direct_match || codex_match);
+    }
+    Ok(false)
+}
+
+#[derive(Clone, Copy)]
+struct ArtifactLimits {
+    max_bytes: u64,
+    max_entries: usize,
+    max_depth: usize,
+}
+
+struct ArtifactBudget {
+    bytes: u64,
+    entries: usize,
+}
+
 fn stage_import_artifacts(source: &Path, destination: &Path) -> Result<Option<PathBuf>, String> {
+    stage_import_artifacts_with_limits(
+        source,
+        destination,
+        ArtifactLimits {
+            max_bytes: MAX_IMPORT_ARTIFACT_BYTES,
+            max_entries: MAX_IMPORT_ARTIFACT_ENTRIES,
+            max_depth: MAX_IMPORT_ARTIFACT_DEPTH,
+        },
+    )
+}
+
+fn stage_import_artifacts_with_limits(
+    source: &Path,
+    destination: &Path,
+    limits: ArtifactLimits,
+) -> Result<Option<PathBuf>, String> {
     let source_artifacts = source.with_extension("");
     let metadata = match fs::symlink_metadata(&source_artifacts) {
         Ok(metadata) => metadata,
@@ -827,28 +1069,201 @@ fn stage_import_artifacts(source: &Path, destination: &Path) -> Result<Option<Pa
         ));
     }
 
-    let staging = destination
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(format!(
-            ".{}.artifacts-{:08x}",
-            destination
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("import"),
-            rand::random::<u32>()
-        ));
-    let mut options = fs_extra::dir::CopyOptions::new();
-    options.copy_inside = true;
-    options.overwrite = true;
-    if let Err(error) = fs_extra::dir::copy(&source_artifacts, &staging, &options) {
+    let staging = create_import_sidecar_directory(destination, "artifacts-stage")?;
+    let mut budget = ArtifactBudget {
+        bytes: 0,
+        entries: 0,
+    };
+    if let Err(error) =
+        copy_import_artifact_directory(&source_artifacts, &staging, 0, &limits, &mut budget)
+    {
         let _ = fs::remove_dir_all(&staging);
-        return Err(format!(
-            "Не удалось скопировать артефакты {}: {error}",
-            source_artifacts.display()
-        ));
+        return Err(error);
     }
     Ok(Some(staging))
+}
+
+fn create_import_sidecar_directory(destination: &Path, label: &str) -> Result<PathBuf, String> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let stem = destination
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("import");
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{stem}.{label}.{}.{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        match fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось создать временный каталог рядом с {}: {error}",
+                    destination.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "Не удалось создать уникальный временный каталог рядом с {}",
+        destination.display()
+    ))
+}
+
+fn unique_import_sidecar_path(destination: &Path, label: &str) -> Result<PathBuf, String> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let stem = destination
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("import");
+    for _ in 0..16 {
+        let candidate = parent.join(format!(
+            ".{stem}.{label}.{}.{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        match fs::symlink_metadata(&candidate) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(candidate),
+            Ok(_) => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось проверить временный путь {}: {error}",
+                    candidate.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "Не удалось подобрать уникальный временный путь рядом с {}",
+        destination.display()
+    ))
+}
+
+fn copy_import_artifact_directory(
+    source: &Path,
+    destination: &Path,
+    depth: usize,
+    limits: &ArtifactLimits,
+    budget: &mut ArtifactBudget,
+) -> Result<(), String> {
+    if depth > limits.max_depth {
+        return Err(format!(
+            "Артефакты импорта глубже поддерживаемого лимита {}",
+            limits.max_depth
+        ));
+    }
+    let source_metadata = fs::symlink_metadata(source)
+        .map_err(|error| format!("Не удалось проверить {}: {error}", source.display()))?;
+    if source_metadata.file_type().is_symlink() || !source_metadata.is_dir() {
+        return Err(format!(
+            "Артефакты импорта содержат ссылку или не-каталог: {}",
+            source.display()
+        ));
+    }
+    let entries = fs::read_dir(source)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("Не удалось прочитать {}: {error}", source.display()))?;
+        budget.entries = budget
+            .entries
+            .checked_add(1)
+            .ok_or_else(|| "Слишком много артефактов импорта".to_owned())?;
+        if budget.entries > limits.max_entries {
+            return Err(format!(
+                "Артефактов импорта больше поддерживаемого лимита {}",
+                limits.max_entries
+            ));
+        }
+
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&source_path)
+            .map_err(|error| format!("Не удалось проверить {}: {error}", source_path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "Артефакты импорта не могут содержать ссылки: {}",
+                source_path.display()
+            ));
+        }
+        if metadata.is_dir() {
+            fs::create_dir(&destination_path).map_err(|error| {
+                format!("Не удалось создать {}: {error}", destination_path.display())
+            })?;
+            copy_import_artifact_directory(
+                &source_path,
+                &destination_path,
+                depth + 1,
+                limits,
+                budget,
+            )?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(format!(
+                "Артефакты импорта могут содержать только обычные файлы и каталоги: {}",
+                source_path.display()
+            ));
+        }
+
+        let input = fs::File::open(&source_path)
+            .map_err(|error| format!("Не удалось открыть {}: {error}", source_path.display()))?;
+        let opened_metadata = fs::symlink_metadata(&source_path).map_err(|error| {
+            format!(
+                "Не удалось повторно проверить {}: {error}",
+                source_path.display()
+            )
+        })?;
+        if opened_metadata.file_type().is_symlink()
+            || !input
+                .metadata()
+                .map_err(|error| {
+                    format!(
+                        "Не удалось прочитать метаданные {}: {error}",
+                        source_path.display()
+                    )
+                })?
+                .is_file()
+        {
+            return Err(format!(
+                "Артефакты импорта не могут содержать ссылки: {}",
+                source_path.display()
+            ));
+        }
+        let remaining = limits.max_bytes.saturating_sub(budget.bytes);
+        if metadata.len() > remaining {
+            return Err(format!(
+                "Артефакты импорта больше поддерживаемого лимита {} MiB",
+                limits.max_bytes / (1024 * 1024)
+            ));
+        }
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination_path)
+            .map_err(|error| {
+                format!("Не удалось создать {}: {error}", destination_path.display())
+            })?;
+        let copied = io::copy(&mut input.take(remaining + 1), &mut output).map_err(|error| {
+            format!("Не удалось скопировать {}: {error}", source_path.display())
+        })?;
+        if copied > remaining {
+            return Err(format!(
+                "Артефакты импорта больше поддерживаемого лимита {} MiB",
+                limits.max_bytes / (1024 * 1024)
+            ));
+        }
+        output.sync_all().map_err(|error| {
+            format!(
+                "Не удалось сохранить {}: {error}",
+                destination_path.display()
+            )
+        })?;
+        budget.bytes += copied;
+    }
+    Ok(())
 }
 
 fn remove_import_artifacts(path: &Path) -> Result<(), String> {
@@ -857,14 +1272,14 @@ fn remove_import_artifacts(path: &Path) -> Result<(), String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(format!("Не удалось проверить {}: {error}", path.display())),
     };
-    if metadata.file_type().is_symlink() {
-        fs::remove_file(path)
-    } else if metadata.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(format!(
+            "Отказ удаления постороннего объекта на пути артефактов {}",
+            path.display()
+        ));
     }
-    .map_err(|error| format!("Не удалось заменить артефакты {}: {error}", path.display()))
+    fs::remove_dir_all(path)
+        .map_err(|error| format!("Не удалось удалить артефакты {}: {error}", path.display()))
 }
 
 fn commit_import(
@@ -872,24 +1287,142 @@ fn commit_import(
     body: &[u8],
     staged_artifacts: Option<PathBuf>,
 ) -> Result<(), String> {
-    if let Err(error) = atomic_write_file(destination, body) {
-        if let Some(staging) = staged_artifacts.as_ref() {
-            let _ = fs::remove_dir_all(staging);
-        }
-        return Err(error);
-    }
+    commit_import_with(
+        destination,
+        body,
+        staged_artifacts,
+        atomic_write_file,
+        |source, target| {
+            fs::rename(source, target).map_err(|error| {
+                format!(
+                    "Не удалось переместить {} в {}: {error}",
+                    source.display(),
+                    target.display()
+                )
+            })
+        },
+    )
+}
+
+fn commit_import_with<W, R>(
+    destination: &Path,
+    body: &[u8],
+    staged_artifacts: Option<PathBuf>,
+    mut write_session: W,
+    mut rename: R,
+) -> Result<(), String>
+where
+    W: FnMut(&Path, &[u8]) -> Result<(), String>,
+    R: FnMut(&Path, &Path) -> Result<(), String>,
+{
+    // A JSONL-only update must not erase artifacts that are absent from the selected source.
+    let Some(staging) = staged_artifacts else {
+        return write_session(destination, body);
+    };
+    // Swap artifacts under reversible sibling names, then commit the JSONL last. Every failure
+    // before the JSONL write restores the prior artifact directory or reports the rollback path.
     let target_artifacts = destination.with_extension("");
-    remove_import_artifacts(&target_artifacts)?;
-    if let Some(staging) = staged_artifacts {
-        if let Err(error) = fs::rename(&staging, &target_artifacts) {
+    let existing_metadata = match fs::symlink_metadata(&target_artifacts) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => {
             let _ = fs::remove_dir_all(&staging);
             return Err(format!(
-                "Сессия записана, но не удалось применить артефакты {}: {error}",
+                "Не удалось проверить артефакты {}: {error}",
                 target_artifacts.display()
             ));
         }
+    };
+    if existing_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink() || !metadata.is_dir())
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(format!(
+            "Нельзя заменить посторонний объект на пути артефактов {}",
+            target_artifacts.display()
+        ));
+    }
+
+    let backup = if existing_metadata.is_some() {
+        let backup = match unique_import_sidecar_path(destination, "artifacts-backup") {
+            Ok(backup) => backup,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(error);
+            }
+        };
+        if let Err(error) = rename(&target_artifacts, &backup) {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+        Some(backup)
+    } else {
+        None
+    };
+
+    if let Err(error) = rename(&staging, &target_artifacts) {
+        let mut rollback_errors = Vec::new();
+        if let Some(backup) = backup.as_ref() {
+            if let Err(rollback_error) = rename(backup, &target_artifacts) {
+                rollback_errors.push(rollback_error);
+            }
+        }
+        if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
+            if cleanup_error.kind() != io::ErrorKind::NotFound {
+                rollback_errors.push(format!(
+                    "Не удалось очистить {}: {cleanup_error}",
+                    staging.display()
+                ));
+            }
+        }
+        return Err(import_transaction_error(error, rollback_errors));
+    }
+
+    if let Err(error) = write_session(destination, body) {
+        let mut rollback_errors = Vec::new();
+        let moved_new_aside = match rename(&target_artifacts, &staging) {
+            Ok(()) => true,
+            Err(rollback_error) => {
+                rollback_errors.push(rollback_error);
+                false
+            }
+        };
+        if moved_new_aside {
+            if let Some(backup) = backup.as_ref() {
+                if let Err(rollback_error) = rename(backup, &target_artifacts) {
+                    rollback_errors.push(rollback_error);
+                }
+            }
+            if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
+                if cleanup_error.kind() != io::ErrorKind::NotFound {
+                    rollback_errors.push(format!(
+                        "Не удалось очистить {}: {cleanup_error}",
+                        staging.display()
+                    ));
+                }
+            }
+        }
+        return Err(import_transaction_error(error, rollback_errors));
+    }
+
+    if let Some(backup) = backup {
+        if let Err(error) = remove_import_artifacts(&backup) {
+            diagnostics::warn("session.import.cleanup", &error);
+        }
     }
     Ok(())
+}
+
+fn import_transaction_error(primary: String, rollback_errors: Vec<String>) -> String {
+    if rollback_errors.is_empty() {
+        primary
+    } else {
+        format!(
+            "{primary}; откат не завершён: {}",
+            rollback_errors.join("; ")
+        )
+    }
 }
 
 fn import_omp_session(
@@ -1019,6 +1552,12 @@ fn import_codex_session(
         "title": summary.title,
         "titleSource": "user",
         "parentSession": format!("codex:{}", summary.id),
+        "importSource": {
+            "type": "codex",
+            "id": summary.id,
+            "fingerprint": format!("{:016x}", stable_import_hash(bytes)),
+            "path": source.to_string_lossy(),
+        },
     });
     body.push_str(&serde_json::to_string(&header).unwrap_or_default());
     body.push('\n');
@@ -1234,9 +1773,13 @@ fn collect_jsonl_files(
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
+        let is_import_sidecar = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with('.') && name.contains(".artifacts-"));
 
         if file_type.is_dir() && depth < max_depth {
-            if !artifact_directory_names.contains(&entry.file_name()) {
+            if !is_import_sidecar && !artifact_directory_names.contains(&entry.file_name()) {
                 collect_jsonl_files(&path, depth + 1, max_depth, files)?;
             }
             continue;
@@ -1900,19 +2443,21 @@ impl IfEmpty for String {
 mod tests {
     use super::{
         apply_session_title_pin, atomic_write_file, atomic_write_file_with, build_workspaces,
-        collect_jsonl_files, deduplicate_codex_sessions, delete_session,
-        encode_relative_session_dir_name, encode_session_dir_name, import_session,
-        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
-        read_codex_discovery_prefix, read_session_transcript, restorable_session_model,
-        scan_sessions, serialize_title_slot, validated_external_import_source, CodexSessionSummary,
-        ImportItemStatus, ImportMode, ImportSessionRequest, SessionSummary,
-        TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
-        MAX_IMPORT_BYTES,
+        collect_jsonl_files, commit_import_with, deduplicate_codex_sessions, delete_session,
+        encode_relative_session_dir_name, encode_session_dir_name, import_destination,
+        import_session, parse_codex_session_with_names, parse_session, parse_session_with_names,
+        path_key, read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
+        read_session_transcript_with_limits, restorable_session_model, scan_sessions,
+        serialize_title_slot, stage_import_artifacts_with_limits, validated_external_import_source,
+        ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
+        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
+        CODEX_DISCOVERY_MAX_LINES, MAX_IMPORT_BYTES,
     };
     use std::{
         collections::{BTreeMap, HashMap},
         fs, io,
         io::{Seek, SeekFrom, Write},
+        path::Path,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -2261,6 +2806,7 @@ mod tests {
 
         let transcript = read_session_transcript(path.to_string_lossy().as_ref(), &root)
             .expect("transcript should be readable");
+        assert!(!transcript.truncated);
         assert_eq!(transcript.session.id, "session-id");
         assert_eq!(transcript.entries.len(), 3);
         assert_eq!(transcript.entries[0].text, "First line\nSecond line");
@@ -2294,6 +2840,57 @@ mod tests {
         fs::write(&external, contents).expect("external fixture should be writable");
         assert!(read_session_transcript(external.to_string_lossy().as_ref(), &root).is_err());
         fs::remove_file(external).expect("external fixture should be removable");
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn transcript_reader_bounds_work_and_marks_the_omitted_middle() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-bounded-transcript-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = root.join("project").join("large.jsonl");
+        fs::create_dir_all(path.parent().expect("fixture parent should exist"))
+            .expect("fixture directory should be writable");
+        let mut file = fs::File::create(&path).expect("fixture should be creatable");
+        writeln!(
+            file,
+            r#"{{"type":"session","id":"bounded-session","cwd":"/tmp/project"}}"#
+        )
+        .expect("session header should be writable");
+        writeln!(
+            file,
+            r#"{{"type":"message","id":"first","message":{{"role":"user","content":"first"}}}}"#
+        )
+        .expect("first message should be writable");
+        file.write_all(&vec![b'x'; 1_200])
+            .expect("omitted middle should be writable");
+        file.write_all(b"\n")
+            .expect("middle delimiter should be writable");
+        file.write_all(&[0xff, 0xfe, b'\n'])
+            .expect("invalid UTF-8 fixture should be writable");
+        writeln!(
+            file,
+            r#"{{"type":"message","id":"latest","message":{{"role":"assistant","content":"latest"}}}}"#
+        )
+        .expect("latest message should be writable");
+        drop(file);
+
+        let transcript =
+            read_session_transcript_with_limits(path.to_string_lossy().as_ref(), &root, 512, 512)
+                .expect("bounded transcript should be readable");
+        let ids = transcript
+            .entries
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(transcript.truncated);
+        assert_eq!(ids, ["first", "latest"]);
+
         fs::remove_dir_all(root).expect("fixture root should be removable");
     }
     #[test]
@@ -2713,6 +3310,10 @@ mod tests {
         let session_root = root.join("sessions");
         let source = root.join("source.jsonl");
         fs::create_dir_all(&project).expect("project fixture should be creatable");
+        let source_artifacts = source.with_extension("");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::write(source_artifacts.join("kept.log"), "original artifact")
+            .expect("source artifact should be writable");
         fs::write(
             &source,
             concat!(
@@ -2736,6 +3337,12 @@ mod tests {
             .expect("successful import should have a destination");
         let first_body = fs::read_to_string(first_path).expect("import should be readable");
         assert!(first_body.contains(r#""customType":"omp-desktop-import""#));
+        let imported_artifacts = Path::new(first_path).with_extension("");
+        assert_eq!(
+            fs::read_to_string(imported_artifacts.join("kept.log"))
+                .expect("imported artifact should be readable"),
+            "original artifact"
+        );
 
         let repeated = import_session(&request, &session_root).expect("repeat should be handled");
         assert_eq!(repeated.status, ImportItemStatus::Skipped);
@@ -2753,6 +3360,8 @@ mod tests {
         .expect("source lineage should survive a path change");
         assert_eq!(moved.status, ImportItemStatus::Skipped);
         assert_eq!(moved.destination_path.as_deref(), Some(first_path));
+        fs::remove_dir_all(&source_artifacts)
+            .expect("source artifacts should be removable before update");
 
         fs::write(
             &source,
@@ -2780,6 +3389,11 @@ mod tests {
         assert!(fs::read_to_string(updated_path)
             .expect("updated import should be readable")
             .contains("updated source"));
+        assert_eq!(
+            fs::read_to_string(imported_artifacts.join("kept.log"))
+                .expect("update without source artifacts must preserve destination artifacts"),
+            "original artifact"
+        );
 
         let copied = import_session(
             &ImportSessionRequest {
@@ -2793,6 +3407,279 @@ mod tests {
         assert_ne!(copied.destination_path.as_deref(), Some(updated_path));
 
         fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn import_destination_rejects_a_mismatched_existing_source_identity() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-collision-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = import_destination(
+            &root,
+            "/tmp/project",
+            "omp",
+            "expected-source",
+            ImportMode::Update,
+        )
+        .expect("empty destination should be selectable");
+        fs::write(
+            &destination.path,
+            concat!(
+                r#"{"type":"session","id":"occupied","cwd":"/tmp/project","importSource":{"type":"omp","id":"different-source"}}"#,
+                "\n"
+            ),
+        )
+        .expect("colliding fixture should be writable");
+
+        let error = match import_destination(
+            &root,
+            "/tmp/project",
+            "omp",
+            "expected-source",
+            ImportMode::Update,
+        ) {
+            Ok(_) => panic!("mismatched source identity must not be overwritten"),
+            Err(error) => error,
+        };
+        assert!(error.contains("Конфликт идентификатора импорта"));
+        assert!(fs::read_to_string(&destination.path)
+            .expect("colliding fixture should remain readable")
+            .contains("different-source"));
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn artifact_commit_failure_restores_the_previous_session_and_artifacts() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-rollback-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("session.jsonl");
+        let target_artifacts = destination.with_extension("");
+        let staging = root.join("staging");
+        fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
+        fs::create_dir_all(&staging).expect("staging should be creatable");
+        fs::write(&destination, b"old session").expect("old session should be writable");
+        fs::write(target_artifacts.join("old.log"), b"old artifact")
+            .expect("old artifact should be writable");
+        fs::write(staging.join("new.log"), b"new artifact")
+            .expect("new artifact should be writable");
+
+        let mut rename_calls = 0_usize;
+        let error = commit_import_with(
+            &destination,
+            b"new session",
+            Some(staging.clone()),
+            atomic_write_file,
+            |source, target| {
+                rename_calls += 1;
+                if rename_calls == 2 {
+                    Err("injected artifact commit failure".to_owned())
+                } else {
+                    fs::rename(source, target).map_err(|error| error.to_string())
+                }
+            },
+        )
+        .expect_err("artifact commit failure must fail the import");
+
+        assert!(error.contains("injected artifact commit failure"));
+        assert_eq!(
+            fs::read(&destination).expect("session should remain readable"),
+            b"old session"
+        );
+        assert_eq!(
+            fs::read(target_artifacts.join("old.log"))
+                .expect("old artifact should remain readable"),
+            b"old artifact"
+        );
+        assert!(!target_artifacts.join("new.log").exists());
+        assert!(!staging.exists());
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn session_commit_failure_rolls_back_the_artifact_swap() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-session-rollback-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("session.jsonl");
+        let target_artifacts = destination.with_extension("");
+        let staging = root.join("staging");
+        fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
+        fs::create_dir_all(&staging).expect("staging should be creatable");
+        fs::write(&destination, b"old session").expect("old session should be writable");
+        fs::write(target_artifacts.join("old.log"), b"old artifact")
+            .expect("old artifact should be writable");
+        fs::write(staging.join("new.log"), b"new artifact")
+            .expect("new artifact should be writable");
+
+        let error = commit_import_with(
+            &destination,
+            b"new session",
+            Some(staging.clone()),
+            |_path, _body| Err("injected session commit failure".to_owned()),
+            |source, target| fs::rename(source, target).map_err(|error| error.to_string()),
+        )
+        .expect_err("session commit failure must fail the import");
+
+        assert!(error.contains("injected session commit failure"));
+        assert_eq!(
+            fs::read(&destination).expect("session should remain readable"),
+            b"old session"
+        );
+        assert_eq!(
+            fs::read(target_artifacts.join("old.log"))
+                .expect("old artifact should remain readable"),
+            b"old artifact"
+        );
+        assert!(!target_artifacts.join("new.log").exists());
+        assert!(!staging.exists());
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn artifact_staging_enforces_the_production_budget_shape() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-budget-{}-{nonce}",
+            std::process::id()
+        ));
+        let source = root.join("source.jsonl");
+        let source_artifacts = source.with_extension("");
+        let destination = root.join("destination").join("session.jsonl");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::create_dir_all(
+            destination
+                .parent()
+                .expect("destination parent should exist"),
+        )
+        .expect("destination parent should be creatable");
+        fs::write(&source, b"{}\n").expect("source should be writable");
+        fs::write(source_artifacts.join("large.bin"), vec![0_u8; 65])
+            .expect("oversized artifact should be writable");
+
+        let error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 10,
+                max_depth: 4,
+            },
+        )
+        .expect_err("artifact byte budget must be enforced");
+        assert!(error.contains("лимита"));
+
+        fs::remove_dir_all(&source_artifacts).expect("byte fixture should be removable");
+        fs::create_dir_all(&source_artifacts).expect("entry fixture should be creatable");
+        fs::write(source_artifacts.join("one"), b"1").expect("first entry should be writable");
+        fs::write(source_artifacts.join("two"), b"2").expect("second entry should be writable");
+        let entry_error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 1,
+                max_depth: 4,
+            },
+        )
+        .expect_err("artifact entry budget must be enforced");
+        assert!(entry_error.contains("Артефактов импорта больше"));
+
+        fs::remove_dir_all(&source_artifacts).expect("entry fixture should be removable");
+        fs::create_dir_all(source_artifacts.join("one").join("two"))
+            .expect("depth fixture should be creatable");
+        let depth_error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 64,
+                max_entries: 10,
+                max_depth: 1,
+            },
+        )
+        .expect_err("artifact depth budget must be enforced");
+        assert!(depth_error.contains("глубже поддерживаемого лимита"));
+        assert!(
+            fs::read_dir(
+                destination
+                    .parent()
+                    .expect("destination parent should exist")
+            )
+            .expect("destination parent should be readable")
+            .all(|entry| !entry
+                .expect("directory entry should be readable")
+                .file_name()
+                .to_string_lossy()
+                .contains("artifacts-stage")),
+            "failed staging must not leave transaction directories"
+        );
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_staging_rejects_nested_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-artifact-symlink-{}-{nonce}",
+            std::process::id()
+        ));
+        let source = root.join("source.jsonl");
+        let source_artifacts = source.with_extension("");
+        let outside = root.join("outside.txt");
+        let destination = root.join("destination").join("session.jsonl");
+        fs::create_dir_all(&source_artifacts).expect("source artifacts should be creatable");
+        fs::create_dir_all(
+            destination
+                .parent()
+                .expect("destination parent should exist"),
+        )
+        .expect("destination parent should be creatable");
+        fs::write(&source, b"{}\n").expect("source should be writable");
+        fs::write(&outside, b"must not be copied").expect("outside fixture should be writable");
+        symlink(&outside, source_artifacts.join("leak.txt"))
+            .expect("artifact symlink should be creatable");
+
+        let error = stage_import_artifacts_with_limits(
+            &source,
+            &destination,
+            ArtifactLimits {
+                max_bytes: 1_024,
+                max_entries: 10,
+                max_depth: 4,
+            },
+        )
+        .expect_err("nested symlinks must be rejected");
+        assert!(error.contains("ссыл"));
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 
     #[test]
@@ -2963,6 +3850,11 @@ mod tests {
         let error = validated_external_import_source(path.to_string_lossy().as_ref())
             .expect_err("oversized import should fail before reading its contents");
         assert!(error.contains("256 MiB"));
+
+        let (bounded, overflow) = read_import_bytes(io::Cursor::new(vec![0_u8; 65]), 64)
+            .expect("bounded reader should consume its fixture");
+        assert!(overflow);
+        assert_eq!(bounded.len(), 64);
 
         fs::remove_file(path).expect("fixture should be removable");
     }

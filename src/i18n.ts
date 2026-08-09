@@ -83,9 +83,11 @@ export const UI_TEXT = {
     transcriptOpenAndReread: "Открыть и перечитать",
     transcriptRereadPrompt:
       "Перед ответом полностью перечитай JSONL-историю этой сессии по пути «{path}». Учитывай весь транскрипт, включая ранние сообщения и результаты инструментов.",
-    transcriptLoading: "Читаем полную историю сессии…",
+    transcriptLoading: "Читаем историю сессии…",
     transcriptError: "Не удалось прочитать транскрипт",
     transcriptEmpty: "В транскрипте пока нет записей",
+    transcriptTruncated:
+      "Большой транскрипт ограничен: показаны начало и последние записи, середина пропущена.",
     transcriptUpdated: "Обновлено",
     transcriptSearch: "Поиск по транскрипту",
     transcriptFilter: "Состав транскрипта",
@@ -406,9 +408,11 @@ export const UI_TEXT = {
     transcriptOpenAndReread: "Open and reread",
     transcriptRereadPrompt:
       "Before answering, fully reread this session's JSONL history at “{path}”. Account for the entire transcript, including early messages and tool results.",
-    transcriptLoading: "Reading the full session history…",
+    transcriptLoading: "Reading the session history…",
     transcriptError: "Could not read the transcript",
     transcriptEmpty: "There are no transcript entries yet",
+    transcriptTruncated:
+      "This large transcript is bounded: the beginning and latest entries are shown; the middle is omitted.",
     transcriptUpdated: "Updated",
     transcriptSearch: "Search transcript",
     transcriptFilter: "Transcript content",
