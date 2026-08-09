@@ -56,6 +56,15 @@ pub struct SettingsWarning {
     pub details: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RailMode {
+    #[default]
+    Expanded,
+    Collapsed,
+    AutoHide,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -67,6 +76,8 @@ pub struct AppSettings {
     pub recent_workspaces: Vec<String>,
     #[serde(default)]
     pub session_title_pins: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rail_mode: RailMode,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_app_font_family")]
@@ -93,6 +104,7 @@ impl Default for AppSettings {
             session_root: None,
             recent_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
+            rail_mode: RailMode::default(),
             language: default_language(),
             app_font_family: default_app_font_family(),
             provider_env: HashMap::new(),
@@ -113,6 +125,7 @@ impl fmt::Debug for AppSettings {
             .field("session_root", &self.session_root)
             .field("recent_workspaces", &self.recent_workspaces)
             .field("session_title_pin_count", &self.session_title_pins.len())
+            .field("rail_mode", &self.rail_mode)
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
             .field("provider_env_keys", &self.provider_env_keys)
@@ -183,6 +196,8 @@ pub struct SettingsUpdate {
     #[serde(default)]
     pub terminal_font_size: SettingsPatch<u16>,
     #[serde(default)]
+    pub rail_mode: SettingsPatch<RailMode>,
+    #[serde(default)]
     pub provider_env: SettingsPatch<HashMap<String, String>>,
 }
 
@@ -196,6 +211,55 @@ pub struct RuntimeInfo {
     pub omp_version: Option<String>,
     pub session_root: String,
     pub language: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResourceSeverity {
+    Ok,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceMemorySnapshot {
+    pub available_bytes: u64,
+    pub total_bytes: u64,
+    pub used_swap_bytes: u64,
+    pub total_swap_bytes: u64,
+    pub available_severity: ResourceSeverity,
+    pub swap_severity: ResourceSeverity,
+    pub severity: ResourceSeverity,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceVolumeSnapshot {
+    pub mount_path: String,
+    pub available_bytes: u64,
+    pub total_bytes: u64,
+    pub purposes: Vec<String>,
+    pub severity: ResourceSeverity,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceProcessSnapshot {
+    pub terminal_id: Option<String>,
+    pub process_id: u32,
+    pub resident_bytes: u64,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceHealthSnapshot {
+    pub sampled_at: u64,
+    pub severity: ResourceSeverity,
+    pub memory: ResourceMemorySnapshot,
+    pub volumes: Vec<ResourceVolumeSnapshot>,
+    pub processes: Vec<ResourceProcessSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -417,7 +481,7 @@ pub struct SessionTranscript {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY};
+    use super::{AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY};
 
     #[test]
     fn app_settings_never_serialize_provider_secret_values() {
@@ -447,6 +511,7 @@ mod tests {
             Some("legacy-secret")
         );
         assert_eq!(settings.app_font_family, DEFAULT_APP_FONT_FAMILY);
+        assert_eq!(settings.rail_mode, RailMode::Expanded);
 
         let serialized = serde_json::to_string(&settings).expect("settings should serialize");
         assert!(!serialized.contains("legacy-secret"));
@@ -469,17 +534,33 @@ mod tests {
     }
 
     #[test]
+    fn rail_mode_survives_settings_round_trip() {
+        let settings = AppSettings {
+            rail_mode: RailMode::AutoHide,
+            ..AppSettings::default()
+        };
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let restored: AppSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+
+        assert_eq!(restored.rail_mode, RailMode::AutoHide);
+    }
+
+    #[test]
     fn settings_update_distinguishes_missing_and_null_fields() {
         let missing: SettingsUpdate = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(matches!(missing.omp_executable, SettingsPatch::Missing));
         assert!(matches!(missing.session_root, SettingsPatch::Missing));
         assert!(matches!(missing.app_font_family, SettingsPatch::Missing));
+        assert!(matches!(missing.rail_mode, SettingsPatch::Missing));
 
         let patch: SettingsUpdate = serde_json::from_value(serde_json::json!({
             "ompExecutable": null,
             "sessionRoot": "D:/sessions",
             "language": "en",
-            "appFontFamily": "\"Segoe UI Variable\", sans-serif"
+            "appFontFamily": "\"Segoe UI Variable\", sans-serif",
+            "railMode": "collapsed"
         }))
         .unwrap();
         assert!(matches!(patch.omp_executable, SettingsPatch::Set(None)));
@@ -490,5 +571,9 @@ mod tests {
         assert!(
             matches!(patch.app_font_family, SettingsPatch::Set(Some(value)) if value == "\"Segoe UI Variable\", sans-serif")
         );
+        assert!(matches!(
+            patch.rail_mode,
+            SettingsPatch::Set(Some(RailMode::Collapsed))
+        ));
     }
 }

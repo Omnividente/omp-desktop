@@ -74,6 +74,7 @@ struct TerminalProcess {
     master: Option<Box<dyn MasterPty + Send>>,
     writer: Option<Box<dyn Write + Send>>,
     killer: Option<Box<dyn ChildKiller + Send + Sync>>,
+    process_id: Option<u32>,
     cwd: String,
     resume_path: Option<String>,
     terminal_sessions_dir: PathBuf,
@@ -107,6 +108,18 @@ impl TerminalState {
     pub fn shutdown_all(&self) {
         let processes = std::mem::take(&mut *lock_processes(self));
         drop(processes);
+    }
+
+    pub fn resource_processes(&self) -> Vec<(String, u32)> {
+        lock_processes(self)
+            .iter()
+            .filter_map(|(terminal_id, process)| {
+                (!process.exited && !process.exit_pending)
+                    .then_some(process.process_id)
+                    .flatten()
+                    .map(|process_id| (terminal_id.clone(), process_id))
+            })
+            .collect()
     }
 }
 
@@ -869,6 +882,7 @@ fn spawn_terminal_process(
         master: Some(pair.master),
         writer: Some(writer),
         killer: Some(killer),
+        process_id,
         cwd: cwd.clone(),
         resume_path,
         terminal_sessions_dir,

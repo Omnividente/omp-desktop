@@ -22,6 +22,9 @@
 - Несколько одновременно работающих терминальных вкладок.
 - Настоящий нативный PTY с изменением размера, прерыванием и корректным завершением процессов.
 - Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты.
+- Монитор системных ресурсов показывает доступную RAM, swap pressure, свободное место для сессий, проекта и временных файлов, а также RSS Desktop и прямых процессов OMP. Он ничего не завершает и не удаляет автоматически.
+- Боковая панель имеет сохраняемые режимы «развёрнута», «компактная» и «автоскрытие» (`Ctrl+B`).
+- Полные Unicode-названия сессий доступны по наведению и keyboard focus. В терминале `Ctrl+A` явно выбирает текущий ввод OMP для очистки; перемещение мышью ограничено безопасно распознанными wrapped-строками.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -59,6 +62,9 @@ sudo apt install ./OMP-Desktop_*_amd64.deb
 - Multiple concurrent terminal tabs.
 - A real native PTY with resize, interrupt, and reliable process cleanup.
 - Configurable OMP executable, session root, models, language, and fonts.
+- The resource monitor reports available RAM, swap pressure, free space for sessions, the workspace and temporary files, plus RSS for Desktop and direct OMP processes. It never terminates processes or deletes data automatically.
+- The project sidebar has persisted expanded, compact and auto-hide modes (`Ctrl+B`).
+- Full Unicode session titles are available on hover and keyboard focus. In the terminal, `Ctrl+A` visibly arms the current OMP input for clearing; mouse movement is limited to safely recognized wrapped lines.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation
@@ -98,6 +104,7 @@ npm run tauri build
 - `src-tauri/src/sessions.rs` — OMP session discovery and metadata parsing.
 - `src-tauri/src/terminal.rs` — portable PTY lifecycle and event streaming.
 - `src-tauri/src/settings.rs` — runtime detection and persisted local settings.
+- `src-tauri/src/resource_health.rs` — low-frequency RAM, swap, disk and direct-process sampling.
 - `src-tauri/src/lib.rs` — Tauri command surface and application lifecycle.
 
 ## Privacy and security
