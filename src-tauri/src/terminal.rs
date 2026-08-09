@@ -1084,12 +1084,16 @@ struct RuntimeFileIdentity {
     device: u64,
     #[cfg(unix)]
     inode: u64,
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    file_id: Option<(u32, u64)>,
+    #[cfg(windows)]
+    creation_time: u64,
+    #[cfg(all(not(unix), not(windows)))]
     created_at: Option<u128>,
 }
 
 impl RuntimeFileIdentity {
-    fn from_metadata(metadata: &fs::Metadata) -> Self {
+    fn from_file(_file: &fs::File, metadata: &fs::Metadata) -> Self {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -1099,7 +1103,34 @@ impl RuntimeFileIdentity {
                 inode: metadata.ino(),
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            use std::{mem::MaybeUninit, os::windows::io::AsRawHandle};
+            use windows_sys::Win32::Storage::FileSystem::{
+                GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            };
+
+            let mut information = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+            let file_id = if unsafe {
+                GetFileInformationByHandle(_file.as_raw_handle(), information.as_mut_ptr())
+            } == 0
+            {
+                None
+            } else {
+                let information = unsafe { information.assume_init() };
+                Some((
+                    information.dwVolumeSerialNumber,
+                    (u64::from(information.nFileIndexHigh) << 32)
+                        | u64::from(information.nFileIndexLow),
+                ))
+            };
+            Self {
+                file_id,
+                creation_time: metadata.creation_time(),
+            }
+        }
+        #[cfg(all(not(unix), not(windows)))]
         {
             Self {
                 created_at: metadata
@@ -1233,11 +1264,32 @@ struct RuntimeFileScan {
     current_length: u64,
 }
 
+#[derive(Clone)]
+enum RuntimeRecoveryFilter {
+    Watermark(RuntimeEventWatermark),
+    Checkpoint(RuntimeEventWatermark),
+}
+
+impl RuntimeRecoveryFilter {
+    fn should_emit(&self, candidate: Option<&RuntimeLineCheckpoint>) -> bool {
+        match (self, candidate) {
+            (Self::Watermark(previous), Some(next)) => previous.is_unseen_after(next),
+            (Self::Watermark(_), None) => false,
+            (Self::Checkpoint(previous), Some(next)) => {
+                previous.timestamp_nanos.is_none()
+                    || next.timestamp_nanos.is_none()
+                    || previous.is_unseen_after(next)
+            }
+            (Self::Checkpoint(_), None) => true,
+        }
+    }
+}
+
 struct RuntimeRecovery {
     file: fs::File,
     length: u64,
     cursor: RuntimeWatchCursor,
-    filter: Option<RuntimeEventWatermark>,
+    filter: Option<RuntimeRecoveryFilter>,
 }
 
 impl RuntimeWatchCursor {
@@ -1268,7 +1320,7 @@ impl RuntimeWatchCursor {
         Some(Self {
             initialized: true,
             offset,
-            identity: Some(RuntimeFileIdentity::from_metadata(&metadata)),
+            identity: Some(RuntimeFileIdentity::from_file(file, &metadata)),
             anchor: read_runtime_anchor(file, offset)?,
             line: Vec::with_capacity(1024),
             line_overflow: false,
@@ -1358,7 +1410,7 @@ where
     F: FnMut(u64, u64, &[u8]),
 {
     let metadata = file.metadata().ok()?;
-    let identity = RuntimeFileIdentity::from_metadata(&metadata);
+    let identity = RuntimeFileIdentity::from_file(&file, &metadata);
     let length = metadata.len();
     file.seek(SeekFrom::Start(0)).ok()?;
 
@@ -1402,7 +1454,7 @@ where
     }
 
     let current_metadata = file.metadata().ok()?;
-    if RuntimeFileIdentity::from_metadata(&current_metadata) != identity
+    if RuntimeFileIdentity::from_file(&file, &current_metadata) != identity
         || current_metadata.len() < length
         || read_runtime_anchor(&mut file, length)? != end_anchor
     {
@@ -1455,10 +1507,15 @@ fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option
     let (resume_offset, filter) = if use_watermark {
         (
             first_unseen_start.unwrap_or(scanned.scanned_length),
-            Some(previous_watermark.clone()),
+            Some(RuntimeRecoveryFilter::Watermark(previous_watermark.clone())),
         )
     } else if let Some(checkpoint_end) = exact_checkpoint_end {
-        (checkpoint_end, None)
+        (
+            checkpoint_end,
+            Some(RuntimeRecoveryFilter::Checkpoint(
+                previous_watermark.clone(),
+            )),
+        )
     } else {
         (scanned.scanned_length, None)
     };
@@ -1488,19 +1545,16 @@ fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option
 fn process_runtime_line<F>(
     checkpoint: &mut Option<RuntimeLineCheckpoint>,
     watermark: &mut RuntimeEventWatermark,
-    recovery_watermark: Option<&RuntimeEventWatermark>,
+    recovery_filter: Option<&RuntimeRecoveryFilter>,
     line: &[u8],
     on_line: &mut F,
 ) where
     F: FnMut(&[u8]),
 {
     let candidate = runtime_line_checkpoint(line);
-    let should_emit = match recovery_watermark {
-        Some(previous) => candidate
-            .as_ref()
-            .is_some_and(|next| previous.is_unseen_after(next)),
-        None => true,
-    };
+    let should_emit = recovery_filter
+        .map(|filter| filter.should_emit(candidate.as_ref()))
+        .unwrap_or(true);
     if let Some(next) = candidate {
         watermark.observe(&next);
         *checkpoint = Some(next);
@@ -1514,7 +1568,7 @@ fn read_runtime_tail<F>(
     file: &mut fs::File,
     length: u64,
     cursor: &mut RuntimeWatchCursor,
-    recovery_watermark: Option<&RuntimeEventWatermark>,
+    recovery_filter: Option<&RuntimeRecoveryFilter>,
     on_line: &mut F,
 ) where
     F: FnMut(&[u8]),
@@ -1547,7 +1601,7 @@ fn read_runtime_tail<F>(
             process_runtime_line(
                 checkpoint,
                 watermark,
-                recovery_watermark,
+                recovery_filter,
                 runtime_line,
                 on_line,
             );
@@ -1563,7 +1617,7 @@ fn read_runtime_tail<F>(
         process_runtime_line(
             &mut cursor.checkpoint,
             &mut cursor.watermark,
-            recovery_watermark,
+            recovery_filter,
             &completed,
             on_line,
         );
@@ -1594,7 +1648,7 @@ fn poll_runtime_file<F, R>(
     let Ok(metadata) = file.metadata() else {
         return;
     };
-    let identity = RuntimeFileIdentity::from_metadata(&metadata);
+    let identity = RuntimeFileIdentity::from_file(&file, &metadata);
     let length = metadata.len();
     let reset = cursor.identity.is_some_and(|known| known != identity)
         || length < cursor.offset
@@ -1851,7 +1905,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             model: value
                 .get("model")
                 .and_then(Value::as_str)
-                .map(str::to_owned),
+                .map(strip_thinking_suffix),
             model_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
             thinking_level: None,
             configured_thinking_level: None,
@@ -2478,9 +2532,9 @@ mod tests {
         poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
         receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
         runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest,
-        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        PtyExitEvent, PtyRuntimeEventKind, RuntimeFileIdentity, RuntimeRecovery,
+        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -2720,6 +2774,27 @@ mod tests {
 
             assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
             assert_eq!(event.fallback_to.as_deref(), Some(selector), "{selector}");
+        }
+    }
+
+    #[test]
+    fn model_change_model_strips_only_a_known_final_thinking_suffix() {
+        for (selector, expected_model) in [
+            ("openai/gpt-5.6:high", "openai/gpt-5.6"),
+            ("ollama/llama3.1:8b", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:HIGH", "ollama/llama3.1:8b"),
+            ("ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal"),
+        ] {
+            let line = serde_json::json!({
+                "type": "model_change",
+                "model": selector,
+                "role": "default",
+            })
+            .to_string();
+            let event = runtime_event_from_line("terminal-1", line.as_bytes())
+                .expect("model change should parse");
+
+            assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
         }
     }
 
@@ -2977,6 +3052,48 @@ mod tests {
     }
 
     #[test]
+    fn runtime_watcher_filters_timestamped_history_after_exact_checkpoint() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-exact-filter-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("exact filter directory should be writable");
+        let path = directory.join("session.jsonl");
+        let checkpoint = "{\"type\":\"message\",\"id\":\"checkpoint\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"message\":{\"role\":\"user\"}}\n";
+        fs::write(&path, checkpoint).expect("exact filter baseline should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        fs::write(
+            &path,
+            format!(
+                "{{\"type\":\"title_change\",\"id\":\"title\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"title\":\"rewritten\"}}\n{checkpoint}{{\"type\":\"message\",\"id\":\"historical-error\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"message\":{{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}}}\n{{\"type\":\"message\",\"message\":{{\"role\":\"user\"}}}}\n{{\"type\":\"retry_fallback_applied\",\"id\":\"live-fallback\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"from\":\"provider/primary\",\"to\":\"provider/fallback\",\"role\":\"default\"}}\n"
+            ),
+        )
+        .expect("exact filter replacement should be writable");
+        let mut events = Vec::new();
+
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    events.push(event);
+                }
+            },
+        );
+        fs::remove_dir_all(&directory).expect("exact filter directory should be removable");
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, PtyRuntimeEventKind::Activity);
+        assert_eq!(events[0].activity.as_deref(), Some("thinking"));
+        assert_eq!(events[1].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+    }
+
+    #[test]
     fn runtime_watcher_catches_up_a_disjoint_rotated_segment() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -3190,6 +3307,7 @@ mod tests {
         )
         .expect("first replacement should be writable");
         let held_file = fs::File::open(&path).expect("first replacement should be openable");
+
         fs::rename(&path, directory.join("segment-1.jsonl"))
             .expect("first replacement should remain rotatable while open");
         fs::write(
@@ -3241,6 +3359,40 @@ mod tests {
         fs::remove_dir_all(&directory).expect("double rotation directory should be removable");
 
         assert_eq!(ids, ["segment-1", "segment-2"]);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn runtime_file_identity_changes_across_a_windows_replacement() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-windows-identity-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("identity directory should be writable");
+        let path = directory.join("session.jsonl");
+        fs::write(&path, b"old\n").expect("old identity fixture should be writable");
+        let old_file = fs::File::open(&path).expect("old identity fixture should be openable");
+        let old_metadata = old_file
+            .metadata()
+            .expect("old identity metadata should be readable");
+        let old_identity = RuntimeFileIdentity::from_file(&old_file, &old_metadata);
+
+        fs::rename(&path, directory.join("old.jsonl"))
+            .expect("old identity fixture should remain rotatable while open");
+        fs::write(&path, b"new\n").expect("new identity fixture should be writable");
+        let new_file = fs::File::open(&path).expect("new identity fixture should be openable");
+        let new_metadata = new_file
+            .metadata()
+            .expect("new identity metadata should be readable");
+        let new_identity = RuntimeFileIdentity::from_file(&new_file, &new_metadata);
+        fs::remove_dir_all(&directory).expect("identity directory should be removable");
+
+        assert!(old_identity.file_id.is_some());
+        assert!(new_identity.file_id.is_some());
+        assert_ne!(old_identity, new_identity);
     }
 
     #[test]
