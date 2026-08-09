@@ -102,6 +102,11 @@ export function Topbar({
             </span>
           )}
         </button>
+        <span aria-atomic="true" aria-live="polite" className="sr-only">
+          {incidentActiveTerminalCount > 0
+            ? incidentLabel
+            : t(language, "incidentNoActiveTerminals")}
+        </span>
         <button
           className={`icon-button${refreshing ? " is-spinning" : ""}`}
           disabled={refreshing}

@@ -15,6 +15,7 @@ import { WorkspaceHome } from "./WorkspaceHome"
 
 interface TerminalWorkspaceProps {
   activeTabId: string | null
+  focusRequest: { terminalId: string; sequence: number } | null
   language: Lang
   terminalFontFamily: string
   terminalFontSize: number
@@ -41,6 +42,7 @@ interface TerminalWorkspaceProps {
 
 export function TerminalWorkspace({
   activeTabId,
+  focusRequest,
   language,
   terminalFontFamily,
   terminalFontSize,
@@ -148,7 +150,9 @@ export function TerminalWorkspace({
                       </span>
                     )}
                     {runtimeStatus === "fallback" && (
-                      <span className="terminal-tab-fallback">{t(language, "fallbackActive")}</span>
+                      <span aria-live="polite" className="terminal-tab-fallback">
+                        {t(language, "fallbackActive")}
+                      </span>
                     )}
                   </button>
                   {tab.sessionPath && (
@@ -205,6 +209,7 @@ export function TerminalWorkspace({
           {tabs.map((tab) => (
             <TerminalView
               active={tab.id === activeTabId}
+              focusRequestSequence={focusRequest?.terminalId === tab.id ? focusRequest.sequence : 0}
               language={language}
               terminalFontFamily={terminalFontFamily}
               terminalFontSize={terminalFontSize}

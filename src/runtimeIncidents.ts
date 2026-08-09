@@ -10,7 +10,7 @@ export type RuntimeIncidentResolutionReason =
 
 type RuntimeIncidentSourceKind = Extract<
   PtyRuntimeEventKind,
-  "modelChange" | "retryFallbackApplied" | "modelError" | "runtimeError"
+  "activity" | "modelChange" | "retryFallbackApplied" | "modelError" | "runtimeError"
 >
 
 export interface RuntimeIncident {
@@ -35,15 +35,8 @@ export interface RuntimeIncident {
   resolutionReason: RuntimeIncidentResolutionReason | null
 }
 
-export interface TerminalRuntimeHealth {
-  errorActive: boolean
-  fallbackUnknownRole: boolean
-  fallbackRoles: string[]
-}
-
 export interface RuntimeIncidentState {
   incidents: RuntimeIncident[]
-  healthByTerminal: Record<string, TerminalRuntimeHealth>
   sequence: number
 }
 
@@ -81,14 +74,8 @@ const RUNTIME_EVENT_KINDS: ReadonlySet<string> = new Set<PtyRuntimeEventKind>([
   "modelError",
 ])
 
-const EMPTY_HEALTH: TerminalRuntimeHealth = {
-  errorActive: false,
-  fallbackUnknownRole: false,
-  fallbackRoles: [],
-}
-
 export function createRuntimeIncidentState(_now: number): RuntimeIncidentState {
-  return { incidents: [], healthByTerminal: {}, sequence: 0 }
+  return { incidents: [], sequence: 0 }
 }
 
 export function applyRuntimeIncidentEvent(
@@ -103,77 +90,88 @@ export function applyRuntimeIncidentEvent(
   const label = nonEmptyLabel(terminalLabel)
 
   if (event.kind === "retryFallbackApplied") {
-    let next = resolveErrors(state, event.terminalId, "recoveredThroughFallback", now)
-    next = upsertIncident(
+    const next = resolveErrors(state, event.terminalId, "recoveredThroughFallback", now)
+    return upsertIncident(
       next,
       {
         terminalId: event.terminalId,
         terminalLabel: label,
         kind: "fallback",
         sourceKind: event.kind,
-        role: event.fallbackRole,
+        role: normalizeFallbackRole(event.fallbackRole ?? event.modelRole),
         model: event.model,
         modelRole: event.modelRole,
         fallbackRole: event.fallbackRole,
         fallbackFrom: event.fallbackFrom,
         fallbackTo: event.fallbackTo,
-        reason: event.errorMessage,
+        reason: hasReason(event.errorMessage) ? event.errorMessage : null,
       },
       now,
     )
-    return updateHealth(next, event.terminalId, (health) => ({
-      ...addFallbackRole(health, event.fallbackRole),
-      errorActive: false,
-    }))
   }
 
   if (event.kind === "modelError" || event.kind === "runtimeError") {
-    if (!hasReason(event.errorMessage)) return state
+    const reason = hasReason(event.errorMessage) ? event.errorMessage : null
+    if (reason === null && event.activity !== "error") return state
 
-    let next = upsertIncident(
+    return upsertIncident(
       state,
       {
         terminalId: event.terminalId,
         terminalLabel: label,
         kind: event.kind,
         sourceKind: event.kind,
-        role: event.modelRole ?? event.fallbackRole,
+        role: normalizeFallbackRole(event.modelRole ?? event.fallbackRole),
         model: event.model,
         modelRole: event.modelRole,
         fallbackRole: event.fallbackRole,
         fallbackFrom: event.fallbackFrom,
         fallbackTo: event.fallbackTo,
-        reason: event.errorMessage,
+        reason,
       },
       now,
     )
-    next = updateHealth(next, event.terminalId, (health) => ({
-      ...health,
-      errorActive: true,
-    }))
-    return next
   }
 
   if (event.kind === "activity") {
+    if (event.activity === "error") {
+      const alreadyActive = state.incidents.some(
+        (incident) =>
+          incident.terminalId === event.terminalId &&
+          incident.status === "active" &&
+          (incident.kind === "modelError" || incident.kind === "runtimeError"),
+      )
+      if (alreadyActive) return state
+      return upsertIncident(
+        state,
+        {
+          terminalId: event.terminalId,
+          terminalLabel: label,
+          kind: "runtimeError",
+          sourceKind: event.kind,
+          role: null,
+          model: event.model,
+          modelRole: event.modelRole,
+          fallbackRole: event.fallbackRole,
+          fallbackFrom: event.fallbackFrom,
+          fallbackTo: event.fallbackTo,
+          reason: null,
+        },
+        now,
+      )
+    }
     if (event.activity !== "thinking" && event.activity !== "idle") return state
-    const next = resolveErrors(state, event.terminalId, "recovered", now)
-    return updateHealth(next, event.terminalId, (health) => ({
-      ...health,
-      errorActive: false,
-    }))
+    return resolveErrors(state, event.terminalId, "recovered", now)
   }
 
   if (event.kind !== "modelChange") return state
 
-  let next = resolveErrors(state, event.terminalId, "recovered", now)
-  next = updateHealth(next, event.terminalId, (health) => ({
-    ...health,
-    errorActive: false,
-  }))
-
-  if (event.resolvedModelIsFallback === true) {
+  const fallbackState =
+    event.resolvedModelIsFallback ?? (event.modelRole === "fallback" ? true : null)
+  if (fallbackState === true) {
+    let next = resolveErrors(state, event.terminalId, "recoveredThroughFallback", now)
     const existing = findMatchingRetryFallback(next, event)
-    const role = existing?.role ?? event.fallbackRole ?? event.modelRole
+    const role = normalizeFallbackRole(existing?.role ?? event.fallbackRole ?? event.modelRole)
 
     if (!existing) {
       next = upsertIncident(
@@ -189,22 +187,20 @@ export function applyRuntimeIncidentEvent(
           fallbackRole: event.fallbackRole,
           fallbackFrom: event.fallbackFrom,
           fallbackTo: event.fallbackTo ?? event.model,
-          reason: event.errorMessage,
+          reason: hasReason(event.errorMessage) ? event.errorMessage : null,
         },
         now,
       )
     }
-
-    return updateHealth(next, event.terminalId, (health) => addFallbackRole(health, role))
+    return next
   }
 
-  if (event.resolvedModelIsFallback === false) {
-    const role = event.fallbackRole ?? event.modelRole
-    next = resolveFallbacks(next, event.terminalId, role, "primaryRestored", now)
-    return updateHealth(next, event.terminalId, (health) => removeFallbackRole(health, role))
+  if (fallbackState === false) {
+    const role = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
+    return resolveFallbacks(state, event.terminalId, role, "primaryRestored", now)
   }
 
-  return next
+  return state
 }
 
 export function endRuntimeIncidentTerminal(
@@ -212,18 +208,12 @@ export function endRuntimeIncidentTerminal(
   terminalId: string,
   now: number,
 ): RuntimeIncidentState {
-  let next = resolveIncidents(
+  return resolveIncidents(
     state,
     (incident) => incident.terminalId === terminalId,
     "terminalEnded",
     now,
   )
-  if (!(terminalId in next.healthByTerminal)) return next
-
-  const healthByTerminal = { ...next.healthByTerminal }
-  delete healthByTerminal[terminalId]
-  next = { ...next, healthByTerminal }
-  return next
 }
 
 export function clearResolvedRuntimeIncidents(
@@ -238,19 +228,21 @@ export function runtimeHealthStatus(
   state: RuntimeIncidentState,
   terminalId: string,
 ): RuntimeHealthStatus {
-  const health = state.healthByTerminal[terminalId]
-  if (!health) return "normal"
-  if (health.errorActive) return "error"
-  if (health.fallbackUnknownRole || health.fallbackRoles.length > 0) return "fallback"
-  return "normal"
+  let fallbackActive = false
+  for (const incident of state.incidents) {
+    if (incident.terminalId !== terminalId || incident.status !== "active") continue
+    if (incident.kind === "modelError" || incident.kind === "runtimeError") return "error"
+    fallbackActive = true
+  }
+  return fallbackActive ? "fallback" : "normal"
 }
 
 export function activeRuntimeTerminalCount(state: RuntimeIncidentState): number {
-  return Object.keys(state.healthByTerminal).reduce(
-    (count, terminalId) =>
-      runtimeHealthStatus(state, terminalId) === "normal" ? count : count + 1,
-    0,
-  )
+  const activeTerminalIds = new Set<string>()
+  for (const incident of state.incidents) {
+    if (incident.status === "active") activeTerminalIds.add(incident.terminalId)
+  }
+  return activeTerminalIds.size
 }
 
 export function runtimeIncidentsLatestFirst(incidents: RuntimeIncident[]): RuntimeIncident[] {
@@ -361,7 +353,21 @@ function enforceIncidentBound(incidents: RuntimeIncident[]): RuntimeIncident[] {
   if (incidents.length <= MAX_RUNTIME_INCIDENTS) return incidents
 
   const resolved = incidents.filter((incident) => incident.status === "resolved")
-  const candidates = resolved.length > 0 ? resolved : incidents
+  let candidates = resolved
+  if (candidates.length === 0) {
+    const activePerTerminal = new Map<string, number>()
+    for (const incident of incidents) {
+      activePerTerminal.set(
+        incident.terminalId,
+        (activePerTerminal.get(incident.terminalId) ?? 0) + 1,
+      )
+    }
+    candidates = incidents.filter(
+      (incident) => (activePerTerminal.get(incident.terminalId) ?? 0) > 1,
+    )
+    if (candidates.length === 0) candidates = incidents
+  }
+
   const oldest = candidates.reduce((current, candidate) => {
     const currentTime =
       current.status === "resolved"
@@ -413,7 +419,7 @@ function resolveFallbacks(
     (incident) =>
       incident.terminalId === terminalId &&
       incident.kind === "fallback" &&
-      (role === null || incident.role === role),
+      (role === null ? incident.role === null : incident.role === role || incident.role === null),
     reason,
     now,
   )
@@ -443,7 +449,7 @@ function findMatchingRetryFallback(
   state: RuntimeIncidentState,
   event: RuntimeEvent,
 ): RuntimeIncident | null {
-  const eventRole = event.fallbackRole ?? event.modelRole
+  const eventRole = normalizeFallbackRole(event.fallbackRole ?? event.modelRole)
   return (
     state.incidents.find((incident) => {
       if (
@@ -455,10 +461,9 @@ function findMatchingRetryFallback(
         return false
       }
 
-      const roleMatches =
+      const roleIsExplicit =
         event.fallbackRole !== null || (event.modelRole !== null && event.modelRole !== "fallback")
-          ? incident.role === eventRole
-          : true
+      const roleMatches = !roleIsExplicit || incident.role === eventRole || incident.role === null
       const fromMatches =
         event.fallbackFrom === null || incident.fallbackFrom === event.fallbackFrom
       const targetMatches =
@@ -472,58 +477,6 @@ function findMatchingRetryFallback(
   )
 }
 
-function updateHealth(
-  state: RuntimeIncidentState,
-  terminalId: string,
-  update: (health: TerminalRuntimeHealth) => TerminalRuntimeHealth,
-): RuntimeIncidentState {
-  const current = state.healthByTerminal[terminalId] ?? EMPTY_HEALTH
-  const next = update({
-    errorActive: current.errorActive,
-    fallbackUnknownRole: current.fallbackUnknownRole,
-    fallbackRoles: [...current.fallbackRoles],
-  })
-  const isNormal = !next.errorActive && !next.fallbackUnknownRole && next.fallbackRoles.length === 0
-
-  if (isNormal && !(terminalId in state.healthByTerminal)) return state
-  if (isNormal) {
-    const healthByTerminal = { ...state.healthByTerminal }
-    delete healthByTerminal[terminalId]
-    return { ...state, healthByTerminal }
-  }
-
-  if (
-    current.errorActive === next.errorActive &&
-    current.fallbackUnknownRole === next.fallbackUnknownRole &&
-    current.fallbackRoles.length === next.fallbackRoles.length &&
-    current.fallbackRoles.every((role, index) => role === next.fallbackRoles[index])
-  ) {
-    return state
-  }
-  return {
-    ...state,
-    healthByTerminal: { ...state.healthByTerminal, [terminalId]: next },
-  }
-}
-
-function addFallbackRole(
-  health: TerminalRuntimeHealth,
-  role: string | null,
-): TerminalRuntimeHealth {
-  if (role === null) return { ...health, fallbackUnknownRole: true }
-  if (health.fallbackRoles.includes(role)) return health
-  return { ...health, fallbackRoles: [...health.fallbackRoles, role] }
-}
-
-function removeFallbackRole(
-  health: TerminalRuntimeHealth,
-  role: string | null,
-): TerminalRuntimeHealth {
-  if (role === null) {
-    return { ...health, fallbackUnknownRole: false, fallbackRoles: [] }
-  }
-  return {
-    ...health,
-    fallbackRoles: health.fallbackRoles.filter((candidate) => candidate !== role),
-  }
+function normalizeFallbackRole(role: string | null): string | null {
+  return role === "fallback" ? null : role
 }

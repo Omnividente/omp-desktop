@@ -150,6 +150,10 @@ function App() {
   const pendingInitialInputRef = useRef(new Map<string, string>())
   const readyTerminalIdsRef = useRef(new Set<string>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
+    terminalId: string
+    sequence: number
+  } | null>(null)
   const [refreshing, setRefreshing] = useState(true)
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
@@ -176,6 +180,10 @@ function App() {
     void loadOmpConfig().then(setOmpConfig).catch(console.error)
   }, [payload?.runtime.ompAvailable])
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru"
+  const langRef = useRef(lang)
+  langRef.current = lang
+  const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
+  ompVersionRef.current = payload?.runtime.ompVersion ?? null
   const {
     transcriptSession,
     transcript,
@@ -360,10 +368,10 @@ function App() {
           if (!disposed) applyPayload(next)
         })
         .catch((error) => {
-          if (!disposed) showError(errorMessage(error, lang))
+          if (!disposed) showError(errorMessage(error, langRef.current))
         })
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
@@ -383,14 +391,14 @@ function App() {
           kind: feedback.kind === "fallback" ? "notice" : "error",
           message:
             feedback.kind === "fallback"
-              ? t(lang, "fallbackSwitched").replace("{model}", feedback.model)
+              ? t(langRef.current, "fallbackSwitched").replace("{model}", feedback.model)
               : feedback.message,
           dedupeKey: runtimeFeedbackDedupeKey(event, feedback),
         })
       }
       setTabs((current) => current.map((tab) => applyRuntimeEventToTab(tab, event)))
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
@@ -402,14 +410,14 @@ function App() {
           ? current
           : {
               hasUpdate: true,
-              currentVersion: payload?.runtime.ompVersion ?? null,
+              currentVersion: ompVersionRef.current,
               latestVersion: null,
               message: "",
             },
       )
       setUpdateNoticeVisible(true)
     }).catch((error) => {
-      if (!disposed) showError(errorMessage(error, lang))
+      if (!disposed) showError(errorMessage(error, langRef.current))
       return null
     })
 
@@ -419,7 +427,7 @@ function App() {
       void unlistenRuntime.then((stop) => stop?.())
       void unlistenUpdate.then((stop) => stop?.())
     }
-  }, [applyPayload, lang, payload?.runtime.ompVersion, pushToast, showError])
+  }, [applyPayload, pushToast, showError])
 
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true)
@@ -524,8 +532,25 @@ function App() {
     },
     [tabs],
   )
+  const focusTerminal = useCallback(
+    (tabId: string) => {
+      if (!tabs.some((tab) => tab.id === tabId)) return
+      focusTab(tabId)
+      setTerminalFocusRequest((current) => ({
+        terminalId: tabId,
+        sequence: (current?.sequence ?? 0) + 1,
+      }))
+    },
+    [focusTab, tabs],
+  )
 
   const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
+  const openIncidentCenter = useCallback(() => {
+    setSettingsOpen(false)
+    setCodexOpen(false)
+    closeTranscript()
+    setIncidentCenterOpen(true)
+  }, [closeTranscript])
   const clearResolvedIncidents = useCallback(() => {
     setRuntimeIncidentState((current) => clearResolvedRuntimeIncidents(current, Date.now()))
   }, [])
@@ -1117,7 +1142,7 @@ function App() {
         incidentCenterOpen={incidentCenterOpen}
         incidentTriggerRef={incidentCenterTriggerRef}
         language={lang}
-        onOpenIncidentCenter={() => setIncidentCenterOpen(true)}
+        onOpenIncidentCenter={openIncidentCenter}
         onOpenSettings={() => setSettingsOpen(true)}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
@@ -1172,6 +1197,7 @@ function App() {
         />
         <TerminalWorkspace
           activeTabId={activeTabId}
+          focusRequest={terminalFocusRequest}
           language={lang}
           terminalFontFamily={payload.settings.terminalFontFamily}
           terminalFontSize={payload.settings.terminalFontSize}
@@ -1203,7 +1229,7 @@ function App() {
           language={lang}
           onClearResolved={clearResolvedIncidents}
           onClose={closeIncidentCenter}
-          onFocusTerminal={focusTab}
+          onFocusTerminal={focusTerminal}
           returnFocusRef={incidentCenterTriggerRef}
           tabs={tabs}
         />

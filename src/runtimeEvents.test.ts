@@ -110,4 +110,10 @@ describe("runtime event contract", () => {
     expect(runtimeEventFeedback(failure)).toEqual({ kind: "error", message })
     expect(applyRuntimeEventToTab(tab, failure).activity).toBe("error")
   })
+
+  it("does not enqueue a blank runtime error toast", () => {
+    expect(
+      runtimeEventFeedback(event({ kind: "modelError", activity: "error", errorMessage: "  \n " })),
+    ).toBeNull()
+  })
 })

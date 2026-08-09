@@ -81,7 +81,6 @@ describe("runtime incident grouping", () => {
       lastSeenAt: 1_000,
       resolvedAt: null,
     })
-    expect(state.incidents[0].groupingKey).toContain("retryFallbackApplied")
     expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
   })
 
@@ -104,6 +103,38 @@ describe("runtime incident grouping", () => {
 
     expect(state.incidents).toHaveLength(1)
     expect(state.incidents[0]).toMatchObject({ kind: "modelError", count: 100 })
+  })
+
+  it("keeps an error activity visible when the backend has no reason", () => {
+    const state = apply(
+      createRuntimeIncidentState(0),
+      runtimeEvent({ kind: "activity", activity: "error" }),
+      2_500,
+    )
+
+    expect(state.incidents).toHaveLength(1)
+    expect(state.incidents[0]).toMatchObject({
+      kind: "runtimeError",
+      sourceKind: "activity",
+      status: "active",
+      reason: null,
+    })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
+  })
+
+  it("does not duplicate an active detailed error with a generic activity snapshot", () => {
+    let state = apply(createRuntimeIncidentState(0), errorEvent(), 2_500)
+    state = apply(state, runtimeEvent({ kind: "activity", activity: "error" }), 2_600)
+
+    expect(state.incidents).toHaveLength(1)
+    expect(state.incidents[0]).toMatchObject({ kind: "modelError", count: 1 })
+  })
+
+  it("keeps a model error visible when its reason is blank", () => {
+    const state = apply(createRuntimeIncidentState(0), errorEvent({ errorMessage: "  \n " }), 2_600)
+
+    expect(state.incidents[0]).toMatchObject({ kind: "modelError", reason: null })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
   })
 
   it("keeps different terminals, event kinds, roles, transitions, and reasons separate", () => {
@@ -233,6 +264,29 @@ describe("runtime incident transitions", () => {
     expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
   })
 
+  it("does not call a model change recovery until runtime activity resumes", () => {
+    let state = apply(createRuntimeIncidentState(0), errorEvent(), 1_000)
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/primary",
+        modelRole: "default",
+        resolvedModelIsFallback: false,
+      }),
+      1_100,
+    )
+
+    expect(state.incidents[0].status).toBe("active")
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
+
+    state = apply(state, runtimeEvent({ kind: "activity", activity: "idle" }), 1_200)
+    expect(state.incidents[0]).toMatchObject({
+      status: "resolved",
+      resolutionReason: "recovered",
+    })
+  })
+
   it("creates generic fallback history when modelChange is the only fallback signal", () => {
     const state = apply(
       createRuntimeIncidentState(0),
@@ -255,6 +309,38 @@ describe("runtime incident transitions", () => {
       status: "active",
     })
     expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+  })
+
+  it("normalizes the fallback role sentinel and resolves it through a concrete role", () => {
+    let state = apply(
+      createRuntimeIncidentState(0),
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/fallback",
+        modelRole: "fallback",
+        resolvedModelIsFallback: null,
+      }),
+      1_000,
+    )
+
+    expect(state.incidents[0]).toMatchObject({ kind: "fallback", role: null, status: "active" })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        model: "provider/primary",
+        modelRole: "default",
+        resolvedModelIsFallback: false,
+      }),
+      1_100,
+    )
+    expect(state.incidents[0]).toMatchObject({
+      status: "resolved",
+      resolutionReason: "primaryRestored",
+    })
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("normal")
   })
 
   it("does not duplicate a retry transition when matching modelChange arrives", () => {
@@ -299,7 +385,7 @@ describe("runtime incident transitions", () => {
     })
   })
 
-  it("resolves fallback by role and uses terminal-wide recovery when role is absent", () => {
+  it("resolves concrete and unknown fallback roles without clearing unrelated roles", () => {
     let state = apply(createRuntimeIncidentState(0), fallbackEvent(), 1_000)
     state = apply(
       state,
@@ -312,6 +398,15 @@ describe("runtime incident transitions", () => {
     )
     state = apply(
       state,
+      fallbackEvent({
+        model: "provider/unknown-fallback",
+        fallbackTo: "provider/unknown-fallback",
+        fallbackRole: null,
+      }),
+      1_150,
+    )
+    state = apply(
+      state,
       runtimeEvent({
         kind: "modelChange",
         modelRole: "default",
@@ -321,13 +416,27 @@ describe("runtime incident transitions", () => {
     )
 
     expect(state.incidents.find((incident) => incident.role === "default")?.status).toBe("resolved")
+    expect(
+      state.incidents.find((incident) => incident.fallbackTo === "provider/unknown-fallback")
+        ?.status,
+    ).toBe("resolved")
     expect(state.incidents.find((incident) => incident.role === "review")?.status).toBe("active")
-    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
 
     state = apply(
       state,
       runtimeEvent({ kind: "modelChange", resolvedModelIsFallback: false }),
       1_300,
+    )
+    expect(state.incidents.find((incident) => incident.role === "review")?.status).toBe("active")
+
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        modelRole: "review",
+        resolvedModelIsFallback: false,
+      }),
+      1_400,
     )
     expect(state.incidents.every((incident) => incident.status === "resolved")).toBe(true)
     expect(runtimeHealthStatus(state, "terminal-1")).toBe("normal")
@@ -370,7 +479,7 @@ describe("runtime incident bounds and cleanup", () => {
     expect(repeated).toBe(ended)
     expect(ended.incidents.every((incident) => incident.status === "resolved")).toBe(true)
     expect(ended.incidents.every((incident) => incident.resolvedAt === 1_200)).toBe(true)
-    expect(ended.healthByTerminal).not.toHaveProperty("terminal-1")
+    expect(runtimeHealthStatus(ended, "terminal-1")).toBe("normal")
   })
 
   it("keeps 1,000+ distinct groups within the hard limit", () => {
@@ -380,7 +489,6 @@ describe("runtime incident bounds and cleanup", () => {
     }
 
     expect(state.incidents).toHaveLength(MAX_RUNTIME_INCIDENTS)
-    expect(state.sequence).toBe(1_250)
     expect(state.incidents.some((incident) => incident.reason === "exact failure 0")).toBe(false)
     expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
   })
@@ -404,29 +512,55 @@ describe("runtime incident bounds and cleanup", () => {
     )
   })
 
+  it("preserves one active incident per terminal before evicting duplicate groups", () => {
+    let state = apply(
+      createRuntimeIncidentState(0),
+      fallbackEvent({ terminalId: "terminal-fallback" }),
+      1,
+    )
+    for (let index = 0; index < MAX_RUNTIME_INCIDENTS; index += 1) {
+      state = apply(
+        state,
+        errorEvent({ terminalId: "terminal-errors", errorMessage: `failure ${index}` }),
+        10 + index,
+      )
+    }
+
+    expect(state.incidents).toHaveLength(MAX_RUNTIME_INCIDENTS)
+    expect(
+      state.incidents.some(
+        (incident) => incident.terminalId === "terminal-fallback" && incident.status === "active",
+      ),
+    ).toBe(true)
+    expect(runtimeHealthStatus(state, "terminal-fallback")).toBe("fallback")
+    expect(activeRuntimeTerminalCount(state)).toBe(2)
+  })
+
   it("keeps a long multiline reason exact without a second cache", () => {
     const reason = `Cloud API error (429):\n${"  quota detail ".repeat(120)}\nfinal line`
     const state = apply(createRuntimeIncidentState(0), errorEvent({ errorMessage: reason }), 1_000)
 
     expect(state.incidents[0].reason).toBe(reason)
-    expect(state.incidents[0].groupingKey).toContain(JSON.stringify(reason).slice(1, -1))
     expect(state.incidents).toHaveLength(1)
   })
 
   it("ignores malformed and unknown runtime events without false incidents", () => {
     const state = createRuntimeIncidentState(0)
-    const malformed = apply(state, errorEvent({ errorMessage: "  \n " }), 1_000)
+    const blankWithoutErrorActivity = apply(
+      state,
+      errorEvent({ activity: null, errorMessage: "  \n " }),
+      1_000,
+    )
     const unknown = apply(
-      malformed,
+      blankWithoutErrorActivity,
       { terminalId: "terminal-1", kind: "mystery", errorMessage: "boom" },
       1_100,
     )
     const missingTerminal = apply(unknown, { kind: "modelError", errorMessage: "boom" }, 1_200)
 
-    expect(malformed).toBe(state)
+    expect(blankWithoutErrorActivity).toBe(state)
     expect(unknown).toBe(state)
     expect(missingTerminal).toBe(state)
     expect(state.incidents).toHaveLength(0)
-    expect(state.healthByTerminal).toEqual({})
   })
 })

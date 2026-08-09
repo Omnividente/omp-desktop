@@ -19,6 +19,8 @@ interface IncidentCenterProps {
 }
 
 type IncidentFilter = "active" | "all"
+const DIALOG_FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function IncidentCenter({
   incidents,
@@ -31,6 +33,7 @@ export function IncidentCenter({
 }: IncidentCenterProps) {
   const [filter, setFilter] = useState<IncidentFilter>("active")
   const initialFocusRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const restoreTriggerFocusRef = useRef(true)
   const latestFirst = useMemo(() => runtimeIncidentsLatestFirst(incidents), [incidents])
   const visibleIncidents = useMemo(
@@ -46,16 +49,63 @@ export function IncidentCenter({
 
   useEffect(() => {
     const returnFocusTarget = returnFocusRef.current
-    initialFocusRef.current?.focus()
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
+    const panel = panelRef.current
+    const backdrop = panel?.parentElement
+    const backgroundElements = backdrop?.parentElement
+      ? Array.from(backdrop.parentElement.children)
+          .filter((element): element is HTMLElement => element instanceof HTMLElement)
+          .filter((element) => element !== backdrop)
+          .map((element) => ({
+            element,
+            previousAriaHidden: element.getAttribute("aria-hidden"),
+            hadInert: element.hasAttribute("inert"),
+          }))
+      : []
+
+    for (const { element } of backgroundElements) {
+      element.setAttribute("aria-hidden", "true")
+      element.setAttribute("inert", "")
     }
-    window.addEventListener("keydown", handleKeyDown)
+    initialFocusRef.current?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        onClose()
+        return
+      }
+      if (event.key !== "Tab" || !panel) return
+
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR),
+      ).filter((element) => !element.hasAttribute("disabled") && !element.hidden)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        panel.focus()
+        return
+      }
+
+      const activeElement = document.activeElement
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const focusOutsidePanel = !(activeElement instanceof Node) || !panel.contains(activeElement)
+      if (event.shiftKey && (activeElement === first || focusOutsidePanel)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (activeElement === last || focusOutsidePanel)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown, true)
     return () => {
-      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keydown", handleKeyDown, true)
+      for (const { element, previousAriaHidden, hadInert } of backgroundElements) {
+        if (previousAriaHidden === null) element.removeAttribute("aria-hidden")
+        else element.setAttribute("aria-hidden", previousAriaHidden)
+        if (!hadInert) element.removeAttribute("inert")
+      }
       if (restoreTriggerFocusRef.current) {
         window.requestAnimationFrame(() => returnFocusTarget?.focus())
       }
@@ -67,21 +117,27 @@ export function IncidentCenter({
     onFocusTerminal(terminalId)
     onClose()
   }
+  const clearResolved = () => {
+    onClearResolved()
+    window.requestAnimationFrame(() => initialFocusRef.current?.focus())
+  }
 
   return (
     <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
       <section
         aria-labelledby="incident-center-title"
+        ref={panelRef}
         aria-modal="true"
         className="settings-panel incident-center-panel"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
+        tabIndex={-1}
       >
         <header className="settings-header incident-center-header">
           <div>
             <span className="eyebrow">Runtime</span>
             <h2 id="incident-center-title">{t(language, "incidentCenterTitle")}</h2>
-            <small>
+            <small aria-atomic="true" aria-live="polite" role="status">
               {t(language, "incidentActiveSummary").replace("{count}", String(activeCount))}
             </small>
           </div>
@@ -125,7 +181,7 @@ export function IncidentCenter({
           <button
             className="button secondary incident-clear-button"
             disabled={resolvedCount === 0}
-            onClick={onClearResolved}
+            onClick={clearResolved}
             type="button"
           >
             {t(language, "incidentClearResolved")}
@@ -159,7 +215,7 @@ export function IncidentCenter({
                       <div className="incident-terminal">
                         <Icon name="terminal" size={14} />
                         <strong>
-                          {incident.terminalLabel ?? tab?.label ?? incident.terminalId}
+                          {tab?.label ?? incident.terminalLabel ?? incident.terminalId}
                         </strong>
                         <code>{incident.terminalId}</code>
                       </div>
@@ -204,7 +260,7 @@ export function IncidentCenter({
                     )}
 
                     {incident.reason !== null && (
-                      <div className="incident-reason">
+                      <div className={`incident-reason${reasonIsLong ? " is-expandable" : ""}`}>
                         <span>{t(language, "incidentReason")}</span>
                         <p>{incident.reason}</p>
                         {reasonIsLong && (

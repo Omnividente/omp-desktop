@@ -71,6 +71,16 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
 
 ::selection {
   color: #f5f8f6;
@@ -3683,7 +3693,7 @@ button:disabled {
   white-space: pre-wrap;
 }
 
-.incident-reason p {
+.incident-reason.is-expandable p {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -3786,6 +3796,10 @@ button:disabled {
   .settings-panel {
     width: 100vw;
     padding: 18px;
+  }
+
+  .settings-panel.incident-center-panel {
+    padding: 0;
   }
 
   .settings-body {

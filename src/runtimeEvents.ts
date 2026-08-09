@@ -15,7 +15,7 @@ export function runtimeEventFeedback(event: PtyRuntimeEvent): RuntimeEventFeedba
       }
     }
   }
-  if (event.errorMessage) {
+  if (typeof event.errorMessage === "string" && event.errorMessage.trim().length > 0) {
     return { kind: "error", message: event.errorMessage }
   }
   return null

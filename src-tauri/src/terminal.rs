@@ -1146,14 +1146,6 @@ impl RuntimeWatchCursor {
         cursor
     }
 
-    fn reset(&mut self, identity: Option<RuntimeFileIdentity>) {
-        self.offset = 0;
-        self.identity = identity;
-        self.anchor.clear();
-        self.line.clear();
-        self.line_overflow = false;
-    }
-
     fn anchor_matches(&self, file: &mut fs::File) -> bool {
         if self.anchor.is_empty() {
             return true;
@@ -1201,14 +1193,6 @@ fn poll_runtime_file<F, R>(
     R: FnMut(),
 {
     let Ok(mut file) = fs::File::open(path) else {
-        if cursor.identity.is_some()
-            || cursor.offset != 0
-            || !cursor.line.is_empty()
-            || cursor.line_overflow
-        {
-            cursor.reset(None);
-            on_reset();
-        }
         return;
     };
     let Ok(metadata) = file.metadata() else {
@@ -1220,8 +1204,9 @@ fn poll_runtime_file<F, R>(
         || length < cursor.offset
         || !cursor.anchor_matches(&mut file);
     if reset {
-        cursor.reset(Some(identity));
+        *cursor = RuntimeWatchCursor::at_end(path);
         on_reset();
+        return;
     } else if cursor.identity.is_none() {
         cursor.identity = Some(identity);
     }
@@ -1345,14 +1330,17 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     !process.exited && !process.exit_pending
                 };
                 if !active {
-                    emit_activity(&app, &terminal_id, "idle");
                     return;
                 }
 
                 poll_runtime_file(
                     &path,
                     &mut cursor,
-                    || emit_activity(&app, &terminal_id, "idle"),
+                    || {
+                        if let Some(activity) = read_latest_activity(&path) {
+                            emit_activity(&app, &terminal_id, &activity);
+                        }
+                    },
                     |runtime_line| {
                         if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
                             emit_runtime_event(&app, event);
@@ -1898,7 +1886,6 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
         process.attached
     };
 
-    emit_activity(app, terminal_id, "idle");
     if should_emit {
         if let Some(error) = runtime_error {
             emit_runtime_error(app, terminal_id, error);
@@ -2182,6 +2169,7 @@ mod tests {
         collections::HashMap,
         ffi::OsStr,
         fs,
+        io::Write,
         sync::mpsc,
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -2551,7 +2539,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_watcher_resets_and_replays_rewritten_or_rotated_files() {
+    fn runtime_watcher_resets_without_replaying_historical_events() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -2586,7 +2574,7 @@ mod tests {
 
         fs::write(
             &path,
-            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"name\":\"finished\"}],\"stopReason\":\"stop\"}}\n",
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}\n",
         )
         .expect("runtime fixture should be rewritable");
         poll_runtime_file(
@@ -2600,7 +2588,25 @@ mod tests {
             },
         );
         assert_eq!(resets, 1);
-        assert_eq!(activities, ["idle"]);
+        assert!(activities.is_empty());
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("rewritten runtime fixture should be appendable");
+        file.write_all(b"{\"type\":\"message\",\"message\":{\"role\":\"user\"}}\n")
+            .expect("new runtime activity should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
+        assert_eq!(activities, ["thinking"]);
 
         fs::rename(&path, directory.join("rotated.jsonl"))
             .expect("runtime fixture should be rotatable");
@@ -2619,10 +2625,30 @@ mod tests {
                 }
             },
         );
+        assert_eq!(resets, 2);
+        assert_eq!(activities, ["thinking"]);
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("rotated runtime fixture should be appendable");
+        file.write_all(
+            b"{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\"}}\n",
+        )
+        .expect("post-rotation activity should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || resets += 1,
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    activities.extend(event.activity);
+                }
+            },
+        );
         fs::remove_dir_all(&directory).expect("fixture directory should be removable");
 
-        assert_eq!(resets, 2);
-        assert_eq!(activities, ["idle", "thinking"]);
+        assert_eq!(activities, ["thinking", "idle"]);
     }
 
     #[test]
