@@ -1,32 +1,37 @@
-import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
-import type { CodexSessionSummary } from "./types";
-import { formatRelative } from "./uiUtils";
+import { Icon } from "./Icon"
+import { ImportModeSelect } from "./ImportModeSelect"
+import { t, type Lang } from "./i18n"
+import type { CodexSessionSummary, ImportMode } from "./types"
+import { formatRelative } from "./uiUtils"
 
 interface CodexImportModalProps {
-  language: Lang;
-  loading: boolean;
-  importing: boolean;
-  sessions: CodexSessionSummary[];
-  selected: Record<string, boolean>;
-  onClose: () => void;
-  onImport: () => void;
-  onSelectedChange: (selected: Record<string, boolean>) => void;
+  language: Lang
+  loading: boolean
+  importing: boolean
+  mode: ImportMode
+  sessions: CodexSessionSummary[]
+  selected: Record<string, boolean>
+  onClose: () => void
+  onImport: () => void
+  onModeChange: (mode: ImportMode) => void
+  onSelectedChange: (selected: Record<string, boolean>) => void
 }
 
 export function CodexImportModal({
   language,
   loading,
   importing,
+  mode,
   sessions,
   selected,
   onClose,
   onImport,
+  onModeChange,
   onSelectedChange,
 }: CodexImportModalProps) {
   const selectAll = () => {
-    onSelectedChange(Object.fromEntries(sessions.map((session) => [session.filePath, true])));
-  };
+    onSelectedChange(Object.fromEntries(sessions.map((session) => [session.filePath, true])))
+  }
 
   return (
     <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
@@ -82,6 +87,12 @@ export function CodexImportModal({
               ))}
             </div>
           )}
+          <ImportModeSelect
+            disabled={importing}
+            language={language}
+            mode={mode}
+            onChange={onModeChange}
+          />
         </div>
         <footer className="settings-actions">
           <button className="button secondary" onClick={selectAll} type="button">
@@ -98,5 +109,5 @@ export function CodexImportModal({
         </footer>
       </section>
     </div>
-  );
+  )
 }

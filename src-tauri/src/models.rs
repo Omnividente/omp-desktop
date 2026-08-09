@@ -205,6 +205,7 @@ pub struct SessionSummary {
     pub title: String,
     pub pinned_title: Option<String>,
     pub cwd: String,
+    pub project_key: String,
     pub file_path: String,
     pub created_at: String,
     pub updated_at: u64,
@@ -218,6 +219,7 @@ pub struct SessionSummary {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSummary {
+    pub key: String,
     pub path: String,
     pub name: String,
     pub session_count: usize,
@@ -232,6 +234,48 @@ pub struct BootstrapPayload {
     pub runtime: RuntimeInfo,
     pub workspaces: Vec<WorkspaceSummary>,
     pub sessions: Vec<SessionSummary>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportMode {
+    Skip,
+    Update,
+    Copy,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSessionRequest {
+    pub path: String,
+    pub target_cwd: String,
+    pub mode: ImportMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportItemStatus {
+    Imported,
+    Updated,
+    Copied,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportItemResult {
+    pub source_path: String,
+    pub destination_path: Option<String>,
+    pub status: ImportItemStatus,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBatchPayload {
+    pub bootstrap: BootstrapPayload,
+    pub items: Vec<ImportItemResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -303,6 +347,20 @@ pub struct OmpConfigSaveRequest {
     pub model_fallback_enabled: Option<bool>,
     pub fallback_chains: Option<HashMap<String, Vec<String>>>,
     pub provider_env: Option<HashMap<String, String>>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSaveRequest {
+    pub update: SettingsUpdate,
+    pub omp_config: Option<OmpConfigSaveRequest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSavePayload {
+    pub bootstrap: BootstrapPayload,
+    pub omp_config: Option<OmpConfigSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize)]

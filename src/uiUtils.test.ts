@@ -7,6 +7,7 @@ const session: SessionSummary = {
   title: "Path matching",
   pinnedTitle: null,
   cwd: "C:\\Work\\OMP",
+  projectKey: "c:/work/omp",
   filePath: "C:\\Users\\Omniv\\.omp\\sessions\\session-42.jsonl",
   createdAt: "2026-07-25T12:00:00.000Z",
   updatedAt: 1_753_444_800_000,

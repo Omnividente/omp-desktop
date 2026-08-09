@@ -1934,6 +1934,53 @@ button:disabled {
   width: min(640px, 94vw);
 }
 
+.import-mode-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  align-items: center;
+  gap: 16px;
+  margin: 16px 0 4px;
+  color: #b8c1bb;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.import-mode-field select {
+  width: 100%;
+  height: 34px;
+  padding: 0 30px 0 10px;
+  color: #dce4de;
+  border: 1px solid #39423c;
+  border-radius: 8px;
+  outline: 0;
+  color-scheme: dark;
+  background: #151a16;
+  cursor: pointer;
+  font: inherit;
+}
+
+.import-mode-field select:focus-visible {
+  border-color: #7f9c6c;
+  box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.12);
+}
+
+.import-mode-field select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.import-mode-field option {
+  color: #dce4de;
+  background: #151a16;
+}
+
+@media (max-width: 560px) {
+  .import-mode-field {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
 .codex-list {
   display: grid;
   gap: 8px;

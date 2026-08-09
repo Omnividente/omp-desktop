@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core"
 import type {
   BootstrapPayload,
   CodexSessionSummary,
-  OmpConfigSaveRequest,
+  ImportBatchPayload,
+  ImportSessionRequest,
   OmpConfigSnapshot,
   OmpUpdateInfo,
   SessionTranscript,
-  SettingsUpdate,
+  SettingsSavePayload,
+  SettingsSaveRequest,
   TerminalAttachment,
   TerminalStarted,
   TerminalRuntime,
@@ -21,8 +23,8 @@ export function addWorkspace(path: string): Promise<BootstrapPayload> {
   return invoke("add_workspace", { path })
 }
 
-export function updateSettings(update: SettingsUpdate): Promise<BootstrapPayload> {
-  return invoke("update_settings", { update })
+export function saveSettingsBundle(request: SettingsSaveRequest): Promise<SettingsSavePayload> {
+  return invoke("save_settings_bundle", { request })
 }
 
 export function startTerminal(
@@ -91,8 +93,8 @@ export function readSessionTranscript(path: string): Promise<SessionTranscript> 
   return invoke("read_session_transcript", { path })
 }
 
-export function importSession(path: string, targetCwd: string): Promise<BootstrapPayload> {
-  return invoke("import_session", { path, targetCwd })
+export function importSessions(requests: ImportSessionRequest[]): Promise<ImportBatchPayload> {
+  return invoke("import_sessions", { requests })
 }
 
 export function listCodexSessions(): Promise<CodexSessionSummary[]> {
@@ -101,10 +103,6 @@ export function listCodexSessions(): Promise<CodexSessionSummary[]> {
 
 export function loadOmpConfig(): Promise<OmpConfigSnapshot> {
   return invoke("load_omp_config")
-}
-
-export function saveOmpConfig(request: OmpConfigSaveRequest): Promise<OmpConfigSnapshot> {
-  return invoke("save_omp_config", { request })
 }
 
 export function checkOmpUpdate(): Promise<OmpUpdateInfo> {

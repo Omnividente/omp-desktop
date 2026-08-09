@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
-import { errorMessage, loadOmpConfig, saveOmpConfig, updateSettings } from "./api"
+import { errorMessage, loadOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
 import {
   roleDescription,
@@ -258,33 +258,38 @@ export function SettingsPanel({
   const save = async () => {
     setSaving(true)
     try {
-      const configSavedProviderEnv = runtime.ompAvailable && ompConfig !== null
-      if (configSavedProviderEnv) {
-        const fallbackConfig = serializeFallbackChains(fallbackChains, language)
-        const snapshot = await saveOmpConfig({
-          roles: roleDrafts,
-          advisorEnabled,
-          autoResume,
-          defaultThinkingLevel: thinkingLevel,
-          modelFallbackEnabled,
-          fallbackChains: fallbackConfig,
+      const includeOmpConfig = runtime.ompAvailable && ompConfig !== null
+      const fallbackConfig = includeOmpConfig
+        ? serializeFallbackChains(fallbackChains, language)
+        : null
+      const result = await saveSettingsBundle({
+        update: {
+          ompExecutable: executable.trim() || null,
+          sessionRoot: sessionRoot.trim() || null,
+          language,
+          appFontFamily,
+          terminalFontFamily,
+          terminalFontSize: Number(terminalFontSize),
           providerEnv,
-        })
-        setOmpConfig(snapshot)
-        setModelFallbackEnabled(snapshot.modelFallbackEnabled)
-        setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
-        onConfigSaved?.(snapshot)
-      }
-      const payload = await updateSettings({
-        ompExecutable: executable.trim() || null,
-        sessionRoot: sessionRoot.trim() || null,
-        language,
-        appFontFamily,
-        terminalFontFamily,
-        terminalFontSize: Number(terminalFontSize),
-        ...(configSavedProviderEnv ? {} : { providerEnv }),
+        },
+        ompConfig: includeOmpConfig
+          ? {
+              roles: roleDrafts,
+              advisorEnabled,
+              autoResume,
+              defaultThinkingLevel: thinkingLevel,
+              modelFallbackEnabled,
+              fallbackChains: fallbackConfig,
+            }
+          : null,
       })
-      onSaved(payload)
+      if (result.ompConfig) {
+        setOmpConfig(result.ompConfig)
+        setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
+        setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
+        onConfigSaved?.(result.ompConfig)
+      }
+      onSaved(result.bootstrap)
     } catch (error) {
       onError(errorMessage(error, language))
     } finally {

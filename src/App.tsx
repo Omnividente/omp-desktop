@@ -16,7 +16,7 @@ import {
   closeTerminal,
   deleteSession,
   errorMessage,
-  importSession,
+  importSessions,
   listCodexSessions,
   loadOmpConfig,
   setSessionTitlePin,
@@ -27,6 +27,7 @@ import {
 import { CodexImportModal } from "./CodexImportModal"
 import { ClientUpdateNotice } from "./ClientUpdateNotice"
 import { IncidentCenter } from "./IncidentCenter"
+import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
@@ -60,6 +61,8 @@ import {
 import type {
   BootstrapPayload,
   CodexSessionSummary,
+  ImportItemResult,
+  ImportMode,
   OmpUpdateInfo,
   PtyExitEvent,
   PtyRuntimeEvent,
@@ -93,6 +96,23 @@ type SessionLaunchTarget = Pick<
   | "configuredThinkingLevel"
 >
 const MAX_ENDED_RUNTIME_TERMINALS = 256
+
+function summarizeImport(items: ImportItemResult[], language: Lang): string {
+  const counts = {
+    imported: items.filter((item) => item.status === "imported").length,
+    updated: items.filter((item) => item.status === "updated").length,
+    copied: items.filter((item) => item.status === "copied").length,
+    skipped: items.filter((item) => item.status === "skipped").length,
+    failed: items.filter((item) => item.status === "failed").length,
+  }
+  return [
+    `${t(language, "imported")}: ${counts.imported}`,
+    `${t(language, "updated")}: ${counts.updated}`,
+    `${t(language, "copied")}: ${counts.copied}`,
+    `${t(language, "skipped")}: ${counts.skipped}`,
+    `${t(language, "failed")}: ${counts.failed}`,
+  ].join(" · ")
+}
 
 function rememberEndedRuntimeTerminal(terminalIds: string[], terminalId: string): void {
   const existing = terminalIds.indexOf(terminalId)
@@ -132,7 +152,7 @@ async function notifyTerminalCompletion(
 function App() {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null)
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
-  const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | null>(null)
+  const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -172,6 +192,8 @@ function App() {
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({})
   const [codexLoading, setCodexLoading] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importMode, setImportMode] = useState<ImportMode>("skip")
+  const [pendingOmpImportPath, setPendingOmpImportPath] = useState<string | null>(null)
 
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
 
@@ -287,16 +309,18 @@ function App() {
             : warning.message,
         )
       }
-      setSelectedWorkspacePath((current) => {
+      setSelectedWorkspaceKey((current) => {
         const preferred = preferredWorkspace ?? current
         if (preferred) {
-          const preferredKey = normalizedPath(preferred, next.runtime.platform)
+          const preferredPathKey = normalizedPath(preferred, next.runtime.platform)
           const match = next.workspaces.find(
-            (workspace) => normalizedPath(workspace.path, next.runtime.platform) === preferredKey,
+            (workspace) =>
+              workspace.key === preferred ||
+              normalizedPath(workspace.path, next.runtime.platform) === preferredPathKey,
           )
-          if (match) return match.path
+          if (match) return match.key
         }
-        return next.workspaces[0]?.path ?? null
+        return next.workspaces[0]?.key ?? null
       })
       setSelectedSessionId((current) =>
         current && next.sessions.some((session) => session.id === current) ? current : null,
@@ -478,21 +502,13 @@ function App() {
   ])
 
   const selectedWorkspace = useMemo(() => {
-    if (!payload || !selectedWorkspacePath) return null
-    const selectedKey = normalizedPath(selectedWorkspacePath, payload.runtime.platform)
-    return (
-      payload.workspaces.find(
-        (workspace) => normalizedPath(workspace.path, payload.runtime.platform) === selectedKey,
-      ) ?? null
-    )
-  }, [payload, selectedWorkspacePath])
+    if (!payload || !selectedWorkspaceKey) return null
+    return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
+  }, [payload, selectedWorkspaceKey])
 
   const workspaceSessions = useMemo(() => {
     if (!payload || !selectedWorkspace) return []
-    const workspaceKey = normalizedPath(selectedWorkspace.path, payload.runtime.platform)
-    return payload.sessions.filter(
-      (session) => normalizedPath(session.cwd, payload.runtime.platform) === workspaceKey,
-    )
+    return payload.sessions.filter((session) => session.projectKey === selectedWorkspace.key)
   }, [payload, selectedWorkspace])
 
   const visibleSessions = useMemo(() => {
@@ -742,6 +758,7 @@ function App() {
   const openCodexImport = useCallback(async () => {
     setCodexOpen(true)
     setCodexLoading(true)
+    setImportMode("skip")
     try {
       const sessions = await listCodexSessions()
       setCodexSessions(sessions)
@@ -762,13 +779,21 @@ function App() {
     if (selected.length === 0) return
     setImporting(true)
     try {
-      let nextPayload: BootstrapPayload | null = null
-      for (const session of selected) {
-        nextPayload = await importSession(session.filePath, selectedWorkspace.path)
+      const result = await importSessions(
+        selected.map((session) => ({
+          path: session.filePath,
+          targetCwd: selectedWorkspace.path,
+          mode: importMode,
+        })),
+      )
+      applyPayload(result.bootstrap, selectedWorkspace.path)
+      const failures = result.items.filter((item) => item.status === "failed")
+      showNotice(summarizeImport(result.items, lang))
+      if (failures.length > 0) {
+        showError(failures.map((item) => item.message ?? item.sourcePath).join("\n"))
+      } else {
+        setCodexOpen(false)
       }
-      if (nextPayload) applyPayload(nextPayload, selectedWorkspace.path)
-      setCodexOpen(false)
-      showNotice(`${t(lang, "imported")}: ${selected.length}`)
     } catch (error) {
       showError(errorMessage(error, lang))
     } finally {
@@ -778,6 +803,7 @@ function App() {
     applyPayload,
     codexSelected,
     codexSessions,
+    importMode,
     lang,
     selectedWorkspace?.path,
     showError,
@@ -797,13 +823,46 @@ function App() {
         title: t(lang, "importSession"),
       })
       if (typeof selected !== "string") return
-      const next = await importSession(selected, selectedWorkspace.path)
-      applyPayload(next, selectedWorkspace.path)
-      showNotice(t(lang, "imported"))
+      setImportMode("skip")
+      setPendingOmpImportPath(selected)
     } catch (error) {
       showError(errorMessage(error, lang))
     }
-  }, [applyPayload, lang, selectedWorkspace?.path, showError, showNotice])
+  }, [lang, selectedWorkspace?.path, showError])
+
+  const importPendingOmp = useCallback(async () => {
+    if (!pendingOmpImportPath || !selectedWorkspace?.path) return
+    setImporting(true)
+    try {
+      const result = await importSessions([
+        {
+          path: pendingOmpImportPath,
+          targetCwd: selectedWorkspace.path,
+          mode: importMode,
+        },
+      ])
+      applyPayload(result.bootstrap, selectedWorkspace.path)
+      const failure = result.items.find((item) => item.status === "failed")
+      showNotice(summarizeImport(result.items, lang))
+      if (failure) {
+        showError(failure.message ?? failure.sourcePath)
+      } else {
+        setPendingOmpImportPath(null)
+      }
+    } catch (error) {
+      showError(errorMessage(error, lang))
+    } finally {
+      setImporting(false)
+    }
+  }, [
+    applyPayload,
+    importMode,
+    lang,
+    pendingOmpImportPath,
+    selectedWorkspace?.path,
+    showError,
+    showNotice,
+  ])
 
   const switchTerminalRuntime = useCallback(
     async (terminalId: string, model: string, thinking: string | null) => {
@@ -1166,12 +1225,11 @@ function App() {
       <div className="workbench">
         <ProjectRail
           onOpenFolder={() => void openFolder()}
-          onSelectWorkspace={(path) => {
-            setSelectedWorkspacePath(path)
+          onSelectWorkspace={(key) => {
+            setSelectedWorkspaceKey(key)
             setSelectedSessionId(null)
             setSearch("")
           }}
-          platform={payload.runtime.platform}
           selectedWorkspace={selectedWorkspace}
           sessionList={{
             canLaunch: payload.runtime.ompAvailable,
@@ -1283,11 +1341,29 @@ function App() {
           importing={importing}
           language={lang}
           loading={codexLoading}
-          onClose={() => setCodexOpen(false)}
+          mode={importMode}
+          onClose={() => {
+            if (!importing) setCodexOpen(false)
+          }}
           onImport={() => void importCodexSelected()}
+          onModeChange={setImportMode}
           onSelectedChange={setCodexSelected}
           selected={codexSelected}
           sessions={codexSessions}
+        />
+      )}
+
+      {pendingOmpImportPath && (
+        <ImportSessionModal
+          importing={importing}
+          language={lang}
+          mode={importMode}
+          onClose={() => {
+            if (!importing) setPendingOmpImportPath(null)
+          }}
+          onImport={() => void importPendingOmp()}
+          onModeChange={setImportMode}
+          path={pendingOmpImportPath}
         />
       )}
 

@@ -256,9 +256,10 @@ fn looks_like_environment_key(value: &str) -> bool {
 pub fn save_config(
     app: &AppHandle,
     settings: &State<'_, SettingsState>,
+    mut app_settings: AppSettings,
     request: OmpConfigSaveRequest,
 ) -> Result<OmpConfigSnapshot, String> {
-    let mut app_settings = settings
+    let previous_settings = settings
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -278,15 +279,6 @@ pub fn save_config(
         validate_role_selector(selector)
             .map_err(|error| format!("Некорректная модель для роли `{role}`: {error}"))?;
     }
-
-    if let Some(provider_env) = request.provider_env {
-        crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
-        crate::settings::save_settings(app, &app_settings)?;
-        *settings
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = app_settings.clone();
-    }
     let expected_advisor = request.advisor_enabled;
     let expected_auto_resume = request.auto_resume;
     let expected_thinking = request
@@ -298,82 +290,182 @@ pub fn save_config(
         .fallback_chains
         .map(normalize_fallback_chains)
         .transpose()?;
+    let previous_config = load_config_snapshot(app, &app_settings)?;
+
+    let credentials_changed = if let Some(provider_env) = request.provider_env {
+        crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
+        true
+    } else {
+        false
+    };
     let roles_value = Value::Object(
         expected_roles
             .iter()
             .map(|(role, selector)| (role.clone(), Value::String(selector.clone())))
             .collect::<Map<String, Value>>(),
     );
-    set_omp_config(
-        &omp.executable,
-        "modelRoles",
-        &roles_value,
-        &app_settings.provider_env,
-    )?;
-    if let Some(chains) = expected_fallback_chains.as_ref() {
-        let value = Value::Object(
-            chains
-                .iter()
-                .map(|(key, selectors)| {
-                    (
-                        key.clone(),
-                        Value::Array(selectors.iter().cloned().map(Value::String).collect()),
-                    )
-                })
-                .collect(),
+    let mut settings_save_attempted = false;
+    let transaction = (|| {
+        set_omp_config(
+            &omp.executable,
+            "modelRoles",
+            &roles_value,
+            &app_settings.provider_env,
+        )?;
+        if let Some(chains) = expected_fallback_chains.as_ref() {
+            let value = Value::Object(
+                chains
+                    .iter()
+                    .map(|(key, selectors)| {
+                        (
+                            key.clone(),
+                            Value::Array(selectors.iter().cloned().map(Value::String).collect()),
+                        )
+                    })
+                    .collect(),
+            );
+            set_omp_config(
+                &omp.executable,
+                "retry.fallbackChains",
+                &value,
+                &app_settings.provider_env,
+            )?;
+        }
+        if let Some(enabled) = expected_model_fallback {
+            set_omp_config(
+                &omp.executable,
+                "retry.modelFallback",
+                &Value::Bool(enabled),
+                &app_settings.provider_env,
+            )?;
+        }
+        if let Some(enabled) = expected_advisor {
+            set_omp_config(
+                &omp.executable,
+                "advisor.enabled",
+                &Value::Bool(enabled),
+                &app_settings.provider_env,
+            )?;
+        }
+        if let Some(enabled) = expected_auto_resume {
+            set_omp_config(
+                &omp.executable,
+                "autoResume",
+                &Value::Bool(enabled),
+                &app_settings.provider_env,
+            )?;
+        }
+        if let Some(level) = expected_thinking.as_ref() {
+            set_omp_config(
+                &omp.executable,
+                "defaultThinkingLevel",
+                &Value::String(level.clone()),
+                &app_settings.provider_env,
+            )?;
+        }
+
+        let snapshot = load_config_snapshot(app, &app_settings)?;
+        verify_saved_config(
+            &snapshot,
+            &expected_roles,
+            expected_advisor,
+            expected_auto_resume,
+            expected_thinking.as_deref(),
+            expected_model_fallback,
+            expected_fallback_chains.as_ref(),
+        )?;
+        settings_save_attempted = true;
+        crate::settings::save_settings(app, &app_settings)?;
+        Ok(snapshot)
+    })();
+
+    let snapshot = crate::settings::resolve_transaction(transaction, || {
+        let mut rollback_errors = rollback_omp_config(
+            &omp.executable,
+            &app_settings.provider_env,
+            &previous_config,
+            expected_advisor.is_some(),
+            expected_auto_resume.is_some(),
+            expected_thinking.is_some(),
+            expected_model_fallback.is_some(),
+            expected_fallback_chains.is_some(),
         );
-        set_omp_config(
-            &omp.executable,
-            "retry.fallbackChains",
-            &value,
-            &app_settings.provider_env,
-        )?;
-    }
-    if let Some(enabled) = expected_model_fallback {
-        set_omp_config(
-            &omp.executable,
-            "retry.modelFallback",
-            &Value::Bool(enabled),
-            &app_settings.provider_env,
-        )?;
-    }
-
-    if let Some(enabled) = expected_advisor {
-        set_omp_config(
-            &omp.executable,
-            "advisor.enabled",
-            &Value::Bool(enabled),
-            &app_settings.provider_env,
-        )?;
-    }
-    if let Some(enabled) = expected_auto_resume {
-        set_omp_config(
-            &omp.executable,
-            "autoResume",
-            &Value::Bool(enabled),
-            &app_settings.provider_env,
-        )?;
-    }
-    if let Some(level) = expected_thinking.as_ref() {
-        set_omp_config(
-            &omp.executable,
-            "defaultThinkingLevel",
-            &Value::String(level.clone()),
-            &app_settings.provider_env,
-        )?;
-    }
-
-    let snapshot = load_config_snapshot(app, &app_settings)?;
-    verify_saved_config(
-        &snapshot,
-        &expected_roles,
-        expected_advisor,
-        expected_auto_resume,
-        expected_thinking.as_deref(),
-        expected_model_fallback,
-        expected_fallback_chains.as_ref(),
-    )?;
+        if credentials_changed {
+            if let Err(rollback_error) =
+                crate::settings::restore_provider_secrets(app, &app_settings, &previous_settings)
+            {
+                rollback_errors.push(rollback_error);
+            }
+        }
+        if settings_save_attempted {
+            if let Err(rollback_error) = crate::settings::save_settings(app, &previous_settings) {
+                rollback_errors.push(rollback_error);
+            }
+        }
+        rollback_errors
+    })?;
+    *settings
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = app_settings;
     Ok(snapshot)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rollback_omp_config(
+    executable: &str,
+    provider_env: &HashMap<String, String>,
+    previous: &OmpConfigSnapshot,
+    advisor_touched: bool,
+    auto_resume_touched: bool,
+    thinking_touched: bool,
+    model_fallback_touched: bool,
+    fallback_chains_touched: bool,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    let roles = Value::Object(
+        previous
+            .roles
+            .iter()
+            .filter(|role| !role.selector.trim().is_empty())
+            .map(|role| (role.role.clone(), Value::String(role.selector.clone())))
+            .collect(),
+    );
+    let mut restore = |key: &str, value: Value| {
+        if let Err(error) = set_omp_config(executable, key, &value, provider_env) {
+            errors.push(format!("{key}: {error}"));
+        }
+    };
+    restore("modelRoles", roles);
+    if fallback_chains_touched {
+        restore(
+            "retry.fallbackChains",
+            serde_json::to_value(&previous.fallback_chains).unwrap_or(Value::Object(Map::new())),
+        );
+    }
+    if model_fallback_touched {
+        restore(
+            "retry.modelFallback",
+            Value::Bool(previous.model_fallback_enabled),
+        );
+    }
+    if advisor_touched {
+        restore("advisor.enabled", Value::Bool(previous.advisor_enabled));
+    }
+    if auto_resume_touched {
+        restore("autoResume", Value::Bool(previous.auto_resume));
+    }
+    if thinking_touched {
+        restore(
+            "defaultThinkingLevel",
+            previous
+                .default_thinking_level
+                .clone()
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+    }
+    errors
 }
 
 fn verify_saved_config(

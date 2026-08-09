@@ -1,6 +1,9 @@
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
-    sessions::{apply_session_title_pin, parse_session, path_key},
+    sessions::{
+        apply_session_title_pin, canonical_project_path, parse_session, path_key,
+        validated_session_file,
+    },
     settings::{resolve_omp, SettingsState},
     update,
 };
@@ -239,6 +242,16 @@ struct PtyUpdateEvent {
     terminal_id: String,
 }
 
+fn validated_resume_path(path: &str, session_root: &Path, cwd: &str) -> Result<String, String> {
+    let path = validated_session_file(path, session_root)?;
+    let session = parse_session(&path)?
+        .ok_or_else(|| format!("В файле нет session header: {}", path.display()))?;
+    if session.project_key != path_key(cwd) {
+        return Err("Сессия принадлежит другой папке проекта".to_owned());
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub async fn start_terminal(
     request: LaunchRequest,
@@ -255,15 +268,8 @@ fn start_terminal_blocking(
 ) -> Result<TerminalStarted, String> {
     let terminals = app.state::<TerminalState>();
     let _session_file_guard = lock_session_files(&terminals);
-    let cwd = Path::new(&request.cwd);
-    if !cwd.is_dir() {
-        return Err(format!("Папка проекта не найдена: {}", cwd.display()));
-    }
-    if let Some(resume_path) = request.resume_path.as_deref() {
-        if !Path::new(resume_path).is_file() {
-            return Err(format!("Файл сессии не найден: {resume_path}"));
-        }
-    }
+    let cwd = canonical_project_path(&request.cwd)?;
+    let cwd = cwd.to_string_lossy().into_owned();
 
     let settings = app
         .state::<SettingsState>()
@@ -271,6 +277,13 @@ fn start_terminal_blocking(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
+    let session_root = crate::settings::session_root(&app, &settings)?;
+    let resume_path = request
+        .resume_path
+        .as_deref()
+        .map(|path| validated_resume_path(path, &session_root, &cwd))
+        .transpose()?;
+
     let omp = resolve_omp(&app, &settings);
     if omp.version.is_none() {
         return Err(format!(
@@ -281,7 +294,7 @@ fn start_terminal_blocking(
 
     let restartable = request.args.as_ref().is_none_or(Vec::is_empty);
     let args = if restartable {
-        initial_agent_args(&request.cwd, request.resume_path.as_deref())
+        initial_agent_args(&cwd, resume_path.as_deref())
     } else {
         request.args.unwrap_or_default()
     };
@@ -290,8 +303,8 @@ fn start_terminal_blocking(
         &terminals,
         &omp.executable,
         &settings.provider_env,
-        request.cwd,
-        request.resume_path,
+        cwd,
+        resume_path,
         args,
         PtySize {
             rows: request.rows.clamp(5, 300),
@@ -2534,9 +2547,9 @@ mod tests {
         poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
         receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
         runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest,
-        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        validated_resume_path, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
+        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -3605,6 +3618,53 @@ mod tests {
 
         assert_eq!(resolved, session_path.to_string_lossy());
         assert_eq!(session.id, "new-session");
+    }
+    #[test]
+    fn resume_path_must_be_internal_and_match_the_project() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-resume-guard-{}-{nonce}",
+            std::process::id()
+        ));
+        let session_root = root.join("sessions");
+        let project = root.join("project");
+        let other_project = root.join("other-project");
+        fs::create_dir_all(&session_root).expect("session root should be writable");
+        fs::create_dir_all(&project).expect("project should be writable");
+        fs::create_dir_all(&other_project).expect("other project should be writable");
+        let project_path = project.to_string_lossy().into_owned();
+        let body = format!(
+            "{{\"type\":\"session\",\"id\":\"resume-test\",\"cwd\":{}}}\n",
+            serde_json::to_string(&project_path).expect("project path should serialize")
+        );
+        let internal = session_root.join("session.jsonl");
+        let external = root.join("external.jsonl");
+        fs::write(&internal, &body).expect("internal fixture should be writable");
+        fs::write(&external, body).expect("external fixture should be writable");
+
+        assert!(validated_resume_path(
+            internal.to_string_lossy().as_ref(),
+            &session_root,
+            &project_path,
+        )
+        .is_ok());
+        assert!(validated_resume_path(
+            external.to_string_lossy().as_ref(),
+            &session_root,
+            &project_path,
+        )
+        .is_err());
+        assert!(validated_resume_path(
+            internal.to_string_lossy().as_ref(),
+            &session_root,
+            other_project.to_string_lossy().as_ref(),
+        )
+        .is_err());
+
+        fs::remove_dir_all(root).expect("fixture should be removable");
     }
     #[test]
     fn update_notice_detection_handles_ansi_and_split_chunks() {
