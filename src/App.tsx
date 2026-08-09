@@ -19,6 +19,8 @@ import {
   importSessions,
   listCodexSessions,
   loadOmpConfig,
+  sampleResourceHealth,
+  saveSettingsBundle,
   setSessionTitlePin,
   switchTerminal,
   startTerminal,
@@ -46,6 +48,7 @@ import {
   runtimeHealthStatus,
   type RuntimeHealthStatus,
 } from "./runtimeIncidents"
+import { ResourceHealthPanel } from "./ResourceHealthPanel"
 import { SettingsPanel } from "./SettingsPanel"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
@@ -64,6 +67,8 @@ import type {
   ImportItemResult,
   ImportMode,
   OmpUpdateInfo,
+  ResourceHealthSnapshot,
+  RailMode,
   PtyExitEvent,
   PtyRuntimeEvent,
   PtySessionEvent,
@@ -194,6 +199,13 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
   const [pendingOmpImportPath, setPendingOmpImportPath] = useState<string | null>(null)
+  const [resourceHealth, setResourceHealth] = useState<ResourceHealthSnapshot | null>(null)
+  const [resourceHealthError, setResourceHealthError] = useState<string | null>(null)
+  const [resourceHealthOpen, setResourceHealthOpen] = useState(false)
+  const resourceHealthTriggerRef = useRef<HTMLButtonElement>(null)
+  const resourceHealthSamplingRef = useRef(false)
+  const [railAutoOpen, setRailAutoOpen] = useState(false)
+  const [railModeSaving, setRailModeSaving] = useState(false)
 
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
 
@@ -206,6 +218,7 @@ function App() {
   langRef.current = lang
   const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
   ompVersionRef.current = payload?.runtime.ompVersion ?? null
+  const railMode = payload?.settings.railMode ?? "expanded"
   const {
     transcriptSession,
     transcript,
@@ -328,6 +341,35 @@ function App() {
     },
     [showNotice],
   )
+
+  const changeRailMode = useCallback(
+    async (mode: RailMode) => {
+      if (!payload || railModeSaving || mode === payload.settings.railMode) return
+      setRailModeSaving(true)
+      try {
+        const result = await saveSettingsBundle({ update: { railMode: mode }, ompConfig: null })
+        applyPayload(result.bootstrap, selectedWorkspaceKey ?? undefined)
+        setRailAutoOpen(mode === "autoHide")
+      } catch (error) {
+        showError(errorMessage(error, lang))
+      } finally {
+        setRailModeSaving(false)
+      }
+    },
+    [applyPayload, lang, payload, railModeSaving, selectedWorkspaceKey, showError],
+  )
+
+  const focusPersistentRailControl = useCallback(() => {
+    const activeElement = document.activeElement
+    if (!(activeElement instanceof HTMLElement)) return
+    const rail = activeElement.closest<HTMLElement>(".project-rail")
+    if (
+      !rail ||
+      !activeElement.closest(".project-sessions, .open-project-button")
+    )
+      return
+    rail.querySelector<HTMLButtonElement>(".rail-open-folder")?.focus()
+  }, [])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -506,6 +548,46 @@ function App() {
     return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
   }, [payload, selectedWorkspaceKey])
 
+  useEffect(() => {
+    let disposed = false
+    setResourceHealth(null)
+    setResourceHealthError(null)
+    const poll = async () => {
+      if (
+        disposed ||
+        resourceHealthSamplingRef.current ||
+        document.visibilityState !== "visible"
+      )
+        return
+      resourceHealthSamplingRef.current = true
+      try {
+        const snapshot = await sampleResourceHealth(selectedWorkspace?.path ?? null)
+        if (!disposed) {
+          setResourceHealth(snapshot)
+          setResourceHealthError(null)
+        }
+      } catch (error) {
+        if (!disposed) {
+          setResourceHealth(null)
+          setResourceHealthError(errorMessage(error, lang))
+        }
+      } finally {
+        resourceHealthSamplingRef.current = false
+      }
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void poll()
+    }
+    void poll()
+    const interval = window.setInterval(() => void poll(), 30_000)
+    document.addEventListener("visibilitychange", handleVisibility)
+    return () => {
+      disposed = true
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", handleVisibility)
+    }
+  }, [lang, selectedWorkspace?.path])
+
   const workspaceSessions = useMemo(() => {
     if (!payload || !selectedWorkspace) return []
     return payload.sessions.filter((session) => session.projectKey === selectedWorkspace.key)
@@ -560,12 +642,21 @@ function App() {
     [focusTab, tabs],
   )
 
+  const closeResourceHealth = useCallback(() => setResourceHealthOpen(false), [])
   const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
   const openIncidentCenter = useCallback(() => {
     setSettingsOpen(false)
     setCodexOpen(false)
     closeTranscript()
+    setResourceHealthOpen(false)
     setIncidentCenterOpen(true)
+  }, [closeTranscript])
+  const openResourceHealth = useCallback(() => {
+    setSettingsOpen(false)
+    setCodexOpen(false)
+    closeTranscript()
+    setIncidentCenterOpen(false)
+    setResourceHealthOpen(true)
   }, [closeTranscript])
   const clearResolvedIncidents = useCallback(() => {
     setRuntimeIncidentState((current) => clearResolvedRuntimeIncidents(current, Date.now()))
@@ -1151,13 +1242,29 @@ function App() {
         closeTranscript()
         return
       }
-      if (incidentCenterOpen || settingsOpen || codexOpen || transcriptSession) return
+      if (
+        incidentCenterOpen ||
+        resourceHealthOpen ||
+        settingsOpen ||
+        codexOpen ||
+        transcriptSession
+      )
+        return
       const target = event.target as HTMLElement | null
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return
       const modifier = event.ctrlKey || event.metaKey
       if (modifier && event.shiftKey && event.code === "KeyO") {
         event.preventDefault()
         void openFolder()
+      } else if (modifier && !event.shiftKey && event.code === "KeyB") {
+        event.preventDefault()
+        if (railMode === "autoHide") {
+          if (railAutoOpen) focusPersistentRailControl()
+          setRailAutoOpen((current) => !current)
+        } else {
+          if (railMode === "expanded") focusPersistentRailControl()
+          void changeRailMode(railMode === "expanded" ? "collapsed" : "expanded")
+        }
       } else if (modifier && event.code === "KeyN") {
         event.preventDefault()
         void launchSession()
@@ -1170,12 +1277,17 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [
     activeTabId,
+    changeRailMode,
     closeTab,
     closeTranscript,
     codexOpen,
+    focusPersistentRailControl,
     incidentCenterOpen,
     launchSession,
     openFolder,
+    railMode,
+    railAutoOpen,
+    resourceHealthOpen,
     settingsOpen,
     transcriptSession,
   ])
@@ -1212,7 +1324,11 @@ function App() {
         incidentCenterOpen={incidentCenterOpen}
         incidentTriggerRef={incidentCenterTriggerRef}
         language={lang}
+        resourceHealth={resourceHealth}
+        resourceHealthOpen={resourceHealthOpen}
+        resourceTriggerRef={resourceHealthTriggerRef}
         onOpenIncidentCenter={openIncidentCenter}
+        onOpenResourceHealth={openResourceHealth}
         onOpenSettings={() => setSettingsOpen(true)}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
@@ -1222,8 +1338,13 @@ function App() {
         updateInfo={updateInfo}
       />
 
-      <div className="workbench">
+      <div className={`workbench rail-${railMode === "autoHide" ? "auto-hide" : railMode}`}>
         <ProjectRail
+          autoOpen={railAutoOpen}
+          mode={railMode}
+          modeSaving={railModeSaving}
+          onAutoOpenChange={setRailAutoOpen}
+          onModeChange={(mode) => void changeRailMode(mode)}
           onOpenFolder={() => void openFolder()}
           onSelectWorkspace={(key) => {
             setSelectedWorkspaceKey(key)
@@ -1291,6 +1412,16 @@ function App() {
           workspaceSessions={workspaceSessions}
         />
       </div>
+
+      {resourceHealthOpen && (
+        <ResourceHealthPanel
+          error={resourceHealthError}
+          language={lang}
+          onClose={closeResourceHealth}
+          returnFocusRef={resourceHealthTriggerRef}
+          snapshot={resourceHealth}
+        />
+      )}
 
       {incidentCenterOpen && (
         <IncidentCenter

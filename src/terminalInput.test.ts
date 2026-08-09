@@ -79,6 +79,22 @@ describe("terminal desktop input editing", () => {
     expect(selection).toEqual({ endpoint: { x: 6, y: 0 }, deleteBackward: false, length: 5 })
     expect(deleteInput(terminal, false, selection)).toBe(left.repeat(5) + forwardDelete.repeat(5))
   })
+  it("rejects explicit line breaks because no safe logical input boundary is available", () => {
+    const terminal = terminalFixture({ cols: 20, cursorX: 4, cursorY: 2, wrappedRows: [2] })
+    expect(cursorMoveInput(terminal, { x: 3, y: 0 })).toBeNull()
+  })
+
+  it("keeps wrapped cursor movement stable after a narrow resize", () => {
+    const terminal = terminalFixture({ cols: 10, cursorX: 2, cursorY: 2, wrappedRows: [1, 2] })
+    expect(cursorMoveInput(terminal, { x: 8, y: 0 })).toBe(left.repeat(14))
+  })
+
+  it("counts Unicode code points instead of UTF-16 units when deleting a selection", () => {
+    const terminal = terminalFixture()
+    const selection = createMouseSelectionEdit(terminal, range(6, 8), { x: 8, y: 0 }, "🙂я")
+    expect(selection?.length).toBe(2)
+    expect(deleteInput(terminal, false, selection)).toBe(left.repeat(3) + "\x7f".repeat(2))
+  })
 
   it("maps Ctrl+A followed by delete to OMP's clear-editor chord", () => {
     expect(deleteInput(terminalFixture(), true, null)).toBe("\x03")

@@ -2,6 +2,7 @@ mod diagnostics;
 mod models;
 mod omp_bridge;
 mod omp_command;
+mod resource_health;
 mod secrets;
 mod sessions;
 mod settings;
@@ -11,8 +12,8 @@ mod update;
 mod updater_e2e;
 use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
-    ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, SessionTranscript, SettingsPatch,
-    SettingsSavePayload, SettingsSaveRequest, SettingsUpdate,
+    ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, ResourceHealthSnapshot,
+    SessionTranscript, SettingsPatch, SettingsSavePayload, SettingsSaveRequest, SettingsUpdate,
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
@@ -117,6 +118,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     if let SettingsPatch::Set(value) = &update.terminal_font_size {
         snapshot.terminal_font_size = normalize_terminal_font_size(*value);
     }
+    if let SettingsPatch::Set(Some(rail_mode)) = update.rail_mode {
+        snapshot.rail_mode = rail_mode;
+    }
 }
 
 #[tauri::command]
@@ -176,6 +180,30 @@ async fn save_settings_bundle(
                 bootstrap,
                 omp_config,
             })
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn sample_resource_health(
+    workspace_path: Option<String>,
+    app: AppHandle,
+) -> Result<ResourceHealthSnapshot, AppError> {
+    run_blocking(
+        "проверки системных ресурсов",
+        "resource_health_failed",
+        "Не удалось проверить системные ресурсы",
+        move || {
+            let settings = app.state::<SettingsState>();
+            initialize_settings(&app, &settings)?;
+            let snapshot = settings_snapshot(&settings)?;
+            let session_root = settings::session_root(&app, &snapshot)?;
+            let terminal_processes = app.state::<TerminalState>().resource_processes();
+            resource_health::sample_resource_health(
+                resource_health::default_resource_paths(&session_root, workspace_path.as_deref()),
+                terminal_processes,
+            )
         },
     )
     .await
@@ -404,6 +432,7 @@ pub fn run() {
             read_session_transcript,
             load_omp_config,
             check_omp_update,
+            sample_resource_health,
             terminal::start_terminal,
             terminal::switch_terminal,
             terminal::attach_terminal,

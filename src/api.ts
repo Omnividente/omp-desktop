@@ -7,6 +7,7 @@ import type {
   OmpConfigSnapshot,
   OmpUpdateInfo,
   SessionTranscript,
+  ResourceHealthSnapshot,
   SettingsSavePayload,
   SettingsSaveRequest,
   TerminalAttachment,
@@ -109,6 +110,12 @@ export function checkOmpUpdate(): Promise<OmpUpdateInfo> {
   return invoke("check_omp_update")
 }
 
+export function sampleResourceHealth(
+  workspacePath: string | null,
+): Promise<ResourceHealthSnapshot> {
+  return invoke("sample_resource_health", { workspacePath })
+}
+
 interface BackendError {
   code?: string
   message?: string
@@ -123,6 +130,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   bootstrap_failed: { ru: "Не удалось загрузить данные OMP", en: "Failed to load OMP data" },
   workspace_add_failed: { ru: "Не удалось добавить проект", en: "Failed to add the project" },
   settings_save_failed: { ru: "Не удалось сохранить настройки", en: "Failed to save settings" },
+  resource_health_failed: {
+    ru: "Не удалось проверить системные ресурсы",
+    en: "Failed to check system resources",
+  },
   session_active_rename: {
     ru: "Сначала остановите активную сессию OMP",
     en: "Stop the active OMP session before renaming it",

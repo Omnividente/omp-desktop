@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
@@ -12,6 +12,7 @@ import {
   writeTerminal,
   writeTerminalBinary,
 } from "./api"
+import { Icon } from "./Icon"
 import {
   bufferCellFromMouseEvent,
   createMouseSelectionEdit,
@@ -22,7 +23,7 @@ import {
 } from "./terminalInput"
 import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
 import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
-import type { Lang } from "./i18n"
+import { t, type Lang } from "./i18n"
 
 const IS_LINUX_RUNTIME = typeof navigator !== "undefined" && /\bLinux\b/i.test(navigator.userAgent)
 
@@ -68,6 +69,9 @@ export function TerminalView({
   onReady,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [inputSelectionArmed, setInputSelectionArmed] = useState(false)
+  const [inputHelpOpen, setInputHelpOpen] = useState(false)
+  const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const activeRef = useRef(active)
@@ -109,7 +113,9 @@ export function TerminalView({
         foreground: "#d9dedb",
         cursor: "#b9f27c",
         cursorAccent: "#101312",
-        selectionBackground: "#3f594866",
+        selectionBackground: "#769e63e6",
+        selectionForeground: "#0c120d",
+        selectionInactiveBackground: "#3d5a46cc",
         black: "#151817",
         red: "#ef7070",
         green: "#81c995",
@@ -134,9 +140,13 @@ export function TerminalView({
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    let selectAllArmed = false
     let pointerDownCell: TerminalCell | null = null
     let mouseSelection: MouseSelectionEdit | null = null
+    const clearArmedSelection = () => {
+      selectAllArmedRef.current = false
+      setInputSelectionArmed(false)
+      mouseSelection = null
+    }
     const sendInput = (data: string) => {
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
@@ -164,7 +174,8 @@ export function TerminalView({
         !event.shiftKey &&
         event.code === "KeyA"
       ) {
-        selectAllArmed = true
+        selectAllArmedRef.current = true
+        setInputSelectionArmed(true)
         mouseSelection = null
         terminal.clearSelection()
         return false
@@ -172,28 +183,30 @@ export function TerminalView({
 
       const deleteSelection = event.code === "Backspace" || event.code === "Delete"
       if (tab.kind === "agent" && deleteSelection) {
+        const selectAllArmed = selectAllArmedRef.current
         const input =
           selectAllArmed || (terminal.hasSelection() && mouseSelection)
             ? deleteInput(terminal, selectAllArmed, mouseSelection)
             : null
         if (input !== null) {
-          selectAllArmed = false
-          mouseSelection = null
+          clearArmedSelection()
           terminal.clearSelection()
           sendInput(input)
           return false
         }
       }
 
-      if (selectAllArmed) selectAllArmed = false
+      if (selectAllArmedRef.current) clearArmedSelection()
       if (!terminal.hasSelection()) mouseSelection = null
       return true
     })
 
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!container.contains(event.relatedTarget as Node | null)) clearArmedSelection()
+    }
     const handleMouseDown = (event: MouseEvent) => {
       terminal.focus()
-      selectAllArmed = false
-      mouseSelection = null
+      clearArmedSelection()
       pointerDownCell =
         event.button === 0 && terminal.modes.mouseTrackingMode === "none"
           ? bufferCellFromMouseEvent(terminal, container, event)
@@ -223,6 +236,7 @@ export function TerminalView({
     }
     container.addEventListener("mousedown", handleMouseDown)
     container.addEventListener("mouseup", handleMouseUp)
+    container.addEventListener("focusout", handleFocusOut)
 
     let disposed = false
     let lastCols = 0
@@ -356,6 +370,8 @@ export function TerminalView({
       resizeObserver.disconnect()
       container.removeEventListener("mousedown", handleMouseDown)
       container.removeEventListener("mouseup", handleMouseUp)
+      container.removeEventListener("focusout", handleFocusOut)
+      selectAllArmedRef.current = false
       dataSubscription.dispose()
       binarySubscription.dispose()
       for (const unlisten of unlisteners) {
@@ -394,11 +410,41 @@ export function TerminalView({
     return () => window.cancelAnimationFrame(frame)
   }, [active, focusRequestSequence, tab.id])
 
+  useEffect(() => {
+    if (active) return
+    selectAllArmedRef.current = false
+    setInputHelpOpen(false)
+    setInputSelectionArmed(false)
+  }, [active])
+
   return (
     <div
       className={`terminal-view${active ? " is-active" : ""}`}
       onMouseDown={() => terminalRef.current?.focus()}
-      ref={containerRef}
-    />
+    >
+      <div className="terminal-host" ref={containerRef} />
+      {tab.kind === "agent" && (
+        <button
+          aria-expanded={inputHelpOpen}
+          aria-label={t(language, "terminalInputHelp")}
+          className="terminal-input-help-trigger"
+          onClick={() => setInputHelpOpen((current) => !current)}
+          title={t(language, "terminalInputHelp")}
+          type="button"
+        >
+          <Icon name="command" size={13} />
+        </button>
+      )}
+      {tab.kind === "agent" && inputHelpOpen && (
+        <div className="terminal-input-help" role="note">
+          {t(language, "terminalInputHelp")}
+        </div>
+      )}
+      {tab.kind === "agent" && inputSelectionArmed && (
+        <div aria-live="polite" className="terminal-input-selected" role="status">
+          {t(language, "terminalInputSelected")}
+        </div>
+      )}
+    </div>
   )
 }

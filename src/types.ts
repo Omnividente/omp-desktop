@@ -4,11 +4,14 @@ export interface SettingsWarning {
   details: string | null
 }
 
+export type RailMode = "expanded" | "collapsed" | "autoHide"
+
 export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
   recentWorkspaces: string[]
   sessionTitlePins: Record<string, string>
+  railMode: RailMode
   language: "ru" | "en"
   appFontFamily: string
   terminalFontFamily: string
@@ -26,6 +29,41 @@ export interface RuntimeInfo {
   ompExecutable: string
   ompVersion: string | null
   sessionRoot: string
+}
+
+export type ResourceSeverity = "ok" | "warning" | "critical"
+
+export interface ResourceMemorySnapshot {
+  availableBytes: number
+  totalBytes: number
+  usedSwapBytes: number
+  totalSwapBytes: number
+  availableSeverity: ResourceSeverity
+  swapSeverity: ResourceSeverity
+  severity: ResourceSeverity
+}
+
+export interface ResourceVolumeSnapshot {
+  mountPath: string
+  availableBytes: number
+  totalBytes: number
+  purposes: string[]
+  severity: ResourceSeverity
+}
+
+export interface ResourceProcessSnapshot {
+  terminalId: string | null
+  processId: number
+  residentBytes: number
+  source: "desktop" | "omp"
+}
+
+export interface ResourceHealthSnapshot {
+  sampledAt: number
+  severity: ResourceSeverity
+  memory: ResourceMemorySnapshot
+  volumes: ResourceVolumeSnapshot[]
+  processes: ResourceProcessSnapshot[]
 }
 
 export interface SessionSummary {
@@ -108,6 +146,7 @@ export interface SettingsUpdate {
   terminalFontSize?: number | null
   sessionRoot?: string | null
   language?: "ru" | "en" | null
+  railMode?: RailMode | null
   providerEnv?: Record<string, string> | null
 }
 

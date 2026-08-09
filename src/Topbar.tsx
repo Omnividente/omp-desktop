@@ -1,7 +1,8 @@
 import type { Ref } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
-import type { OmpUpdateInfo, RuntimeInfo, WorkspaceSummary } from "./types"
+import { formatBytes, resourceSeverityLabel, resourceWarningCount } from "./resourceHealth"
+import type { OmpUpdateInfo, ResourceHealthSnapshot, RuntimeInfo, WorkspaceSummary } from "./types"
 
 interface TopbarProps {
   appVersion: string
@@ -9,12 +10,16 @@ interface TopbarProps {
   incidentActiveTerminalCount: number
   incidentCenterOpen: boolean
   incidentTriggerRef: Ref<HTMLButtonElement>
+  resourceHealth: ResourceHealthSnapshot | null
+  resourceHealthOpen: boolean
+  resourceTriggerRef: Ref<HTMLButtonElement>
   language: Lang
   refreshing: boolean
   runtime: RuntimeInfo
   selectedWorkspace: WorkspaceSummary | null
   updateInfo: OmpUpdateInfo | null
   onOpenIncidentCenter: () => void
+  onOpenResourceHealth: () => void
   onOpenSettings: () => void
   onRefresh: () => void
   onUpdate: () => void
@@ -26,12 +31,16 @@ export function Topbar({
   incidentActiveTerminalCount,
   incidentCenterOpen,
   incidentTriggerRef,
+  resourceHealth,
+  resourceHealthOpen,
+  resourceTriggerRef,
   language,
   refreshing,
   runtime,
   selectedWorkspace,
   updateInfo,
   onOpenIncidentCenter,
+  onOpenResourceHealth,
   onOpenSettings,
   onRefresh,
   onUpdate,
@@ -40,6 +49,10 @@ export function Topbar({
     language,
     incidentActiveTerminalCount > 0 ? "incidentOpenWithCount" : "incidentOpen",
   ).replace("{count}", String(incidentActiveTerminalCount))
+  const resourceCount = resourceWarningCount(resourceHealth)
+  const resourceLabel = resourceHealth
+    ? `${resourceSeverityLabel(language, resourceHealth.severity)} · ${formatBytes(resourceHealth.memory.availableBytes)}`
+    : t(language, "resourceDetails")
 
   return (
     <header className="topbar">
@@ -85,6 +98,23 @@ export function Topbar({
             {updateInfo.latestVersion ? ` ${updateInfo.latestVersion}` : ""}
           </button>
         )}
+        <button
+          aria-expanded={resourceHealthOpen}
+          aria-haspopup="dialog"
+          aria-label={resourceLabel}
+          className={`icon-button resource-health-trigger is-${resourceHealth?.severity ?? "unknown"}`}
+          onClick={onOpenResourceHealth}
+          ref={resourceTriggerRef}
+          title={resourceLabel}
+          type="button"
+        >
+          <Icon name={resourceHealth?.severity === "ok" ? "check" : "alert"} />
+          {resourceCount > 0 && (
+            <span aria-hidden="true" className="resource-health-badge">
+              {resourceCount}
+            </span>
+          )}
+        </button>
         <button
           aria-expanded={incidentCenterOpen}
           aria-haspopup="dialog"
