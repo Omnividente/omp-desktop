@@ -118,6 +118,7 @@ function releaseAssetUrls(releaseMetadata, tag, repository) {
     releaseMetadata.tag_name === tag,
     `Release metadata tag ${releaseMetadata.tag_name} does not match ${tag}`,
   )
+  requireCondition(releaseMetadata.draft === true, `Release ${tag} is already published`)
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
 
   const apiPath = `/repos/${repository}/releases/assets/`

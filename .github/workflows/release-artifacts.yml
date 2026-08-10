@@ -101,6 +101,27 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PRODUCTION_TAURI_SIGNING_PRIVATE_KEY }}
         run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) throw new Error('PRODUCTION_TAURI_SIGNING_PRIVATE_KEY is required in the production-release environment');"
 
+      - name: Refuse mutation of a published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          node --input-type=module <<'EOF'
+          const endpoint = `${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/releases/tags/${encodeURIComponent(process.env.RELEASE_TAG)}`;
+          const response = await fetch(endpoint, {
+            headers: {
+              accept: "application/vnd.github+json",
+              authorization: `Bearer ${process.env.GH_TOKEN}`,
+              "x-github-api-version": "2022-11-28",
+            },
+          });
+          if (response.status === 404) process.exit(0);
+          if (!response.ok) throw new Error(`Release lookup failed with HTTP ${response.status}.`);
+          const release = await response.json();
+          if (!release.draft) throw new Error(`Refusing to mutate published release ${process.env.RELEASE_TAG}.`);
+          EOF
+
       - name: Build, sign, and upload Tauri artifacts
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:

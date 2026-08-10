@@ -88,6 +88,7 @@ async function releaseFixture() {
   await writeReleaseChecksums({ directory })
 
   const releaseMetadata = {
+    draft: true,
     tag_name: tag,
     assets: definitions.map(({ key, name, id }) => ({
       name,
@@ -204,5 +205,12 @@ describe("release asset verification", () => {
     await writeReleaseChecksums({ directory: fixture.directory })
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /does not match release version/)
+  })
+
+  it("rejects mutation of an already published release", async () => {
+    const fixture = await releaseFixture()
+    fixture.releaseMetadata.draft = false
+
+    await assert.rejects(() => verifyReleaseAssets(fixture), /is already published/)
   })
 })
