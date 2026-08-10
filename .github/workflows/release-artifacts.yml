@@ -171,14 +171,27 @@ jobs:
             release-assets/SHA256SUMS-windows.txt \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+          rm -f release-assets/SHA256SUMS-linux.txt release-assets/SHA256SUMS-windows.txt
+          gh release download "$tag" \
+            --pattern "SHA256SUMS-*.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets \
+            --clobber
           metadata="$RUNNER_TEMP/release-metadata.json"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" node .github/scripts/verify-release-assets.mjs release-assets
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";
-          import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+          import { createReadStream } from "node:fs";
+          import { readdir, stat, writeFile } from "node:fs/promises";
           import { join } from "node:path";
 
+
+          async function hashFile(path) {
+            const hash = createHash("sha256");
+            for await (const chunk of createReadStream(path)) hash.update(chunk);
+            return hash.digest("hex");
+          }
           const directory = process.env.RELEASE_DIR;
           const names = await readdir(directory);
           const assets = [];
@@ -186,8 +199,7 @@ jobs:
             const path = join(directory, name);
             const metadata = await stat(path);
             if (!metadata.isFile()) continue;
-            const bytes = await readFile(path);
-            const sha256 = createHash("sha256").update(bytes).digest("hex");
+            const sha256 = await hashFile(path);
             const lower = name.toLowerCase();
             const platform = /windows|win|msi|nsis|setup\.exe/.test(lower)
               ? "windows"
