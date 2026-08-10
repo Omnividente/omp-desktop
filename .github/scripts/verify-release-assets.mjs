@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
 import { readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -8,9 +9,9 @@ function requireCondition(condition, message) {
 }
 
 async function sha256(path) {
-  return createHash("sha256")
-    .update(await readFile(path))
-    .digest("hex")
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
 }
 
 async function fileNames(directory) {
