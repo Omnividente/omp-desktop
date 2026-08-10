@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, createPublicKey, verify } from "node:crypto"
 import { createReadStream } from "node:fs"
 import { readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
@@ -8,10 +8,111 @@ function requireCondition(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-async function sha256(path) {
-  const hash = createHash("sha256")
+async function hashFile(path, algorithm) {
+  const hash = createHash(algorithm)
   for await (const chunk of createReadStream(path)) hash.update(chunk)
-  return hash.digest("hex")
+  return hash.digest()
+}
+
+async function sha256(path) {
+  return (await hashFile(path, "sha256")).toString("hex")
+}
+
+function decodeBase64(value, label) {
+  requireCondition(typeof value === "string" && value.trim(), `${label} is required`)
+  const encoded = value.trim()
+  requireCondition(
+    encoded.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(encoded),
+    `${label} is not valid base64`,
+  )
+  const decoded = Buffer.from(encoded, "base64")
+  requireCondition(decoded.toString("base64") === encoded, `${label} is not canonical base64`)
+  return decoded
+}
+
+function decodeBase64Text(value, label) {
+  const decoded = decodeBase64(value, label)
+  const text = decoded.toString("utf8")
+  requireCondition(Buffer.from(text, "utf8").equals(decoded), `${label} is not valid UTF-8`)
+  return text
+}
+
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex")
+
+function decodeUpdaterPublicKey(encodedPublicKey) {
+  const lines = decodeBase64Text(encodedPublicKey, "Updater public key").trimEnd().split(/\r?\n/)
+  requireCondition(
+    lines.length === 2 && lines[0].startsWith("untrusted comment:"),
+    "Updater public key has an invalid Minisign envelope",
+  )
+  const payload = decodeBase64(lines[1], "Updater public key payload")
+  requireCondition(payload.length === 42, "Updater public key payload must be 42 bytes")
+  requireCondition(
+    payload.subarray(0, 2).equals(Buffer.from("Ed")),
+    "Updater public key uses an unsupported algorithm",
+  )
+  return {
+    keyId: payload.subarray(2, 10),
+    publicKey: createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, payload.subarray(10)]),
+      format: "der",
+      type: "spki",
+    }),
+  }
+}
+
+async function verifyUpdaterSignature({
+  artifactPath,
+  encodedSignature,
+  signatureName,
+  signingKey,
+}) {
+  const lines = decodeBase64Text(encodedSignature, `Updater signature ${signatureName}`)
+    .trimEnd()
+    .split(/\r?\n/)
+  requireCondition(
+    lines.length === 4 &&
+      lines[0].startsWith("untrusted comment:") &&
+      lines[2].startsWith("trusted comment: "),
+    `Updater signature has an invalid Minisign envelope: ${signatureName}`,
+  )
+  const payload = decodeBase64(lines[1], `Updater signature payload ${signatureName}`)
+  requireCondition(
+    payload.length === 74,
+    `Updater signature payload must be 74 bytes: ${signatureName}`,
+  )
+  requireCondition(
+    payload.subarray(0, 2).equals(Buffer.from("ED")),
+    `Updater signature uses an unsupported algorithm: ${signatureName}`,
+  )
+  requireCondition(
+    payload.subarray(2, 10).equals(signingKey.keyId),
+    `Updater signature key does not match configured public key: ${signatureName}`,
+  )
+  const signature = payload.subarray(10)
+  const artifactDigest = await hashFile(artifactPath, "blake2b512")
+  requireCondition(
+    verify(null, artifactDigest, signingKey.publicKey, signature),
+    `Updater signature is cryptographically invalid: ${signatureName}`,
+  )
+  const trustedComment = lines[2].slice("trusted comment: ".length)
+  const globalSignature = decodeBase64(
+    lines[3],
+    `Updater trusted comment signature ${signatureName}`,
+  )
+  requireCondition(
+    globalSignature.length === 64,
+    `Updater trusted comment signature must be 64 bytes: ${signatureName}`,
+  )
+  requireCondition(
+    verify(
+      null,
+      Buffer.concat([signature, Buffer.from(trustedComment, "utf8")]),
+      signingKey.publicKey,
+      globalSignature,
+    ),
+    `Updater trusted comment signature is cryptographically invalid: ${signatureName}`,
+  )
 }
 
 async function fileNames(directory) {
@@ -220,11 +321,13 @@ export async function verifyReleaseAssets({
   version,
   repository,
   releaseMetadata,
+  updaterPublicKey,
 }) {
   requireCondition(directory, "Release asset directory is required")
   requireCondition(version, "Release version is required")
   requireCondition(repository, "Release repository is required")
   requireCondition(tag === `v${version}`, `Release tag ${tag} does not match version ${version}`)
+  const signingKey = decodeUpdaterPublicKey(updaterPublicKey)
 
   const names = await fileNames(directory)
   const files = new Set(names)
@@ -238,18 +341,27 @@ export async function verifyReleaseAssets({
   requireInstallerCoverage({ linuxInstallers, windowsInstallers })
   const allInstallers = [...linuxInstallers, ...windowsInstallers]
   const currentVersion = versionPattern(version)
+  const uploadedSignatures = new Map()
 
   for (const name of allInstallers) {
     requireCondition(
       currentVersion.test(name),
       `Installer ${name} does not match release version ${version}`,
     )
-    const signature = `${name}.sig`
-    requireCondition(files.has(signature), `Updater signature is missing: ${signature}`)
+    const signatureName = `${name}.sig`
+    requireCondition(files.has(signatureName), `Updater signature is missing: ${signatureName}`)
     requireCondition(
-      (await stat(join(directory, signature))).size > 0,
-      `Updater signature is empty: ${signature}`,
+      (await stat(join(directory, signatureName))).size > 0,
+      `Updater signature is empty: ${signatureName}`,
     )
+    const encodedSignature = (await readFile(join(directory, signatureName), "utf8")).trim()
+    await verifyUpdaterSignature({
+      artifactPath: join(directory, name),
+      encodedSignature,
+      signatureName,
+      signingKey,
+    })
+    uploadedSignatures.set(name, encodedSignature)
   }
 
   await verifyChecksums(directory, "SHA256SUMS-linux.txt", linuxInstallers)
@@ -293,7 +405,7 @@ export async function verifyReleaseAssets({
     )
     const signatureName = `${assetName}.sig`
     requireCondition(files.has(signatureName), `Updater signature asset is missing for ${platform}`)
-    const uploadedSignature = (await readFile(join(directory, signatureName), "utf8")).trim()
+    const uploadedSignature = uploadedSignatures.get(assetName)
     requireCondition(
       entry.signature.trim() === uploadedSignature,
       `latest.json signature does not match ${signatureName} for ${platform}`,
@@ -307,6 +419,7 @@ export async function verifyReleaseAssets({
     linuxInstallers,
     windowsInstallers,
     signedInstallers: linuxInstallers.length + windowsInstallers.length,
+    verifiedSignatures: allInstallers.length,
     updaterTargets: platformEntries.length,
   }
 }
@@ -339,12 +452,14 @@ if (invokedPath === import.meta.url) {
       const directory = process.argv[2] ?? process.env.RELEASE_DIR
       requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
       const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+      const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"))
       const summary = await verifyReleaseAssets({
         directory,
         tag: process.env.RELEASE_TAG,
         version: process.env.RELEASE_VERSION,
         repository: process.env.RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
         releaseMetadata,
+        updaterPublicKey: tauriConfig.plugins?.updater?.pubkey,
       })
       console.log(`Verified release assets: ${JSON.stringify(summary)}`)
     }
