@@ -109,11 +109,9 @@ jobs:
               --field draft=true \
               --field prerelease="$prerelease" \
               --jq .id)
-            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --paginate --slurp > "$release_pages"
-            release_id=$(RELEASE_LIST="$release_pages" \
+            release_id=$(EXPECTED_RELEASE_ID="$created_id" \
               RELEASE_TAG="$RELEASE_TAG" \
-              node .github/scripts/verify-release-assets.mjs --select-draft)
+              node .github/scripts/verify-release-assets.mjs --wait-for-draft)
             if [[ "$release_id" != "$created_id" ]]; then
               echo "Created release $created_id but resolved $release_id for $RELEASE_TAG." >&2
               exit 1

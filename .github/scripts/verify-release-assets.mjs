@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process"
 import { createHash, createPublicKey, verify } from "node:crypto"
 import { createReadStream } from "node:fs"
 import { readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
 
 function requireCondition(condition, message) {
   if (!condition) throw new Error(message)
@@ -274,6 +278,69 @@ export function selectDraftRelease({ releasePages, tag, allowMissing = false }) 
   return release
 }
 
+const DEFAULT_DRAFT_VISIBILITY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_000, 16_000]
+
+async function loadGitHubReleasePages(repository) {
+  const { stdout } = await execFileAsync(
+    "gh",
+    ["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"],
+    { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 30_000 },
+  )
+  return JSON.parse(stdout)
+}
+
+export async function waitForDraftRelease({
+  loadReleasePages,
+  tag,
+  expectedId,
+  delaysMs = DEFAULT_DRAFT_VISIBILITY_DELAYS_MS,
+  wait = (delayMs) => new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs)),
+  onRetry = () => {},
+}) {
+  requireCondition(typeof loadReleasePages === "function", "Release page loader is required")
+  requireCondition(typeof tag === "string" && tag, "Release tag is required")
+  requireCondition(
+    Number.isSafeInteger(expectedId) && expectedId > 0,
+    `Expected release id is invalid: ${expectedId}`,
+  )
+  requireCondition(
+    Array.isArray(delaysMs) && delaysMs.length > 0,
+    "Draft visibility retry schedule is required",
+  )
+
+  for (const [index, delayMs] of delaysMs.entries()) {
+    requireCondition(
+      Number.isSafeInteger(delayMs) && delayMs >= 0,
+      `Draft visibility retry delay is invalid: ${delayMs}`,
+    )
+    if (delayMs > 0) await wait(delayMs)
+    const release = selectDraftRelease({
+      releasePages: await loadReleasePages(),
+      tag,
+      allowMissing: true,
+    })
+    if (release) {
+      requireCondition(
+        release.id === expectedId,
+        `Created release ${expectedId} but resolved ${release.id} for ${tag}`,
+      )
+      return release
+    }
+    const nextDelayMs = delaysMs[index + 1]
+    if (nextDelayMs !== undefined) {
+      onRetry({
+        attempt: index + 1,
+        totalAttempts: delaysMs.length,
+        nextDelayMs,
+      })
+    }
+  }
+
+  throw new Error(
+    `Created release ${expectedId} was not visible after ${delaysMs.length} attempts for ${tag}`,
+  )
+}
+
 function releaseAssetUrls(releaseMetadata, tag, repository) {
   requireDraftRelease({ releaseMetadata, tag })
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
@@ -438,6 +505,26 @@ if (invokedPath === import.meta.url) {
         allowMissing: process.env.ALLOW_MISSING_RELEASE === "true",
       })
       console.log(release ? String(release.id) : "none")
+    } else if (mode === "--wait-for-draft") {
+      requireCondition(process.env.GITHUB_REPOSITORY, "GitHub repository is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const expectedIdText = process.env.EXPECTED_RELEASE_ID?.trim() ?? ""
+      const expectedId = Number(expectedIdText)
+      requireCondition(
+        Number.isSafeInteger(expectedId) && expectedId > 0 && String(expectedId) === expectedIdText,
+        `Expected release id is invalid: ${expectedIdText}`,
+      )
+      const release = await waitForDraftRelease({
+        loadReleasePages: () => loadGitHubReleasePages(process.env.GITHUB_REPOSITORY),
+        tag: process.env.RELEASE_TAG,
+        expectedId,
+        onRetry: ({ attempt, totalAttempts, nextDelayMs }) => {
+          console.error(
+            `Draft ${process.env.RELEASE_TAG} is not visible after attempt ${attempt}/${totalAttempts}; retrying in ${nextDelayMs} ms`,
+          )
+        },
+      })
+      console.log(String(release.id))
     } else if (mode === "--require-draft") {
       requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
       requireCondition(process.env.RELEASE_TAG, "Release tag is required")
