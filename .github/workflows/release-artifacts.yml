@@ -118,38 +118,6 @@ jobs:
           updaterJsonPreferNsis: true
           uploadWorkflowArtifacts: true
 
-      - name: Create and upload Linux checksums
-        if: runner.os == 'Linux'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(node -p "require('./package.json').version")
-          mapfile -d '' files < <(find src-tauri/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 | sort -z)
-          ((${#files[@]} > 0))
-          sha256sum "${files[@]}" > src-tauri/target/release/SHA256SUMS-linux.txt
-          gh release upload "v${version}" src-tauri/target/release/SHA256SUMS-linux.txt --clobber
-
-      - name: Create and upload Windows checksums
-        if: runner.os == 'Windows'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          $bundleRoot = Join-Path $PWD 'src-tauri/target/release/bundle'
-          $files = @(Get-ChildItem -Path $bundleRoot -Recurse -File | Where-Object { $_.Extension -in '.msi', '.exe' } | Sort-Object FullName)
-          if ($files.Count -eq 0) { throw 'No Windows installers were produced.' }
-          $lines = $files | ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
-            $relative = [IO.Path]::GetRelativePath($bundleRoot, $_.FullName).Replace('\', '/')
-            "$hash  $relative"
-          }
-          $checksum = 'src-tauri/target/release/SHA256SUMS-windows.txt'
-          $lines | Set-Content -Encoding ascii $checksum
-          gh release upload "v$version" $checksum --clobber
-
   publish-release:
     name: Publish draft release
     needs: publish
@@ -164,7 +132,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Generate and upload release assets manifest
+      - name: Verify release assets and upload manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -175,8 +143,16 @@ jobs:
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
-          RELEASE_VERSION="$version" RELEASE_TAG="$tag" node .github/scripts/verify-release-assets.mjs release-assets
           rm -f release-assets/release-assets-manifest.json
+          node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
+          gh release upload "$tag" \
+            release-assets/SHA256SUMS-linux.txt \
+            release-assets/SHA256SUMS-windows.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
+          RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" node .github/scripts/verify-release-assets.mjs release-assets
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";
           import { readFile, readdir, stat, writeFile } from "node:fs/promises";
@@ -194,7 +170,7 @@ jobs:
             const lower = name.toLowerCase();
             const platform = /windows|win|msi|nsis|setup\.exe/.test(lower)
               ? "windows"
-              : /linux|appimage|\.deb$|\.rpm$|\.tar\.gz$/.test(lower)
+              : /linux|appimage|\.deb(?:\.sig)?$|\.rpm(?:\.sig)?$|\.tar\.gz(?:\.sig)?$/.test(lower)
                 ? "linux"
                 : "metadata";
             const kind = lower.endsWith(".sig")

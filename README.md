@@ -32,20 +32,28 @@
 1. Установите и настройте OMP для текущего пользователя.
 2. Откройте [последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
 3. Выберите пакет:
-   - Windows: `OMP-Desktop_*_x64-setup.exe` или MSI.
-   - Linux: AppImage или DEB.
+   - Windows: `OMP.Desktop_*_x64-setup.exe` или `.msi`.
+   - Linux: AppImage, DEB или RPM.
 
 Для AppImage:
 
 ```bash
-chmod +x OMP-Desktop_*.AppImage
-./OMP-Desktop_*.AppImage
+chmod +x OMP.Desktop_*.AppImage
+./OMP.Desktop_*.AppImage
 ```
 
-Для Debian/Ubuntu:
+Для Debian/Ubuntu (`.deb`):
 
 ```bash
-sudo apt install ./OMP-Desktop_*_amd64.deb
+sudo apt install ./OMP.Desktop_*_amd64.deb
+```
+
+Для Fedora/RHEL/OpenSUSE (`.rpm`):
+
+```bash
+sudo dnf install ./OMP.Desktop-*.x86_64.rpm
+# или на OpenSUSE:
+sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
 ## English
@@ -72,8 +80,27 @@ sudo apt install ./OMP-Desktop_*_amd64.deb
 1. Install and configure OMP for the current OS user.
 2. Open the [latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
 3. Choose a package:
-   - Windows: `OMP-Desktop_*_x64-setup.exe` or MSI.
-   - Linux: AppImage or DEB.
+   - Windows: `OMP.Desktop_*_x64-setup.exe` or `.msi`.
+   - Linux: AppImage (`.AppImage`), Debian/Ubuntu (`.deb`), or Fedora/RHEL/OpenSUSE (`.rpm`).
+
+AppImage:
+
+```bash
+chmod +x OMP.Desktop_*.AppImage
+./OMP.Desktop_*.AppImage
+```
+
+Debian/Ubuntu (`.deb`):
+
+```bash
+sudo apt install ./OMP.Desktop_*_amd64.deb
+```
+
+Fedora/RHEL/OpenSUSE (`.rpm`):
+
+```bash
+sudo dnf install ./OMP.Desktop-*.x86_64.rpm
+```
 
 ## Development
 
