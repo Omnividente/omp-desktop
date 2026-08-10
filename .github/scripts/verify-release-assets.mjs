@@ -109,7 +109,7 @@ function normalizedUrl(value, label) {
   }
 }
 
-function releaseAssetUrls(releaseMetadata, tag, repository) {
+export function requireDraftRelease({ releaseMetadata, tag }) {
   requireCondition(
     releaseMetadata && typeof releaseMetadata === "object",
     "Release metadata is required",
@@ -119,6 +119,10 @@ function releaseAssetUrls(releaseMetadata, tag, repository) {
     `Release metadata tag ${releaseMetadata.tag_name} does not match ${tag}`,
   )
   requireCondition(releaseMetadata.draft === true, `Release ${tag} is already published`)
+}
+
+function releaseAssetUrls(releaseMetadata, tag, repository) {
+  requireDraftRelease({ releaseMetadata, tag })
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
 
   const apiPath = `/repos/${repository}/releases/assets/`

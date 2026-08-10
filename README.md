@@ -120,7 +120,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Before a draft release becomes public, the release workflow verifies platform installers, updater signatures, `latest.json`, and both checksum files.
+The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Tagged release runs are serialized per tag, and every release job checks out the triggering SHA. Before a draft release becomes public, the workflow requires draft state, confirms that the live tag still identifies that SHA, and verifies platform installers, updater signatures, `latest.json`, and both checksum files.
 
 Create native packages:
 

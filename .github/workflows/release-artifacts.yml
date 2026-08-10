@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   quality-gate:
     name: Quality gate for release SHA
@@ -21,6 +25,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Require tagged commit on main
@@ -71,6 +76,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -151,21 +158,36 @@ jobs:
       - name: Check out release SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify release assets and upload manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
-          tag="v${version}"
+          tag="$RELEASE_TAG"
+          if [[ "v${version}" != "$tag" ]]; then
+            echo "Release tag $tag does not match package version $version." >&2
+            exit 1
+          fi
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
           rm -f release-assets/release-assets-manifest.json
           node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
+          RELEASE_METADATA="$metadata" node --input-type=module <<'EOF'
+          import { readFile } from "node:fs/promises";
+          import { requireDraftRelease } from "./.github/scripts/verify-release-assets.mjs";
+
+          const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"));
+          requireDraftRelease({ releaseMetadata, tag: process.env.RELEASE_TAG });
+          EOF
           gh release upload "$tag" \
             release-assets/SHA256SUMS-linux.txt \
             release-assets/SHA256SUMS-windows.txt \
@@ -177,7 +199,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --dir release-assets \
             --clobber
-          metadata="$RUNNER_TEMP/release-metadata.json"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" node .github/scripts/verify-release-assets.mjs release-assets
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
@@ -240,6 +261,33 @@ jobs:
       - name: Publish release after all platform uploads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
+          set -euo pipefail
           version=$(node -p "require('./package.json').version")
-          gh release edit "v${version}" --repo "$GITHUB_REPOSITORY" --draft=false
+          if [[ "v${version}" != "$RELEASE_TAG" ]]; then
+            echo "Release tag $RELEASE_TAG does not match package version $version." >&2
+            exit 1
+          fi
+
+          remote_refs=$(git ls-remote --exit-code origin \
+            "refs/tags/${RELEASE_TAG}" \
+            "refs/tags/${RELEASE_TAG}^{}")
+          direct_sha=""
+          peeled_sha=""
+          while read -r sha ref; do
+            if [[ "$ref" == *'^{}' ]]; then
+              peeled_sha="$sha"
+            else
+              direct_sha="$sha"
+            fi
+          done <<< "$remote_refs"
+          remote_sha="${peeled_sha:-$direct_sha}"
+          if [[ "$remote_sha" != "$RELEASE_SHA" ]]; then
+            echo "Release tag $RELEASE_TAG moved from $RELEASE_SHA to ${remote_sha:-missing}." >&2
+            exit 1
+          fi
+
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false

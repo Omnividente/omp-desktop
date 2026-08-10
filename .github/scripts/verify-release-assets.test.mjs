@@ -4,7 +4,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, it } from "node:test"
 import assert from "node:assert/strict"
-import { verifyReleaseAssets, writeReleaseChecksums } from "./verify-release-assets.mjs"
+import {
+  requireDraftRelease,
+  verifyReleaseAssets,
+  writeReleaseChecksums,
+} from "./verify-release-assets.mjs"
 
 const directories = []
 
@@ -211,6 +215,9 @@ describe("release asset verification", () => {
     const fixture = await releaseFixture()
     fixture.releaseMetadata.draft = false
 
-    await assert.rejects(() => verifyReleaseAssets(fixture), /is already published/)
+    assert.throws(
+      () => requireDraftRelease({ releaseMetadata: fixture.releaseMetadata, tag: fixture.tag }),
+      /is already published/,
+    )
   })
 })
