@@ -12,69 +12,112 @@ function hash(content) {
   return createHash("sha256").update(content).digest("hex")
 }
 
+function checksumFor(names, assets) {
+  const byName = new Map(Object.values(assets).map((asset) => [asset.name, asset]))
+  return `${names.map((name) => `${hash(byName.get(name).bytes)}  ${name}`).join("\n")}\n`
+}
+
 async function releaseFixture() {
   const directory = await mkdtemp(join(tmpdir(), "omp-release-assets-"))
   directories.push(directory)
   const version = "1.2.3"
   const tag = `v${version}`
   const repository = "example/repo"
-  const linux = `OMP.Desktop_${version}_amd64.AppImage`
-  const windows = `OMP.Desktop_${version}_x64-setup.exe`
-  const linuxBytes = Buffer.from("linux-installer")
-  const windowsBytes = Buffer.from("windows-installer")
-  const linuxSignature = "linux-signature"
-  const windowsSignature = "windows-signature"
   const apiBase = `https://api.github.com/repos/${repository}/releases/assets`
+  const definitions = [
+    {
+      key: "appImage",
+      name: `OMP.Desktop_${version}_amd64.AppImage`,
+      platform: "linux-x86_64-appimage",
+      id: 101,
+      os: "linux",
+    },
+    {
+      key: "deb",
+      name: `OMP.Desktop_${version}_amd64.deb`,
+      platform: "linux-x86_64-deb",
+      id: 102,
+      os: "linux",
+    },
+    {
+      key: "rpm",
+      name: `OMP.Desktop-${version}-1.x86_64.rpm`,
+      platform: "linux-x86_64-rpm",
+      id: 103,
+      os: "linux",
+    },
+    {
+      key: "nsis",
+      name: `OMP.Desktop_${version}_x64-setup.exe`,
+      platform: "windows-x86_64-nsis",
+      id: 104,
+      os: "windows",
+    },
+    {
+      key: "msi",
+      name: `OMP.Desktop_${version}_x64_en-US.msi`,
+      platform: "windows-x86_64-msi",
+      id: 105,
+      os: "windows",
+    },
+  ]
+  const assets = Object.fromEntries(
+    definitions.map((definition) => {
+      const bytes = Buffer.from(`${definition.key}-installer`)
+      const signature = `${definition.key}-signature`
+      return [definition.key, { ...definition, bytes, signature }]
+    }),
+  )
   const updater = {
     version,
-    platforms: {
-      "linux-x86_64": {
-        signature: linuxSignature,
-        url: `${apiBase}/101`,
-      },
-      "windows-x86_64": {
-        signature: windowsSignature,
-        url: `${apiBase}/102`,
-      },
-    },
+    platforms: Object.fromEntries(
+      definitions.map(({ key, platform, id }) => [
+        platform,
+        { signature: assets[key].signature, url: `${apiBase}/${id}` },
+      ]),
+    ),
   }
 
   await Promise.all([
-    writeFile(join(directory, linux), linuxBytes),
-    writeFile(join(directory, `${linux}.sig`), linuxSignature),
-    writeFile(join(directory, windows), windowsBytes),
-    writeFile(join(directory, `${windows}.sig`), windowsSignature),
+    ...Object.values(assets).flatMap((asset) => [
+      writeFile(join(directory, asset.name), asset.bytes),
+      writeFile(join(directory, `${asset.name}.sig`), asset.signature),
+    ]),
     writeFile(join(directory, "latest.json"), JSON.stringify(updater)),
   ])
   await writeReleaseChecksums({ directory })
 
   const releaseMetadata = {
     tag_name: tag,
-    assets: [
-      {
-        name: linux,
-        url: `${apiBase}/101`,
-        browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${linux}`,
-      },
-      {
-        name: windows,
-        url: `${apiBase}/102`,
-        browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${windows}`,
-      },
-    ],
+    assets: definitions.map(({ key, name, id }) => ({
+      name,
+      url: `${apiBase}/${id}`,
+      browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${assets[key].name}`,
+    })),
   }
+  const linuxInstallers = definitions
+    .filter(({ os }) => os === "linux")
+    .map(({ name }) => name)
+    .sort()
+  const windowsInstallers = definitions
+    .filter(({ os }) => os === "windows")
+    .map(({ name }) => name)
+    .sort()
   return {
+    assets,
     directory,
-    linux,
-    linuxBytes,
+    linuxInstallers,
     releaseMetadata,
     repository,
     tag,
     updater,
     version,
-    windows,
-    windowsBytes,
+    windowsInstallers,
   }
+}
+
+async function writeUpdater(fixture) {
+  await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
 }
 
 afterEach(async () => {
@@ -84,52 +127,82 @@ afterEach(async () => {
 })
 
 describe("release asset verification", () => {
-  it("accepts signed GitHub API updater targets with exact downloaded checksums", async () => {
+  it("accepts every signed package with GitHub API targets and exact checksums", async () => {
     const fixture = await releaseFixture()
     const summary = await verifyReleaseAssets(fixture)
 
-    assert.deepEqual(summary.linuxInstallers, [fixture.linux])
-    assert.deepEqual(summary.windowsInstallers, [fixture.windows])
-    assert.equal(summary.signedInstallers, 2)
-    assert.equal(summary.updaterTargets, 2)
+    assert.deepEqual(summary.linuxInstallers, fixture.linuxInstallers)
+    assert.deepEqual(summary.windowsInstallers, fixture.windowsInstallers)
+    assert.equal(summary.signedInstallers, 5)
+    assert.equal(summary.updaterTargets, 5)
     assert.equal(
       await readFile(join(fixture.directory, "SHA256SUMS-linux.txt"), "utf8"),
-      `${hash(fixture.linuxBytes)}  ${fixture.linux}\n`,
+      checksumFor(fixture.linuxInstallers, fixture.assets),
     )
     assert.equal(
       await readFile(join(fixture.directory, "SHA256SUMS-windows.txt"), "utf8"),
-      `${hash(fixture.windowsBytes)}  ${fixture.windows}\n`,
+      checksumFor(fixture.windowsInstallers, fixture.assets),
     )
   })
 
   it("rejects a missing installer signature before release publication", async () => {
     const fixture = await releaseFixture()
-    await rm(join(fixture.directory, `${fixture.windows}.sig`))
+    await rm(join(fixture.directory, `${fixture.assets.nsis.name}.sig`))
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /Updater signature is missing/)
   })
 
   it("rejects a checksum that does not match the uploaded installer", async () => {
     const fixture = await releaseFixture()
-    await writeFile(join(fixture.directory, fixture.linux), "tampered")
+    await writeFile(join(fixture.directory, fixture.assets.appImage.name), "tampered")
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /SHA-256 mismatch/)
   })
 
   it("rejects an updater URL that is not in release metadata", async () => {
     const fixture = await releaseFixture()
-    fixture.updater.platforms["linux-x86_64"].url =
+    fixture.updater.platforms[fixture.assets.appImage.platform].url =
       `https://api.github.com/repos/${fixture.repository}/releases/assets/999`
-    await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
+    await writeUpdater(fixture)
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /Updater URL is not an asset/)
   })
 
   it("rejects a latest.json signature that differs from its uploaded asset", async () => {
     const fixture = await releaseFixture()
-    fixture.updater.platforms["windows-x86_64"].signature = "wrong-signature"
-    await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
+    fixture.updater.platforms[fixture.assets.msi.platform].signature = "wrong-signature"
+    await writeUpdater(fixture)
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /latest.json signature does not match/)
+  })
+
+  it("rejects a release missing any required package format", async () => {
+    const fixture = await releaseFixture()
+    await Promise.all([
+      rm(join(fixture.directory, fixture.assets.rpm.name)),
+      rm(join(fixture.directory, `${fixture.assets.rpm.name}.sig`)),
+    ])
+
+    await assert.rejects(() => verifyReleaseAssets(fixture), /No RPM installer is present/)
+  })
+
+  it("rejects an installer omitted from latest.json", async () => {
+    const fixture = await releaseFixture()
+    delete fixture.updater.platforms[fixture.assets.deb.platform]
+    await writeUpdater(fixture)
+
+    await assert.rejects(() => verifyReleaseAssets(fixture), /latest.json has no updater target/)
+  })
+
+  it("rejects a stale installer from another version", async () => {
+    const fixture = await releaseFixture()
+    const stale = "OMP.Desktop_1.2.2_amd64.deb"
+    await Promise.all([
+      writeFile(join(fixture.directory, stale), "stale-installer"),
+      writeFile(join(fixture.directory, `${stale}.sig`), "stale-signature"),
+    ])
+    await writeReleaseChecksums({ directory: fixture.directory })
+
+    await assert.rejects(() => verifyReleaseAssets(fixture), /does not match release version/)
   })
 })

@@ -29,6 +29,27 @@ function classifyInstallers(names) {
   }
 }
 
+function requireInstallerCoverage({ linuxInstallers, windowsInstallers }) {
+  const required = [
+    ["AppImage", linuxInstallers, /\.appimage$/i],
+    ["DEB", linuxInstallers, /\.deb$/i],
+    ["RPM", linuxInstallers, /\.rpm$/i],
+    ["NSIS", windowsInstallers, /setup\.exe$/i],
+    ["MSI", windowsInstallers, /\.msi$/i],
+  ]
+  for (const [label, names, pattern] of required) {
+    requireCondition(
+      names.some((name) => pattern.test(name)),
+      `No ${label} installer is present`,
+    )
+  }
+}
+
+function versionPattern(version) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`(?:^|[^0-9A-Za-z])${escaped}(?:[^0-9A-Za-z]|$)`)
+}
+
 async function checksumContent(directory, names) {
   const lines = await Promise.all(
     names.map(async (name) => `${await sha256(join(directory, name))}  ${name}`),
@@ -39,8 +60,7 @@ async function checksumContent(directory, names) {
 export async function writeReleaseChecksums({ directory }) {
   requireCondition(directory, "Release asset directory is required")
   const { linuxInstallers, windowsInstallers } = classifyInstallers(await fileNames(directory))
-  requireCondition(linuxInstallers.length > 0, "No Linux installer is present")
-  requireCondition(windowsInstallers.length > 0, "No Windows installer is present")
+  requireInstallerCoverage({ linuxInstallers, windowsInstallers })
 
   await Promise.all([
     writeFile(
@@ -158,10 +178,15 @@ export async function verifyReleaseAssets({
   }
 
   const { linuxInstallers, windowsInstallers } = classifyInstallers(names)
-  requireCondition(linuxInstallers.length > 0, "No Linux installer is present")
-  requireCondition(windowsInstallers.length > 0, "No Windows installer is present")
+  requireInstallerCoverage({ linuxInstallers, windowsInstallers })
+  const allInstallers = [...linuxInstallers, ...windowsInstallers]
+  const currentVersion = versionPattern(version)
 
-  for (const name of [...linuxInstallers, ...windowsInstallers]) {
+  for (const name of allInstallers) {
+    requireCondition(
+      currentVersion.test(name),
+      `Installer ${name} does not match release version ${version}`,
+    )
     const signature = `${name}.sig`
     requireCondition(files.has(signature), `Updater signature is missing: ${signature}`)
     requireCondition(
@@ -191,6 +216,8 @@ export async function verifyReleaseAssets({
     platformEntries.some(([platform]) => platform.toLowerCase().includes("windows")),
     "latest.json has no Windows target",
   )
+  const installerSet = new Set(allInstallers)
+  const updaterAssets = new Set()
   for (const [platform, entry] of platformEntries) {
     requireCondition(entry && typeof entry === "object", `Invalid updater entry for ${platform}`)
     requireCondition(
@@ -198,6 +225,11 @@ export async function verifyReleaseAssets({
       `Missing updater signature for ${platform}`,
     )
     const assetName = updaterAssetName(entry.url, assetUrls, tag)
+    requireCondition(
+      installerSet.has(assetName),
+      `Updater target is not a supported installer for ${platform}: ${assetName}`,
+    )
+    updaterAssets.add(assetName)
     requireCondition(
       files.has(assetName),
       `Updater target is missing for ${platform}: ${assetName}`,
@@ -209,6 +241,9 @@ export async function verifyReleaseAssets({
       entry.signature.trim() === uploadedSignature,
       `latest.json signature does not match ${signatureName} for ${platform}`,
     )
+  }
+  for (const name of allInstallers) {
+    requireCondition(updaterAssets.has(name), `latest.json has no updater target for ${name}`)
   }
 
   return {
