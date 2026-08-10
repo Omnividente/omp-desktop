@@ -32,20 +32,28 @@
 1. Установите и настройте OMP для текущего пользователя.
 2. Откройте [последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
 3. Выберите пакет:
-   - Windows: `OMP-Desktop_*_x64-setup.exe` или MSI.
-   - Linux: AppImage или DEB.
+   - Windows: `OMP.Desktop_*_x64-setup.exe` или `.msi`.
+   - Linux: AppImage, DEB или RPM.
 
 Для AppImage:
 
 ```bash
-chmod +x OMP-Desktop_*.AppImage
-./OMP-Desktop_*.AppImage
+chmod +x OMP.Desktop_*.AppImage
+./OMP.Desktop_*.AppImage
 ```
 
-Для Debian/Ubuntu:
+Для Debian/Ubuntu (`.deb`):
 
 ```bash
-sudo apt install ./OMP-Desktop_*_amd64.deb
+sudo apt install ./OMP.Desktop_*_amd64.deb
+```
+
+Для Fedora/RHEL/OpenSUSE (`.rpm`):
+
+```bash
+sudo dnf install ./OMP.Desktop-*.x86_64.rpm
+# или на OpenSUSE:
+sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
 ## English
@@ -72,8 +80,27 @@ sudo apt install ./OMP-Desktop_*_amd64.deb
 1. Install and configure OMP for the current OS user.
 2. Open the [latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
 3. Choose a package:
-   - Windows: `OMP-Desktop_*_x64-setup.exe` or MSI.
-   - Linux: AppImage or DEB.
+   - Windows: `OMP.Desktop_*_x64-setup.exe` or `.msi`.
+   - Linux: AppImage (`.AppImage`), Debian/Ubuntu (`.deb`), or Fedora/RHEL/OpenSUSE (`.rpm`).
+
+AppImage:
+
+```bash
+chmod +x OMP.Desktop_*.AppImage
+./OMP.Desktop_*.AppImage
+```
+
+Debian/Ubuntu (`.deb`):
+
+```bash
+sudo apt install ./OMP.Desktop_*_amd64.deb
+```
+
+Fedora/RHEL/OpenSUSE (`.rpm`):
+
+```bash
+sudo dnf install ./OMP.Desktop-*.x86_64.rpm
+```
 
 ## Development
 
@@ -88,9 +115,14 @@ Verification:
 
 ```bash
 npm run build
+npm run test:release-assets
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
+
+The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Tagged release runs are serialized per tag, every release job checks out the triggering SHA, and one uniquely identified draft is prepared before the platform matrix starts. Before that exact draft becomes public, the workflow rechecks draft and live-tag state, verifies platform installers, updater signatures, `latest.json`, and checksum contents, and confirms that the uploaded checksum files round-trip byte-for-byte.
+
+Repository maintainers must not manually publish the draft or edit its assets while the tagged workflow is running; GitHub does not provide an atomic workflow lock against an out-of-band actor who already has release-write permission.
 
 Create native packages:
 
@@ -106,6 +138,7 @@ npm run tauri build
 - `src-tauri/src/settings.rs` — runtime detection and persisted local settings.
 - `src-tauri/src/resource_health.rs` — low-frequency RAM, swap, disk and direct-process sampling.
 - `src-tauri/src/lib.rs` — Tauri command surface and application lifecycle.
+- `.github/scripts/verify-release-assets.mjs` — final signed-asset and checksum publication gate.
 
 ## Privacy and security
 
