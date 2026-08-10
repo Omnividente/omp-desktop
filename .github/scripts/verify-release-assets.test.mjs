@@ -5,7 +5,9 @@ import { join } from "node:path"
 import { afterEach, describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
+  classifyReleaseAsset,
   requireDraftRelease,
+  selectDraftRelease,
   verifyReleaseAssets,
   writeReleaseChecksums,
 } from "./verify-release-assets.mjs"
@@ -92,12 +94,13 @@ async function releaseFixture() {
   await writeReleaseChecksums({ directory })
 
   const releaseMetadata = {
+    id: 999,
     draft: true,
     tag_name: tag,
     assets: definitions.map(({ key, name, id }) => ({
       name,
       url: `${apiBase}/${id}`,
-      browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${assets[key].name}`,
+      browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/${assets[key].name}`,
     })),
   }
   const linuxInstallers = definitions
@@ -164,6 +167,15 @@ describe("release asset verification", () => {
     await assert.rejects(() => verifyReleaseAssets(fixture), /SHA-256 mismatch/)
   })
 
+  it("rejects a checksum with an unexpected asset entry", async () => {
+    const fixture = await releaseFixture()
+    const checksumPath = join(fixture.directory, "SHA256SUMS-linux.txt")
+    const checksum = await readFile(checksumPath, "utf8")
+    await writeFile(checksumPath, `${checksum}${hash("unexpected")}  unrelated.deb\n`)
+
+    await assert.rejects(() => verifyReleaseAssets(fixture), /contains an unexpected entry/)
+  })
+
   it("rejects an updater URL that is not in release metadata", async () => {
     const fixture = await releaseFixture()
     fixture.updater.platforms[fixture.assets.appImage.platform].url =
@@ -219,5 +231,61 @@ describe("release asset verification", () => {
       () => requireDraftRelease({ releaseMetadata: fixture.releaseMetadata, tag: fixture.tag }),
       /is already published/,
     )
+  })
+
+  it("selects one draft release from paginated API metadata", async () => {
+    const fixture = await releaseFixture()
+    const selected = selectDraftRelease({
+      releasePages: [[fixture.releaseMetadata]],
+      tag: fixture.tag,
+    })
+
+    assert.equal(selected.id, fixture.releaseMetadata.id)
+  })
+
+  it("allows a missing release only before dedicated draft creation", async () => {
+    const fixture = await releaseFixture()
+
+    assert.equal(
+      selectDraftRelease({ releasePages: [[]], tag: fixture.tag, allowMissing: true }),
+      null,
+    )
+    assert.throws(
+      () => selectDraftRelease({ releasePages: [[]], tag: fixture.tag }),
+      /Expected exactly one release/,
+    )
+  })
+
+  it("rejects duplicate draft releases for one tag", async () => {
+    const fixture = await releaseFixture()
+    const duplicate = { ...fixture.releaseMetadata, id: fixture.releaseMetadata.id + 1 }
+
+    assert.throws(
+      () =>
+        selectDraftRelease({
+          releasePages: [[fixture.releaseMetadata, duplicate]],
+          tag: fixture.tag,
+        }),
+      /Expected at most one release/,
+    )
+  })
+
+  it("classifies release assets by anchored package suffixes", () => {
+    assert.deepEqual(classifyReleaseAsset("OMP.twin-build_1.2.3_amd64.deb.sig"), {
+      kind: "signature",
+      platform: "linux",
+    })
+    assert.deepEqual(classifyReleaseAsset("OMP.Desktop_1.2.3_x64_en-US.msi.sig"), {
+      kind: "signature",
+      platform: "windows",
+    })
+    assert.deepEqual(classifyReleaseAsset("OMP.Desktop_1.2.3_amd64.AppImage.tar.gz"), {
+      kind: "updater-bundle",
+      platform: "linux",
+    })
+    assert.deepEqual(classifyReleaseAsset("latest.json"), {
+      kind: "updater-manifest",
+      platform: "metadata",
+    })
   })
 })

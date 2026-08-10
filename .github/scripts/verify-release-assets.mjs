@@ -22,6 +22,25 @@ async function fileNames(directory) {
   return files
 }
 
+export function classifyReleaseAsset(name) {
+  const lower = name.toLowerCase()
+  const platform = /(?:setup\.exe|\.msi|\.nsis\.zip|\.msi\.zip)(?:\.sig)?$/.test(lower)
+    ? "windows"
+    : /(?:\.appimage|\.deb|\.rpm|\.tar\.gz)(?:\.sig)?$/.test(lower)
+      ? "linux"
+      : "metadata"
+  const kind = lower.endsWith(".sig")
+    ? "signature"
+    : lower === "latest.json"
+      ? "updater-manifest"
+      : lower.startsWith("sha256sums-")
+        ? "checksum"
+        : /(?:\.nsis\.zip|\.msi\.zip|\.tar\.gz)$/.test(lower)
+          ? "updater-bundle"
+          : "installer"
+  return { kind, platform }
+}
+
 function classifyInstallers(names) {
   return {
     linuxInstallers: names.filter((name) => /\.(?:appimage|deb|rpm)$/i.test(name)),
@@ -93,6 +112,13 @@ async function checksumEntries(path) {
 
 async function verifyChecksums(directory, checksumName, installerNames) {
   const entries = await checksumEntries(join(directory, checksumName))
+  const expectedNames = new Set(installerNames)
+  for (const name of entries.keys()) {
+    requireCondition(
+      expectedNames.has(name),
+      `${checksumName} contains an unexpected entry: ${name}`,
+    )
+  }
   for (const name of installerNames) {
     requireCondition(entries.has(name), `${checksumName} does not cover ${name}`)
     const actual = await sha256(join(directory, name))
@@ -121,12 +147,38 @@ export function requireDraftRelease({ releaseMetadata, tag }) {
   requireCondition(releaseMetadata.draft === true, `Release ${tag} is already published`)
 }
 
+export function selectDraftRelease({ releasePages, tag, allowMissing = false }) {
+  requireCondition(Array.isArray(releasePages), "Paginated release metadata is required")
+  const releases = releasePages.flatMap((page) => {
+    requireCondition(Array.isArray(page), "Invalid release metadata page")
+    return page
+  })
+  const matches = releases.filter(
+    (release) => release && typeof release === "object" && release.tag_name === tag,
+  )
+  requireCondition(
+    matches.length <= 1,
+    `Expected at most one release for ${tag}, found ${matches.length}`,
+  )
+  if (matches.length === 0) {
+    requireCondition(allowMissing, `Expected exactly one release for ${tag}, found 0`)
+    return null
+  }
+  const release = matches[0]
+  requireCondition(
+    Number.isSafeInteger(release.id) && release.id > 0,
+    `Release ${tag} has an invalid id`,
+  )
+  requireDraftRelease({ releaseMetadata: release, tag })
+  return release
+}
+
 function releaseAssetUrls(releaseMetadata, tag, repository) {
   requireDraftRelease({ releaseMetadata, tag })
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
 
   const apiPath = `/repos/${repository}/releases/assets/`
-  const downloadPath = `/${repository}/releases/download/${tag}/`
+  const downloadPath = `/${repository}/releases/download/`
   const urls = new Map()
   for (const asset of releaseMetadata.assets) {
     requireCondition(
@@ -141,7 +193,7 @@ function releaseAssetUrls(releaseMetadata, tag, repository) {
       const normalized = normalizedUrl(candidate, "Release asset URL")
       const pathname = new URL(normalized).pathname
       requireCondition(
-        pathname.includes(apiPath) || pathname.includes(downloadPath),
+        pathname.startsWith(apiPath) || pathname.startsWith(downloadPath),
         `Release asset ${asset.name} is outside ${repository} ${tag}`,
       )
       const existing = urls.get(normalized)
@@ -262,14 +314,29 @@ export async function verifyReleaseAssets({
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null
 if (invokedPath === import.meta.url) {
   try {
-    const writeChecksums = process.argv[2] === "--write-checksums"
-    const directory = writeChecksums
-      ? (process.argv[3] ?? process.env.RELEASE_DIR)
-      : (process.argv[2] ?? process.env.RELEASE_DIR)
-    if (writeChecksums) {
+    const mode = process.argv[2]
+    if (mode === "--select-draft") {
+      requireCondition(process.env.RELEASE_LIST, "Paginated release metadata path is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const releasePages = JSON.parse(await readFile(process.env.RELEASE_LIST, "utf8"))
+      const release = selectDraftRelease({
+        releasePages,
+        tag: process.env.RELEASE_TAG,
+        allowMissing: process.env.ALLOW_MISSING_RELEASE === "true",
+      })
+      console.log(release ? String(release.id) : "none")
+    } else if (mode === "--require-draft") {
+      requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+      requireDraftRelease({ releaseMetadata, tag: process.env.RELEASE_TAG })
+      console.log(`Verified draft release ${process.env.RELEASE_TAG}`)
+    } else if (mode === "--write-checksums") {
+      const directory = process.argv[3] ?? process.env.RELEASE_DIR
       const summary = await writeReleaseChecksums({ directory })
       console.log(`Wrote release checksums: ${JSON.stringify(summary)}`)
     } else {
+      const directory = process.argv[2] ?? process.env.RELEASE_DIR
       requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
       const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
       const summary = await verifyReleaseAssets({

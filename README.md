@@ -120,7 +120,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Tagged release runs are serialized per tag, and every release job checks out the triggering SHA. Before a draft release becomes public, the workflow requires draft state, confirms that the live tag still identifies that SHA, and verifies platform installers, updater signatures, `latest.json`, and both checksum files.
+The manually dispatchable `Quality Gate` runs the same Windows and Linux checks used by a tagged release. Tagged release runs are serialized per tag, every release job checks out the triggering SHA, and one uniquely identified draft is prepared before the platform matrix starts. Before that exact draft becomes public, the workflow rechecks draft and live-tag state, verifies platform installers, updater signatures, `latest.json`, and checksum contents, and confirms that the uploaded checksum files round-trip byte-for-byte.
+
+Repository maintainers must not manually publish the draft or edit its assets while the tagged workflow is running; GitHub does not provide an atomic workflow lock against an out-of-band actor who already has release-write permission.
 
 Create native packages:
 

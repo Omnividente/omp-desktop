@@ -57,11 +57,77 @@ jobs:
           }
           EOF
 
+  prepare-release:
+    name: Prepare unique draft release
+    needs:
+      - quality-gate
+      - validate-tag
+    permissions:
+      contents: write
+    environment: production-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - name: Check out release SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Create or reuse exactly one draft
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_pages="$RUNNER_TEMP/release-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$release_pages"
+          release_id=$(ALLOW_MISSING_RELEASE=true \
+            RELEASE_LIST="$release_pages" \
+            RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --select-draft)
+
+          if [[ "$release_id" == "none" ]]; then
+            prerelease=false
+            if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+            created_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+              --raw-field tag_name="$RELEASE_TAG" \
+              --raw-field target_commitish="$RELEASE_SHA" \
+              --raw-field name="OMP Desktop $RELEASE_TAG" \
+              --raw-field body="Установщики и signed updater-артефакты OMP Desktop." \
+              --field draft=true \
+              --field prerelease="$prerelease" \
+              --jq .id)
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --paginate --slurp > "$release_pages"
+            release_id=$(RELEASE_LIST="$release_pages" \
+              RELEASE_TAG="$RELEASE_TAG" \
+              node .github/scripts/verify-release-assets.mjs --select-draft)
+            if [[ "$release_id" != "$created_id" ]]; then
+              echo "Created release $created_id but resolved $release_id for $RELEASE_TAG." >&2
+              exit 1
+            fi
+          fi
+
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Build and upload (${{ matrix.platform }})
     needs:
       - quality-gate
       - validate-tag
+      - prepare-release
     permissions:
       contents: write
     environment: production-release
@@ -108,26 +174,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PRODUCTION_TAURI_SIGNING_PRIVATE_KEY }}
         run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) throw new Error('PRODUCTION_TAURI_SIGNING_PRIVATE_KEY is required in the production-release environment');"
 
-      - name: Refuse mutation of a published release
+      - name: Require the prepared draft release
         env:
+          EXPECTED_RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          node --input-type=module <<'EOF'
-          const endpoint = `${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/releases/tags/${encodeURIComponent(process.env.RELEASE_TAG)}`;
-          const response = await fetch(endpoint, {
-            headers: {
-              accept: "application/vnd.github+json",
-              authorization: `Bearer ${process.env.GH_TOKEN}`,
-              "x-github-api-version": "2022-11-28",
-            },
-          });
-          if (response.status === 404) process.exit(0);
-          if (!response.ok) throw new Error(`Release lookup failed with HTTP ${response.status}.`);
-          const release = await response.json();
-          if (!release.draft) throw new Error(`Refusing to mutate published release ${process.env.RELEASE_TAG}.`);
-          EOF
+          set -euo pipefail
+          release_pages="$RUNNER_TEMP/release-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$release_pages"
+          release_id=$(RELEASE_LIST="$release_pages" \
+            RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --select-draft)
+          if [[ "$release_id" != "$EXPECTED_RELEASE_ID" ]]; then
+            echo "Expected release $EXPECTED_RELEASE_ID but resolved $release_id." >&2
+            exit 1
+          fi
 
       - name: Build, sign, and upload Tauri artifacts
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
@@ -148,7 +212,9 @@ jobs:
 
   publish-release:
     name: Publish draft release
-    needs: publish
+    needs:
+      - prepare-release
+      - publish
     permissions:
       contents: write
     environment: production-release
@@ -163,6 +229,7 @@ jobs:
 
       - name: Verify release assets and upload manifest
         env:
+          EXPECTED_RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
@@ -174,20 +241,42 @@ jobs:
             echo "Release tag $tag does not match package version $version." >&2
             exit 1
           fi
+
+          release_pages="$RUNNER_TEMP/release-pages.json"
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$release_pages"
+          release_id=$(RELEASE_LIST="$release_pages" \
+            RELEASE_TAG="$tag" \
+            node .github/scripts/verify-release-assets.mjs --select-draft)
+          if [[ "$release_id" != "$EXPECTED_RELEASE_ID" ]]; then
+            echo "Expected release $EXPECTED_RELEASE_ID but resolved $release_id." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --require-draft
+
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
           rm -f release-assets/release-assets-manifest.json
           node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
-          metadata="$RUNNER_TEMP/release-metadata.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
-          RELEASE_METADATA="$metadata" node --input-type=module <<'EOF'
-          import { readFile } from "node:fs/promises";
-          import { requireDraftRelease } from "./.github/scripts/verify-release-assets.mjs";
+          cp release-assets/SHA256SUMS-linux.txt "$RUNNER_TEMP/generated-SHA256SUMS-linux.txt"
+          cp release-assets/SHA256SUMS-windows.txt "$RUNNER_TEMP/generated-SHA256SUMS-windows.txt"
 
-          const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"));
-          requireDraftRelease({ releaseMetadata, tag: process.env.RELEASE_TAG });
-          EOF
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$release_pages"
+          release_id=$(RELEASE_LIST="$release_pages" \
+            RELEASE_TAG="$tag" \
+            node .github/scripts/verify-release-assets.mjs --select-draft)
+          if [[ "$release_id" != "$EXPECTED_RELEASE_ID" ]]; then
+            echo "Expected release $EXPECTED_RELEASE_ID but resolved $release_id." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --require-draft
           gh release upload "$tag" \
             release-assets/SHA256SUMS-linux.txt \
             release-assets/SHA256SUMS-windows.txt \
@@ -199,14 +288,27 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --dir release-assets \
             --clobber
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "$metadata"
+          cmp --silent \
+            "$RUNNER_TEMP/generated-SHA256SUMS-linux.txt" \
+            release-assets/SHA256SUMS-linux.txt || {
+              echo "Uploaded Linux checksum bytes differ from the generated file." >&2
+              exit 1
+            }
+          cmp --silent \
+            "$RUNNER_TEMP/generated-SHA256SUMS-windows.txt" \
+            release-assets/SHA256SUMS-windows.txt || {
+              echo "Uploaded Windows checksum bytes differ from the generated file." >&2
+              exit 1
+            }
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" node .github/scripts/verify-release-assets.mjs release-assets
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";
           import { createReadStream } from "node:fs";
           import { readdir, stat, writeFile } from "node:fs/promises";
           import { join } from "node:path";
-
+          import { classifyReleaseAsset } from "./.github/scripts/verify-release-assets.mjs";
 
           async function hashFile(path) {
             const hash = createHash("sha256");
@@ -221,21 +323,7 @@ jobs:
             const metadata = await stat(path);
             if (!metadata.isFile()) continue;
             const sha256 = await hashFile(path);
-            const lower = name.toLowerCase();
-            const platform = /windows|win|msi|nsis|setup\.exe/.test(lower)
-              ? "windows"
-              : /linux|appimage|\.deb(?:\.sig)?$|\.rpm(?:\.sig)?$|\.tar\.gz(?:\.sig)?$/.test(lower)
-                ? "linux"
-                : "metadata";
-            const kind = lower.endsWith(".sig")
-              ? "signature"
-              : lower === "latest.json"
-                ? "updater-manifest"
-                : lower.startsWith("sha256sums-")
-                  ? "checksum"
-                  : /\.nsis\.zip$|\.msi\.zip$|\.tar\.gz$/.test(lower)
-                    ? "updater-bundle"
-                    : "installer";
+            const { kind, platform } = classifyReleaseAsset(name);
             assets.push({
               name,
               kind,
@@ -256,10 +344,14 @@ jobs:
           };
           await writeFile("release-assets-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
           EOF
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --require-draft
           gh release upload "$tag" release-assets-manifest.json --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish release after all platform uploads
         env:
+          EXPECTED_RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_SHA: ${{ github.sha }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -272,17 +364,31 @@ jobs:
             exit 1
           fi
 
+          release_pages="$RUNNER_TEMP/release-pages.json"
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$release_pages"
+          release_id=$(RELEASE_LIST="$release_pages" \
+            RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --select-draft)
+          if [[ "$release_id" != "$EXPECTED_RELEASE_ID" ]]; then
+            echo "Expected release $EXPECTED_RELEASE_ID but resolved $release_id." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --require-draft
+
           remote_refs=$(git ls-remote --exit-code origin \
             "refs/tags/${RELEASE_TAG}" \
             "refs/tags/${RELEASE_TAG}^{}")
           direct_sha=""
           peeled_sha=""
           while read -r sha ref; do
-            if [[ "$ref" == *'^{}' ]]; then
-              peeled_sha="$sha"
-            else
-              direct_sha="$sha"
-            fi
+            case "$ref" in
+              "refs/tags/${RELEASE_TAG}") direct_sha="$sha" ;;
+              "refs/tags/${RELEASE_TAG}^{}") peeled_sha="$sha" ;;
+            esac
           done <<< "$remote_refs"
           remote_sha="${peeled_sha:-$direct_sha}"
           if [[ "$remote_sha" != "$RELEASE_SHA" ]]; then
@@ -290,4 +396,7 @@ jobs:
             exit 1
           fi
 
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --field draft=false \
+            --silent
