@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, generateKeyPairSync, sign } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -23,6 +23,44 @@ function checksumFor(names, assets) {
   return `${names.map((name) => `${hash(byName.get(name).bytes)}  ${name}`).join("\n")}\n`
 }
 
+function createSigningKey(keyIdHex = "bfd61d9fd4bda0f6") {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519")
+  const rawPublicKey = publicKey.export({ format: "der", type: "spki" }).subarray(-32)
+  const keyId = Buffer.from(keyIdHex, "hex")
+  const publicPayload = Buffer.concat([Buffer.from("Ed"), keyId, rawPublicKey])
+  const displayedKeyId = Buffer.from(keyId).reverse().toString("hex").toUpperCase()
+  const publicKeyText = [
+    `untrusted comment: minisign public key: ${displayedKeyId}`,
+    publicPayload.toString("base64"),
+    "",
+  ].join("\n")
+  return {
+    keyId,
+    privateKey,
+    updaterPublicKey: Buffer.from(publicKeyText, "utf8").toString("base64"),
+  }
+}
+
+function createUpdaterSignature(name, bytes, signingKey) {
+  const artifactDigest = createHash("blake2b512").update(bytes).digest()
+  const signature = sign(null, artifactDigest, signingKey.privateKey)
+  const payload = Buffer.concat([Buffer.from("ED"), signingKey.keyId, signature])
+  const trustedComment = `timestamp:1700000000\tfile:${name}`
+  const globalSignature = sign(
+    null,
+    Buffer.concat([signature, Buffer.from(trustedComment, "utf8")]),
+    signingKey.privateKey,
+  )
+  const signatureText = [
+    "untrusted comment: signature from tauri secret key",
+    payload.toString("base64"),
+    `trusted comment: ${trustedComment}`,
+    globalSignature.toString("base64"),
+    "",
+  ].join("\n")
+  return Buffer.from(signatureText, "utf8").toString("base64")
+}
+
 async function releaseFixture() {
   const directory = await mkdtemp(join(tmpdir(), "omp-release-assets-"))
   directories.push(directory)
@@ -30,6 +68,7 @@ async function releaseFixture() {
   const tag = `v${version}`
   const repository = "example/repo"
   const apiBase = `https://api.github.com/repos/${repository}/releases/assets`
+  const signingKey = createSigningKey()
   const definitions = [
     {
       key: "appImage",
@@ -70,7 +109,7 @@ async function releaseFixture() {
   const assets = Object.fromEntries(
     definitions.map((definition) => {
       const bytes = Buffer.from(`${definition.key}-installer`)
-      const signature = `${definition.key}-signature`
+      const signature = createUpdaterSignature(definition.name, bytes, signingKey)
       return [definition.key, { ...definition, bytes, signature }]
     }),
   )
@@ -117,15 +156,28 @@ async function releaseFixture() {
     linuxInstallers,
     releaseMetadata,
     repository,
+    signingKey,
     tag,
     updater,
     version,
     windowsInstallers,
+    updaterPublicKey: signingKey.updaterPublicKey,
   }
 }
 
 async function writeUpdater(fixture) {
   await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
+}
+
+async function writeSignedAsset(fixture, asset, bytes, signingKey = fixture.signingKey) {
+  asset.bytes = Buffer.from(bytes)
+  asset.signature = createUpdaterSignature(asset.name, asset.bytes, signingKey)
+  fixture.updater.platforms[asset.platform].signature = asset.signature
+  await Promise.all([
+    writeFile(join(fixture.directory, asset.name), asset.bytes),
+    writeFile(join(fixture.directory, `${asset.name}.sig`), asset.signature),
+    writeUpdater(fixture),
+  ])
 }
 
 afterEach(async () => {
@@ -143,6 +195,7 @@ describe("release asset verification", () => {
     assert.deepEqual(summary.windowsInstallers, fixture.windowsInstallers)
     assert.equal(summary.signedInstallers, 5)
     assert.equal(summary.updaterTargets, 5)
+    assert.equal(summary.verifiedSignatures, 5)
     assert.equal(
       await readFile(join(fixture.directory, "SHA256SUMS-linux.txt"), "utf8"),
       checksumFor(fixture.linuxInstallers, fixture.assets),
@@ -160,9 +213,30 @@ describe("release asset verification", () => {
     await assert.rejects(() => verifyReleaseAssets(fixture), /Updater signature is missing/)
   })
 
-  it("rejects a checksum that does not match the uploaded installer", async () => {
+  it("rejects installer bytes that do not match their cryptographic signature", async () => {
     const fixture = await releaseFixture()
     await writeFile(join(fixture.directory, fixture.assets.appImage.name), "tampered")
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /Updater signature is cryptographically invalid/,
+    )
+  })
+
+  it("rejects signatures made by a key other than the configured updater key", async () => {
+    const fixture = await releaseFixture()
+    const wrongSigningKey = createSigningKey("0102030405060708")
+    await writeSignedAsset(fixture, fixture.assets.nsis, fixture.assets.nsis.bytes, wrongSigningKey)
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /Updater signature key does not match configured public key/,
+    )
+  })
+
+  it("rejects a checksum that does not match the uploaded installer", async () => {
+    const fixture = await releaseFixture()
+    await writeSignedAsset(fixture, fixture.assets.appImage, "tampered")
 
     await assert.rejects(() => verifyReleaseAssets(fixture), /SHA-256 mismatch/)
   })
