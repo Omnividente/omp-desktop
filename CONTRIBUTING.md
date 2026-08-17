@@ -52,6 +52,6 @@ Production releases are tag-driven only. For a `v*.*.*` tag, the workflow valida
 
 Updater E2E uses separate test signing trust in the `updater-e2e` environment. Its public and private keys must never be the production updater keys. These environments, their protection rules, repository rulesets, and secrets are owner-managed prerequisites; this document does not assert that they are already configured.
 
-## Current license status
+## License
 
-The repository does not currently declare an open-source license. The `LICENSE` file is an explicit placeholder and does not grant rights. Contributors and maintainers should resolve the intended project license before accepting contributions that require a specific licensing grant; this guide does not introduce a contributor license agreement or change ownership of submitted work.
+By contributing to OMP Desktop, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
