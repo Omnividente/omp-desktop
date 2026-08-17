@@ -1,6 +1,7 @@
 # OMP Desktop
 
 [![Latest release](https://img.shields.io/github/v/release/Omnividente/omp-desktop?display_name=tag&sort=semver)](https://github.com/Omnividente/omp-desktop/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-78c850)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
 
@@ -145,3 +146,7 @@ npm run tauri build
 OMP Desktop stores local application preferences and provider-key names in `settings.json`. Provider credential values are stored in the operating-system credential store; when that store is unavailable, the app uses a fallback in the per-user application directory (`0600` on Unix, inherited per-user ACLs on Windows) and shows a warning. Import copies the selected JSONL session and a bounded tree of regular artifact files into the configured local OMP session root; links and special files are rejected. OMP Desktop does not upload session files; authentication and model traffic remain inside the OMP process. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
 
 This is an independent community desktop client and is not part of the OMP CLI distribution.
+
+## License
+
+OMP Desktop is open-source software licensed under the [MIT License](LICENSE).
