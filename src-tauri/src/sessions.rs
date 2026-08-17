@@ -30,6 +30,7 @@ const MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_IMPORT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_IMPORT_ARTIFACT_ENTRIES: usize = 10_000;
 const MAX_IMPORT_ARTIFACT_DEPTH: usize = 16;
+const SESSION_TITLE_MAX_CHARS: usize = 80;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SessionFileStamp {
@@ -1894,6 +1895,7 @@ fn parse_session_with_names(
     let mut title = None;
     let mut session_title = None;
     let mut codex_parent_id = None;
+    let mut parent_session_path = None;
     let mut created_at = None;
     let mut models = HashMap::new();
     let mut last_model_role = None;
@@ -1944,11 +1946,13 @@ fn parse_session_with_names(
                     .get("title")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
-                codex_parent_id = value
-                    .get("parentSession")
-                    .and_then(Value::as_str)
-                    .and_then(|parent| parent.strip_prefix("codex:"))
-                    .map(str::to_owned);
+                if let Some(parent) = value.get("parentSession").and_then(Value::as_str) {
+                    if let Some(codex_id) = parent.strip_prefix("codex:") {
+                        codex_parent_id = Some(codex_id.to_owned());
+                    } else if !parent.trim().is_empty() {
+                        parent_session_path = Some(parent.to_owned());
+                    }
+                }
             }
             Some("model_change") => {
                 if let Some(model) = value.get("model").and_then(Value::as_str) {
@@ -2012,6 +2016,7 @@ fn parse_session_with_names(
         project_key: path_key(&cwd),
         cwd,
         file_path: path.to_string_lossy().into_owned(),
+        parent_session_path,
         created_at: created_at.unwrap_or_default(),
         updated_at,
         model,
@@ -2310,7 +2315,74 @@ pub(crate) fn normalize_pinned_title(title: &str) -> Result<String, String> {
 
 fn truncate_title(value: &str) -> String {
     let one_line = value.lines().next().unwrap_or(value).trim();
-    one_line.chars().take(80).collect()
+    one_line.chars().take(SESSION_TITLE_MAX_CHARS).collect()
+}
+
+fn strip_generated_handoff_suffix(title: &str) -> &str {
+    let title = title.trim();
+    for marker in [" · handoff", " · archive", " · архив"] {
+        let Some((base, suffix)) = title.rsplit_once(marker) else {
+            continue;
+        };
+        let numbered = suffix.strip_prefix(' ').is_some_and(|number| {
+            !number.is_empty() && number.chars().all(|ch| ch.is_ascii_digit())
+        });
+        if suffix.is_empty() || numbered {
+            return base.trim_end();
+        }
+    }
+    title
+}
+
+fn title_with_suffix(base: &str, suffix: &str) -> String {
+    let max_base_chars = SESSION_TITLE_MAX_CHARS.saturating_sub(suffix.chars().count());
+    let base = base
+        .chars()
+        .take(max_base_chars.max(1))
+        .collect::<String>()
+        .trim_end()
+        .to_owned();
+    format!("{base}{suffix}")
+}
+
+pub(crate) fn handoff_session_titles(
+    current_title: &str,
+    title_pins: &BTreeMap<String, String>,
+    archive_label: &str,
+) -> Result<(String, String), String> {
+    let active_title = normalize_pinned_title(strip_generated_handoff_suffix(current_title))?;
+    let archive_label = clean_title(archive_label)?;
+    let occupied = title_pins
+        .values()
+        .map(|title| title.trim().to_lowercase())
+        .collect::<HashSet<_>>();
+
+    for index in 1_u64.. {
+        let suffix = if index == 1 {
+            format!(" · {archive_label}")
+        } else {
+            format!(" · {archive_label} {index}")
+        };
+        let archive_title = title_with_suffix(&active_title, &suffix);
+        if !occupied.contains(&archive_title.to_lowercase()) {
+            return Ok((active_title, archive_title));
+        }
+    }
+    unreachable!("archive title suffix space is unbounded")
+}
+
+pub(crate) fn apply_handoff_title_pins(
+    previous_path: &str,
+    active_path: &str,
+    current_title: &str,
+    title_pins: &mut BTreeMap<String, String>,
+    archive_label: &str,
+) -> Result<(String, String), String> {
+    let (active_title, archive_title) =
+        handoff_session_titles(current_title, title_pins, archive_label)?;
+    title_pins.insert(path_key(previous_path), archive_title.clone());
+    title_pins.insert(path_key(active_path), active_title.clone());
+    Ok((active_title, archive_title))
 }
 
 fn serialize_title_slot(
@@ -2442,11 +2514,12 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_session_title_pin, atomic_write_file, atomic_write_file_with, build_workspaces,
-        collect_jsonl_files, commit_import_with, deduplicate_codex_sessions, delete_session,
-        encode_relative_session_dir_name, encode_session_dir_name, import_destination,
-        import_session, parse_codex_session_with_names, parse_session, parse_session_with_names,
-        path_key, read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
+        apply_handoff_title_pins, apply_session_title_pin, atomic_write_file,
+        atomic_write_file_with, build_workspaces, collect_jsonl_files, commit_import_with,
+        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
+        encode_session_dir_name, handoff_session_titles, import_destination, import_session,
+        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
+        read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
         read_session_transcript_with_limits, restorable_session_model, scan_sessions,
         serialize_title_slot, stage_import_artifacts_with_limits, validated_external_import_source,
         ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
@@ -2513,6 +2586,7 @@ mod tests {
             cwd: "D:/Projects/OMP".to_owned(),
             project_key: path_key("D:/Projects/OMP"),
             file_path: r"D:\Sessions\session.jsonl".to_owned(),
+            parent_session_path: None,
             created_at: String::new(),
             updated_at: 1,
             model: None,
@@ -2530,6 +2604,124 @@ mod tests {
 
         assert_eq!(session.title, "Fixed project name");
         assert_eq!(session.pinned_title.as_deref(), Some("Fixed project name"));
+    }
+
+    #[test]
+    fn session_parser_exposes_handoff_parent_path() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-session-parent-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+        let parent = directory.join("parent.jsonl");
+        let child = directory.join("child.jsonl");
+        fs::write(
+            &parent,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "type": "session",
+                    "id": "parent",
+                    "timestamp": "2026-08-17T00:00:00Z",
+                    "cwd": directory.to_string_lossy(),
+                })
+            ),
+        )
+        .expect("parent session should be writable");
+        fs::write(
+            &child,
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "type": "session",
+                    "id": "child",
+                    "timestamp": "2026-08-17T00:01:00Z",
+                    "cwd": directory.to_string_lossy(),
+                    "parentSession": parent.to_string_lossy(),
+                })
+            ),
+        )
+        .expect("child session should be writable");
+
+        let summary = parse_session_with_names(&child, &HashMap::new())
+            .expect("child session should parse")
+            .expect("child session summary should exist");
+        fs::remove_dir_all(&directory).expect("fixture directory should be removable");
+
+        assert_eq!(
+            summary.parent_session_path.as_deref(),
+            Some(parent.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn handoff_titles_keep_active_name_and_number_archives() {
+        let mut pins = BTreeMap::new();
+        let (active, archive) =
+            handoff_session_titles("Release investigation", &pins, "архив").unwrap();
+        assert_eq!(active, "Release investigation");
+        assert_eq!(archive, "Release investigation · архив");
+
+        pins.insert("first".to_owned(), archive);
+        let (active, archive) =
+            handoff_session_titles("Release investigation · handoff", &pins, "архив").unwrap();
+        assert_eq!(active, "Release investigation");
+        assert_eq!(archive, "Release investigation · архив 2");
+
+        pins.insert("second".to_owned(), archive);
+        let (active, archive) =
+            handoff_session_titles("Release investigation · архив 2", &pins, "архив").unwrap();
+        assert_eq!(active, "Release investigation");
+        assert_eq!(archive, "Release investigation · архив 3");
+    }
+
+    #[test]
+    fn handoff_title_pins_archive_previous_and_keep_active_name() {
+        let first = "D:/Sessions/first.jsonl";
+        let second = "D:/Sessions/second.jsonl";
+        let third = "D:/Sessions/third.jsonl";
+        let mut pins = BTreeMap::from([(path_key(first), "Release investigation".to_owned())]);
+
+        apply_handoff_title_pins(first, second, "Release investigation", &mut pins, "архив")
+            .unwrap();
+        assert_eq!(
+            pins.get(&path_key(first)).map(String::as_str),
+            Some("Release investigation · архив")
+        );
+        assert_eq!(
+            pins.get(&path_key(second)).map(String::as_str),
+            Some("Release investigation")
+        );
+
+        let active_title = pins.get(&path_key(second)).cloned().unwrap();
+        apply_handoff_title_pins(second, third, &active_title, &mut pins, "архив").unwrap();
+        assert_eq!(
+            pins.get(&path_key(first)).map(String::as_str),
+            Some("Release investigation · архив")
+        );
+        assert_eq!(
+            pins.get(&path_key(second)).map(String::as_str),
+            Some("Release investigation · архив 2")
+        );
+        assert_eq!(
+            pins.get(&path_key(third)).map(String::as_str),
+            Some("Release investigation")
+        );
+    }
+
+    #[test]
+    fn handoff_archive_title_preserves_suffix_within_limit() {
+        let long_title = "Очень длинное название ".repeat(10);
+        let (active, archive) =
+            handoff_session_titles(&long_title, &BTreeMap::new(), "архив").unwrap();
+
+        assert!(active.chars().count() <= super::SESSION_TITLE_MAX_CHARS);
+        assert!(archive.chars().count() <= super::SESSION_TITLE_MAX_CHARS);
+        assert!(archive.ends_with(" · архив"));
     }
 
     #[test]
@@ -3746,6 +3938,7 @@ mod tests {
             project_key: path_key(&cwd),
             cwd,
             file_path: format!("{id}.jsonl"),
+            parent_session_path: None,
             created_at: String::new(),
             updated_at,
             model: None,

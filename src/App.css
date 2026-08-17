@@ -840,12 +840,52 @@ button:disabled {
 
 .session-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px 28px 28px 28px 28px;
+  grid-template-columns: 20px minmax(0, 1fr) 28px 28px 28px 28px 28px;
   align-items: center;
   min-height: 55px;
   margin-bottom: 2px;
   border: 1px solid transparent;
   border-radius: 8px;
+}
+
+.session-group-toggle,
+.session-group-spacer {
+  width: 20px;
+  height: 100%;
+  flex: none;
+}
+
+.session-group-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #68716b;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.session-group-toggle:hover,
+.session-group-toggle:focus-visible {
+  color: var(--accent);
+  background: rgba(185, 242, 124, 0.07);
+}
+
+.session-group-toggle svg {
+  transition: transform 120ms ease;
+}
+
+.session-group-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.session-item.is-child {
+  border-left-color: rgba(185, 242, 124, 0.1);
+}
+
+.session-item.is-child .session-icon {
+  color: #637068;
+  background: #121613;
 }
 
 .session-item.is-renaming {

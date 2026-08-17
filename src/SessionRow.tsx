@@ -24,9 +24,13 @@ interface SessionRowProps {
   actionsDisabled: boolean
   renameValue: string
   launchDisabled: boolean
+  depth: number
+  hasChildren: boolean
+  childrenExpanded: boolean
   onSelect: () => void
   onDoubleLaunch: () => void
   onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void
+  onToggleChildren: () => void
   onLaunch: () => void
   onTranscript: (e: React.MouseEvent) => void
   onStartRename: (e: React.MouseEvent) => void
@@ -50,9 +54,13 @@ export function SessionRow({
   actionsDisabled,
   renameValue,
   launchDisabled,
+  depth,
+  hasChildren,
+  childrenExpanded,
   onSelect,
   onDoubleLaunch,
   onKeySelect,
+  onToggleChildren,
   onLaunch,
   onTranscript,
   onStartRename,
@@ -99,8 +107,27 @@ export function SessionRow({
   return (
     <>
       <article
-        className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}${renaming ? " is-renaming" : ""}`}
+        className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}${renaming ? " is-renaming" : ""}${depth > 0 ? " is-child" : ""}${hasChildren ? " has-children" : ""}`}
       >
+        {!renaming &&
+          (hasChildren ? (
+            <button
+              aria-expanded={childrenExpanded}
+              aria-label={`${t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}: ${session.title}`}
+              className="session-group-toggle"
+              onClick={(event) => {
+                event.stopPropagation()
+                onToggleChildren()
+              }}
+              title={t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}
+              type="button"
+            >
+              <Icon name="chevron" size={13} />
+            </button>
+          ) : (
+            <span aria-hidden="true" className="session-group-spacer" />
+          ))}
+
         <div
           aria-pressed={selected}
           aria-describedby={titleTooltipOpen && !renaming ? titleTooltipId : undefined}
@@ -120,6 +147,7 @@ export function SessionRow({
           role="button"
           tabIndex={0}
           ref={titleAnchorRef}
+          style={{ paddingLeft: 9 + depth * 14 }}
         >
           <span className="session-icon">
             <Icon name="history" size={16} />

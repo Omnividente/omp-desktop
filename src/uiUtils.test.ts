@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest"
-import type { SessionSummary, TerminalTab } from "./types"
-import { normalizedPath, tabMatchesSession } from "./uiUtils"
+import type { BootstrapPayload, SessionSummary, TerminalTab } from "./types"
+import {
+  buildSessionTree,
+  filterSessionTree,
+  flattenSessionTree,
+  latestSessionInTree,
+  mergeSessionIntoPayload,
+  normalizedPath,
+  sessionAncestorIds,
+  tabMatchesSession,
+} from "./uiUtils"
 
 const session: SessionSummary = {
   id: "session-42",
@@ -9,6 +18,7 @@ const session: SessionSummary = {
   cwd: "C:\\Work\\OMP",
   projectKey: "c:/work/omp",
   filePath: "C:\\Users\\Omniv\\.omp\\sessions\\session-42.jsonl",
+  parentSessionPath: null,
   createdAt: "2026-07-25T12:00:00.000Z",
   updatedAt: 1_753_444_800_000,
   model: null,
@@ -75,5 +85,148 @@ describe("tabMatchesSession", () => {
     })
 
     expect(tabMatchesSession(tab, session, "windows")).toBe(false)
+  })
+})
+
+describe("mergeSessionIntoPayload", () => {
+  it("keeps the live handoff session when bootstrap is stale", () => {
+    const handoff: SessionSummary = {
+      ...session,
+      id: "session-handoff",
+      title: "After handoff",
+      filePath: "C:\\Users\\Omniv\\.omp\\sessions\\handoff.jsonl",
+      updatedAt: session.updatedAt + 1,
+    }
+    const stalePayload = {
+      settings: {},
+      runtime: { platform: "windows" },
+      workspaces: [],
+      sessions: [session],
+    } as unknown as BootstrapPayload
+
+    const merged = mergeSessionIntoPayload(stalePayload, handoff, "windows")
+    expect(merged.sessions.map((candidate) => candidate.id)).toEqual([
+      "session-handoff",
+      session.id,
+    ])
+
+    const replayed = mergeSessionIntoPayload({ ...merged, sessions: [session] }, handoff, "windows")
+    expect(replayed.sessions.map((candidate) => candidate.id)).toEqual([
+      "session-handoff",
+      session.id,
+    ])
+  })
+})
+
+describe("session lineage tree", () => {
+  const lineageSession = (
+    id: string,
+    filePath: string,
+    parentSessionPath: string | null,
+    updatedAt: number,
+  ): SessionSummary => ({
+    ...session,
+    id,
+    title: id,
+    filePath,
+    parentSessionPath,
+    updatedAt,
+  })
+
+  it("keeps the newest handoff session at root and orders groups by latest activity", () => {
+    const archive = lineageSession("archive", "C:\\Sessions\\archive.jsonl", null, 100)
+    const active = lineageSession("active", "C:\\Sessions\\active.jsonl", archive.filePath, 200)
+    const grandchild = lineageSession(
+      "grandchild",
+      "C:\\Sessions\\grandchild.jsonl",
+      active.filePath,
+      400,
+    )
+    const unrelated = lineageSession("unrelated", "C:\\Sessions\\unrelated.jsonl", null, 300)
+
+    const tree = buildSessionTree([archive, grandchild, unrelated, active], "windows")
+
+    expect(tree.map((node) => node.session.id)).toEqual(["grandchild", "unrelated"])
+    expect(tree[0].children.map((node) => node.session.id)).toEqual(["active"])
+    expect(tree[0].children[0].children.map((node) => node.session.id)).toEqual(["archive"])
+    expect(sessionAncestorIds(tree, "archive")).toEqual(["grandchild", "active"])
+    expect(latestSessionInTree(tree[0]).id).toBe("grandchild")
+  })
+
+  it("keeps branch archives unique while choosing the newest branch as parent", () => {
+    const archive = lineageSession("archive", "C:\\Sessions\\archive.jsonl", null, 100)
+    const olderActive = lineageSession(
+      "older-active",
+      "C:\\Sessions\\older-active.jsonl",
+      archive.filePath,
+      200,
+    )
+    const newestActive = lineageSession(
+      "newest-active",
+      "C:\\Sessions\\newest-active.jsonl",
+      archive.filePath,
+      300,
+    )
+
+    const tree = buildSessionTree([archive, olderActive, newestActive], "windows")
+    const flattened = flattenSessionTree(tree, new Set(["newest-active"]))
+
+    expect(tree.map((node) => node.session.id)).toEqual(["newest-active", "older-active"])
+    expect(flattened.map((item) => item.session.id)).toEqual([
+      "newest-active",
+      "archive",
+      "older-active",
+    ])
+  })
+
+  it("flattens only expanded groups and auto-expands filtered ancestry", () => {
+    const parent = lineageSession("parent", "C:\\Sessions\\parent.jsonl", null, 100)
+    const child = lineageSession("child", "C:\\Sessions\\child.jsonl", parent.filePath, 200)
+    const grandchild = lineageSession(
+      "grandchild",
+      "C:\\Sessions\\grandchild.jsonl",
+      child.filePath,
+      300,
+    )
+    const tree = buildSessionTree([grandchild, child, parent], "windows")
+
+    expect(flattenSessionTree(tree, new Set()).map((item) => item.session.id)).toEqual([
+      "grandchild",
+    ])
+    expect(
+      flattenSessionTree(tree, new Set(["grandchild", "child"])).map((item) => item.session.id),
+    ).toEqual(["grandchild", "child", "parent"])
+
+    const filtered = filterSessionTree(tree, new Set(["parent"]))
+    expect(flattenSessionTree(filtered, new Set(), true).map((item) => item.session.id)).toEqual([
+      "grandchild",
+      "child",
+      "parent",
+    ])
+  })
+
+  it("keeps orphaned and cyclic sessions at the root", () => {
+    const orphan = lineageSession(
+      "orphan",
+      "C:\\Sessions\\orphan.jsonl",
+      "C:\\Sessions\\missing.jsonl",
+      300,
+    )
+    const first = lineageSession(
+      "first",
+      "C:\\Sessions\\first.jsonl",
+      "C:\\Sessions\\second.jsonl",
+      200,
+    )
+    const second = lineageSession(
+      "second",
+      "C:\\Sessions\\second.jsonl",
+      "C:\\Sessions\\first.jsonl",
+      100,
+    )
+
+    const tree = buildSessionTree([orphan, first, second], "windows")
+    expect(tree.map((node) => node.session.id)).toEqual(["orphan", "first", "second"])
+    expect(tree.every((node) => node.children.length === 0)).toBe(true)
   })
 })
