@@ -73,6 +73,7 @@ export interface SessionSummary {
   cwd: string
   projectKey: string
   filePath: string
+  parentSessionPath: string | null
   createdAt: string
   updatedAt: number
   model: string | null

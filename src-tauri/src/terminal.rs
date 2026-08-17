@@ -1,8 +1,8 @@
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{
-        apply_session_title_pin, canonical_project_path, parse_session, path_key,
-        validated_session_file,
+        apply_handoff_title_pins, apply_session_title_pin, canonical_project_path, parse_session,
+        path_key, validated_session_file,
     },
     settings::{resolve_omp, SettingsState},
     update,
@@ -919,9 +919,8 @@ fn spawn_terminal_process(
     if restartable {
         if let Some(session_path) = runtime_session_path {
             spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path);
-        } else {
-            spawn_session_watcher(app.clone(), terminal_id.clone());
         }
+        spawn_session_watcher(app.clone(), terminal_id.clone());
     }
 
     Ok(TerminalStarted {
@@ -970,27 +969,25 @@ fn resolve_resume_path(
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
 ) -> Option<String> {
-    let direct = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
-    if breadcrumb_changed(&direct, snapshot) {
-        if let Some(path) = read_breadcrumb(&direct, cwd) {
-            return Some(path);
-        }
-    }
+    resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, None)
+}
 
-    let entries = fs::read_dir(directory).ok()?;
-    let mut matches = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !breadcrumb_changed(&path, snapshot) {
-            continue;
-        }
-        if let Some(session_path) = read_breadcrumb(&path, cwd) {
-            if !matches.contains(&session_path) {
-                matches.push(session_path);
-            }
-        }
+fn resolve_resume_path_for_current(
+    terminal_id: &str,
+    cwd: &str,
+    directory: &Path,
+    snapshot: &HashMap<PathBuf, u128>,
+    current_path: Option<&str>,
+) -> Option<String> {
+    let direct = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    if !breadcrumb_changed(&direct, snapshot) {
+        return None;
     }
-    (matches.len() == 1).then(|| matches.remove(0))
+    let path = read_breadcrumb(&direct, cwd)?;
+    if current_path.is_some_and(|current| path_key(current) == path_key(&path)) {
+        return None;
+    }
+    Some(path)
 }
 
 fn breadcrumb_changed(path: &Path, snapshot: &HashMap<PathBuf, u128>) -> bool {
@@ -1018,10 +1015,62 @@ fn discover_session(
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
+    current_path: Option<&str>,
 ) -> Option<(String, crate::models::SessionSummary)> {
-    let resume_path = resolve_resume_path(terminal_id, cwd, directory, snapshot)?;
+    let resume_path =
+        resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, current_path)?;
     let session = parse_session(Path::new(&resume_path)).ok().flatten()?;
     Some((resume_path, session))
+}
+
+fn apply_known_session_title_pin(app: &AppHandle, session: &mut crate::models::SessionSummary) {
+    let settings = app.state::<SettingsState>();
+    let settings = settings
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    apply_session_title_pin(session, &settings.session_title_pins);
+}
+
+fn apply_handoff_session_titles(
+    app: &AppHandle,
+    previous_path: &str,
+    active_path: &str,
+    active_session: &mut crate::models::SessionSummary,
+) -> Result<(), String> {
+    let settings_state = app.state::<SettingsState>();
+    let mut settings = settings_state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let root = crate::settings::session_root(app, &settings)?;
+    let previous_path = validated_session_file(previous_path, &root)?;
+    let active_path = validated_session_file(active_path, &root)?;
+    if path_key(previous_path.to_string_lossy().as_ref())
+        == path_key(active_path.to_string_lossy().as_ref())
+    {
+        apply_session_title_pin(active_session, &settings.session_title_pins);
+        return Ok(());
+    }
+
+    let mut previous_session = parse_session(&previous_path)?
+        .ok_or_else(|| format!("В файле нет session header: {}", previous_path.display()))?;
+    apply_session_title_pin(&mut previous_session, &settings.session_title_pins);
+    let archive_label = if settings.language == "en" {
+        "archive"
+    } else {
+        "архив"
+    };
+    apply_handoff_title_pins(
+        previous_path.to_string_lossy().as_ref(),
+        active_path.to_string_lossy().as_ref(),
+        &previous_session.title,
+        &mut settings.session_title_pins,
+        archive_label,
+    )?;
+    crate::settings::save_settings(app, &settings)?;
+    apply_session_title_pin(active_session, &settings.session_title_pins);
+    Ok(())
 }
 
 fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
@@ -1031,47 +1080,57 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
         let Some(process) = processes.get(terminal_id) else {
             return true;
         };
-        if !process.restartable
-            || process.resume_path.is_some()
-            || process.exited
-            || process.exit_pending
-        {
+        if !process.restartable || process.exited || process.exit_pending {
             return true;
         }
         (
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
+            process.resume_path.clone(),
         )
     };
-    let Some((resume_path, mut session)) =
-        discover_session(terminal_id, &context.0, &context.1, &context.2)
-    else {
+    let Some((resume_path, mut session)) = discover_session(
+        terminal_id,
+        &context.0,
+        &context.1,
+        &context.2,
+        context.3.as_deref(),
+    ) else {
         return false;
     };
 
-    {
-        let settings = app.state::<SettingsState>();
-        let settings = settings
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        apply_session_title_pin(&mut session, &settings.session_title_pins);
-    }
-
-    {
+    let previous_path = {
         let mut processes = lock_processes(&state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return true;
         };
-        if !process.restartable
-            || process.resume_path.is_some()
-            || process.exited
-            || process.exit_pending
-        {
+        if !process.restartable || process.exited || process.exit_pending {
             return true;
         }
-        process.resume_path = Some(resume_path.clone());
+        if process
+            .resume_path
+            .as_deref()
+            .is_some_and(|current| path_key(current) == path_key(&resume_path))
+        {
+            return false;
+        }
+        process.resume_path.replace(resume_path.clone())
+    };
+
+    if let Some(previous_path) = previous_path.as_deref() {
+        if let Err(error) =
+            apply_handoff_session_titles(app, previous_path, &resume_path, &mut session)
+        {
+            apply_known_session_title_pin(app, &mut session);
+            emit_runtime_error(
+                app,
+                terminal_id,
+                format!("Не удалось сохранить названия handoff-сессий: {error}"),
+            );
+        }
+    } else {
+        apply_known_session_title_pin(app, &mut session);
     }
 
     let _ = app.emit(
@@ -1082,8 +1141,7 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
         },
     );
     spawn_runtime_watcher(app.clone(), terminal_id.to_owned(), resume_path);
-
-    true
+    false
 }
 
 fn spawn_session_watcher(app: AppHandle, terminal_id: String) {
@@ -2556,14 +2614,15 @@ mod tests {
     #[cfg(windows)]
     use super::RuntimeFileIdentity;
     use super::{
-        append_switch_input, build_omp_command, decode_terminal_binary, discover_session,
-        feed_runtime_lines, initial_agent_args, model_switch_input, output_event_name,
-        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
-        receive_timed_output_batch, recover_runtime_cursor, run_output_pipeline,
-        runtime_event_for_emit, runtime_event_from_line, thinking_cycle, validate_switch_request,
-        validated_resume_path, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
-        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        append_switch_input, breadcrumb_modified, build_omp_command, decode_terminal_binary,
+        discover_session, feed_runtime_lines, initial_agent_args, model_switch_input,
+        output_event_name, poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
+        receive_timed_output_batch, recover_runtime_cursor, resolve_resume_path_for_current,
+        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line, thinking_cycle,
+        validate_switch_request, validated_resume_path, PtyExitEvent, PtyRuntimeEventKind,
+        RuntimeRecovery, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -3616,22 +3675,178 @@ mod tests {
         )
         .expect("breadcrumb fixture should be writable");
 
-        assert!(
-            discover_session("terminal-1", "/tmp/project", &directory, &HashMap::new(),).is_none()
-        );
+        assert!(discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            None,
+        )
+        .is_none());
         fs::write(
             &session_path,
             "{\"type\":\"session\",\"id\":\"new-session\",\"timestamp\":\"2026-07-20T12:00:00Z\",\"cwd\":\"/tmp/project\",\"title\":\"New session\"}\n",
         )
         .expect("session header should be writable");
 
-        let (resolved, session) =
-            discover_session("terminal-1", "/tmp/project", &directory, &HashMap::new())
-                .expect("parseable session should be discovered");
+        let (resolved, session) = discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            None,
+        )
+        .expect("parseable session should be discovered");
         fs::remove_dir_all(&directory).expect("fixture directory should be removable");
 
         assert_eq!(resolved, session_path.to_string_lossy());
         assert_eq!(session.id, "new-session");
+    }
+
+    #[test]
+    fn terminal_breadcrumb_discovers_handoff_path_after_initial_session() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-breadcrumb-handoff-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+
+        let old_path = directory.join("old-session.jsonl");
+        let new_path = directory.join("new-session.jsonl");
+        fs::write(
+            &old_path,
+            "{\"type\":\"session\",\"id\":\"old-session\",\"timestamp\":\"2026-07-20T12:00:00Z\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("old session should be writable");
+        fs::write(
+            &new_path,
+            "{\"type\":\"session\",\"id\":\"handoff-session\",\"timestamp\":\"2026-07-20T12:01:00Z\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("handoff session should be writable");
+
+        let breadcrumb = directory.join("apple-terminal-1");
+        fs::write(
+            &breadcrumb,
+            format!("/tmp/project\n{}\n", old_path.display()),
+        )
+        .expect("initial breadcrumb should be writable");
+
+        let (resolved_old, old_session) = discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            None,
+        )
+        .expect("initial session should be discovered");
+        assert_eq!(resolved_old, old_path.to_string_lossy());
+        assert_eq!(old_session.id, "old-session");
+
+        fs::write(
+            &breadcrumb,
+            format!("/tmp/project\n{}\n", new_path.display()),
+        )
+        .expect("handoff breadcrumb should be writable");
+
+        let old_path_string = old_path.to_string_lossy().into_owned();
+        let (resolved_new, new_session) = discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            Some(&old_path_string),
+        )
+        .expect("handoff session should be discovered");
+        assert_eq!(resolved_new, new_path.to_string_lossy());
+        assert_eq!(new_session.id, "handoff-session");
+
+        let new_path_string = new_path.to_string_lossy().into_owned();
+        assert!(discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            Some(&new_path_string),
+        )
+        .is_none());
+
+        fs::remove_dir_all(&directory).expect("fixture directory should be removable");
+    }
+
+    #[test]
+    fn tracked_terminal_ignores_other_terminal_breadcrumb_changes() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-breadcrumb-isolation-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+
+        let current_session = directory.join("current.jsonl");
+        let other_session = directory.join("other.jsonl");
+        fs::write(
+            &current_session,
+            "{\"type\":\"session\",\"id\":\"current\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("current session should be writable");
+        fs::write(
+            &other_session,
+            "{\"type\":\"session\",\"id\":\"other\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("other session should be writable");
+
+        let direct = directory.join("apple-terminal-2");
+        let other = directory.join("apple-terminal-1");
+        fs::write(
+            &direct,
+            format!("/tmp/project\n{}\n", current_session.display()),
+        )
+        .expect("direct breadcrumb should be writable");
+        fs::write(
+            &other,
+            format!("/tmp/project\n{}\n", other_session.display()),
+        )
+        .expect("other breadcrumb should be writable");
+
+        let snapshot = HashMap::from([
+            (
+                direct.clone(),
+                breadcrumb_modified(&direct).expect("direct breadcrumb timestamp"),
+            ),
+            (other.clone(), 0),
+        ]);
+        let current_path = current_session.to_string_lossy().into_owned();
+        let resolved = resolve_resume_path_for_current(
+            "terminal-2",
+            "/tmp/project",
+            &directory,
+            &snapshot,
+            Some(&current_path),
+        );
+        let new_terminal_resolved = resolve_resume_path_for_current(
+            "terminal-3",
+            "/tmp/project",
+            &directory,
+            &snapshot,
+            None,
+        );
+        fs::remove_dir_all(&directory).expect("fixture directory should be removable");
+
+        assert!(
+            resolved.is_none(),
+            "another terminal breadcrumb must not rebind the tracked terminal: {resolved:?}"
+        );
+        assert!(
+            new_terminal_resolved.is_none(),
+            "another terminal breadcrumb must not bind a new terminal: {new_terminal_resolved:?}"
+        );
     }
     #[test]
     fn resume_path_must_be_internal_and_match_the_project() {

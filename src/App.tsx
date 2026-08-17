@@ -77,7 +77,7 @@ import type {
   SessionSummary,
   TerminalTab,
 } from "./types"
-import { localeTag, normalizedPath, tabMatchesSession } from "./uiUtils"
+import { localeTag, mergeSessionIntoPayload, normalizedPath, tabMatchesSession } from "./uiUtils"
 import { useClientUpdater } from "./useClientUpdater"
 import { useWindowActivity } from "./useWindowActivity"
 import { useTranscript } from "./useTranscript"
@@ -363,11 +363,7 @@ function App() {
     const activeElement = document.activeElement
     if (!(activeElement instanceof HTMLElement)) return
     const rail = activeElement.closest<HTMLElement>(".project-rail")
-    if (
-      !rail ||
-      !activeElement.closest(".project-sessions, .open-project-button")
-    )
-      return
+    if (!rail || !activeElement.closest(".project-sessions, .open-project-button")) return
     rail.querySelector<HTMLButtonElement>(".rail-open-folder")?.focus()
   }, [])
 
@@ -395,19 +391,9 @@ function App() {
       forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       const { session } = event
       discoveredSessionsRef.current.set(event.terminalId, session)
-      setPayload((current) => {
-        if (!current) return current
-        const sessionPath = normalizedPath(session.filePath, current.runtime.platform)
-        const sessions = [
-          session,
-          ...current.sessions.filter(
-            (candidate) =>
-              candidate.id !== session.id &&
-              normalizedPath(candidate.filePath, current.runtime.platform) !== sessionPath,
-          ),
-        ].sort((left, right) => right.updatedAt - left.updatedAt)
-        return { ...current, sessions }
-      })
+      setPayload((current) =>
+        current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
+      )
       setSelectedSessionId(session.id)
       setSearch("")
       setTabs((current) =>
@@ -431,7 +417,11 @@ function App() {
       )
       void loadBootstrap()
         .then((next) => {
-          if (!disposed) applyPayload(next)
+          if (disposed) return
+          const latest = discoveredSessionsRef.current.get(event.terminalId)
+          if (latest && latest.id !== session.id) return
+          applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
+          setSelectedSessionId(session.id)
         })
         .catch((error) => {
           if (!disposed) showError(errorMessage(error, langRef.current))
@@ -553,11 +543,7 @@ function App() {
     setResourceHealth(null)
     setResourceHealthError(null)
     const poll = async () => {
-      if (
-        disposed ||
-        resourceHealthSamplingRef.current ||
-        document.visibilityState !== "visible"
-      )
+      if (disposed || resourceHealthSamplingRef.current || document.visibilityState !== "visible")
         return
       resourceHealthSamplingRef.current = true
       try {
@@ -1028,7 +1014,9 @@ function App() {
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
-      void closeTerminal(terminalId).catch((error) => showError(errorMessage(error, lang)))
+      void closeTerminal(terminalId)
+        .then(() => refresh())
+        .catch((error) => showError(errorMessage(error, lang)))
       setTabs((current) => {
         const index = current.findIndex((tab) => tab.id === terminalId)
         const remaining = current.filter((tab) => tab.id !== terminalId)
@@ -1039,7 +1027,7 @@ function App() {
         return remaining
       })
     },
-    [lang, showError],
+    [lang, refresh, showError],
   )
 
   const closeTab = useCallback(
@@ -1354,6 +1342,7 @@ function App() {
           selectedWorkspace={selectedWorkspace}
           sessionList={{
             canLaunch: payload.runtime.ompAvailable,
+            allSessions: workspaceSessions,
             deletingSessionId,
             lang,
             launching,

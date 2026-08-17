@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
@@ -12,6 +13,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import { WorkspaceHome } from "./WorkspaceHome"
+import { buildSessionTree, latestSessionInTree } from "./uiUtils"
 
 interface TerminalWorkspaceProps {
   activeTabId: string | null
@@ -66,6 +68,14 @@ export function TerminalWorkspace({
   onSwitch,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const homeSessions = useMemo(
+    () =>
+      buildSessionTree(workspaceSessions, runtime.platform).map((group) =>
+        latestSessionInTree(group),
+      ),
+    [runtime.platform, workspaceSessions],
+  )
+
   if (tabs.length === 0) {
     return (
       <main className="main-stage">
@@ -77,7 +87,7 @@ export function TerminalWorkspace({
           onReveal={onReveal}
           runtime={runtime}
           selectedSession={selectedSession}
-          sessions={workspaceSessions}
+          sessions={homeSessions}
           workspace={selectedWorkspace}
         />
       </main>

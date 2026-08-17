@@ -1,14 +1,27 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useRef } from "react"
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import type { SessionSummary, TerminalTab } from "./types"
 import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { SessionRow } from "./SessionRow"
 import { useVirtualList } from "./useVirtualList"
-import { tabMatchesSession } from "./uiUtils"
+import {
+  buildSessionTree,
+  filterSessionTree,
+  flattenSessionTree,
+  sessionAncestorIds,
+  tabMatchesSession,
+} from "./uiUtils"
 
 export interface SessionListProps {
   lang: Lang
+  allSessions: SessionSummary[]
   visibleSessions: SessionSummary[]
   workspaceSessionsCount: number
   search: string
@@ -40,6 +53,7 @@ export interface SessionListProps {
 }
 
 export function SessionList({
+  allSessions,
   lang,
   visibleSessions,
   workspaceSessionsCount,
@@ -71,14 +85,49 @@ export function SessionList({
   canLaunch,
 }: SessionListProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
+  const sessionTree = useMemo(
+    () => buildSessionTree(allSessions, platform),
+    [allSessions, platform],
+  )
+  const searchActive = search.trim().length > 0
+  const filteredTree = useMemo(() => {
+    if (!searchActive) return sessionTree
+    return filterSessionTree(sessionTree, new Set(visibleSessions.map((session) => session.id)))
+  }, [searchActive, sessionTree, visibleSessions])
+  const flattenedSessions = useMemo(
+    () => flattenSessionTree(filteredTree, expandedSessionIds, searchActive),
+    [expandedSessionIds, filteredTree, searchActive],
+  )
+
+  useEffect(() => {
+    setExpandedSessionIds(new Set())
+  }, [selectedWorkspacePath])
+
+  useEffect(() => {
+    if (!selectedSessionId) return
+    const ancestors = sessionAncestorIds(sessionTree, selectedSessionId)
+    if (ancestors.length === 0) return
+    setExpandedSessionIds((current) => {
+      const next = new Set(current)
+      let changed = false
+      for (const ancestor of ancestors) {
+        if (next.has(ancestor)) continue
+        next.add(ancestor)
+        changed = true
+      }
+      return changed ? next : current
+    })
+  }, [selectedSessionId, sessionTree])
 
   // Session cards are fixed-height in App.css: 55px row + 2px separation.
-  const { virtualItems, totalHeight } = useVirtualList(visibleSessions, listRef, {
+  const { virtualItems, totalHeight } = useVirtualList(flattenedSessions, listRef, {
     estimatedRowHeight: 57,
     overscan: 8,
+    getItemKey: (item) => item.session.id,
   })
 
-  const showEmpty = Boolean(selectedWorkspacePath) && visibleSessions.length === 0
+  const showEmpty = Boolean(selectedWorkspacePath) && flattenedSessions.length === 0
 
   return (
     <section className="project-sessions">
@@ -148,12 +197,12 @@ export function SessionList({
         className="session-list"
         style={{ position: "relative", overflow: "auto" }}
       >
-        {visibleSessions.length > 0 && (
+        {flattenedSessions.length > 0 && (
           <>
             {/* Spacer to establish correct scroll height */}
             <div style={{ height: totalHeight }} aria-hidden="true" />
             {virtualItems.map((vi) => {
-              const session = vi.item
+              const session = vi.item.session
               const selected = session.id === selectedSessionId
               const busy = launching === session.id
               const renaming = session.id === renamingSessionId
@@ -185,9 +234,12 @@ export function SessionList({
                   <SessionRow
                     busy={busy}
                     actionsDisabled={deletingSessionId !== null}
+                    childrenExpanded={vi.item.expanded}
+                    depth={vi.item.depth}
                     deleting={deleting}
                     lang={lang}
                     launchDisabled={launchDisabled}
+                    hasChildren={vi.item.hasChildren}
                     onDelete={(e) => {
                       e.stopPropagation()
                       onDeleteSession(session)
@@ -200,6 +252,14 @@ export function SessionList({
                         event.preventDefault()
                         onSelectSession(session)
                       }
+                    }}
+                    onToggleChildren={() => {
+                      setExpandedSessionIds((current) => {
+                        const next = new Set(current)
+                        if (next.has(session.id)) next.delete(session.id)
+                        else next.add(session.id)
+                        return next
+                      })
                     }}
                     onLaunch={() => onLaunchSession(session)}
                     onRenameChange={onRenameValueChange}

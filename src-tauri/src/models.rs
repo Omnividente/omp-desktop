@@ -271,6 +271,7 @@ pub struct SessionSummary {
     pub cwd: String,
     pub project_key: String,
     pub file_path: String,
+    pub parent_session_path: Option<String>,
     pub created_at: String,
     pub updated_at: u64,
     pub model: Option<String>,
