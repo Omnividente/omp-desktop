@@ -18,6 +18,7 @@
 - Проекты и недавние рабочие папки в боковой панели.
 - Автоматическое обнаружение стандартных JSONL-сессий OMP.
 - Поиск, открытие и возобновление существующих сессий.
+- Handoff-переходы отслеживаются без перезапуска: текущая сессия остаётся в корне раскрываемой группы, архивные предшественники вложены под ней, а поиск сохраняет полную цепочку.
 - Идемпотентный импорт OMP и Codex JSONL с режимами «пропустить», «обновить» и «создать копию»: JSONL ограничен 256 MiB, связанные артефакты копируются транзакционно без ссылок и ограничены 512 MiB, 10 000 записей и глубиной 16 каталогов.
 - Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину.
 - Несколько одновременно работающих терминальных вкладок.
@@ -66,6 +67,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Project sidebar with persisted recent workspaces.
 - Automatic discovery of standard OMP JSONL sessions.
 - Search, open, and resume existing sessions.
+- Handoff transitions are tracked without restarting: the current session stays at the root of an expandable group, archived predecessors are nested below it, and search preserves the full lineage.
 - Idempotent OMP and Codex JSONL import with skip, update, and copy modes: JSONL is capped at 256 MiB; related artifacts are copied transactionally without links and capped at 512 MiB, 10,000 entries, and 16 directory levels.
 - Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle.
 - Multiple concurrent terminal tabs.
