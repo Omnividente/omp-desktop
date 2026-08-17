@@ -8,6 +8,7 @@ import {
   classifyReleaseAsset,
   requireDraftRelease,
   selectDraftRelease,
+  waitForDraftRelease,
   verifyReleaseAssets,
   writeReleaseChecksums,
 } from "./verify-release-assets.mjs"
@@ -341,6 +342,68 @@ describe("release asset verification", () => {
           tag: fixture.tag,
         }),
       /Expected at most one release/,
+    )
+  })
+
+  it("retries a newly created draft with bounded backoff until it is visible", async () => {
+    const fixture = await releaseFixture()
+    const responses = [[[]], [[]], [[fixture.releaseMetadata]]]
+    const waits = []
+    const retries = []
+    let loadCount = 0
+
+    const release = await waitForDraftRelease({
+      loadReleasePages: async () => responses[loadCount++],
+      tag: fixture.tag,
+      expectedId: fixture.releaseMetadata.id,
+      delaysMs: [0, 10, 20],
+      wait: async (delayMs) => waits.push(delayMs),
+      onRetry: (retry) => retries.push(retry),
+    })
+
+    assert.equal(release.id, fixture.releaseMetadata.id)
+    assert.equal(loadCount, 3)
+    assert.deepEqual(waits, [10, 20])
+    assert.deepEqual(retries, [
+      { attempt: 1, totalAttempts: 3, nextDelayMs: 10 },
+      { attempt: 2, totalAttempts: 3, nextDelayMs: 20 },
+    ])
+  })
+
+  it("fails closed after the bounded draft visibility schedule is exhausted", async () => {
+    const fixture = await releaseFixture()
+    let loadCount = 0
+
+    await assert.rejects(
+      () =>
+        waitForDraftRelease({
+          loadReleasePages: async () => {
+            loadCount += 1
+            return [[]]
+          },
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id,
+          delaysMs: [0, 10, 20],
+          wait: async () => {},
+        }),
+      /was not visible after 3 attempts/,
+    )
+    assert.equal(loadCount, 3)
+  })
+
+  it("rejects a visible draft whose id differs from the created release", async () => {
+    const fixture = await releaseFixture()
+    const otherDraft = { ...fixture.releaseMetadata, id: fixture.releaseMetadata.id + 1 }
+
+    await assert.rejects(
+      () =>
+        waitForDraftRelease({
+          loadReleasePages: async () => [[otherDraft]],
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id,
+          delaysMs: [0],
+        }),
+      /but resolved/,
     )
   })
 
