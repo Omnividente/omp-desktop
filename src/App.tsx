@@ -1159,34 +1159,48 @@ function App() {
   )
 
   const togglePrimaryProviderPin = useCallback(
-    async (terminalId: string) => {
+    async (terminalId: string, pinned: boolean) => {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       if (
         !tab ||
         tab.kind !== "agent" ||
         tab.status !== "running" ||
         tab.switching ||
-        tab.primaryProviderPinPending
+        tab.primaryProviderPinPending ||
+        tab.primaryProviderPinned === pinned
       ) {
         return
       }
 
+      const previousPinned = tab.primaryProviderPinned
       setTabs((current) =>
         current.map((candidate) =>
           candidate.id === terminalId
-            ? { ...candidate, primaryProviderPinPending: true }
+            ? {
+                ...candidate,
+                primaryProviderPinned: pinned,
+                primaryProviderPinPending: true,
+              }
             : candidate,
         ),
       )
-      const timeout = window.setTimeout(() => {
-        primaryProviderPinTimeoutsRef.current.delete(terminalId)
+      const rollback = () => {
         setTabs((current) =>
           current.map((candidate) =>
-            candidate.id === terminalId
-              ? { ...candidate, primaryProviderPinPending: false }
+            candidate.id === terminalId && candidate.primaryProviderPinPending
+              ? {
+                  ...candidate,
+                  primaryProviderPinned: previousPinned,
+                  primaryProviderPinPending: false,
+                }
               : candidate,
           ),
         )
+      }
+      const timeout = window.setTimeout(() => {
+        primaryProviderPinTimeoutsRef.current.delete(terminalId)
+        rollback()
+        showError(t(langRef.current, "primaryProviderPinUnconfirmed"))
       }, 5_000)
       primaryProviderPinTimeoutsRef.current.set(terminalId, timeout)
 
@@ -1195,13 +1209,7 @@ function App() {
       } catch (error) {
         window.clearTimeout(timeout)
         primaryProviderPinTimeoutsRef.current.delete(terminalId)
-        setTabs((current) =>
-          current.map((candidate) =>
-            candidate.id === terminalId
-              ? { ...candidate, primaryProviderPinPending: false }
-              : candidate,
-          ),
-        )
+        rollback()
         showError(errorMessage(error, langRef.current))
       }
     },
@@ -1637,7 +1645,9 @@ function App() {
           onReady={handleTerminalReady}
           onReveal={reveal}
           onSwitch={(tabId, model, thinking) => void switchTerminalRuntime(tabId, model, thinking)}
-          onTogglePrimaryProviderPin={(terminalId) => void togglePrimaryProviderPin(terminalId)}
+          onTogglePrimaryProviderPin={(terminalId, pinned) =>
+            void togglePrimaryProviderPin(terminalId, pinned)
+          }
           onToggleTitlePin={toggleTabTitlePin}
           runtime={payload.runtime}
           runtimeStatusByTerminal={runtimeStatusByTerminal}

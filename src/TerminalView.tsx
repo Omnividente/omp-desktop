@@ -18,6 +18,7 @@ import {
   createMouseSelectionEdit,
   cursorMoveInput,
   deleteInput,
+  formatSelectionReply,
   type MouseSelectionEdit,
   type TerminalCell,
 } from "./terminalInput"
@@ -37,6 +38,12 @@ interface TerminalViewProps {
   onExit: (event: PtyExitEvent) => void
   onError: (message: string) => void
   onReady: (terminalId: string) => void
+}
+
+interface SelectionReplyAction {
+  text: string
+  left: number
+  top: number
 }
 
 function decodeBase64(data: string): Uint8Array {
@@ -71,6 +78,7 @@ export function TerminalView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [inputSelectionArmed, setInputSelectionArmed] = useState(false)
   const [inputHelpOpen, setInputHelpOpen] = useState(false)
+  const [selectionReply, setSelectionReply] = useState<SelectionReplyAction | null>(null)
   const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -89,6 +97,21 @@ export function TerminalView({
   onExitRef.current = onExit
   onErrorRef.current = onError
   onReadyRef.current = onReady
+
+  const replyToSelection = () => {
+    const terminal = terminalRef.current
+    if (!terminal || !selectionReply) return
+    const input = formatSelectionReply(
+      selectionReply.text,
+      t(language, "terminalReplyContext"),
+      terminal.modes.bracketedPasteMode,
+    )
+    if (!input) return
+    terminal.paste(input)
+    terminal.clearSelection()
+    setSelectionReply(null)
+    window.requestAnimationFrame(() => terminal.focus())
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -152,6 +175,30 @@ export function TerminalView({
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
     }
+    const showSelectionReply = (event: MouseEvent, text: string) => {
+      if (tab.kind !== "agent" || !text.trim()) {
+        setSelectionReply(null)
+        return
+      }
+      const view = container.parentElement
+      if (!view) return
+      const bounds = view.getBoundingClientRect()
+      const actionWidth = 92
+      const actionGap = 10
+      const pointerX = event.clientX - bounds.left
+      const pointerY = event.clientY - bounds.top
+      const horizontalOffset = actionWidth / 2 + actionGap
+      const placeRight = pointerX + actionWidth + actionGap <= bounds.width
+      const left = Math.min(
+        Math.max(
+          pointerX + (placeRight ? horizontalOffset : -horizontalOffset),
+          actionWidth / 2 + 8,
+        ),
+        bounds.width - actionWidth / 2 - 8,
+      )
+      const top = Math.min(Math.max(pointerY, 20), Math.max(20, bounds.height - 20))
+      setSelectionReply({ text, left, top })
+    }
 
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true
@@ -177,6 +224,7 @@ export function TerminalView({
         selectAllArmedRef.current = true
         setInputSelectionArmed(true)
         mouseSelection = null
+        setSelectionReply(null)
         terminal.clearSelection()
         return false
       }
@@ -207,6 +255,7 @@ export function TerminalView({
     const handleMouseDown = (event: MouseEvent) => {
       terminal.focus()
       clearArmedSelection()
+      setSelectionReply(null)
       pointerDownCell =
         event.button === 0 && terminal.modes.mouseTrackingMode === "none"
           ? bufferCellFromMouseEvent(terminal, container, event)
@@ -227,16 +276,30 @@ export function TerminalView({
         const text = terminal.getSelection()
         if (range && text) {
           mouseSelection = createMouseSelectionEdit(terminal, range, releaseCell, text)
+          showSelectionReply(event, text)
         }
       } else if (pointerDownCell.x === releaseCell.x && pointerDownCell.y === releaseCell.y) {
+        setSelectionReply(null)
         const move = cursorMoveInput(terminal, releaseCell)
         if (move) sendInput(move)
       }
       pointerDownCell = null
     }
+    const handleContextMenu = (event: MouseEvent) => {
+      if (tab.kind !== "agent" || !terminal.hasSelection()) return
+      const text = terminal.getSelection()
+      if (!text.trim()) return
+      event.preventDefault()
+      showSelectionReply(event, text)
+    }
     container.addEventListener("mousedown", handleMouseDown)
+    container.addEventListener("contextmenu", handleContextMenu)
     container.addEventListener("mouseup", handleMouseUp)
     container.addEventListener("focusout", handleFocusOut)
+    const selectionSubscription = terminal.onSelectionChange(() => {
+      if (!terminal.hasSelection()) setSelectionReply(null)
+    })
+    const scrollSubscription = terminal.onScroll(() => setSelectionReply(null))
 
     let disposed = false
     let lastCols = 0
@@ -371,9 +434,12 @@ export function TerminalView({
       container.removeEventListener("mousedown", handleMouseDown)
       container.removeEventListener("mouseup", handleMouseUp)
       container.removeEventListener("focusout", handleFocusOut)
+      container.removeEventListener("contextmenu", handleContextMenu)
       selectAllArmedRef.current = false
       dataSubscription.dispose()
       binarySubscription.dispose()
+      selectionSubscription.dispose()
+      scrollSubscription.dispose()
       for (const unlisten of unlisteners) {
         unlisten()
       }
@@ -415,6 +481,7 @@ export function TerminalView({
     selectAllArmedRef.current = false
     setInputHelpOpen(false)
     setInputSelectionArmed(false)
+    setSelectionReply(null)
   }, [active])
 
   return (
@@ -423,6 +490,20 @@ export function TerminalView({
       onMouseDown={() => terminalRef.current?.focus()}
     >
       <div className="terminal-host" ref={containerRef} />
+      {tab.kind === "agent" && selectionReply && (
+        <button
+          aria-label={t(language, "terminalReplyToSelection")}
+          className="terminal-selection-reply"
+          onClick={replyToSelection}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{ left: selectionReply.left, top: selectionReply.top }}
+          title={t(language, "terminalReplyToSelection")}
+          type="button"
+        >
+          <Icon name="reply" size={13} />
+          <span>{t(language, "terminalReplyToSelection")}</span>
+        </button>
+      )}
       {tab.kind === "agent" && (
         <button
           aria-expanded={inputHelpOpen}

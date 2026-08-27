@@ -8,6 +8,7 @@ const CLEAR_OMP_EDITOR = "\x03"
 const MAX_MOUSE_EDIT_ROWS = 8
 const MAX_MOUSE_EDIT_CELLS = 4096
 
+const UNSAFE_SELECTION_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
 export interface TerminalCell {
   x: number
   y: number
@@ -22,6 +23,35 @@ export interface MouseSelectionEdit {
 interface BufferRange {
   start: { x: number; y: number }
   end: { x: number; y: number }
+}
+
+export function formatSelectionReply(
+  text: string,
+  introduction: string,
+  multiline: boolean,
+): string {
+  const lines = text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(UNSAFE_SELECTION_CONTROLS, "")
+    .split("\n")
+
+  while (lines.length > 0 && lines[0].trim() === "") lines.shift()
+  while (lines.length > 0 && lines.at(-1)?.trim() === "") lines.pop()
+  if (lines.length === 0) return ""
+
+  const heading = introduction.trim()
+  if (!heading) return ""
+  if (!multiline) {
+    const compact = lines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" ↵ ")
+    return compact ? `${heading} “${compact}” — ` : ""
+  }
+
+  const quote = lines.map((line) => (line.trimEnd() ? `> ${line.trimEnd()}` : ">")).join("\n")
+  return `${heading}\n\n${quote}\n\n`
 }
 
 export function bufferCellFromMouseEvent(

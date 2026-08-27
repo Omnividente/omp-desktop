@@ -16,7 +16,7 @@ interface SessionControlsProps {
   lang: Lang
   runtimeStatus: RuntimeHealthStatus
   onSwitch: (tabId: string, model: string, thinking: string | null) => void
-  onTogglePrimaryProviderPin: (tabId: string) => void
+  onTogglePrimaryProviderPin: (tabId: string, pinned: boolean) => void
 }
 
 export function SessionControls({
@@ -81,6 +81,15 @@ export function SessionControls({
     switchSelection(baseModel, nextThinking)
   }
 
+  const providerPinAction = t(
+    lang,
+    tab.primaryProviderPinned ? "unpinPrimaryProvider" : "pinPrimaryProvider",
+  )
+  const providerPinState = t(
+    lang,
+    tab.primaryProviderPinned ? "primaryProviderPinOn" : "primaryProviderPinOff",
+  )
+
   return (
     <div aria-busy={tab.switching} className="session-controls">
       <select
@@ -124,19 +133,20 @@ export function SessionControls({
         )}
       </select>
       <button
-        aria-label={t(
-          lang,
-          tab.primaryProviderPinned ? "unpinPrimaryProvider" : "pinPrimaryProvider",
-        )}
-        aria-pressed={tab.primaryProviderPinned}
-        className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}`}
+        aria-busy={tab.primaryProviderPinPending}
+        aria-checked={tab.primaryProviderPinned}
+        aria-label={`${t(lang, "primaryProvider")}: ${providerPinState}. ${providerPinAction}`}
+        className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}${tab.primaryProviderPinPending ? " is-pending" : ""}`}
         disabled={tab.switching || tab.primaryProviderPinPending}
-        onClick={() => onTogglePrimaryProviderPin(tab.id)}
-        title={t(lang, tab.primaryProviderPinned ? "unpinPrimaryProvider" : "pinPrimaryProvider")}
+        onClick={() => onTogglePrimaryProviderPin(tab.id, !tab.primaryProviderPinned)}
+        role="switch"
+        title={providerPinAction}
         type="button"
       >
         <Icon name="pin" size={11} />
-        <span>{t(lang, "primaryProvider")}</span>
+        <span className="primary-provider-pin-label">{t(lang, "primaryProvider")}</span>
+        <span aria-hidden="true" className="primary-provider-toggle-track" />
+        <span className="primary-provider-pin-state">{providerPinState}</span>
       </button>
       {runtimeStatus === "fallback" && !tab.switching && (
         <span aria-live="polite" className="session-fallback">

@@ -39,7 +39,7 @@ interface TerminalWorkspaceProps {
   onReady: (terminalId: string) => void
   onReveal: (path: string) => void
   onSwitch: (terminalId: string, model: string, thinking: string | null) => void
-  onTogglePrimaryProviderPin: (terminalId: string) => void
+  onTogglePrimaryProviderPin: (terminalId: string, pinned: boolean) => void
   onToggleTitlePin: (tab: TerminalTab) => void
 }
 
