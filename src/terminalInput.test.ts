@@ -4,6 +4,7 @@ import {
   createMouseSelectionEdit,
   cursorMoveInput,
   deleteInput,
+  formatSelectionReply,
   type TerminalCell,
 } from "./terminalInput"
 
@@ -98,5 +99,27 @@ describe("terminal desktop input editing", () => {
 
   it("maps Ctrl+A followed by delete to OMP's clear-editor chord", () => {
     expect(deleteInput(terminalFixture(), true, null)).toBe("\x03")
+  })
+})
+
+describe("terminal selection replies", () => {
+  it("formats multiline selections as explicit Markdown context", () => {
+    expect(
+      formatSelectionReply(
+        "\r\n First line  \r\n\r\nSecond\u00a0line\r\n",
+        "По выделенному фрагменту:",
+        true,
+      ),
+    ).toBe("По выделенному фрагменту:\n\n>  First line\n>\n> Second line\n\n")
+  })
+
+  it("uses a safe single-line fallback without bracketed paste mode", () => {
+    expect(formatSelectionReply("first\nsecond\u0000", "Selected passage:", false)).toBe(
+      "Selected passage: “first ↵ second” — ",
+    )
+  })
+
+  it("does not create a reply for an empty selection", () => {
+    expect(formatSelectionReply("\r\n\u0000  \n", "Selected passage:", true)).toBe("")
   })
 })

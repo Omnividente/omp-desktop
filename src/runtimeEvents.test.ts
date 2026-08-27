@@ -59,15 +59,22 @@ describe("runtime event contract", () => {
     expect(updated.currentModelRole).toBe("review")
   })
 
-  it("applies primary provider pin confirmation and clears pending state", () => {
-    const pending = { ...tab, primaryProviderPinPending: true }
-    expect(
-      applyRuntimeEventToTab(
-        pending,
-        event({ kind: "primaryProviderPinChange", primaryProviderPinned: true }),
-      ),
-    ).toMatchObject({ primaryProviderPinned: true, primaryProviderPinPending: false })
-  })
+  it.each([true, false])(
+    "applies primary provider pin confirmation %s and clears pending state",
+    (pinned) => {
+      const pending = {
+        ...tab,
+        primaryProviderPinned: !pinned,
+        primaryProviderPinPending: true,
+      }
+      expect(
+        applyRuntimeEventToTab(
+          pending,
+          event({ kind: "primaryProviderPinChange", primaryProviderPinned: pinned }),
+        ),
+      ).toMatchObject({ primaryProviderPinned: pinned, primaryProviderPinPending: false })
+    },
+  )
 
   it("uses fallback metadata without treating the upstream role as a fallback marker", () => {
     const fallback = event({

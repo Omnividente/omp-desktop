@@ -26,7 +26,7 @@
 - Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты.
 - Монитор системных ресурсов показывает доступную RAM, swap pressure, свободное место для сессий, проекта и временных файлов, а также RSS Desktop и прямых процессов OMP. Он ничего не завершает и не удаляет автоматически.
 - Боковая панель имеет сохраняемые режимы «развёрнута», «компактная» и «автоскрытие» (`Ctrl+B`).
-- Полные Unicode-названия сессий доступны по наведению и keyboard focus. В терминале `Ctrl+A` явно выбирает текущий ввод OMP для очистки; перемещение мышью ограничено безопасно распознанными wrapped-строками.
+- Полные Unicode-названия сессий доступны по наведению и keyboard focus. Выделенный текст терминала можно добавить в текущий ввод как явную цитату кнопкой «Ответить» или правой кнопкой мыши; отправка остаётся под контролем пользователя. `Ctrl+A` явно выбирает текущий ввод OMP для очистки, а перемещение мышью ограничено безопасно распознанными wrapped-строками.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -75,7 +75,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Configurable OMP executable, session root, models, language, and fonts.
 - The resource monitor reports available RAM, swap pressure, free space for sessions, the workspace and temporary files, plus RSS for Desktop and direct OMP processes. It never terminates processes or deletes data automatically.
 - The project sidebar has persisted expanded, compact and auto-hide modes (`Ctrl+B`).
-- Full Unicode session titles are available on hover and keyboard focus. In the terminal, `Ctrl+A` visibly arms the current OMP input for clearing; mouse movement is limited to safely recognized wrapped lines.
+- Full Unicode session titles are available on hover and keyboard focus. Selected terminal text can be added to the current input as an explicit quote via Reply or the right mouse button, while sending remains under user control. `Ctrl+A` visibly arms the current OMP input for clearing; mouse movement is limited to safely recognized wrapped lines.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation

@@ -20,6 +20,7 @@ export type IconName =
   | "play"
   | "plus"
   | "refresh"
+  | "reply"
   | "search"
   | "settings"
   | "spark"
@@ -59,6 +60,7 @@ const paths: Record<Exclude<IconName, "logo">, string[]> = {
   play: ["m8 5 11 7-11 7Z"],
   plus: ["M12 5v14", "M5 12h14"],
   refresh: ["M20 11a8 8 0 1 0-2.3 5.7L20 14", "M20 19v-5h-5"],
+  reply: ["m9 17-5-5 5-5", "M4 12h9a7 7 0 0 1 7 7v1"],
   search: ["m21 21-4.3-4.3", "M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"],
   settings: [
     "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z",
