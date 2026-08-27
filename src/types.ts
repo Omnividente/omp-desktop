@@ -10,6 +10,8 @@ export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
   recentWorkspaces: string[]
+  workspaceNames: Record<string, string>
+  hiddenWorkspaces: string[]
   sessionTitlePins: Record<string, string>
   railMode: RailMode
   language: "ru" | "en"
@@ -81,6 +83,7 @@ export interface SessionSummary {
   configuredThinkingLevel: string | null
   source: string
   hasMessages: boolean
+  primaryProviderPinned: boolean
 }
 
 export interface TranscriptEntry {
@@ -194,6 +197,7 @@ export interface OmpConfigSnapshot {
   defaultThinkingLevel: string | null
   modelFallbackEnabled: boolean
   fallbackChains: Record<string, string[]>
+  proxyProviders: string[]
   providerEnvKeys: string[]
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
@@ -207,6 +211,7 @@ export interface OmpConfigSaveRequest {
   defaultThinkingLevel?: string | null
   modelFallbackEnabled?: boolean | null
   fallbackChains?: Record<string, string[]> | null
+  proxyProviders?: string[] | null
   providerEnv?: Record<string, string> | null
 }
 
@@ -265,6 +270,11 @@ export interface PtySessionEvent {
   session: SessionSummary
 }
 
+export interface PtySessionTitleEvent {
+  terminalId: string
+  title: string
+}
+
 export type PtyRuntimeEventKind =
   | "activity"
   | "runtimeError"
@@ -272,6 +282,7 @@ export type PtyRuntimeEventKind =
   | "retryFallbackApplied"
   | "thinkingLevelChange"
   | "modelError"
+  | "primaryProviderPinChange"
 
 export interface PtyRuntimeEvent {
   terminalId: string
@@ -286,6 +297,7 @@ export interface PtyRuntimeEvent {
   fallbackTo: string | null
   fallbackRole: string | null
   resolvedModelIsFallback: boolean | null
+  primaryProviderPinned: boolean | null
 }
 
 export interface PtyUpdateEvent {
@@ -325,4 +337,6 @@ export interface TerminalTab {
   currentModelRole?: string | null
   currentThinking?: string | null
   currentThinkingConfigured?: string | null
+  primaryProviderPinned: boolean
+  primaryProviderPinPending: boolean
 }

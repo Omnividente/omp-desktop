@@ -9,7 +9,7 @@ use crate::{
     update,
 };
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tauri::{AppHandle, Manager, State};
 
 const KNOWN_ROLES: &[&str] = &[
@@ -75,6 +75,7 @@ pub fn load_config_snapshot(
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
         model_fallback_enabled: extract_bool(&raw, "retry.modelFallback").unwrap_or(true),
         fallback_chains: extract_string_lists(&raw, "retry.fallbackChains"),
+        proxy_providers: extract_string_list(&raw, "providers.proxyMode"),
         provider_env_keys: PROVIDER_ENV_KEYS
             .iter()
             .map(|key| (*key).to_owned())
@@ -290,6 +291,10 @@ pub fn save_config(
         .fallback_chains
         .map(normalize_fallback_chains)
         .transpose()?;
+    let expected_proxy_providers = request
+        .proxy_providers
+        .map(normalize_proxy_providers)
+        .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
 
     let credentials_changed = if let Some(provider_env) = request.provider_env {
@@ -331,6 +336,14 @@ pub fn save_config(
                 &app_settings.provider_env,
             )?;
         }
+        if let Some(providers) = expected_proxy_providers.as_ref() {
+            set_omp_config(
+                &omp.executable,
+                "providers.proxyMode",
+                &serde_json::to_value(providers).unwrap_or(Value::Array(Vec::new())),
+                &app_settings.provider_env,
+            )?;
+        }
         if let Some(enabled) = expected_model_fallback {
             set_omp_config(
                 &omp.executable,
@@ -367,12 +380,15 @@ pub fn save_config(
         let snapshot = load_config_snapshot(app, &app_settings)?;
         verify_saved_config(
             &snapshot,
-            &expected_roles,
-            expected_advisor,
-            expected_auto_resume,
-            expected_thinking.as_deref(),
-            expected_model_fallback,
-            expected_fallback_chains.as_ref(),
+            SavedConfigExpectation {
+                roles: &expected_roles,
+                advisor: expected_advisor,
+                auto_resume: expected_auto_resume,
+                thinking: expected_thinking.as_deref(),
+                model_fallback: expected_model_fallback,
+                fallback_chains: expected_fallback_chains.as_ref(),
+                proxy_providers: expected_proxy_providers.as_deref(),
+            },
         )?;
         settings_save_attempted = true;
         crate::settings::save_settings(app, &app_settings)?;
@@ -389,6 +405,7 @@ pub fn save_config(
             expected_thinking.is_some(),
             expected_model_fallback.is_some(),
             expected_fallback_chains.is_some(),
+            expected_proxy_providers.is_some(),
         );
         if credentials_changed {
             if let Err(rollback_error) =
@@ -421,6 +438,7 @@ fn rollback_omp_config(
     thinking_touched: bool,
     model_fallback_touched: bool,
     fallback_chains_touched: bool,
+    proxy_providers_touched: bool,
 ) -> Vec<String> {
     let mut errors = Vec::new();
     let roles = Value::Object(
@@ -441,6 +459,12 @@ fn rollback_omp_config(
         restore(
             "retry.fallbackChains",
             serde_json::to_value(&previous.fallback_chains).unwrap_or(Value::Object(Map::new())),
+        );
+    }
+    if proxy_providers_touched {
+        restore(
+            "providers.proxyMode",
+            serde_json::to_value(&previous.proxy_providers).unwrap_or(Value::Array(Vec::new())),
         );
     }
     if model_fallback_touched {
@@ -468,14 +492,19 @@ fn rollback_omp_config(
     errors
 }
 
+struct SavedConfigExpectation<'a> {
+    roles: &'a BTreeMap<String, String>,
+    advisor: Option<bool>,
+    auto_resume: Option<bool>,
+    thinking: Option<&'a str>,
+    model_fallback: Option<bool>,
+    fallback_chains: Option<&'a BTreeMap<String, Vec<String>>>,
+    proxy_providers: Option<&'a [String]>,
+}
+
 fn verify_saved_config(
     snapshot: &OmpConfigSnapshot,
-    expected_roles: &BTreeMap<String, String>,
-    expected_advisor: Option<bool>,
-    expected_auto_resume: Option<bool>,
-    expected_thinking: Option<&str>,
-    expected_model_fallback: Option<bool>,
-    expected_fallback_chains: Option<&BTreeMap<String, Vec<String>>>,
+    expected: SavedConfigExpectation<'_>,
 ) -> Result<(), String> {
     let actual_roles = snapshot
         .roles
@@ -483,25 +512,44 @@ fn verify_saved_config(
         .filter(|role| !role.selector.trim().is_empty())
         .map(|role| (role.role.clone(), role.selector.trim().to_owned()))
         .collect::<BTreeMap<_, _>>();
-    if &actual_roles != expected_roles {
+    if &actual_roles != expected.roles {
         return Err("OMP не применил сохранённые роли моделей".to_owned());
     }
-    if expected_advisor.is_some_and(|expected| snapshot.advisor_enabled != expected) {
+    if expected
+        .advisor
+        .is_some_and(|value| snapshot.advisor_enabled != value)
+    {
         return Err("OMP не применил настройку советника".to_owned());
     }
-    if expected_auto_resume.is_some_and(|expected| snapshot.auto_resume != expected) {
+    if expected
+        .auto_resume
+        .is_some_and(|value| snapshot.auto_resume != value)
+    {
         return Err("OMP не применил настройку автопродолжения".to_owned());
     }
-    if expected_thinking
-        .is_some_and(|expected| snapshot.default_thinking_level.as_deref() != Some(expected))
+    if expected
+        .thinking
+        .is_some_and(|value| snapshot.default_thinking_level.as_deref() != Some(value))
     {
         return Err("OMP не применил уровень рассуждений".to_owned());
     }
-    if expected_model_fallback.is_some_and(|expected| snapshot.model_fallback_enabled != expected) {
+    if expected
+        .model_fallback
+        .is_some_and(|value| snapshot.model_fallback_enabled != value)
+    {
         return Err("OMP не применил включение резервных моделей".to_owned());
     }
-    if expected_fallback_chains.is_some_and(|expected| &snapshot.fallback_chains != expected) {
+    if expected
+        .fallback_chains
+        .is_some_and(|value| &snapshot.fallback_chains != value)
+    {
         return Err("OMP не применил цепочки резервных моделей".to_owned());
+    }
+    if expected
+        .proxy_providers
+        .is_some_and(|value| snapshot.proxy_providers != value)
+    {
+        return Err("OMP не применил proxy-режим провайдеров".to_owned());
     }
     Ok(())
 }
@@ -939,6 +987,22 @@ fn extract_string_lists(raw: &Value, key: &str) -> BTreeMap<String, Vec<String>>
         .unwrap_or_default()
 }
 
+fn extract_string_list(raw: &Value, key: &str) -> Vec<String> {
+    raw.pointer(&format!("/{key}/value"))
+        .and_then(Value::as_array)
+        .or_else(|| raw.get(key).and_then(Value::as_array))
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn extract_bool(raw: &Value, key: &str) -> Option<bool> {
     raw.pointer(&format!("/{key}/value"))
         .and_then(Value::as_bool)
@@ -950,6 +1014,20 @@ fn extract_string(raw: &Value, key: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or_else(|| raw.get(key).and_then(Value::as_str).map(str::to_owned))
+}
+
+fn normalize_proxy_providers(providers: Vec<String>) -> Result<Vec<String>, String> {
+    let mut normalized = BTreeSet::new();
+    for provider in providers {
+        let provider = provider.trim();
+        if !valid_selector_segment(provider) {
+            return Err(format!(
+                "Некорректный provider id для proxy-режима: `{provider}`"
+            ));
+        }
+        normalized.insert(provider.to_owned());
+    }
+    Ok(normalized.into_iter().collect())
 }
 
 fn normalize_fallback_chains(
@@ -1282,6 +1360,31 @@ providers:
             ])
         );
         assert_eq!(chains.get("provider/*"), Some(&vec!["other/*".to_owned()]));
+    }
+
+    #[test]
+    fn proxy_provider_config_extracts_wrapped_array() {
+        let raw = serde_json::json!({
+            "providers.proxyMode": { "value": ["codex-lb", " gateway ", 7, ""] }
+        });
+        assert_eq!(
+            extract_string_list(&raw, "providers.proxyMode"),
+            vec!["codex-lb".to_owned(), "gateway".to_owned()]
+        );
+    }
+
+    #[test]
+    fn proxy_provider_normalization_deduplicates_and_rejects_selectors() {
+        assert_eq!(
+            normalize_proxy_providers(vec![
+                " codex-lb ".to_owned(),
+                "gateway".to_owned(),
+                "codex-lb".to_owned(),
+            ])
+            .unwrap(),
+            vec!["codex-lb".to_owned(), "gateway".to_owned()]
+        );
+        assert!(normalize_proxy_providers(vec!["provider/model".to_owned()]).is_err());
     }
 
     #[test]

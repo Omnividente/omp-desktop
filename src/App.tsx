@@ -19,6 +19,8 @@ import {
   importSessions,
   listCodexSessions,
   loadOmpConfig,
+  removeWorkspace as removeWorkspaceFromList,
+  renameWorkspace,
   sampleResourceHealth,
   saveSettingsBundle,
   setSessionTitlePin,
@@ -31,7 +33,7 @@ import { ClientUpdateNotice } from "./ClientUpdateNotice"
 import { IncidentCenter } from "./IncidentCenter"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
-import { matchesSelector, splitSelector } from "./ModelPicker"
+import { matchesSelector, splitSelector, thinkingOptionsForModel } from "./ModelPicker"
 import { t, type Lang } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
@@ -72,10 +74,12 @@ import type {
   PtyExitEvent,
   PtyRuntimeEvent,
   PtySessionEvent,
+  PtySessionTitleEvent,
   PtyUpdateEvent,
   OmpConfigSnapshot,
   SessionSummary,
   TerminalTab,
+  WorkspaceSummary,
 } from "./types"
 import { localeTag, mergeSessionIntoPayload, normalizedPath, tabMatchesSession } from "./uiUtils"
 import { useClientUpdater } from "./useClientUpdater"
@@ -99,8 +103,10 @@ type SessionLaunchTarget = Pick<
   | "model"
   | "thinkingLevel"
   | "configuredThinkingLevel"
+  | "primaryProviderPinned"
 >
 const MAX_ENDED_RUNTIME_TERMINALS = 256
+const UPDATE_REMINDER_SNOOZE_MS = 5 * 60 * 60 * 1_000
 
 function summarizeImport(items: ImportItemResult[], language: Lang): string {
   const counts = {
@@ -174,6 +180,7 @@ function App() {
   const settingsWarningShownRef = useRef<string | null>(null)
   const pendingInitialInputRef = useRef(new Map<string, string>())
   const readyTerminalIdsRef = useRef(new Set<string>())
+  const primaryProviderPinTimeoutsRef = useRef(new Map<string, number>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
     terminalId: string
@@ -186,12 +193,22 @@ function App() {
   const [startupError, setStartupError] = useState<string | null>(null)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [renamingWorkspaceKey, setRenamingWorkspaceKey] = useState<string | null>(null)
+  const [workspaceNameValue, setWorkspaceNameValue] = useState("")
+  const [workspaceBusyKey, setWorkspaceBusyKey] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null)
   const [updateSourceTerminalId, setUpdateSourceTerminalId] = useState<string | null>(null)
   const pendingUpdateRestartRef = useRef<PendingUpdateRestart | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateNoticeVisible, setUpdateNoticeVisible] = useState(false)
+  const updateInfoRef = useRef(updateInfo)
+  updateInfoRef.current = updateInfo
+  const updateSourceTerminalIdRef = useRef(updateSourceTerminalId)
+  updateSourceTerminalIdRef.current = updateSourceTerminalId
+  const ignoredUpdateReminderKeysRef = useRef(new Set<string>())
+  const updateReminderSnoozedUntilRef = useRef(0)
+  const updateReminderTimerRef = useRef<number | null>(null)
   const [codexOpen, setCodexOpen] = useState(false)
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([])
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({})
@@ -257,6 +274,44 @@ function App() {
   const dismissToast = useCallback((id: string) => {
     setToastState((current) => dismissToastFromState(current, id, Date.now()))
   }, [])
+  const updateReminderKey = useCallback((terminalId: string) => {
+    const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+    return tab?.sessionPath ?? tab?.sessionId ?? `terminal:${terminalId}`
+  }, [])
+  const updateReminderAllowed = useCallback(
+    (terminalId: string | null) =>
+      Date.now() >= updateReminderSnoozedUntilRef.current &&
+      (!terminalId || !ignoredUpdateReminderKeysRef.current.has(updateReminderKey(terminalId))),
+    [updateReminderKey],
+  )
+  const clearUpdateReminderTimer = useCallback(() => {
+    if (updateReminderTimerRef.current === null) return
+    window.clearTimeout(updateReminderTimerRef.current)
+    updateReminderTimerRef.current = null
+  }, [])
+  const remindUpdateLater = useCallback(() => {
+    clearUpdateReminderTimer()
+    updateReminderSnoozedUntilRef.current = Date.now() + UPDATE_REMINDER_SNOOZE_MS
+    setUpdateNoticeVisible(false)
+    updateReminderTimerRef.current = window.setTimeout(() => {
+      updateReminderTimerRef.current = null
+      updateReminderSnoozedUntilRef.current = 0
+      const terminalId = updateSourceTerminalIdRef.current
+      if (updateInfoRef.current?.hasUpdate && updateReminderAllowed(terminalId)) {
+        setUpdateNoticeVisible(true)
+      }
+    }, UPDATE_REMINDER_SNOOZE_MS)
+  }, [clearUpdateReminderTimer, updateReminderAllowed])
+  const dismissUpdateForSession = useCallback(() => {
+    const terminalId = updateSourceTerminalIdRef.current
+    if (terminalId) {
+      ignoredUpdateReminderKeysRef.current.add(updateReminderKey(terminalId))
+    }
+    clearUpdateReminderTimer()
+    updateReminderSnoozedUntilRef.current = 0
+    setUpdateNoticeVisible(false)
+  }, [clearUpdateReminderTimer, updateReminderKey])
+  useEffect(() => clearUpdateReminderTimer, [clearUpdateReminderTimer])
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
@@ -359,6 +414,71 @@ function App() {
     [applyPayload, lang, payload, railModeSaving, selectedWorkspaceKey, showError],
   )
 
+  const startWorkspaceRename = useCallback((workspace: WorkspaceSummary) => {
+    setRenamingWorkspaceKey(workspace.key)
+    setWorkspaceNameValue(workspace.name)
+  }, [])
+
+  const submitWorkspaceRename = useCallback(
+    async (workspace: WorkspaceSummary) => {
+      if (renamingWorkspaceKey !== workspace.key || workspaceBusyKey === workspace.key) return
+      const name = workspaceNameValue.trim()
+      setRenamingWorkspaceKey(null)
+      if (!name || name === workspace.name) {
+        setWorkspaceNameValue("")
+        return
+      }
+      setWorkspaceBusyKey(workspace.key)
+      try {
+        applyPayload(await renameWorkspace(workspace.path, name), workspace.key)
+      } catch (error) {
+        showError(errorMessage(error, lang))
+      } finally {
+        setWorkspaceBusyKey(null)
+        setWorkspaceNameValue("")
+      }
+    },
+    [applyPayload, lang, renamingWorkspaceKey, showError, workspaceBusyKey, workspaceNameValue],
+  )
+
+  const handleWorkspaceRenameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>, workspace: WorkspaceSummary) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        event.currentTarget.blur()
+      } else if (event.key === "Escape") {
+        event.preventDefault()
+        setRenamingWorkspaceKey(null)
+        setWorkspaceNameValue(workspace.name)
+      }
+    },
+    [],
+  )
+
+  const removeWorkspace = useCallback(
+    async (workspace: WorkspaceSummary) => {
+      if (workspaceBusyKey === workspace.key) return
+      const shouldRemove = await confirm(
+        t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
+        { title: t(lang, "removeProject"), kind: "warning" },
+      )
+      if (!shouldRemove) return
+      setWorkspaceBusyKey(workspace.key)
+      try {
+        applyPayload(await removeWorkspaceFromList(workspace.path))
+        if (renamingWorkspaceKey === workspace.key) {
+          setRenamingWorkspaceKey(null)
+          setWorkspaceNameValue("")
+        }
+      } catch (error) {
+        showError(errorMessage(error, lang))
+      } finally {
+        setWorkspaceBusyKey(null)
+      }
+    },
+    [applyPayload, lang, renamingWorkspaceKey, showError, workspaceBusyKey],
+  )
+
   const focusPersistentRailControl = useCallback(() => {
     const activeElement = document.activeElement
     if (!(activeElement instanceof HTMLElement)) return
@@ -411,6 +531,8 @@ function App() {
                   session.configuredThinkingLevel ??
                   session.thinkingLevel ??
                   tab.currentThinkingConfigured,
+                primaryProviderPinned: session.primaryProviderPinned,
+                primaryProviderPinPending: false,
               }
             : tab,
         ),
@@ -431,9 +553,51 @@ function App() {
       return null
     })
 
+    const unlistenSessionTitle = listen<PtySessionTitleEvent>(
+      "pty-session-title",
+      ({ payload: event }) => {
+        if (disposed) return
+        const title = event.title.trim()
+        const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+        if (!title || !terminal || terminal.pinnedTitle !== null) return
+
+        setTabs((current) =>
+          current.map((tab) => (tab.id === event.terminalId ? { ...tab, label: title } : tab)),
+        )
+        const discovered = discoveredSessionsRef.current.get(event.terminalId)
+        if (discovered && discovered.pinnedTitle === null) {
+          discoveredSessionsRef.current.set(event.terminalId, { ...discovered, title })
+        }
+        setPayload((current) => {
+          if (!current) return current
+          let changed = false
+          const sessions = current.sessions.map((session) => {
+            if (
+              session.pinnedTitle !== null ||
+              !tabMatchesSession(terminal, session, current.runtime.platform) ||
+              session.title === title
+            ) {
+              return session
+            }
+            changed = true
+            return { ...session, title }
+          })
+          return changed ? { ...current, sessions } : current
+        })
+      },
+    ).catch((error) => {
+      if (!disposed) showError(errorMessage(error, langRef.current))
+      return null
+    })
+
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
+      if (event.kind === "primaryProviderPinChange") {
+        const timeout = primaryProviderPinTimeoutsRef.current.get(event.terminalId)
+        if (timeout !== undefined) window.clearTimeout(timeout)
+        primaryProviderPinTimeoutsRef.current.delete(event.terminalId)
+      }
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
       const now = Date.now()
       setRuntimeIncidentState((current) =>
@@ -471,7 +635,7 @@ function App() {
               message: "",
             },
       )
-      setUpdateNoticeVisible(true)
+      if (updateReminderAllowed(event.terminalId)) setUpdateNoticeVisible(true)
     }).catch((error) => {
       if (!disposed) showError(errorMessage(error, langRef.current))
       return null
@@ -480,10 +644,11 @@ function App() {
     return () => {
       disposed = true
       void unlistenSession.then((stop) => stop?.())
+      void unlistenSessionTitle.then((stop) => stop?.())
       void unlistenRuntime.then((stop) => stop?.())
       void unlistenUpdate.then((stop) => stop?.())
     }
-  }, [applyPayload, pushToast, showError])
+  }, [applyPayload, pushToast, showError, updateReminderAllowed])
 
   const checkForUpdates = useCallback(async () => {
     setCheckingUpdate(true)
@@ -495,16 +660,16 @@ function App() {
         }
         return info
       })
-      setUpdateNoticeVisible((current) => info.hasUpdate || current)
-      if (!info.hasUpdate && !updateSourceTerminalId) {
-        setUpdateNoticeVisible(false)
-      }
+      const effectiveHasUpdate = info.hasUpdate || updateInfoRef.current?.hasUpdate === true
+      setUpdateNoticeVisible(
+        effectiveHasUpdate && updateReminderAllowed(updateSourceTerminalIdRef.current),
+      )
     } catch {
       // A live PTY notice remains authoritative when the registry check is temporarily unavailable.
     } finally {
       setCheckingUpdate(false)
     }
-  }, [updateSourceTerminalId])
+  }, [updateReminderAllowed])
 
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
@@ -752,6 +917,8 @@ function App() {
           currentModelRole: null,
           currentThinking: initialThinking,
           currentThinkingConfigured: initialConfiguredThinking,
+          primaryProviderPinned: runtimeSession?.primaryProviderPinned ?? false,
+          primaryProviderPinPending: false,
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
@@ -814,6 +981,8 @@ function App() {
         success: null,
         kind: "utility",
         switching: false,
+        primaryProviderPinned: false,
+        primaryProviderPinPending: false,
       }
       setTabs((current) => [...current, tab])
       setActiveTabId(tab.id)
@@ -957,7 +1126,7 @@ function App() {
           terminalId,
           model,
           thinking,
-          targetModel?.thinking ?? [],
+          thinkingOptionsForModel(targetModel),
           tab.currentModel ?? null,
           tab.currentThinking ?? null,
           tab.currentThinkingConfigured ?? tab.currentThinking ?? null,
@@ -989,6 +1158,56 @@ function App() {
     [lang, ompConfig, refresh, showError, tabs],
   )
 
+  const togglePrimaryProviderPin = useCallback(
+    async (terminalId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+      if (
+        !tab ||
+        tab.kind !== "agent" ||
+        tab.status !== "running" ||
+        tab.switching ||
+        tab.primaryProviderPinPending
+      ) {
+        return
+      }
+
+      setTabs((current) =>
+        current.map((candidate) =>
+          candidate.id === terminalId
+            ? { ...candidate, primaryProviderPinPending: true }
+            : candidate,
+        ),
+      )
+      const timeout = window.setTimeout(() => {
+        primaryProviderPinTimeoutsRef.current.delete(terminalId)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId
+              ? { ...candidate, primaryProviderPinPending: false }
+              : candidate,
+          ),
+        )
+      }, 5_000)
+      primaryProviderPinTimeoutsRef.current.set(terminalId, timeout)
+
+      try {
+        await writeTerminal(terminalId, "\x1bR")
+      } catch (error) {
+        window.clearTimeout(timeout)
+        primaryProviderPinTimeoutsRef.current.delete(terminalId)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId
+              ? { ...candidate, primaryProviderPinPending: false }
+              : candidate,
+          ),
+        )
+        showError(errorMessage(error, langRef.current))
+      }
+    },
+    [showError],
+  )
+
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
     setTabs((current) => {
       const draggedIndex = current.findIndex((tab) => tab.id === draggedId)
@@ -1014,6 +1233,11 @@ function App() {
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
+      const primaryProviderPinTimeout = primaryProviderPinTimeoutsRef.current.get(terminalId)
+      if (primaryProviderPinTimeout !== undefined) {
+        window.clearTimeout(primaryProviderPinTimeout)
+        primaryProviderPinTimeoutsRef.current.delete(terminalId)
+      }
       void closeTerminal(terminalId)
         .then(() => refresh())
         .catch((error) => showError(errorMessage(error, lang)))
@@ -1200,6 +1424,9 @@ function App() {
           setUpdateInfo(null)
           setUpdateSourceTerminalId(null)
           setUpdateNoticeVisible(false)
+          clearUpdateReminderTimer()
+          ignoredUpdateReminderKeysRef.current.clear()
+          updateReminderSnoozedUntilRef.current = 0
           showNotice(t(lang, "updateInstalled"))
           if (pendingUpdate.sourceTab?.sessionId && pendingUpdate.sourceTab.sessionPath) {
             const targetSession: SessionLaunchTarget = {
@@ -1211,6 +1438,7 @@ function App() {
               model: pendingUpdate.sourceTab.currentModel ?? null,
               thinkingLevel: pendingUpdate.sourceTab.currentThinking ?? null,
               configuredThinkingLevel: pendingUpdate.sourceTab.currentThinkingConfigured ?? null,
+              primaryProviderPinned: pendingUpdate.sourceTab.primaryProviderPinned,
             }
             showNotice(t(lang, "updateRestarted").replace("{title}", pendingUpdate.sourceTab.label))
             void launchSession(targetSession)
@@ -1220,7 +1448,16 @@ function App() {
         void refresh()
       }
     },
-    [activeTabId, checkForUpdates, lang, launchSession, refresh, showNotice, tabs],
+    [
+      activeTabId,
+      checkForUpdates,
+      clearUpdateReminderTimer,
+      lang,
+      launchSession,
+      refresh,
+      showNotice,
+      tabs,
+    ],
   )
 
   useEffect(() => {
@@ -1340,6 +1577,14 @@ function App() {
             setSearch("")
           }}
           selectedWorkspace={selectedWorkspace}
+          renamingWorkspaceKey={renamingWorkspaceKey}
+          workspaceBusyKey={workspaceBusyKey}
+          workspaceNameValue={workspaceNameValue}
+          onRemoveWorkspace={(workspace) => void removeWorkspace(workspace)}
+          onStartWorkspaceRename={startWorkspaceRename}
+          onSubmitWorkspaceRename={(workspace) => void submitWorkspaceRename(workspace)}
+          onWorkspaceNameChange={setWorkspaceNameValue}
+          onWorkspaceRenameKeyDown={handleWorkspaceRenameKeyDown}
           sessionList={{
             canLaunch: payload.runtime.ompAvailable,
             allSessions: workspaceSessions,
@@ -1392,6 +1637,7 @@ function App() {
           onReady={handleTerminalReady}
           onReveal={reveal}
           onSwitch={(tabId, model, thinking) => void switchTerminalRuntime(tabId, model, thinking)}
+          onTogglePrimaryProviderPin={(terminalId) => void togglePrimaryProviderPin(terminalId)}
           onToggleTitlePin={toggleTabTitlePin}
           runtime={payload.runtime}
           runtimeStatusByTerminal={runtimeStatusByTerminal}
@@ -1492,7 +1738,8 @@ function App() {
           disabled={launching !== null}
           info={updateInfo}
           language={lang}
-          onClose={() => setUpdateNoticeVisible(false)}
+          onDismissSession={updateSourceTerminalId ? dismissUpdateForSession : undefined}
+          onRemindLater={remindUpdateLater}
           onUpdate={() => void launchUpdate()}
         />
       )}

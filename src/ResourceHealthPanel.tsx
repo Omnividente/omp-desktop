@@ -160,9 +160,15 @@ export function ResourceHealthPanel({
                 <span>{resourceSeverityLabel(language, snapshot.memory.severity)}</span>
               </div>
               <meter
-                aria-label={`${t(language, "resourceMemory")}: ${t(language, "resourceMemoryAvailable")
+                aria-label={`${t(language, "resourceMemory")}: ${t(
+                  language,
+                  "resourceMemoryAvailable",
+                )
                   .replace("{available}", formatBytes(snapshot.memory.availableBytes))
-                  .replace("{total}", formatBytes(snapshot.memory.totalBytes))} · ${resourceSeverityLabel(language, snapshot.memory.severity)}`}
+                  .replace(
+                    "{total}",
+                    formatBytes(snapshot.memory.totalBytes),
+                  )} · ${resourceSeverityLabel(language, snapshot.memory.severity)}`}
                 max={snapshot.memory.totalBytes || 1}
                 min={0}
                 value={snapshot.memory.availableBytes}
@@ -202,7 +208,10 @@ export function ResourceHealthPanel({
                   <meter
                     aria-label={`${volume.mountPath}: ${t(language, "resourceDiskAvailable")
                       .replace("{available}", formatBytes(volume.availableBytes))
-                      .replace("{total}", formatBytes(volume.totalBytes))} · ${resourceSeverityLabel(language, volume.severity)}`}
+                      .replace(
+                        "{total}",
+                        formatBytes(volume.totalBytes),
+                      )} · ${resourceSeverityLabel(language, volume.severity)}`}
                     max={volume.totalBytes || 1}
                     min={0}
                     value={volume.availableBytes}

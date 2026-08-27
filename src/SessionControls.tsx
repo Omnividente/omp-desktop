@@ -1,5 +1,11 @@
 import type { ChangeEvent } from "react"
-import { matchesSelector, splitSelector } from "./ModelPicker"
+import { Icon } from "./Icon"
+import {
+  matchesSelector,
+  normalizeThinkingLevel,
+  splitSelector,
+  thinkingOptionsForModel,
+} from "./ModelPicker"
 import { t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import type { OmpConfigSnapshot, TerminalTab } from "./types"
@@ -10,6 +16,7 @@ interface SessionControlsProps {
   lang: Lang
   runtimeStatus: RuntimeHealthStatus
   onSwitch: (tabId: string, model: string, thinking: string | null) => void
+  onTogglePrimaryProviderPin: (tabId: string) => void
 }
 
 export function SessionControls({
@@ -18,6 +25,7 @@ export function SessionControls({
   lang,
   runtimeStatus,
   onSwitch,
+  onTogglePrimaryProviderPin,
 }: SessionControlsProps) {
   if (!ompConfig || tab.status !== "running" || tab.kind !== "agent") return null
 
@@ -25,20 +33,17 @@ export function SessionControls({
   const configured = splitSelector(tab.currentModel ?? defaultSelector)
   const selectedModel = ompConfig.models.find((model) => matchesSelector(model, configured.base))
   const baseModel = selectedModel ? splitSelector(selectedModel.selector).base : configured.base
-  const supportedThinking = selectedModel?.thinking ?? []
-  const thinkingOptions =
-    supportedThinking.length === 0
-      ? []
-      : ["off", "auto", ...supportedThinking.filter((level) => level !== "off" && level !== "auto")]
+  const thinkingOptions = thinkingOptionsForModel(selectedModel)
   const preferredThinking =
     tab.currentThinkingConfigured ??
     tab.currentThinking ??
     configured.thinking ??
     ompConfig.defaultThinkingLevel
-  const currentThinking =
-    preferredThinking && thinkingOptions.includes(preferredThinking)
-      ? preferredThinking
-      : (thinkingOptions[0] ?? null)
+  const currentThinking = normalizeThinkingLevel(
+    preferredThinking,
+    thinkingOptions,
+    ompConfig.defaultThinkingLevel,
+  )
 
   const modelsByProvider = ompConfig.models.reduce<Record<string, typeof ompConfig.models>>(
     (providers, model) => {
@@ -59,21 +64,12 @@ export function SessionControls({
     if (nextBase === baseModel) return
     const nextModel = ompConfig.models.find((model) => matchesSelector(model, nextBase))
     if (!nextModel?.available) return
-    const defaultThinking = ompConfig.defaultThinkingLevel
-    const nextOptions =
-      nextModel.thinking.length === 0
-        ? []
-        : [
-            "off",
-            "auto",
-            ...nextModel.thinking.filter((level) => level !== "off" && level !== "auto"),
-          ]
-    const nextThinking =
-      currentThinking && nextOptions.includes(currentThinking)
-        ? currentThinking
-        : defaultThinking && nextOptions.includes(defaultThinking)
-          ? defaultThinking
-          : (nextOptions[0] ?? null)
+    const nextOptions = thinkingOptionsForModel(nextModel)
+    const nextThinking = normalizeThinkingLevel(
+      currentThinking,
+      nextOptions,
+      ompConfig.defaultThinkingLevel,
+    )
     switchSelection(splitSelector(nextModel.selector).base, nextThinking)
   }
 
@@ -127,6 +123,21 @@ export function SessionControls({
           ))
         )}
       </select>
+      <button
+        aria-label={t(
+          lang,
+          tab.primaryProviderPinned ? "unpinPrimaryProvider" : "pinPrimaryProvider",
+        )}
+        aria-pressed={tab.primaryProviderPinned}
+        className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}`}
+        disabled={tab.switching || tab.primaryProviderPinPending}
+        onClick={() => onTogglePrimaryProviderPin(tab.id)}
+        title={t(lang, tab.primaryProviderPinned ? "unpinPrimaryProvider" : "pinPrimaryProvider")}
+        type="button"
+      >
+        <Icon name="pin" size={11} />
+        <span>{t(lang, "primaryProvider")}</span>
+      </button>
       {runtimeStatus === "fallback" && !tab.switching && (
         <span aria-live="polite" className="session-fallback">
           {t(lang, "fallbackActive")}

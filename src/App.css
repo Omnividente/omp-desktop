@@ -441,6 +441,9 @@ button:disabled {
   flex-direction: column;
 }
 
+.project-rail.is-compact .project-actions {
+  display: none;
+}
 .project-rail.is-compact .project-item {
   justify-content: center;
   padding: 6px 4px;
@@ -491,6 +494,18 @@ button:disabled {
   overflow-y: auto;
 }
 
+.project-item-row {
+  position: relative;
+  min-width: 0;
+}
+
+.project-item-row:hover .project-expand-marker,
+.project-item-row:focus-within .project-expand-marker,
+.project-item-row:hover .pin-dot,
+.project-item-row:focus-within .pin-dot {
+  opacity: 0;
+}
+
 .project-item {
   position: relative;
   display: flex;
@@ -506,6 +521,52 @@ button:disabled {
   background: transparent;
   cursor: pointer;
   text-align: left;
+}
+
+.project-item.is-renaming {
+  cursor: default;
+}
+
+.project-actions {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+}
+
+.project-item-row:hover .project-actions,
+.project-item-row:focus-within .project-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.project-actions button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  border-radius: 5px;
+  background: #1d231f;
+}
+
+.project-actions button:hover:not(:disabled) {
+  color: var(--accent);
+  background: #293029;
+}
+
+.project-actions .project-remove:hover:not(:disabled) {
+  color: #ff9b91;
+}
+
+.project-actions button:disabled {
+  opacity: 0.6;
 }
 
 .project-item:hover {
@@ -556,6 +617,23 @@ button:disabled {
 .project-copy strong {
   font-size: 12px;
   font-weight: 620;
+}
+
+.project-rename {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  color: var(--text);
+  border: 1px solid rgba(185, 242, 124, 0.45);
+  border-radius: 4px;
+  outline: none;
+  background: #111512;
+  font: inherit;
+}
+
+.project-rename:focus {
+  box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.1);
 }
 
 .project-copy small {
@@ -1305,6 +1383,20 @@ button:disabled {
   color: var(--danger);
   border-color: rgba(239, 112, 112, 0.22);
   background: rgba(239, 112, 112, 0.06);
+}
+
+.provider-proxy-toggle {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 8px 9px;
+}
+
+.provider-proxy-toggle strong {
+  font-size: 9px;
+}
+
+.provider-proxy-toggle small {
+  font-size: 8px;
 }
 
 .settings-role-skeletons.is-compact .settings-role-skeleton {
@@ -3217,6 +3309,43 @@ button:disabled {
   width: 132px;
 }
 
+.primary-provider-pin {
+  display: inline-flex;
+  height: 25px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: #88928c;
+  border: 1px solid #303732;
+  border-radius: 4px;
+  background: #111512;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.primary-provider-pin:hover:not(:disabled) {
+  color: #dce4de;
+  border-color: #465048;
+}
+
+.primary-provider-pin:focus-visible {
+  border-color: rgba(185, 242, 124, 0.7);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.1);
+}
+
+.primary-provider-pin.is-active {
+  color: var(--accent);
+  border-color: rgba(185, 242, 124, 0.45);
+  background: rgba(185, 242, 124, 0.08);
+}
+
+.primary-provider-pin:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .session-switching {
   color: var(--accent);
   white-space: nowrap;
@@ -3528,7 +3657,7 @@ button:disabled {
   right: 18px;
   bottom: 72px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 11px;
   width: min(520px, calc(100vw - 36px));

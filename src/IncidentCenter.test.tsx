@@ -29,6 +29,8 @@ const tab: TerminalTab = {
   currentModelRole: "default",
   currentThinking: "medium",
   currentThinkingConfigured: "medium",
+  primaryProviderPinned: false,
+  primaryProviderPinPending: false,
 }
 
 function runtimeIncident(overrides: Partial<RuntimeIncident> = {}): RuntimeIncident {

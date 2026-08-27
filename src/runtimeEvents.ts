@@ -63,5 +63,8 @@ export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent)
     currentThinking: event.thinkingLevel ?? tab.currentThinking,
     currentThinkingConfigured: event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
     activity: event.activity ?? tab.activity,
+    primaryProviderPinned: event.primaryProviderPinned ?? tab.primaryProviderPinned,
+    primaryProviderPinPending:
+      event.kind === "primaryProviderPinChange" ? false : tab.primaryProviderPinPending,
   }
 }

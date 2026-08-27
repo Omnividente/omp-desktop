@@ -78,20 +78,91 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
             let workspace = workspace.to_string_lossy().into_owned();
             let workspace_key = path_key(&workspace);
             let state = app.state::<SettingsState>();
-            let snapshot = {
-                let mut settings = state
-                    .0
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                settings
-                    .recent_workspaces
-                    .retain(|existing| path_key(existing) != workspace_key);
-                settings.recent_workspaces.insert(0, workspace);
-                settings.recent_workspaces.truncate(24);
-                settings.clone()
-            };
-            save_settings(&app, &snapshot)?;
-            build_bootstrap(&app, &snapshot)
+            let mut snapshot = settings_snapshot(&state)?;
+            snapshot
+                .recent_workspaces
+                .retain(|existing| path_key(existing) != workspace_key);
+            snapshot
+                .hidden_workspaces
+                .retain(|hidden| path_key(hidden) != workspace_key);
+            snapshot.recent_workspaces.insert(0, workspace);
+            snapshot.recent_workspaces.truncate(24);
+            commit_workspace_settings(&app, &state, snapshot)
+        },
+    )
+    .await
+}
+
+fn commit_workspace_settings(
+    app: &AppHandle,
+    state: &SettingsState,
+    snapshot: AppSettings,
+) -> Result<BootstrapPayload, String> {
+    save_settings(app, &snapshot)?;
+    *state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
+    build_bootstrap(app, &snapshot)
+}
+
+fn normalize_workspace_name(name: &str) -> Result<String, String> {
+    let cleaned = name
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>()
+        .trim()
+        .to_owned();
+    if cleaned.is_empty() {
+        return Err("Название проекта не может быть пустым".to_owned());
+    }
+    if cleaned.chars().count() > 120 {
+        return Err("Название проекта не может быть длиннее 120 символов".to_owned());
+    }
+    Ok(cleaned)
+}
+
+#[tauri::command]
+async fn rename_workspace(
+    path: String,
+    name: String,
+    app: AppHandle,
+) -> Result<BootstrapPayload, AppError> {
+    run_blocking(
+        "переименования проекта",
+        "workspace_rename_failed",
+        "Не удалось переименовать проект",
+        move || {
+            let key = path_key(path.trim());
+            let name = normalize_workspace_name(&name)?;
+            let state = app.state::<SettingsState>();
+            let mut snapshot = settings_snapshot(&state)?;
+            snapshot.workspace_names.insert(key, name);
+            commit_workspace_settings(&app, &state, snapshot)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn remove_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload, AppError> {
+    run_blocking(
+        "удаления проекта из списка",
+        "workspace_remove_failed",
+        "Не удалось удалить проект из списка",
+        move || {
+            let key = path_key(path.trim());
+            let state = app.state::<SettingsState>();
+            let mut snapshot = settings_snapshot(&state)?;
+            snapshot
+                .recent_workspaces
+                .retain(|existing| path_key(existing) != key);
+            snapshot.workspace_names.remove(&key);
+            snapshot
+                .hidden_workspaces
+                .retain(|hidden| path_key(hidden) != key);
+            snapshot.hidden_workspaces.push(key);
+            commit_workspace_settings(&app, &state, snapshot)
         },
     )
     .await
@@ -424,6 +495,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             add_workspace,
+            rename_workspace,
+            remove_workspace,
             save_settings_bundle,
             set_session_title_pin,
             delete_session,

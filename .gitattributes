@@ -1,0 +1,15 @@
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.zip binary
+*.exe binary
+*.msi binary
+*.AppImage binary
+*.deb binary
+*.rpm binary

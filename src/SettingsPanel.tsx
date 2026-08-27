@@ -114,6 +114,7 @@ export function SettingsPanel({
   const [thinkingLevel, setThinkingLevel] = useState("medium")
   const [modelFallbackEnabled, setModelFallbackEnabled] = useState(true)
   const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>([])
+  const [proxyProviders, setProxyProviders] = useState<string[]>([])
   const fallbackDraftSequence = useRef(0)
   const [appFontFamily, setAppFontFamily] = useState(settings.appFontFamily)
   const [terminalFontFamily, setTerminalFontFamily] = useState(
@@ -154,6 +155,7 @@ export function SettingsPanel({
       setThinkingLevel(snapshot.defaultThinkingLevel ?? "medium")
       setModelFallbackEnabled(snapshot.modelFallbackEnabled)
       setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
+      setProxyProviders(snapshot.proxyProviders)
     } catch (error) {
       const message = errorMessage(error, language)
       setConfigError(message)
@@ -255,6 +257,13 @@ export function SettingsPanel({
     setNewKeyValue("")
   }
 
+  const setProviderProxyMode = (provider: string, enabled: boolean) => {
+    setProxyProviders((current) => {
+      if (!enabled) return current.filter((candidate) => candidate !== provider)
+      return current.includes(provider) ? current : [...current, provider].sort()
+    })
+  }
+
   const save = async () => {
     setSaving(true)
     try {
@@ -280,6 +289,7 @@ export function SettingsPanel({
               defaultThinkingLevel: thinkingLevel,
               modelFallbackEnabled,
               fallbackChains: fallbackConfig,
+              proxyProviders,
             }
           : null,
       })
@@ -287,6 +297,7 @@ export function SettingsPanel({
         setOmpConfig(result.ompConfig)
         setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
         setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
+        setProxyProviders(result.ompConfig.proxyProviders)
         onConfigSaved?.(result.ompConfig)
       }
       onSaved(result.bootstrap)
@@ -955,6 +966,19 @@ export function SettingsPanel({
                                 String(credential.modelCount),
                               )}
                             </small>
+                            <label className="toggle-row provider-proxy-toggle">
+                              <input
+                                checked={proxyProviders.includes(credential.provider)}
+                                onChange={(event) =>
+                                  setProviderProxyMode(credential.provider, event.target.checked)
+                                }
+                                type="checkbox"
+                              />
+                              <span>
+                                <strong>{t(language, "providerProxyMode")}</strong>
+                                <small>{t(language, "providerProxyModeHelp")}</small>
+                              </span>
+                            </label>
                           </article>
                         ))}
                       </div>

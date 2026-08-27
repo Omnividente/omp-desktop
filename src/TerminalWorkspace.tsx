@@ -39,6 +39,7 @@ interface TerminalWorkspaceProps {
   onReady: (terminalId: string) => void
   onReveal: (path: string) => void
   onSwitch: (terminalId: string, model: string, thinking: string | null) => void
+  onTogglePrimaryProviderPin: (terminalId: string) => void
   onToggleTitlePin: (tab: TerminalTab) => void
 }
 
@@ -66,6 +67,7 @@ export function TerminalWorkspace({
   onReorderTabs,
   onReveal,
   onSwitch,
+  onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
   const homeSessions = useMemo(
@@ -208,6 +210,7 @@ export function TerminalWorkspace({
                 lang={language}
                 ompConfig={ompConfig}
                 onSwitch={onSwitch}
+                onTogglePrimaryProviderPin={onTogglePrimaryProviderPin}
                 runtimeStatus={activeRuntimeStatus}
                 tab={activeTab}
               />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FocusEvent } from "react"
+import { useEffect, useRef, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import { Icon, type IconName } from "./Icon"
 import { t } from "./i18n"
 import { SessionList, type SessionListProps } from "./SessionList"
@@ -11,10 +11,21 @@ interface ProjectRailProps {
   workspaces: WorkspaceSummary[]
   selectedWorkspace: WorkspaceSummary | null
   sessionList: SessionListProps
+  renamingWorkspaceKey: string | null
+  workspaceNameValue: string
+  workspaceBusyKey: string | null
   onAutoOpenChange: (open: boolean) => void
   onModeChange: (mode: RailMode) => void
   onOpenFolder: () => void
   onSelectWorkspace: (key: string) => void
+  onStartWorkspaceRename: (workspace: WorkspaceSummary) => void
+  onSubmitWorkspaceRename: (workspace: WorkspaceSummary) => void
+  onWorkspaceNameChange: (value: string) => void
+  onWorkspaceRenameKeyDown: (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    workspace: WorkspaceSummary,
+  ) => void
+  onRemoveWorkspace: (workspace: WorkspaceSummary) => void
 }
 
 const MODE_OPTIONS: Array<{
@@ -34,10 +45,18 @@ export function ProjectRail({
   workspaces,
   selectedWorkspace,
   sessionList,
+  renamingWorkspaceKey,
+  workspaceNameValue,
+  workspaceBusyKey,
   onAutoOpenChange,
   onModeChange,
   onOpenFolder,
   onSelectWorkspace,
+  onStartWorkspaceRename,
+  onSubmitWorkspaceRename,
+  onWorkspaceNameChange,
+  onWorkspaceRenameKeyDown,
+  onRemoveWorkspace,
 }: ProjectRailProps) {
   const { lang } = sessionList
   const railRef = useRef<HTMLElement>(null)
@@ -134,30 +153,77 @@ export function ProjectRail({
       <nav className="project-list" aria-label={t(lang, "projects")}>
         {workspaces.map((workspace) => {
           const active = selectedWorkspace?.key === workspace.key
+          const renaming = renamingWorkspaceKey === workspace.key
+          const busy = workspaceBusyKey === workspace.key
           return (
-            <button
-              aria-expanded={active && revealed}
-              aria-label={`${workspace.name}, ${workspace.sessionCount} ${t(lang, "sessShort")}`}
-              className={`project-item${active ? " is-active is-expanded" : ""}`}
-              key={workspace.key}
-              onClick={() => onSelectWorkspace(workspace.key)}
-              title={`${workspace.name}\n${workspace.path}`}
-              type="button"
-            >
-              <span className="project-glyph">
-                <Icon name="folder" size={17} />
-              </span>
-              <span className="project-copy">
-                <strong>{workspace.name}</strong>
-                <small>
-                  {workspace.sessionCount} {t(lang, "sessShort")}
-                </small>
-              </span>
-              <span aria-hidden="true" className="project-expand-marker">
-                <Icon name="chevron" size={13} />
-              </span>
-              {workspace.pinned && <span className="pin-dot" title="pinned" />}
-            </button>
+            <div className={`project-item-row${active ? " is-active" : ""}`} key={workspace.key}>
+              {renaming ? (
+                <div className="project-item is-active is-renaming">
+                  <span className="project-glyph">
+                    <Icon name="folder" size={17} />
+                  </span>
+                  <span className="project-copy">
+                    <input
+                      aria-label={t(lang, "projectName")}
+                      autoFocus
+                      className="project-rename"
+                      onBlur={() => onSubmitWorkspaceRename(workspace)}
+                      onChange={(event) => onWorkspaceNameChange(event.target.value)}
+                      onKeyDown={(event) => onWorkspaceRenameKeyDown(event, workspace)}
+                      value={workspaceNameValue}
+                    />
+                    <small>{workspace.path}</small>
+                  </span>
+                </div>
+              ) : (
+                <button
+                  aria-expanded={active && revealed}
+                  aria-label={`${workspace.name}, ${workspace.sessionCount} ${t(lang, "sessShort")}`}
+                  className={`project-item${active ? " is-active is-expanded" : ""}`}
+                  disabled={busy}
+                  onClick={() => onSelectWorkspace(workspace.key)}
+                  title={`${workspace.name}\n${workspace.path}`}
+                  type="button"
+                >
+                  <span className="project-glyph">
+                    <Icon name="folder" size={17} />
+                  </span>
+                  <span className="project-copy">
+                    <strong>{workspace.name}</strong>
+                    <small>
+                      {workspace.sessionCount} {t(lang, "sessShort")}
+                    </small>
+                  </span>
+                  <span aria-hidden="true" className="project-expand-marker">
+                    <Icon name="chevron" size={13} />
+                  </span>
+                  {workspace.pinned && <span className="pin-dot" title="pinned" />}
+                </button>
+              )}
+              {!renaming && (
+                <div className="project-actions">
+                  <button
+                    aria-label={t(lang, "renameProject")}
+                    disabled={busy}
+                    onClick={() => onStartWorkspaceRename(workspace)}
+                    title={t(lang, "renameProject")}
+                    type="button"
+                  >
+                    <Icon name="edit" size={12} />
+                  </button>
+                  <button
+                    aria-label={t(lang, "removeProject")}
+                    className="project-remove"
+                    disabled={busy}
+                    onClick={() => onRemoveWorkspace(workspace)}
+                    title={t(lang, "removeProject")}
+                    type="button"
+                  >
+                    {busy ? <span className="mini-loader" /> : <Icon name="trash" size={12} />}
+                  </button>
+                </div>
+              )}
+            </div>
           )
         })}
       </nav>
