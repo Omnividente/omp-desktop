@@ -126,7 +126,7 @@ pub fn build_bootstrap(
         apply_session_title_pin(session, &settings.session_title_pins);
     }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-    let workspaces = build_workspaces(&sessions, &settings.recent_workspaces);
+    let workspaces = build_workspaces(&sessions, settings);
 
     Ok(BootstrapPayload {
         settings: settings.clone(),
@@ -1902,6 +1902,7 @@ fn parse_session_with_names(
     let mut thinking_level = None;
     let mut configured_thinking_level = None;
     let mut has_messages = false;
+    let mut primary_provider_pinned = false;
 
     for line in regions
         .prefix
@@ -1918,6 +1919,7 @@ fn parse_session_with_names(
             && !bytes_contain(line, b"\"thinking_level_change\"")
             && !bytes_contain(line, b"\"title_change\"")
             && !bytes_contain(line, b"\"message\"")
+            && !bytes_contain(line, b"\"primary_provider_pin\"")
         {
             continue;
         }
@@ -1977,6 +1979,14 @@ fn parse_session_with_names(
                     .or_else(|| effective.clone());
                 thinking_level = effective;
             }
+            Some("custom")
+                if value.get("customType").and_then(Value::as_str)
+                    == Some("primary_provider_pin") =>
+            {
+                if let Some(pinned) = value.pointer("/data/pinned").and_then(Value::as_bool) {
+                    primary_provider_pinned = pinned;
+                }
+            }
             Some("message" | "custom_message") => {
                 let role = value
                     .get("message")
@@ -2024,6 +2034,7 @@ fn parse_session_with_names(
         configured_thinking_level,
         source: "omp".to_owned(),
         has_messages,
+        primary_provider_pinned,
     }))
 }
 
@@ -2233,24 +2244,33 @@ fn extract_text_content(content: Option<&Value>) -> String {
         .join("\n")
 }
 
-fn build_workspaces(
-    sessions: &[SessionSummary],
-    recent_workspaces: &[String],
-) -> Vec<WorkspaceSummary> {
+fn build_workspaces(sessions: &[SessionSummary], settings: &AppSettings) -> Vec<WorkspaceSummary> {
     let mut recent_rank = HashMap::<String, usize>::new();
-    for (index, path) in recent_workspaces.iter().enumerate() {
+    for (index, path) in settings.recent_workspaces.iter().enumerate() {
         recent_rank.entry(path_key(path)).or_insert(index);
     }
+    let hidden = settings
+        .hidden_workspaces
+        .iter()
+        .map(|path| path_key(path))
+        .collect::<HashSet<_>>();
     let mut workspaces = HashMap::<String, WorkspaceSummary>::new();
 
-    for path in recent_workspaces {
+    for path in &settings.recent_workspaces {
         let key = path_key(path);
+        if hidden.contains(&key) {
+            continue;
+        }
         workspaces
             .entry(key.clone())
             .or_insert_with(|| WorkspaceSummary {
+                name: settings
+                    .workspace_names
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| workspace_name(path)),
                 key,
                 path: path.clone(),
-                name: workspace_name(path),
                 session_count: 0,
                 last_active: 0,
                 pinned: true,
@@ -2259,12 +2279,19 @@ fn build_workspaces(
 
     for session in sessions {
         let key = session.project_key.clone();
+        if hidden.contains(&key) {
+            continue;
+        }
         let workspace = workspaces
             .entry(key.clone())
             .or_insert_with(|| WorkspaceSummary {
+                name: settings
+                    .workspace_names
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| workspace_name(&session.cwd)),
                 key,
                 path: session.cwd.clone(),
-                name: workspace_name(&session.cwd),
                 session_count: 0,
                 last_active: 0,
                 pinned: false,
@@ -2522,8 +2549,8 @@ mod tests {
         read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
         read_session_transcript_with_limits, restorable_session_model, scan_sessions,
         serialize_title_slot, stage_import_artifacts_with_limits, validated_external_import_source,
-        ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
-        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
+        AppSettings, ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode,
+        ImportSessionRequest, SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
         CODEX_DISCOVERY_MAX_LINES, MAX_IMPORT_BYTES,
     };
     use std::{
@@ -2593,6 +2620,7 @@ mod tests {
             thinking_level: None,
             configured_thinking_level: None,
             source: "omp".to_owned(),
+            primary_provider_pinned: false,
             has_messages: true,
         };
         let pins = BTreeMap::from([(
@@ -2916,6 +2944,8 @@ mod tests {
             r#"{"type":"thinking_level_change","thinkingLevel":"xhigh","configured":"auto"}"#,
             "\n",
             r#"{"type":"model_change","model":"provider/fallback","role":"fallback"}"#,
+            "\n",
+            r#"{"type":"custom","customType":"primary_provider_pin","data":{"pinned":true}}"#,
             "\n"
         ));
         fs::write(&path, contents).expect("fixture should be writable");
@@ -2932,6 +2962,7 @@ mod tests {
         assert_eq!(session.model.as_deref(), Some("provider/latest"));
         assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
         assert_eq!(session.configured_thinking_level.as_deref(), Some("auto"));
+        assert!(session.primary_provider_pinned);
         assert!(session.updated_at > 0);
     }
 
@@ -3945,17 +3976,26 @@ mod tests {
             thinking_level: None,
             configured_thinking_level: None,
             source: "omp".to_owned(),
+            primary_provider_pinned: false,
             has_messages: false,
         };
-        let workspaces = build_workspaces(
-            &[
-                session("one", project_path.clone(), 1),
-                session("two", alias_path.clone(), 2),
-            ],
-            &[project_path, alias_path],
-        );
+        let key = path_key(&project_path);
+        let mut settings = AppSettings {
+            recent_workspaces: vec![project_path, alias_path],
+            workspace_names: BTreeMap::from([(key.clone(), "Renamed project".to_owned())]),
+            ..AppSettings::default()
+        };
+        let sessions = [
+            session("one", project.to_string_lossy().into_owned(), 1),
+            session("two", alias.to_string_lossy().into_owned(), 2),
+        ];
+        let workspaces = build_workspaces(&sessions, &settings);
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].session_count, 2);
+        assert_eq!(workspaces[0].name, "Renamed project");
+
+        settings.hidden_workspaces.push(key);
+        assert!(build_workspaces(&sessions, &settings).is_empty());
 
         fs::remove_dir_all(root).expect("fixture should be removable");
     }

@@ -14,6 +14,7 @@ interface ModelPickerProps {
 }
 
 const THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/i
+const THINKING_LEVEL_ORDER = ["minimal", "low", "medium", "high", "xhigh", "max"] as const
 
 export function splitSelector(selector: string): { base: string; thinking: string | null } {
   const match = selector.match(THINKING_SUFFIX)
@@ -28,6 +29,46 @@ export function splitSelector(selector: string): { base: string; thinking: strin
 
 export function thinkingLevelsForModel(model: OmpModelInfo | undefined): string[] {
   return model ? [...new Set(model.thinking)] : []
+}
+
+export function thinkingOptionsForModel(model: OmpModelInfo | undefined): string[] {
+  const supported = thinkingLevelsForModel(model)
+  return supported.length === 0
+    ? []
+    : ["off", "auto", ...supported.filter((level) => level !== "off" && level !== "auto")]
+}
+
+export function normalizeThinkingLevel(
+  preferred: string | null | undefined,
+  supported: string[],
+  fallback?: string | null,
+): string | null {
+  if (supported.length === 0) return null
+  const options = [...new Set(supported.map((level) => level.toLowerCase()))]
+  for (const candidate of [preferred, fallback]) {
+    const normalized = candidate?.toLowerCase()
+    if (!normalized) continue
+    if (options.includes(normalized)) return normalized
+    const targetRank = THINKING_LEVEL_ORDER.indexOf(
+      normalized as (typeof THINKING_LEVEL_ORDER)[number],
+    )
+    if (targetRank < 0) continue
+    let nearest: { level: string; distance: number; rank: number } | null = null
+    for (const level of options) {
+      const rank = THINKING_LEVEL_ORDER.indexOf(level as (typeof THINKING_LEVEL_ORDER)[number])
+      if (rank < 0) continue
+      const distance = Math.abs(rank - targetRank)
+      if (
+        !nearest ||
+        distance < nearest.distance ||
+        (distance === nearest.distance && rank < nearest.rank)
+      ) {
+        nearest = { level, distance, rank }
+      }
+    }
+    if (nearest) return nearest.level
+  }
+  return options.includes("auto") ? "auto" : options[0]
 }
 
 export function selectorWithThinking(selector: string, thinking: string | null): string {

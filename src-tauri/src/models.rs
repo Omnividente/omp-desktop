@@ -75,6 +75,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub recent_workspaces: Vec<String>,
     #[serde(default)]
+    pub workspace_names: BTreeMap<String, String>,
+    #[serde(default)]
+    pub hidden_workspaces: Vec<String>,
+    #[serde(default)]
     pub session_title_pins: BTreeMap<String, String>,
     #[serde(default)]
     pub rail_mode: RailMode,
@@ -103,6 +107,8 @@ impl Default for AppSettings {
             omp_executable: None,
             session_root: None,
             recent_workspaces: Vec::new(),
+            workspace_names: BTreeMap::new(),
+            hidden_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
             rail_mode: RailMode::default(),
             language: default_language(),
@@ -124,6 +130,8 @@ impl fmt::Debug for AppSettings {
             .field("omp_executable", &self.omp_executable)
             .field("session_root", &self.session_root)
             .field("recent_workspaces", &self.recent_workspaces)
+            .field("workspace_name_count", &self.workspace_names.len())
+            .field("hidden_workspace_count", &self.hidden_workspaces.len())
             .field("session_title_pin_count", &self.session_title_pins.len())
             .field("rail_mode", &self.rail_mode)
             .field("language", &self.language)
@@ -279,6 +287,7 @@ pub struct SessionSummary {
     pub configured_thinking_level: Option<String>,
     pub source: String,
     pub has_messages: bool,
+    pub primary_provider_pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -396,6 +405,7 @@ pub struct OmpConfigSnapshot {
     pub default_thinking_level: Option<String>,
     pub model_fallback_enabled: bool,
     pub fallback_chains: BTreeMap<String, Vec<String>>,
+    pub proxy_providers: Vec<String>,
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
@@ -411,6 +421,7 @@ pub struct OmpConfigSaveRequest {
     pub default_thinking_level: Option<String>,
     pub model_fallback_enabled: Option<bool>,
     pub fallback_chains: Option<HashMap<String, Vec<String>>>,
+    pub proxy_providers: Option<Vec<String>>,
     pub provider_env: Option<HashMap<String, String>>,
 }
 

@@ -26,6 +26,7 @@ const session: SessionSummary = {
   configuredThinkingLevel: null,
   source: "omp",
   hasMessages: true,
+  primaryProviderPinned: false,
 }
 
 function terminalTab(overrides: Partial<TerminalTab> = {}): TerminalTab {
@@ -43,6 +44,8 @@ function terminalTab(overrides: Partial<TerminalTab> = {}): TerminalTab {
     success: null,
     kind: "agent",
     switching: false,
+    primaryProviderPinned: false,
+    primaryProviderPinPending: false,
     ...overrides,
   }
 }

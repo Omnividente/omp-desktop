@@ -1,19 +1,18 @@
-import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
-import type { RuntimeInfo, SessionSummary, WorkspaceSummary } from "./types";
-import { formatRelative } from "./uiUtils";
-
+import { Icon } from "./Icon"
+import { t, type Lang } from "./i18n"
+import type { RuntimeInfo, SessionSummary, WorkspaceSummary } from "./types"
+import { formatRelative } from "./uiUtils"
 
 interface WorkspaceHomeProps {
-  workspace: WorkspaceSummary | null;
-  sessions: SessionSummary[];
-  selectedSession: SessionSummary | null;
-  runtime: RuntimeInfo;
-  launching: string | null;
-  lang: Lang;
-  onLaunch: (session?: SessionSummary) => void;
-  onReveal: (path: string) => void;
-  onOpenFolder: () => void;
+  workspace: WorkspaceSummary | null
+  sessions: SessionSummary[]
+  selectedSession: SessionSummary | null
+  runtime: RuntimeInfo
+  launching: string | null
+  lang: Lang
+  onLaunch: (session?: SessionSummary) => void
+  onReveal: (path: string) => void
+  onOpenFolder: () => void
 }
 
 export function WorkspaceHome({
@@ -43,11 +42,11 @@ export function WorkspaceHome({
         </button>
         <span className="shortcut-hint">Ctrl + Shift + O</span>
       </section>
-    );
+    )
   }
 
-  const latest = sessions[0] ?? null;
-  const focusSession = selectedSession ?? latest;
+  const latest = sessions[0] ?? null
+  const focusSession = selectedSession ?? latest
   return (
     <div className="workspace-home">
       <section className="hero-card">
@@ -157,5 +156,5 @@ export function WorkspaceHome({
         )}
       </section>
     </div>
-  );
+  )
 }

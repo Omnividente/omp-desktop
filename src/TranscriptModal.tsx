@@ -1,30 +1,30 @@
-import { useMemo, useRef } from "react";
-import type { SessionSummary, SessionTranscript } from "./types";
-import type { Lang } from "./i18n";
-import { Icon } from "./Icon";
-import { t } from "./i18n";
-import { useVirtualList } from "./useVirtualList";
+import { useMemo, useRef } from "react"
+import type { SessionSummary, SessionTranscript } from "./types"
+import type { Lang } from "./i18n"
+import { Icon } from "./Icon"
+import { t } from "./i18n"
+import { useVirtualList } from "./useVirtualList"
 
 interface TranscriptModalProps {
-  lang: Lang;
-  transcriptSession: SessionSummary;
-  transcript: SessionTranscript | null;
-  transcriptLoading: boolean;
-  transcriptError: string | null;
-  transcriptSearch: string;
-  transcriptMode: "dialogue" | "all";
-  launching: string | null;
-  runtimeAvailable: boolean;
-  visibleEntries: Array<SessionTranscript["entries"][number]>;
-  onClose: () => void;
-  onRefresh: () => void;
-  onReread: () => void;
-  onSearchChange: (value: string) => void;
-  onClearSearch: () => void;
-  onModeChange: (mode: "dialogue" | "all") => void;
+  lang: Lang
+  transcriptSession: SessionSummary
+  transcript: SessionTranscript | null
+  transcriptLoading: boolean
+  transcriptError: string | null
+  transcriptSearch: string
+  transcriptMode: "dialogue" | "all"
+  launching: string | null
+  runtimeAvailable: boolean
+  visibleEntries: Array<SessionTranscript["entries"][number]>
+  onClose: () => void
+  onRefresh: () => void
+  onReread: () => void
+  onSearchChange: (value: string) => void
+  onClearSearch: () => void
+  onModeChange: (mode: "dialogue" | "all") => void
 }
 
-const transcriptEntryKey = (entry: SessionTranscript["entries"][number]): string => entry.id;
+const transcriptEntryKey = (entry: SessionTranscript["entries"][number]): string => entry.id
 
 export function TranscriptModal({
   lang,
@@ -44,21 +44,21 @@ export function TranscriptModal({
   onClearSearch,
   onModeChange,
 }: TranscriptModalProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const virtualLayoutKey = useMemo(
     () => ({ lang, transcript, transcriptMode }),
     [lang, transcript, transcriptMode],
-  );
+  )
   const { measureElement, virtualItems, totalHeight } = useVirtualList(visibleEntries, scrollRef, {
     estimatedRowHeight: 92,
     getItemKey: transcriptEntryKey,
     itemGap: 10,
     measurementKey: virtualLayoutKey,
     overscan: 10,
-  });
+  })
 
-  const totalOriginal = transcript?.entries.length ?? 0;
+  const totalOriginal = transcript?.entries.length ?? 0
 
   return (
     <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
@@ -96,7 +96,12 @@ export function TranscriptModal({
             >
               <Icon name="refresh" />
             </button>
-            <button className="icon-button" onClick={onClose} title={t(lang, "close")} type="button">
+            <button
+              className="icon-button"
+              onClick={onClose}
+              title={t(lang, "close")}
+              type="button"
+            >
               <Icon name="close" />
             </button>
           </div>
@@ -131,7 +136,11 @@ export function TranscriptModal({
                 </button>
               )}
             </div>
-            <div aria-label={t(lang, "transcriptFilter")} className="transcript-filter" role="group">
+            <div
+              aria-label={t(lang, "transcriptFilter")}
+              className="transcript-filter"
+              role="group"
+            >
               <button
                 aria-pressed={transcriptMode === "dialogue"}
                 className={transcriptMode === "dialogue" ? "is-active" : undefined}
@@ -184,9 +193,12 @@ export function TranscriptModal({
               )}
             </div>
           ) : (
-            <div className="transcript-entries" style={{ height: totalHeight, position: "relative" }}>
+            <div
+              className="transcript-entries"
+              style={{ height: totalHeight, position: "relative" }}
+            >
               {virtualItems.map((vi) => {
-                const entry = vi.item;
+                const entry = vi.item
                 return (
                   <article
                     key={entry.id}
@@ -214,7 +226,7 @@ export function TranscriptModal({
                     </header>
                     <pre>{transcriptMode === "dialogue" ? entry.dialogueText : entry.text}</pre>
                   </article>
-                );
+                )
               })}
             </div>
           )}
@@ -232,7 +244,7 @@ export function TranscriptModal({
         )}
       </section>
     </div>
-  );
+  )
 }
 
 // Minimal local label/time formatters to keep SessionRow/TranscriptModal self-contained
@@ -240,25 +252,25 @@ export function TranscriptModal({
 function transcriptRoleLabelLocal(role: string, lang: Lang): string {
   switch (role.trim().toLocaleLowerCase("en-US")) {
     case "user":
-      return t(lang, "transcriptRoleUser");
+      return t(lang, "transcriptRoleUser")
     case "assistant":
-      return t(lang, "transcriptRoleAssistant");
+      return t(lang, "transcriptRoleAssistant")
     case "system":
-      return t(lang, "transcriptRoleSystem");
+      return t(lang, "transcriptRoleSystem")
     case "tool":
-      return t(lang, "transcriptRoleTool");
+      return t(lang, "transcriptRoleTool")
     default:
-      return role.trim() || t(lang, "transcriptRoleOther");
+      return role.trim() || t(lang, "transcriptRoleOther")
   }
 }
 
 function formatTimestampLocal(timestamp: string | number, lang: Lang): string {
   const numeric =
-    typeof timestamp === "number" && timestamp < 10_000_000_000 ? timestamp * 1_000 : timestamp;
-  const date = new Date(numeric);
-  if (Number.isNaN(date.getTime())) return String(timestamp);
+    typeof timestamp === "number" && timestamp < 10_000_000_000 ? timestamp * 1_000 : timestamp
+  const date = new Date(numeric)
+  if (Number.isNaN(date.getTime())) return String(timestamp)
   return new Intl.DateTimeFormat(lang === "en" ? "en" : "ru", {
     dateStyle: "medium",
     timeStyle: "medium",
-  }).format(date);
+  }).format(date)
 }

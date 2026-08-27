@@ -1,20 +1,22 @@
-import { Icon } from "./Icon";
-import { t, type Lang } from "./i18n";
-import type { OmpUpdateInfo } from "./types";
+import { Icon } from "./Icon"
+import { t, type Lang } from "./i18n"
+import type { OmpUpdateInfo } from "./types"
 
 interface UpdateNoticeProps {
-  info: OmpUpdateInfo;
-  language: Lang;
-  disabled: boolean;
-  onClose: () => void;
-  onUpdate: () => void;
+  info: OmpUpdateInfo
+  language: Lang
+  disabled: boolean
+  onRemindLater: () => void
+  onDismissSession?: () => void
+  onUpdate: () => void
 }
 
 export function UpdateNotice({
   info,
   language,
   disabled,
-  onClose,
+  onRemindLater,
+  onDismissSession,
   onUpdate,
 }: UpdateNoticeProps) {
   return (
@@ -32,14 +34,22 @@ export function UpdateNotice({
         {t(language, "updateNow")}
       </button>
       <button
-        aria-label={t(language, "close")}
+        className="button secondary"
+        disabled={disabled}
+        onClick={onRemindLater}
+        type="button"
+      >
+        {t(language, "updateRemindLater")}
+      </button>
+      <button
+        aria-label={t(language, onDismissSession ? "updateDismissSession" : "close")}
         className="update-toast-close"
-        onClick={onClose}
-        title={t(language, "close")}
+        onClick={onDismissSession ?? onRemindLater}
+        title={t(language, onDismissSession ? "updateDismissSession" : "close")}
         type="button"
       >
         <Icon name="close" size={14} />
       </button>
     </div>
-  );
+  )
 }

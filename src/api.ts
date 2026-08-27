@@ -24,6 +24,14 @@ export function addWorkspace(path: string): Promise<BootstrapPayload> {
   return invoke("add_workspace", { path })
 }
 
+export function renameWorkspace(path: string, name: string): Promise<BootstrapPayload> {
+  return invoke("rename_workspace", { path, name })
+}
+
+export function removeWorkspace(path: string): Promise<BootstrapPayload> {
+  return invoke("remove_workspace", { path })
+}
+
 export function saveSettingsBundle(request: SettingsSaveRequest): Promise<SettingsSavePayload> {
   return invoke("save_settings_bundle", { request })
 }
@@ -129,6 +137,14 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   },
   bootstrap_failed: { ru: "Не удалось загрузить данные OMP", en: "Failed to load OMP data" },
   workspace_add_failed: { ru: "Не удалось добавить проект", en: "Failed to add the project" },
+  workspace_rename_failed: {
+    ru: "Не удалось переименовать проект",
+    en: "Failed to rename the project",
+  },
+  workspace_remove_failed: {
+    ru: "Не удалось удалить проект из списка",
+    en: "Failed to remove the project from the list",
+  },
   settings_save_failed: { ru: "Не удалось сохранить настройки", en: "Failed to save settings" },
   resource_health_failed: {
     ru: "Не удалось проверить системные ресурсы",

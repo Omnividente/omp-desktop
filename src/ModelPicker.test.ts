@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   matchesSelector,
+  normalizeThinkingLevel,
   selectorWithThinking,
   splitSelector,
   thinkingLevelsForModel,
+  thinkingOptionsForModel,
 } from "./ModelPicker"
 import type { OmpModelInfo } from "./types"
 
@@ -89,8 +91,27 @@ describe("thinking selector controls", () => {
       "anthropic/claude-sonnet-4:high",
     )
     expect(selectorWithThinking("ollama/qwen3:30b", null)).toBe("ollama/qwen3:30b")
-    expect(selectorWithThinking("ollama/llama3.1:8b", "high")).toBe(
-      "ollama/llama3.1:8b:high",
-    )
+    expect(selectorWithThinking("ollama/llama3.1:8b", "high")).toBe("ollama/llama3.1:8b:high")
+  })
+
+  it("maps the current reasoning level to the closest level supported by a new model", () => {
+    expect(normalizeThinkingLevel("high", ["off", "auto", "medium"])).toBe("medium")
+    expect(normalizeThinkingLevel("xhigh", ["off", "auto", "low", "high"])).toBe("high")
+    expect(normalizeThinkingLevel("medium", ["off", "auto", "low", "high"])).toBe("low")
+  })
+
+  it("preserves exact levels and uses the configured fallback when no preference is usable", () => {
+    expect(normalizeThinkingLevel("auto", ["off", "auto", "medium"])).toBe("auto")
+    expect(normalizeThinkingLevel("unknown", ["off", "auto", "medium"], "medium")).toBe("medium")
+    expect(normalizeThinkingLevel("high", [])).toBeNull()
+  })
+
+  it("builds the runtime thinking cycle from model capabilities", () => {
+    expect(thinkingOptionsForModel({ ...model, thinking: ["medium", "high"] })).toEqual([
+      "off",
+      "auto",
+      "medium",
+      "high",
+    ])
   })
 })

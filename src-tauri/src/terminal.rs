@@ -221,6 +221,13 @@ struct PtySessionEvent {
     session: crate::models::SessionSummary,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PtySessionTitleEvent {
+    terminal_id: String,
+    title: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum PtyRuntimeEventKind {
@@ -230,6 +237,7 @@ enum PtyRuntimeEventKind {
     RetryFallbackApplied,
     ThinkingLevelChange,
     ModelError,
+    PrimaryProviderPinChange,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -247,6 +255,7 @@ struct PtyRuntimeEvent {
     fallback_to: Option<String>,
     fallback_role: Option<String>,
     resolved_model_is_fallback: Option<bool>,
+    primary_provider_pinned: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -586,7 +595,7 @@ fn apply_thinking_level(
         .as_deref()
         .or(runtime.thinking_level.as_deref())
         .unwrap_or("off");
-    let current = if current == "inherit" { "off" } else { current };
+    let current = normalize_thinking_level(current, &levels);
     let current_index = levels
         .iter()
         .position(|level| level == current)
@@ -623,6 +632,36 @@ fn thinking_cycle(supported: &[String]) -> Vec<String> {
         }
     }
     levels
+}
+
+fn normalize_thinking_level<'a>(level: &str, levels: &'a [String]) -> &'a str {
+    let normalized = if level == "inherit" { "off" } else { level };
+    if let Some(exact) = levels
+        .iter()
+        .find(|candidate| candidate.as_str() == normalized)
+    {
+        return exact;
+    }
+    let Some(target_rank) = THINKING_LEVELS
+        .iter()
+        .position(|candidate| *candidate == normalized)
+    else {
+        return levels.first().map(String::as_str).unwrap_or("off");
+    };
+    levels
+        .iter()
+        .filter_map(|candidate| {
+            let rank = THINKING_LEVELS
+                .iter()
+                .position(|known| *known == candidate.as_str())?;
+            if matches!(candidate.as_str(), "off" | "auto") {
+                return None;
+            }
+            Some((candidate.as_str(), rank.abs_diff(target_rank), rank))
+        })
+        .min_by_key(|(_, distance, rank)| (*distance, *rank))
+        .map(|(candidate, _, _)| candidate)
+        .unwrap_or_else(|| levels.first().map(String::as_str).unwrap_or("off"))
 }
 
 fn wait_for_runtime_state<F>(
@@ -1800,6 +1839,7 @@ fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
             fallback_to: None,
             fallback_role: None,
             resolved_model_is_fallback: None,
+            primary_provider_pinned: None,
         },
     );
 }
@@ -1834,6 +1874,15 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     &mut cursor,
                     || {},
                     |runtime_line| {
+                        if let Some(title) = session_title_from_line(runtime_line) {
+                            let _ = app.emit(
+                                "pty-session-title",
+                                PtySessionTitleEvent {
+                                    terminal_id: terminal_id.clone(),
+                                    title,
+                                },
+                            );
+                        }
                         if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
                             emit_runtime_event(&app, event);
                         }
@@ -1963,6 +2012,22 @@ fn runtime_error_message(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn session_title_from_line(line: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(line).ok()?;
+    if !matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("title" | "title_change")
+    ) {
+        return None;
+    }
+    value
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_owned)
+}
+
 fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeEvent> {
     let value = serde_json::from_slice::<Value>(line).ok()?;
     let activity = activity_from_value(&value).map(str::to_owned);
@@ -1982,6 +2047,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to,
                 fallback_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
                 resolved_model_is_fallback: None,
+                primary_provider_pinned: None,
             })
         }
         "model_change" => Some(PtyRuntimeEvent {
@@ -2002,6 +2068,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             resolved_model_is_fallback: value
                 .get("resolvedModelIsFallback")
                 .and_then(Value::as_bool),
+            primary_provider_pinned: None,
         }),
         "thinking_level_change" => {
             let thinking_level = value
@@ -2026,6 +2093,27 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to: None,
                 fallback_role: None,
                 resolved_model_is_fallback: None,
+                primary_provider_pinned: None,
+            })
+        }
+        "custom"
+            if value.get("customType").and_then(Value::as_str) == Some("primary_provider_pin") =>
+        {
+            let pinned = value.pointer("/data/pinned").and_then(Value::as_bool)?;
+            Some(PtyRuntimeEvent {
+                terminal_id: terminal_id.to_owned(),
+                kind: PtyRuntimeEventKind::PrimaryProviderPinChange,
+                model: None,
+                model_role: None,
+                thinking_level: None,
+                configured_thinking_level: None,
+                activity: None,
+                error_message: None,
+                fallback_from: None,
+                fallback_to: None,
+                fallback_role: None,
+                resolved_model_is_fallback: None,
+                primary_provider_pinned: Some(pinned),
             })
         }
         "message" | "custom" => {
@@ -2047,6 +2135,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to: None,
                 fallback_role: None,
                 resolved_model_is_fallback: None,
+                primary_provider_pinned: None,
             })
         }
         _ => None,
@@ -2616,13 +2705,13 @@ mod tests {
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, decode_terminal_binary,
         discover_session, feed_runtime_lines, initial_agent_args, model_switch_input,
-        output_event_name, poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
-        receive_timed_output_batch, recover_runtime_cursor, resolve_resume_path_for_current,
-        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line, thinking_cycle,
-        validate_switch_request, validated_resume_path, PtyExitEvent, PtyRuntimeEventKind,
-        RuntimeRecovery, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
-        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
-        PTY_OUTPUT_BATCH_LIMIT,
+        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
+        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
+        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
+        runtime_event_from_line, session_title_from_line, thinking_cycle, validate_switch_request,
+        validated_resume_path, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
+        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -2884,6 +2973,31 @@ mod tests {
 
             assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
         }
+    }
+
+    #[test]
+    fn session_title_parser_accepts_only_non_empty_title_entries() {
+        assert_eq!(
+            session_title_from_line(
+                br#"{"type":"title_change","title":"  Automatic session title  "}"#,
+            )
+            .as_deref(),
+            Some("Automatic session title"),
+        );
+        assert!(session_title_from_line(br#"{"type":"title_change","title":"   "}"#).is_none());
+        assert!(session_title_from_line(br#"{"type":"message","title":"ignored"}"#).is_none());
+    }
+
+    #[test]
+    fn primary_provider_pin_custom_entry_becomes_runtime_event() {
+        let event = runtime_event_from_line(
+            "terminal-1",
+            br#"{"type":"custom","customType":"primary_provider_pin","data":{"pinned":true}}"#,
+        )
+        .expect("primary provider pin should parse");
+
+        assert_eq!(event.kind, PtyRuntimeEventKind::PrimaryProviderPinChange);
+        assert_eq!(event.primary_provider_pinned, Some(true));
     }
 
     #[test]
@@ -3654,6 +3768,11 @@ mod tests {
             thinking_cycle(&["low".to_owned(), "xhigh".to_owned(), "max".to_owned()]),
             ["off", "auto", "low", "xhigh", "max"]
         );
+
+        let levels = thinking_cycle(&["low".to_owned(), "high".to_owned()]);
+        assert_eq!(normalize_thinking_level("xhigh", &levels), "high");
+        assert_eq!(normalize_thinking_level("medium", &levels), "low");
+        assert_eq!(normalize_thinking_level("inherit", &levels), "off");
     }
 
     #[test]

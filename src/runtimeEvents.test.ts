@@ -20,6 +20,8 @@ const tab: TerminalTab = {
   currentModelRole: "default",
   currentThinking: "medium",
   currentThinkingConfigured: "medium",
+  primaryProviderPinned: false,
+  primaryProviderPinPending: false,
 }
 
 function event(overrides: Partial<PtyRuntimeEvent>): PtyRuntimeEvent {
@@ -36,6 +38,7 @@ function event(overrides: Partial<PtyRuntimeEvent>): PtyRuntimeEvent {
     fallbackTo: null,
     fallbackRole: null,
     resolvedModelIsFallback: null,
+    primaryProviderPinned: null,
     ...overrides,
   }
 }
@@ -54,6 +57,16 @@ describe("runtime event contract", () => {
 
     expect(updated.currentModel).toBe("provider/new")
     expect(updated.currentModelRole).toBe("review")
+  })
+
+  it("applies primary provider pin confirmation and clears pending state", () => {
+    const pending = { ...tab, primaryProviderPinPending: true }
+    expect(
+      applyRuntimeEventToTab(
+        pending,
+        event({ kind: "primaryProviderPinChange", primaryProviderPinned: true }),
+      ),
+    ).toMatchObject({ primaryProviderPinned: true, primaryProviderPinPending: false })
   })
 
   it("uses fallback metadata without treating the upstream role as a fallback marker", () => {
