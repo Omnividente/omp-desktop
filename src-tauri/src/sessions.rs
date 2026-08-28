@@ -205,7 +205,7 @@ pub(crate) fn transfer_session_primary_provider_pin(
     true
 }
 
-fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {
+pub(crate) fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {
     if !cfg!(windows) {
         return path;
     }

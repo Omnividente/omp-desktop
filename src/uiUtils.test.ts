@@ -3,6 +3,7 @@ import type { BootstrapPayload, SessionSummary, TerminalTab } from "./types"
 import {
   buildSessionTree,
   filterSessionTree,
+  formatTerminalExitLine,
   flattenSessionTree,
   latestSessionInTree,
   mergeSessionIntoPayload,
@@ -50,6 +51,36 @@ function terminalTab(overrides: Partial<TerminalTab> = {}): TerminalTab {
     ...overrides,
   }
 }
+
+describe("formatTerminalExitLine", () => {
+  it("formats backend errors in the active UI language", () => {
+    expect(
+      formatTerminalExitLine(
+        {
+          terminalId: "terminal-1",
+          exitCode: null,
+          success: false,
+          error: "connection failed",
+        },
+        "en",
+      ),
+    ).toBe("\r\n\x1b[38;2;239;112;112mOMP terminated: connection failed\x1b[0m\r\n")
+  })
+
+  it("formats successful exit codes in Russian", () => {
+    expect(
+      formatTerminalExitLine(
+        {
+          terminalId: "terminal-1",
+          exitCode: 0,
+          success: true,
+          error: null,
+        },
+        "ru",
+      ),
+    ).toBe("\r\n\x1b[38;2;129;201;149mПроцесс OMP завершён · код 0\x1b[0m\r\n")
+  })
+})
 
 describe("normalizedPath", () => {
   it("normalizes Windows separators, case, and trailing separators", () => {
