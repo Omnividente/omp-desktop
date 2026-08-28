@@ -127,12 +127,24 @@ fn sample_volumes(paths: Vec<ResourcePath>) -> Result<Vec<ResourceVolumeSnapshot
 }
 
 fn existing_resource_path(path: &Path) -> Result<PathBuf, String> {
-    fs::canonicalize(path).map_err(|error| {
-        format!(
-            "Не удалось определить путь для проверки ресурсов {}: {error}",
-            path.display()
-        )
-    })
+    let original_error = match fs::canonicalize(path) {
+        Ok(resolved) => return Ok(resolved),
+        Err(error) => error,
+    };
+    let mut candidate = path;
+    while let Some(parent) = candidate.parent() {
+        if parent == candidate || parent.as_os_str().is_empty() {
+            break;
+        }
+        candidate = parent;
+        if let Ok(resolved) = fs::canonicalize(candidate) {
+            return Ok(resolved);
+        }
+    }
+    Err(format!(
+        "Не удалось определить путь для проверки ресурсов {}: {original_error}",
+        path.display()
+    ))
 }
 
 #[cfg(unix)]
@@ -368,8 +380,8 @@ pub fn default_resource_paths(
 #[cfg(test)]
 mod tests {
     use super::{
-        default_resource_paths, disk_severity, memory_severity, sample_resource_health,
-        sample_volumes, swap_severity, ResourcePath, GIB, MIB,
+        default_resource_paths, disk_severity, existing_resource_path, memory_severity,
+        sample_resource_health, sample_volumes, swap_severity, ResourcePath, GIB, MIB,
     };
     use crate::models::ResourceSeverity;
 
@@ -415,20 +427,46 @@ mod tests {
     }
 
     #[test]
-    fn missing_target_is_not_substituted_with_parent_volume() {
+    fn missing_leaf_uses_nearest_existing_ancestor_volume() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
             .as_nanos();
-        let missing = std::env::temp_dir().join(format!(
-            "omp-resource-missing-{}-{nonce}",
+        let parent = std::env::temp_dir().join(format!(
+            "omp-resource-parent-{}-{nonce}",
             std::process::id()
         ));
-        let error = sample_volumes(vec![ResourcePath {
+        std::fs::create_dir_all(&parent).expect("resource parent should be writable");
+        let missing = parent.join("sessions").join("future-session");
+
+        assert_eq!(
+            existing_resource_path(&missing).expect("existing ancestor should be resolved"),
+            std::fs::canonicalize(&parent).expect("resource parent should be resolvable")
+        );
+        let volumes = sample_volumes(vec![ResourcePath {
             purpose: "workspace",
-            path: missing.clone(),
+            path: missing,
         }])
-        .expect_err("a missing target must fail instead of sampling its parent");
+        .expect("missing leaf should sample its existing ancestor volume");
+        assert_eq!(volumes.len(), 1);
+        assert_eq!(volumes[0].purposes, vec!["workspace"]);
+
+        std::fs::remove_dir_all(parent).expect("resource fixture should be removable");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn missing_windows_volume_is_not_substituted_with_another_drive() {
+        let missing_root = (b'A'..=b'Z')
+            .rev()
+            .map(|letter| std::path::PathBuf::from(format!("{}:\\", letter as char)))
+            .find(|root| !root.exists());
+        let Some(missing_root) = missing_root else {
+            return;
+        };
+        let missing = missing_root.join("omp-resource-missing");
+        let error = existing_resource_path(&missing)
+            .expect_err("an unavailable volume must not fall back to another drive");
         assert!(error.contains(missing.to_string_lossy().as_ref()));
     }
 

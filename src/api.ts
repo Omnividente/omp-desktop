@@ -163,6 +163,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
     ru: "Сначала остановите активную сессию OMP",
     en: "Stop the active OMP session before renaming it",
   },
+  session_active_delete: {
+    ru: "Сначала остановите активную сессию OMP",
+    en: "Stop the active OMP session before deleting it",
+  },
   session_rename_failed: {
     ru: "Не удалось переименовать сессию",
     en: "Failed to rename the session",

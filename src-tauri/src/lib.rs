@@ -325,7 +325,8 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
             let settings = app.state::<SettingsState>();
             let mut snapshot = settings_snapshot(&settings)?;
             let root = settings::session_root(&app, &snapshot)?;
-            sessions::delete_session(&path, &root)?;
+            app.state::<TerminalState>()
+                .delete_inactive_session(&path, &root)?;
             let session_key = path_key(&path);
             let title_pin_removed = snapshot.session_title_pins.remove(&session_key).is_some();
             let provider_pin_removed = snapshot.primary_provider_pins.remove(&session_key);

@@ -15,4 +15,15 @@ describe("backend error codes", () => {
     expect(backendErrorCode(error)).toBeNull()
     expect(errorMessage(error, "ru")).toBe(error)
   })
+
+  it("localizes backend rejection of active session deletion", () => {
+    const error = {
+      code: "session_active_delete",
+      message: "Не удалось удалить сессию",
+      details: "Сессия используется активным терминалом",
+    }
+
+    expect(errorMessage(error, "ru")).toBe("Сначала остановите активную сессию OMP")
+    expect(errorMessage(error, "en")).toBe("Stop the active OMP session before deleting it")
+  })
 })

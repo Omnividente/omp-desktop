@@ -23,6 +23,7 @@ import {
   type TerminalCell,
 } from "./terminalInput"
 import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
+import { formatTerminalExitLine } from "./uiUtils"
 import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
 
@@ -53,15 +54,6 @@ function decodeBase64(data: string): Uint8Array {
     bytes[index] = binary.charCodeAt(index)
   }
   return bytes
-}
-
-function exitLine(event: PtyExitEvent): string {
-  if (event.error) {
-    return `\r\n\x1b[38;2;239;112;112mOMP завершён: ${event.error}\x1b[0m\r\n`
-  }
-  const color = event.success ? "129;201;149" : "239;170;103"
-  const code = event.exitCode ?? "?"
-  return `\r\n\x1b[38;2;${color}mПроцесс OMP завершён · код ${code}\x1b[0m\r\n`
 }
 
 export function TerminalView({
@@ -331,7 +323,7 @@ export function TerminalView({
       }
       exitHandled = true
       outputBatcher.flush()
-      terminal.write(exitLine(event))
+      terminal.write(formatTerminalExitLine(event, languageRef.current))
       onExitRef.current(event)
     }
 

@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use crate::sessions::normalize_windows_verbatim_path;
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{
@@ -12,20 +14,30 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(windows)]
+use std::sync::atomic::AtomicU32;
 use std::{
     collections::HashMap,
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc, Arc, Mutex,
     },
     thread,
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::CloseHandle,
+    System::{
+        Threading::{GetCurrentThreadId, OpenThread, THREAD_TERMINATE},
+        IO::CancelSynchronousIo,
+    },
+};
 
 const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
@@ -34,6 +46,8 @@ const PTY_EXIT_TRUNCATION_ERROR: &str =
     "Вывод PTY обрезан: процесс-потомок удерживает консоль после завершения OMP";
 const PTY_OUTPUT_BATCH_LIMIT: usize = 64 * 1024;
 const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
+const PTY_INPUT_QUEUE_CAPACITY: usize = 64;
+const PTY_INPUT_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 // Deliberate 4 Hz polling: watchers exist only while the PTY is alive, and polling avoids
 // platform-specific rename/replacement gaps for OMP's append-only runtime files.
@@ -66,6 +80,199 @@ const OMP_MODEL_SWITCH_SUFFIX: &[u8] = b"\r";
 /// Текущий wire: ESC [ Z . Отправляется нужное число раз в цикле.
 /// Фиксируем константой и тестами.
 const OMP_THINKING_CYCLE_ESC: &[u8] = b"\x1b[Z";
+struct PtyWriteRequest {
+    data: Vec<u8>,
+    completion: Option<mpsc::SyncSender<Result<(), String>>>,
+}
+
+#[derive(Default)]
+struct PtyWriterControl {
+    closed: AtomicBool,
+    io_active: AtomicBool,
+    error: Mutex<Option<String>>,
+    #[cfg(windows)]
+    thread_id: AtomicU32,
+}
+
+struct TerminalWriter {
+    sender: Mutex<Option<mpsc::SyncSender<PtyWriteRequest>>>,
+    control: Arc<PtyWriterControl>,
+}
+
+impl TerminalWriter {
+    fn enqueue(&self, data: Vec<u8>, wait_for_completion: bool) -> Result<(), String> {
+        if self.control.closed.load(Ordering::Acquire) {
+            return Err("Процесс OMP уже завершён".to_owned());
+        }
+        if let Some(error) = self.error() {
+            return Err(error);
+        }
+
+        let (completion, completion_receiver) = if wait_for_completion {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            (Some(sender), Some(receiver))
+        } else {
+            (None, None)
+        };
+        let sender = self
+            .sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+        match sender.try_send(PtyWriteRequest { data, completion }) {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(_)) => {
+                return Err("Буфер ввода PTY заполнен".to_owned());
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => {
+                return Err(self
+                    .error()
+                    .unwrap_or_else(|| "Процесс OMP уже завершён".to_owned()));
+            }
+        }
+
+        let Some(receiver) = completion_receiver else {
+            return Ok(());
+        };
+        match receiver.recv_timeout(PTY_INPUT_WRITE_TIMEOUT) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                Err("OMP не принимает ввод PTY более 5 секунд".to_owned())
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(self
+                .error()
+                .unwrap_or_else(|| "Процесс OMP уже завершён".to_owned())),
+        }
+    }
+
+    fn close(&self) {
+        self.control.closed.store(true, Ordering::Release);
+        self.sender
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        #[cfg(windows)]
+        cancel_pending_writer_io(&self.control);
+    }
+
+    fn error(&self) -> Option<String> {
+        self.control
+            .error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+impl Drop for TerminalWriter {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+#[cfg(windows)]
+fn cancel_pending_writer_io(control: &PtyWriterControl) {
+    let deadline = Instant::now() + Duration::from_millis(250);
+    while control.io_active.load(Ordering::Acquire) {
+        let thread_id = control.thread_id.load(Ordering::Acquire);
+        if thread_id != 0 {
+            unsafe {
+                let thread_handle = OpenThread(THREAD_TERMINATE, 0, thread_id);
+                if !thread_handle.is_null() {
+                    let _ = CancelSynchronousIo(thread_handle);
+                    let _ = CloseHandle(thread_handle);
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn spawn_terminal_writer<F>(
+    terminal_id: &str,
+    mut writer: Box<dyn Write + Send>,
+    on_error: F,
+) -> Result<Arc<TerminalWriter>, String>
+where
+    F: FnOnce(String) + Send + 'static,
+{
+    let (sender, receiver) = mpsc::sync_channel(PTY_INPUT_QUEUE_CAPACITY);
+    let control = Arc::new(PtyWriterControl::default());
+    let terminal_writer = Arc::new(TerminalWriter {
+        sender: Mutex::new(Some(sender)),
+        control: control.clone(),
+    });
+    let mut on_error = Some(on_error);
+    thread::Builder::new()
+        .name(format!("pty-writer-{terminal_id}"))
+        .spawn(move || {
+            #[cfg(windows)]
+            control
+                .thread_id
+                .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+            while let Ok(request) = receiver.recv() {
+                let PtyWriteRequest { data, completion } = request;
+                if control.closed.load(Ordering::Acquire) {
+                    if let Some(completion) = completion {
+                        let _ = completion.send(Err("Процесс OMP уже завершён".to_owned()));
+                    }
+                    break;
+                }
+
+                control.io_active.store(true, Ordering::Release);
+                if control.closed.load(Ordering::Acquire) {
+                    control.io_active.store(false, Ordering::Release);
+                    if let Some(completion) = completion {
+                        let _ = completion.send(Err("Процесс OMP уже завершён".to_owned()));
+                    }
+                    break;
+                }
+                let result = writer
+                    .write_all(&data)
+                    .and_then(|()| writer.flush())
+                    .map_err(|error| format!("Не удалось отправить ввод в OMP: {error}"));
+                control.io_active.store(false, Ordering::Release);
+
+                match result {
+                    Ok(()) => {
+                        if let Some(completion) = completion {
+                            let _ = completion.send(Ok(()));
+                        }
+                    }
+                    Err(error) => {
+                        let reported = if control.closed.load(Ordering::Acquire) {
+                            "Процесс OMP уже завершён".to_owned()
+                        } else {
+                            *control
+                                .error
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some(error.clone());
+                            if let Some(on_error) = on_error.take() {
+                                on_error(error.clone());
+                            }
+                            error
+                        };
+                        if let Some(completion) = completion {
+                            let _ = completion.send(Err(reported));
+                        }
+                        break;
+                    }
+                }
+            }
+            control.io_active.store(false, Ordering::Release);
+            #[cfg(windows)]
+            control.thread_id.store(0, Ordering::Release);
+        })
+        .map_err(|error| format!("Не удалось запустить поток ввода PTY: {error}"))?;
+    Ok(terminal_writer)
+}
+
 #[derive(Default)]
 pub struct TerminalState {
     processes: Mutex<HashMap<String, TerminalProcess>>,
@@ -74,7 +281,7 @@ pub struct TerminalState {
 
 struct TerminalProcess {
     master: Option<Box<dyn MasterPty + Send>>,
-    writer: Option<Box<dyn Write + Send>>,
+    writer: Option<Arc<TerminalWriter>>,
     killer: Option<Box<dyn ChildKiller + Send + Sync>>,
     process_id: Option<u32>,
     cwd: String,
@@ -99,9 +306,12 @@ struct TerminalProcess {
 }
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
+        if let Some(writer) = self.writer.as_ref() {
+            writer.close();
+        }
         if !self.exited && !self.exit_pending {
             if let Some(killer) = self.killer.as_mut() {
-                let _ = killer.kill();
+                let _ = kill_terminal_process(killer.as_mut());
             }
         }
     }
@@ -124,6 +334,26 @@ impl TerminalState {
             })
             .collect()
     }
+    fn is_session_active(&self, path: &str) -> bool {
+        let key = path_key(path);
+        lock_processes(self).values().any(|process| {
+            !process.exited
+                && process
+                    .resume_path
+                    .as_deref()
+                    .is_some_and(|resume| path_key(resume) == key)
+        })
+    }
+
+    pub fn delete_inactive_session(&self, path: &str, root: &Path) -> Result<(), String> {
+        let _session_file_guard = lock_session_files(self);
+        if self.is_session_active(path) {
+            return Err(format!(
+                "[session_active_delete] Сессия используется активным терминалом: {path}"
+            ));
+        }
+        crate::sessions::delete_session(path, root)
+    }
 }
 
 fn lock_processes(
@@ -140,6 +370,28 @@ fn lock_session_files(state: &TerminalState) -> std::sync::MutexGuard<'_, ()> {
         .session_files
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn try_lock_session_files(state: &TerminalState) -> Option<std::sync::MutexGuard<'_, ()>> {
+    match state.session_files.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
+fn kill_terminal_process(killer: &mut dyn ChildKiller) -> std::io::Result<()> {
+    let result = killer.kill();
+    #[cfg(windows)]
+    if result
+        .as_ref()
+        .is_err_and(|error| error.raw_os_error() == Some(0))
+    {
+        // portable-pty 0.9.0 checks the Win32 TerminateProcess BOOL in reverse
+        // for cloned killers. Upstream main fixes this, but no fixed crate exists yet.
+        return Ok(());
+    }
+    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -570,23 +822,25 @@ fn switch_terminal_blocking(
 }
 
 fn finish_switch_input(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
-    let mut processes = lock_processes(terminals);
-    let process = processes
-        .get_mut(terminal_id)
-        .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    process.switch_pending = false;
-    process.switch_input_overflow_notified = false;
-    let buffered = std::mem::take(&mut process.switch_input_buffer);
+    let (writer, buffered) = {
+        let mut processes = lock_processes(terminals);
+        let process = processes
+            .get_mut(terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+        process.switch_pending = false;
+        process.switch_input_overflow_notified = false;
+        let buffered = std::mem::take(&mut process.switch_input_buffer);
+        let writer = process
+            .writer
+            .clone()
+            .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+        (writer, buffered)
+    };
     if buffered.is_empty() {
         return Ok(());
     }
-    let writer = process
-        .writer
-        .as_mut()
-        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
     writer
-        .write_all(&buffered)
-        .and_then(|()| writer.flush())
+        .enqueue(buffered, true)
         .map_err(|error| format!("Не удалось восстановить ввод после смены модели: {error}"))
 }
 
@@ -676,7 +930,7 @@ fn perform_terminal_switch(
 
     if model_changed {
         let input = model_switch_input(&request.model_selector);
-        write_switch_input(&request.terminal_id, &input, terminals)?;
+        write_switch_input(&request.terminal_id, input, terminals)?;
         wait_for_runtime_state(
             &request.terminal_id,
             path,
@@ -749,7 +1003,7 @@ fn apply_thinking_level(
 
     for step in 1..=steps {
         let expected = levels[(current_index + step) % levels.len()].clone();
-        write_switch_input(terminal_id, OMP_THINKING_CYCLE_ESC, terminals)?;
+        write_switch_input(terminal_id, OMP_THINKING_CYCLE_ESC.to_vec(), terminals)?;
         wait_for_runtime_state(
             terminal_id,
             path,
@@ -912,23 +1166,24 @@ fn read_runtime_updates(
 
 fn write_switch_input(
     terminal_id: &str,
-    data: &[u8],
+    data: Vec<u8>,
     terminals: &TerminalState,
 ) -> Result<(), String> {
-    let mut processes = lock_processes(terminals);
-    let process = processes
-        .get_mut(terminal_id)
-        .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    if process.exited || process.exit_pending {
-        return Err("Процесс OMP уже завершён".to_owned());
-    }
-    let writer = process
-        .writer
-        .as_mut()
-        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
+    let writer = {
+        let processes = lock_processes(terminals);
+        let process = processes
+            .get(terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+        if process.exited || process.exit_pending {
+            return Err("Процесс OMP уже завершён".to_owned());
+        }
+        process
+            .writer
+            .clone()
+            .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?
+    };
     writer
-        .write_all(data)
-        .and_then(|()| writer.flush())
+        .enqueue(data, true)
         .map_err(|error| format!("Не удалось отправить команду смены модели в OMP: {error}"))
 }
 
@@ -978,19 +1233,34 @@ fn validate_switch_request(request: &SwitchRequest) -> Result<(), String> {
     Ok(())
 }
 
+/// Converts native Windows paths at the OMP CLI boundary. `CommandBuilder::cwd`
+/// intentionally keeps the native path because it is consumed by CreateProcess,
+/// while Bun receives the forward-slash form through `--cwd`, `--config`, and `--resume`.
+fn cli_path_arg(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        let normalized = normalize_windows_verbatim_path(PathBuf::from(path));
+        normalized.to_string_lossy().replace('\\', "/")
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_owned()
+    }
+}
+
 fn initial_agent_args_with_config(
     cwd: &str,
     resume_path: Option<&str>,
     config_path: Option<&Path>,
 ) -> Vec<String> {
-    let mut args = vec!["--cwd".to_owned(), cwd.to_owned()];
+    let mut args = vec!["--cwd".to_owned(), cli_path_arg(cwd)];
     if let Some(config_path) = config_path {
         args.push("--config".to_owned());
-        args.push(config_path.to_string_lossy().into_owned());
+        args.push(cli_path_arg(&config_path.to_string_lossy()));
     }
     if let Some(resume_path) = resume_path {
         args.push("--resume".to_owned());
-        args.push(resume_path.to_owned());
+        args.push(cli_path_arg(resume_path));
     }
     args
 }
@@ -1067,7 +1337,17 @@ fn spawn_terminal_process(
         }
     };
     drop(pair.slave);
-
+    let writer_error_app = app.clone();
+    let writer_error_terminal_id = terminal_id.clone();
+    let writer = match spawn_terminal_writer(&terminal_id, writer, move |error| {
+        emit_runtime_error(&writer_error_app, &writer_error_terminal_id, error);
+    }) {
+        Ok(writer) => writer,
+        Err(error) => {
+            let _ = child.kill();
+            return Err(error);
+        }
+    };
     let runtime_session_path = resume_path.clone();
     let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
 
@@ -1277,8 +1557,13 @@ fn apply_handoff_session_titles(
 
 fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
     let state = app.state::<TerminalState>();
+    let _session_file_guard = lock_session_files(&state);
+    cache_resume_path_locked(app, terminal_id, &state)
+}
+
+fn cache_resume_path_locked(app: &AppHandle, terminal_id: &str, state: &TerminalState) -> bool {
     let context = {
-        let processes = lock_processes(&state);
+        let processes = lock_processes(state);
         let Some(process) = processes.get(terminal_id) else {
             return true;
         };
@@ -1303,7 +1588,7 @@ fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
     };
 
     let previous_path = {
-        let mut processes = lock_processes(&state);
+        let mut processes = lock_processes(state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return true;
         };
@@ -2369,7 +2654,7 @@ pub fn write_terminal(
     data: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    write_bytes(&terminal_id, data.as_bytes(), &terminals)
+    write_bytes(&terminal_id, data.into_bytes(), &terminals)
 }
 
 #[tauri::command]
@@ -2379,7 +2664,7 @@ pub fn write_terminal_binary(
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
     let bytes = decode_terminal_binary(&data)?;
-    write_bytes(&terminal_id, &bytes, &terminals)
+    write_bytes(&terminal_id, bytes, &terminals)
 }
 
 fn decode_terminal_binary(data: &str) -> Result<Vec<u8>, String> {
@@ -2414,25 +2699,29 @@ pub fn resize_terminal(
 }
 
 fn stop_terminal_for_restart(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
-    let exit_waiter = {
+    let (exit_waiter, writer) = {
         let mut processes = lock_processes(terminals);
         let process = processes
             .get_mut(terminal_id)
             .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
         if !process.exited && !process.exit_pending {
-            process
+            let killer = process
                 .killer
                 .as_mut()
-                .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?
-                .kill()
+                .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?;
+            kill_terminal_process(killer.as_mut())
                 .map_err(|error| format!("Не удалось остановить процесс OMP: {error}"))?;
             process.exit_pending = true;
         }
-        process
+        let exit_waiter = process
             .exit_waiter
             .take()
-            .ok_or_else(|| "Остановка процесса OMP уже выполняется".to_owned())?
+            .ok_or_else(|| "Остановка процесса OMP уже выполняется".to_owned())?;
+        (exit_waiter, process.writer.clone())
     };
+    if let Some(writer) = writer {
+        writer.close();
+    }
 
     if let Err(error) = exit_waiter.recv_timeout(TERMINAL_STOP_TIMEOUT) {
         drop(lock_processes(terminals).remove(terminal_id));
@@ -2471,29 +2760,28 @@ fn append_switch_input(
     Ok(())
 }
 
-fn write_bytes(terminal_id: &str, data: &[u8], terminals: &TerminalState) -> Result<(), String> {
-    let mut processes = lock_processes(terminals);
-    let process = processes
-        .get_mut(terminal_id)
-        .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    if process.exited || process.exit_pending {
-        return Err("Процесс OMP уже завершён".to_owned());
-    }
-    if process.switch_pending {
-        return append_switch_input(
-            &mut process.switch_input_buffer,
-            &mut process.switch_input_overflow_notified,
-            data,
-        );
-    }
-    let writer = process
-        .writer
-        .as_mut()
-        .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
-    writer
-        .write_all(data)
-        .and_then(|()| writer.flush())
-        .map_err(|error| format!("Не удалось отправить ввод в OMP: {error}"))
+fn write_bytes(terminal_id: &str, data: Vec<u8>, terminals: &TerminalState) -> Result<(), String> {
+    let writer = {
+        let mut processes = lock_processes(terminals);
+        let process = processes
+            .get_mut(terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+        if process.exited || process.exit_pending {
+            return Err("Процесс OMP уже завершён".to_owned());
+        }
+        if process.switch_pending {
+            return append_switch_input(
+                &mut process.switch_input_buffer,
+                &mut process.switch_input_overflow_notified,
+                &data,
+            );
+        }
+        process
+            .writer
+            .clone()
+            .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?
+    };
+    writer.enqueue(data, false)
 }
 
 fn receive_ready_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec<u8>) -> Vec<u8> {
@@ -2775,6 +3063,16 @@ where
                 },
             };
 
+            // Preserve the last breadcrumb for very short-lived sessions without
+            // putting filesystem work back into the PTY output hot path. A pin
+            // restart already owns this guard and already has an exact resume path.
+            {
+                let state = app.state::<TerminalState>();
+                if let Some(_session_file_guard) = try_lock_session_files(&state) {
+                    let _ = cache_resume_path_locked(&app, &terminal_id, &state);
+                };
+            }
+
             let (master, writer, mut killer) = {
                 let state = app.state::<TerminalState>();
                 let mut processes = lock_processes(&state);
@@ -2791,8 +3089,11 @@ where
 
             if wait_failed {
                 if let Some(killer) = killer.as_mut() {
-                    let _ = killer.kill();
+                    let _ = kill_terminal_process(killer.as_mut());
                 }
+            }
+            if let Some(writer) = writer.as_ref() {
+                writer.close();
             }
             drop(writer);
             drop(master);
@@ -2816,7 +3117,6 @@ fn output_event_name(terminal_id: &str) -> String {
 }
 
 fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
-    cache_resume_path(app, terminal_id);
     let (payload, emit_update) = {
         let state = app.state::<TerminalState>();
         let mut processes = lock_processes(&state);
@@ -2834,7 +3134,6 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
         } else {
             false
         };
-
         let payload = if process.attached {
             Some(PtyOutputEvent {
                 terminal_id: terminal_id.to_owned(),
@@ -2935,28 +3234,34 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
-    use super::RuntimeFileIdentity;
     use super::{
-        append_switch_input, breadcrumb_modified, build_omp_command, decode_terminal_binary,
-        discover_session, feed_runtime_lines, initial_agent_args_with_config, model_switch_input,
+        append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
+        decode_terminal_binary, discover_session, feed_runtime_lines,
+        initial_agent_args_with_config, lock_processes, model_switch_input,
         normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
         receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
         resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, session_title_for_emit, session_title_from_line, thinking_cycle,
-        validate_switch_request, validated_resume_path, PtyExitEvent, PtyRuntimeEventKind,
-        RuntimeRecovery, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        runtime_event_from_line, session_title_for_emit, session_title_from_line,
+        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
+        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
+        SwitchRequest, TerminalProcess, TerminalState, MAX_RUNTIME_EVENT_LINE,
         MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
         PTY_OUTPUT_BATCH_LIMIT,
     };
+    #[cfg(windows)]
+    use super::{
+        kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
+    };
+    #[cfg(windows)]
+    use std::time::Instant;
     use std::{
         cell::RefCell,
         collections::HashMap,
         ffi::OsStr,
         fs,
-        io::Write,
-        path::Path,
-        sync::mpsc,
+        io::{self, Write},
+        path::{Path, PathBuf},
+        sync::{mpsc, Arc},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
@@ -2970,6 +3275,60 @@ mod tests {
             current_model: Some("provider/old".to_owned()),
             current_thinking: Some("xhigh".to_owned()),
             current_thinking_configured: Some("xhigh".to_owned()),
+        }
+    }
+
+    fn terminal_process(
+        resume_path: Option<String>,
+        writer: Option<Box<dyn Write + Send>>,
+    ) -> TerminalProcess {
+        TerminalProcess {
+            master: None,
+            writer: writer.map(|writer| {
+                spawn_terminal_writer("test", writer, |_| {}).expect("test PTY writer should start")
+            }),
+            killer: None,
+            process_id: Some(7),
+            cwd: "/tmp/project".to_owned(),
+            resume_path,
+            terminal_sessions_dir: PathBuf::new(),
+            breadcrumb_snapshot: HashMap::new(),
+            pending_output: Vec::new(),
+            attached: false,
+            exit_pending: false,
+            exited: false,
+            exit_code: None,
+            exit_success: false,
+            exit_error: None,
+            thinking: false,
+            restartable: true,
+            switch_pending: false,
+            update_notified: false,
+            update_buffer: Vec::new(),
+            switch_input_buffer: Vec::new(),
+            switch_input_overflow_notified: false,
+            exit_waiter: None,
+        }
+    }
+
+    struct BlockingWriter {
+        started: Option<mpsc::SyncSender<()>>,
+        release: mpsc::Receiver<()>,
+    }
+
+    impl Write for BlockingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            self.release
+                .recv()
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "writer released"))?;
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
         }
     }
 
@@ -3089,10 +3448,187 @@ mod tests {
     }
 
     #[test]
+    fn blocked_terminal_writer_does_not_block_ipc_or_process_registry() {
+        let state = Arc::new(TerminalState::default());
+        let (started_sender, started_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        lock_processes(&state).insert(
+            "terminal-1".to_owned(),
+            terminal_process(
+                None,
+                Some(Box::new(BlockingWriter {
+                    started: Some(started_sender),
+                    release: release_receiver,
+                })),
+            ),
+        );
+
+        let writer_state = state.clone();
+        let (write_result_sender, write_result_receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = write_result_sender.send(write_bytes(
+                "terminal-1",
+                b"input".to_vec(),
+                &writer_state,
+            ));
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("writer should receive queued input");
+        write_result_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("IPC write should return after queueing")
+            .expect("input should be queued");
+
+        let probe_state = state.clone();
+        let (probe_sender, probe_receiver) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = probe_sender.send(probe_state.resource_processes());
+        });
+        assert_eq!(
+            probe_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("another terminal operation must not wait for the blocked writer"),
+            vec![("terminal-1".to_owned(), 7)]
+        );
+
+        release_sender.send(()).expect("release blocked writer");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn conpty_close_cancels_a_blocked_writer_after_kill() {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("ConPTY fixture should open");
+        let mut command = CommandBuilder::new("powershell.exe");
+        command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]);
+        let mut child = pair
+            .slave
+            .spawn_command(command)
+            .expect("sleeping child should start");
+        let mut killer = child.clone_killer();
+        let raw_writer = pair.master.take_writer().expect("PTY writer should open");
+        drop(pair.slave);
+        let writer = spawn_terminal_writer("conpty-cancel-test", raw_writer, |_| {})
+            .expect("ConPTY writer thread should start");
+
+        let write_writer = writer.clone();
+        let (finished_sender, finished_receiver) = mpsc::sync_channel(1);
+        let writer_thread = thread::spawn(move || {
+            let result = write_writer.enqueue(vec![b'x'; 8 * 1024 * 1024], true);
+            let _ = finished_sender.send(result);
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !writer
+            .control
+            .io_active
+            .load(std::sync::atomic::Ordering::Acquire)
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(
+            writer
+                .control
+                .io_active
+                .load(std::sync::atomic::Ordering::Acquire),
+            "writer fixture should fill the ConPTY input buffer"
+        );
+
+        kill_terminal_process(killer.as_mut()).expect("sleeping child should be killable");
+        writer.close();
+        finished_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("closing the writer must cancel its synchronous ConPTY write")
+            .expect_err("canceled ConPTY input should report terminal closure");
+        writer_thread.join().expect("writer caller should finish");
+        child.wait().expect("killed child should be waitable");
+        drop(pair.master);
+    }
+
+    #[test]
+    fn active_session_cannot_be_deleted_by_backend_command() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-active-session-delete-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("session root should be writable");
+        let session = root.join("session.jsonl");
+        fs::write(&session, b"{}\n").expect("session fixture should be writable");
+
+        let state = TerminalState::default();
+        let session_path = session.to_string_lossy().into_owned();
+        lock_processes(&state).insert(
+            "terminal-1".to_owned(),
+            terminal_process(Some(session_path.clone()), None),
+        );
+
+        let error = state
+            .delete_inactive_session(&session_path, &root)
+            .expect_err("active session deletion must fail");
+        assert!(error.starts_with("[session_active_delete] "));
+        assert!(session.is_file());
+
+        lock_processes(&state)
+            .get_mut("terminal-1")
+            .expect("terminal fixture")
+            .exited = true;
+        state
+            .delete_inactive_session(&session_path, &root)
+            .expect("exited session should be deletable");
+        assert!(!session.exists());
+        fs::remove_dir_all(root).expect("session fixture should be removable");
+    }
+
+    #[test]
     fn initial_args_always_use_exact_resume_path() {
         assert_eq!(
             initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), None,),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
+        );
+    }
+
+    #[test]
+    fn cli_path_arg_preserves_posix_paths() {
+        assert_eq!(
+            cli_path_arg("/home/user/project with spaces"),
+            "/home/user/project with spaces"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cli_path_arg_normalizes_windows_drive_verbatim_and_unc_paths() {
+        assert_eq!(
+            cli_path_arg(r"C:\Users\Omniv\.omp\sessions\a.jsonl"),
+            "C:/Users/Omniv/.omp/sessions/a.jsonl"
+        );
+        assert_eq!(
+            cli_path_arg(r"\\?\C:\Users\x\a.jsonl"),
+            "C:/Users/x/a.jsonl"
+        );
+        assert_eq!(
+            cli_path_arg(r"\\server\share\a.jsonl"),
+            "//server/share/a.jsonl"
+        );
+        assert_eq!(
+            cli_path_arg(r"\\?\UNC\server\share\a.jsonl"),
+            "//server/share/a.jsonl"
+        );
+        assert_eq!(
+            cli_path_arg(r"C:\Users\Name With Spaces\a.jsonl"),
+            "C:/Users/Name With Spaces/a.jsonl"
         );
     }
 

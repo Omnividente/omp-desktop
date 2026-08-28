@@ -1,10 +1,25 @@
-import type { Lang } from "./i18n"
-import type { BootstrapPayload, SessionSummary, TerminalStarted, TerminalTab } from "./types"
+import { t, type Lang } from "./i18n"
+import type {
+  BootstrapPayload,
+  PtyExitEvent,
+  SessionSummary,
+  TerminalStarted,
+  TerminalTab,
+} from "./types"
 
 type SessionIdentity = Pick<SessionSummary, "id" | "filePath">
 
 export function localeTag(lang: Lang): string {
   return lang === "en" ? "en" : "ru"
+}
+
+export function formatTerminalExitLine(event: PtyExitEvent, language: Lang): string {
+  if (event.error) {
+    return `\r\n\x1b[38;2;239;112;112m${t(language, "ompTerminated")}: ${event.error}\x1b[0m\r\n`
+  }
+  const color = event.success ? "129;201;149" : "239;170;103"
+  const code = event.exitCode ?? "?"
+  return `\r\n\x1b[38;2;${color}m${t(language, "ompExitedCode").replace("{code}", String(code))}\x1b[0m\r\n`
 }
 
 export function formatRelative(timestamp: number, lang: Lang): string {
