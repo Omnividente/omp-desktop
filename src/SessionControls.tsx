@@ -89,12 +89,7 @@ export function SessionControls({
     lang,
     tab.primaryProviderPinned ? "primaryProviderPinOn" : "primaryProviderPinOff",
   )
-  // OMP currently has no dedicated capability endpoint. The routing build that
-  // adds the pin action also exposes providers.proxyMode in `config list`.
-  const primaryProviderPinSupported = Object.prototype.hasOwnProperty.call(
-    ompConfig.raw,
-    "providers.proxyMode",
-  )
+  const primaryProviderPinSupported = ompConfig.capabilities.primaryProviderPin
   const providerPinTitle = primaryProviderPinSupported
     ? providerPinAction
     : t(lang, "primaryProviderPinUnsupported")
