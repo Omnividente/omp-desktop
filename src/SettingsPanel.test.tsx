@@ -53,6 +53,7 @@ const runtime: RuntimeInfo = {
 const ompConfig: OmpConfigSnapshot = {
   roles: [],
   models: [],
+  capabilities: { primaryProviderPin: true },
   advisorEnabled: false,
   autoResume: false,
   defaultThinkingLevel: null,

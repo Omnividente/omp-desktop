@@ -57,6 +57,12 @@ jobs:
           }
           EOF
 
+      - name: Require versioned release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: test -s ".github/release-notes/${RELEASE_TAG}.md"
+
   prepare-release:
     name: Prepare unique draft release
     needs:
@@ -90,6 +96,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          release_notes=".github/release-notes/${RELEASE_TAG}.md"
+          release_body=$(cat "$release_notes")
           release_pages="$RUNNER_TEMP/release-pages.json"
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --paginate --slurp > "$release_pages"
@@ -105,7 +113,7 @@ jobs:
               --raw-field tag_name="$RELEASE_TAG" \
               --raw-field target_commitish="$RELEASE_SHA" \
               --raw-field name="OMP Desktop $RELEASE_TAG" \
-              --raw-field body="Установщики и signed updater-артефакты OMP Desktop." \
+              --raw-field body="$release_body" \
               --field draft=true \
               --field prerelease="$prerelease" \
               --jq .id)
@@ -116,6 +124,9 @@ jobs:
               echo "Created release $created_id but resolved $release_id for $RELEASE_TAG." >&2
               exit 1
             fi
+          else
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --raw-field body="$release_body" >/dev/null
           fi
 
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
@@ -191,6 +202,18 @@ jobs:
             exit 1
           fi
 
+      - name: Load versioned release notes
+        id: release-notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          {
+            echo "body<<OMP_RELEASE_NOTES"
+            cat ".github/release-notes/${RELEASE_TAG}.md"
+            echo "OMP_RELEASE_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build, sign, and upload Tauri artifacts
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
@@ -198,9 +221,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PRODUCTION_TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.PRODUCTION_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: v__VERSION__
           releaseName: OMP Desktop v__VERSION__
-          releaseBody: "Установщики и signed updater-артефакты OMP Desktop."
+          releaseBody: ${{ steps.release-notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           uploadUpdaterJson: true

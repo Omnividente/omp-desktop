@@ -395,11 +395,18 @@ pub struct OmpConfigWarning {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpRuntimeCapabilities {
+    pub primary_provider_pin: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
+    pub capabilities: OmpRuntimeCapabilities,
     pub advisor_enabled: bool,
     pub auto_resume: bool,
     pub default_thinking_level: Option<String>,

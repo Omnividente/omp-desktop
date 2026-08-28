@@ -32,7 +32,7 @@ const tab: TerminalTab = {
   primaryProviderPinPending: false,
 }
 
-function config(raw: Record<string, unknown>): OmpConfigSnapshot {
+function config(primaryProviderPin: boolean): OmpConfigSnapshot {
   const model = {
     provider: "provider",
     id: "primary",
@@ -55,6 +55,7 @@ function config(raw: Record<string, unknown>): OmpConfigSnapshot {
       },
     ],
     models: [model],
+    capabilities: { primaryProviderPin },
     advisorEnabled: false,
     autoResume: false,
     defaultThinkingLevel: "medium",
@@ -64,7 +65,7 @@ function config(raw: Record<string, unknown>): OmpConfigSnapshot {
     providerEnvKeys: [],
     credentials: [],
     warnings: [],
-    raw,
+    raw: {},
   }
 }
 
@@ -89,7 +90,7 @@ describe("SessionControls primary provider pin", () => {
       root.render(
         <SessionControls
           lang="ru"
-          ompConfig={config({})}
+          ompConfig={config(false)}
           onSwitch={vi.fn()}
           onTogglePrimaryProviderPin={onToggle}
           runtimeStatus="normal"
@@ -105,13 +106,13 @@ describe("SessionControls primary provider pin", () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it("enables the pin when OMP exposes provider routing", () => {
+  it("enables the pin when OMP exposes the explicit runtime capability", () => {
     const onToggle = vi.fn()
     act(() => {
       root.render(
         <SessionControls
           lang="ru"
-          ompConfig={config({ "providers.proxyMode": { value: [] } })}
+          ompConfig={config(true)}
           onSwitch={vi.fn()}
           onTogglePrimaryProviderPin={onToggle}
           runtimeStatus="normal"

@@ -2,7 +2,7 @@ use crate::{
     diagnostics,
     models::{
         AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo,
-        OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
+        OmpModelInfo, OmpRoleInfo, OmpRuntimeCapabilities, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
     settings::{resolve_omp, SettingsState},
@@ -59,15 +59,23 @@ pub fn load_config_snapshot(
         &app_settings.provider_env,
         OmpOperation::Config,
     )?;
-    let (models_result, usage_result) = std::thread::scope(|scope| {
+    let (models_result, usage_result, capabilities_result) = std::thread::scope(|scope| {
         let models = scope.spawn(|| load_models(&omp.executable, &app_settings.provider_env));
         let usage = scope.spawn(|| load_usage(&omp.executable, &app_settings.provider_env));
-        (models.join(), usage.join())
+        let capabilities =
+            scope.spawn(|| load_runtime_capabilities(&omp.executable, &app_settings.provider_env));
+        (models.join(), usage.join(), capabilities.join())
     });
     let mut warnings = Vec::new();
     let mut models =
         snapshot_value_or_warning(models_result, "models", "omp_models_failed", &mut warnings);
     let usage = snapshot_value_or_warning(usage_result, "usage", "omp_usage_failed", &mut warnings);
+    let capabilities = match capabilities_result {
+        Ok(Ok(capabilities)) => capabilities,
+        // Older OMP builds reject `config capabilities`; unsupported must be a
+        // closed capability, not a failure of the entire settings surface.
+        Ok(Err(_)) | Err(_) => OmpRuntimeCapabilities::default(),
+    };
     apply_usage_to_models(&mut models, &usage);
     let roles_map = extract_roles(&raw);
     let roles = build_roles(&roles_map, &models);
@@ -76,6 +84,7 @@ pub fn load_config_snapshot(
     Ok(OmpConfigSnapshot {
         roles,
         models,
+        capabilities,
         advisor_enabled: extract_bool(&raw, "advisor.enabled").unwrap_or(false),
         auto_resume: extract_bool(&raw, "autoResume").unwrap_or(false),
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
@@ -90,6 +99,28 @@ pub fn load_config_snapshot(
         warnings,
         raw,
     })
+}
+
+fn load_runtime_capabilities(
+    executable: &str,
+    provider_env: &HashMap<String, String>,
+) -> Result<OmpRuntimeCapabilities, String> {
+    let raw = run_omp_json(
+        executable,
+        &["config", "capabilities", "--json"],
+        provider_env,
+        OmpOperation::Config,
+    )?;
+    Ok(runtime_capabilities_from_value(&raw))
+}
+
+fn runtime_capabilities_from_value(raw: &Value) -> OmpRuntimeCapabilities {
+    OmpRuntimeCapabilities {
+        primary_provider_pin: raw
+            .get("primaryProviderPin")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
 }
 
 fn snapshot_value_or_warning<T: Default>(
@@ -1401,6 +1432,19 @@ fn interpret_omp_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_capabilities_are_explicit_and_fail_closed() {
+        assert!(
+            runtime_capabilities_from_value(&serde_json::json!({ "primaryProviderPin": true }))
+                .primary_provider_pin
+        );
+        assert!(
+            !runtime_capabilities_from_value(&serde_json::json!({ "primaryProviderPin": "true" }))
+                .primary_provider_pin
+        );
+        assert!(!runtime_capabilities_from_value(&serde_json::json!({})).primary_provider_pin);
+    }
 
     fn model(provider: &str, id: &str) -> OmpModelInfo {
         OmpModelInfo {

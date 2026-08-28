@@ -189,9 +189,14 @@ export interface OmpConfigWarning {
   message: string
 }
 
+export interface OmpRuntimeCapabilities {
+  primaryProviderPin: boolean
+}
+
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[]
   models: OmpModelInfo[]
+  capabilities: OmpRuntimeCapabilities
   advisorEnabled: boolean
   autoResume: boolean
   defaultThinkingLevel: string | null
