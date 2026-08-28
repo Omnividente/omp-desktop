@@ -166,34 +166,37 @@ export function SessionRow({
               <strong>{session.title}</strong>
             )}
             <small>
+              {sessionOpen && (
+                <>
+                  <span
+                    aria-label={
+                      sessionThinking
+                        ? t(lang, "sessionThinkingTitle")
+                        : sessionRunning
+                          ? t(lang, "sessionOpenTitle")
+                          : t(lang, "sessionOpenShort")
+                    }
+                    className={`session-live-marker${sessionRunning ? " is-running" : ""}${sessionThinking ? " is-thinking" : ""}`}
+                    title={
+                      sessionThinking
+                        ? t(lang, "sessionThinkingTitle")
+                        : sessionRunning
+                          ? t(lang, "sessionOpenTitle")
+                          : t(lang, "sessionOpenShort")
+                    }
+                  >
+                    <span className="session-live-dot" />
+                    {sessionThinking && <b>{t(lang, "thinkingShort")}</b>}
+                  </span>
+                  <i>·</i>
+                </>
+              )}
               {formatRelativeLocal(session.updatedAt, lang)}
               <i>·</i>
               {session.model?.split("/").at(-1) ?? t(lang, "noModel")}
               {session.source !== "omp" ? <i>· {session.source}</i> : null}
             </small>
           </span>
-          {sessionOpen && (
-            <span
-              aria-label={
-                sessionThinking
-                  ? t(lang, "sessionThinkingTitle")
-                  : sessionRunning
-                    ? t(lang, "sessionOpenTitle")
-                    : t(lang, "sessionOpenShort")
-              }
-              className={`session-live-marker${sessionRunning ? " is-running" : ""}${sessionThinking ? " is-thinking" : ""}`}
-              title={
-                sessionThinking
-                  ? t(lang, "sessionThinkingTitle")
-                  : sessionRunning
-                    ? t(lang, "sessionOpenTitle")
-                    : t(lang, "sessionOpenShort")
-              }
-            >
-              <span className="session-live-dot" />
-              {sessionThinking && <b>{t(lang, "thinkingShort")}</b>}
-            </span>
-          )}
         </div>
         {!renaming && (
           <button

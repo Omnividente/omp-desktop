@@ -2,7 +2,7 @@ use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{
         apply_handoff_title_pins, apply_session_title_pin, canonical_project_path, parse_session,
-        path_key, validated_session_file,
+        path_key, session_title_fallback_from_line, validated_session_file,
     },
     settings::{resolve_omp, SettingsState},
     update,
@@ -40,6 +40,7 @@ const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 const RUNTIME_FILE_ANCHOR: usize = 64;
 const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;
 const MAX_RUNTIME_WATERMARK_KEYS: usize = 256;
+const RUNTIME_TITLE_BASELINE_LINES: usize = 64;
 const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
 ];
@@ -1380,6 +1381,8 @@ struct RuntimeWatchCursor {
     line_overflow: bool,
     checkpoint: Option<RuntimeLineCheckpoint>,
     watermark: RuntimeEventWatermark,
+    baseline_session_title: Option<String>,
+    baseline_fallback_title: Option<String>,
 }
 
 struct RuntimeFileScan {
@@ -1424,15 +1427,37 @@ impl RuntimeWatchCursor {
         Self::baseline(file).unwrap_or_default()
     }
 
+    fn take_baseline_session_title(&mut self) -> (Option<String>, bool) {
+        let generated = self.baseline_session_title.take();
+        let generated_seen = generated.is_some();
+        let fallback = self.baseline_fallback_title.take();
+        (generated.or(fallback), generated_seen)
+    }
+
     fn baseline(file: fs::File) -> Option<Self> {
         let mut checkpoint = None;
         let mut watermark = RuntimeEventWatermark::default();
+        let mut baseline_lines_remaining = RUNTIME_TITLE_BASELINE_LINES;
+        let mut baseline_session_title = None;
+        let mut baseline_fallback_title = None;
         let mut scanned = scan_runtime_file(file, |_, _, line| {
             observe_runtime_line(&mut checkpoint, &mut watermark, line);
+            if baseline_lines_remaining == 0 {
+                return;
+            }
+            baseline_lines_remaining -= 1;
+            if let Some(title) = session_title_from_line(line) {
+                baseline_session_title = Some(title);
+            }
+            if baseline_fallback_title.is_none() {
+                baseline_fallback_title = session_title_fallback_from_line(line);
+            }
         })?;
         let mut cursor = Self::at_offset(&mut scanned.file, scanned.scanned_length)?;
         cursor.checkpoint = checkpoint;
         cursor.watermark = watermark;
+        cursor.baseline_session_title = baseline_session_title;
+        cursor.baseline_fallback_title = baseline_fallback_title;
         Some(cursor)
     }
 
@@ -1450,6 +1475,8 @@ impl RuntimeWatchCursor {
             line_overflow: false,
             checkpoint: None,
             watermark: RuntimeEventWatermark::default(),
+            baseline_session_title: None,
+            baseline_fallback_title: None,
         })
     }
 
@@ -1852,6 +1879,18 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
         .spawn(move || {
             let path = PathBuf::from(&session_path);
             let mut cursor = RuntimeWatchCursor::at_end(&path);
+            let (initial_title, mut generated_title_seen) = cursor.take_baseline_session_title();
+            let mut fallback_title_seen = initial_title.is_some() && !generated_title_seen;
+            let mut emitted_title = initial_title;
+            if let Some(title) = emitted_title.as_ref() {
+                let _ = app.emit(
+                    "pty-session-title",
+                    PtySessionTitleEvent {
+                        terminal_id: terminal_id.clone(),
+                        title: title.clone(),
+                    },
+                );
+            }
 
             loop {
                 let active = {
@@ -1874,14 +1913,21 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     &mut cursor,
                     || {},
                     |runtime_line| {
-                        if let Some(title) = session_title_from_line(runtime_line) {
-                            let _ = app.emit(
-                                "pty-session-title",
-                                PtySessionTitleEvent {
-                                    terminal_id: terminal_id.clone(),
-                                    title,
-                                },
-                            );
+                        if let Some(title) = session_title_for_emit(
+                            &mut generated_title_seen,
+                            &mut fallback_title_seen,
+                            runtime_line,
+                        ) {
+                            if emitted_title.as_deref() != Some(title.as_str()) {
+                                let _ = app.emit(
+                                    "pty-session-title",
+                                    PtySessionTitleEvent {
+                                        terminal_id: terminal_id.clone(),
+                                        title: title.clone(),
+                                    },
+                                );
+                            }
+                            emitted_title = Some(title);
                         }
                         if let Some(event) = runtime_event_from_line(&terminal_id, runtime_line) {
                             emit_runtime_event(&app, event);
@@ -2026,6 +2072,23 @@ fn session_title_from_line(line: &[u8]) -> Option<String> {
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
+}
+
+fn session_title_for_emit(
+    generated_title_seen: &mut bool,
+    fallback_title_seen: &mut bool,
+    line: &[u8],
+) -> Option<String> {
+    if let Some(title) = session_title_from_line(line) {
+        *generated_title_seen = true;
+        return Some(title);
+    }
+    if *generated_title_seen || *fallback_title_seen {
+        return None;
+    }
+    let fallback = session_title_fallback_from_line(line)?;
+    *fallback_title_seen = true;
+    Some(fallback)
 }
 
 fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeEvent> {
@@ -2708,10 +2771,11 @@ mod tests {
         normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
         receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
         resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, session_title_from_line, thinking_cycle, validate_switch_request,
-        validated_resume_path, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
-        RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        runtime_event_from_line, session_title_for_emit, session_title_from_line, thinking_cycle,
+        validate_switch_request, validated_resume_path, PtyExitEvent, PtyRuntimeEventKind,
+        RuntimeRecovery, RuntimeWatchCursor, SwitchRequest, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     use std::{
         cell::RefCell,
@@ -2986,6 +3050,56 @@ mod tests {
         );
         assert!(session_title_from_line(br#"{"type":"title_change","title":"   "}"#).is_none());
         assert!(session_title_from_line(br#"{"type":"message","title":"ignored"}"#).is_none());
+    }
+
+    #[test]
+    fn runtime_title_uses_baseline_prompt_then_generated_title() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-title-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"title\",\"title\":\"\"}\n",
+                "{\"type\":\"session\",\"id\":\"session-1\",\"cwd\":\"/tmp/project\"}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Investigate stale session title\"}]}}\n",
+            ),
+        )
+        .expect("runtime title fixture should be writable");
+
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let (initial_title, mut generated_title_seen) = cursor.take_baseline_session_title();
+        let mut fallback_title_seen = initial_title.is_some() && !generated_title_seen;
+        assert_eq!(
+            initial_title.as_deref(),
+            Some("Investigate stale session title")
+        );
+        assert!(!generated_title_seen);
+        assert!(fallback_title_seen);
+
+        assert!(session_title_for_emit(
+            &mut generated_title_seen,
+            &mut fallback_title_seen,
+            br#"{"type":"message","message":{"role":"user","content":"Do not retitle again"}}"#,
+        )
+        .is_none());
+        assert_eq!(
+            session_title_for_emit(
+                &mut generated_title_seen,
+                &mut fallback_title_seen,
+                br#"{"type":"title_change","title":"Automatic session title"}"#,
+            )
+            .as_deref(),
+            Some("Automatic session title"),
+        );
+        assert!(generated_title_seen);
+
+        fs::remove_file(path).expect("runtime title fixture should be removable");
     }
 
     #[test]
