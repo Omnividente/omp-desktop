@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
@@ -59,6 +59,23 @@ function serializeFallbackChains(
     chains[key] = selectors
   }
   return chains
+}
+
+function fallbackChainsEqual(
+  left: Record<string, string[]>,
+  right: Record<string, string[]>,
+): boolean {
+  const leftKeys = Object.keys(left).sort()
+  const rightKeys = Object.keys(right).sort()
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] &&
+        left[key].length === right[key].length &&
+        left[key].every((selector, selectorIndex) => selector === right[key][selectorIndex]),
+    )
+  )
 }
 function credentialSourceLabel(language: Lang, source: OmpCredentialInfo["source"]): string {
   switch (source) {
@@ -263,6 +280,67 @@ export function SettingsPanel({
       return current.includes(provider) ? current : [...current, provider].sort()
     })
   }
+  const hasChanges = useMemo(() => {
+    const generalChanged =
+      (executable.trim() || null) !== settings.ompExecutable ||
+      (sessionRoot.trim() || null) !== settings.sessionRoot ||
+      language !== settings.language ||
+      appFontFamily !== settings.appFontFamily ||
+      terminalFontFamily !== settings.terminalFontFamily ||
+      Number(terminalFontSize) !== settings.terminalFontSize
+
+    const initialProviderEnvKeys = settings.providerEnvKeys
+    const currentProviderEnvKeys = Object.keys(providerEnv)
+    const providerEnvChanged =
+      currentProviderEnvKeys.length !== initialProviderEnvKeys.length ||
+      currentProviderEnvKeys.some((key) => !initialProviderEnvKeys.includes(key)) ||
+      Object.values(providerEnv).some((value) => value.trim() !== "")
+
+    if (generalChanged || providerEnvChanged) return true
+    if (!runtime.ompAvailable || !ompConfig) return false
+
+    const rolesChanged = ompConfig.roles.some(
+      (role) => (roleDrafts[role.role] ?? "") !== role.selector,
+    )
+    let fallbackChainsChanged = false
+    try {
+      fallbackChainsChanged = !fallbackChainsEqual(
+        serializeFallbackChains(fallbackChains, language),
+        ompConfig.fallbackChains,
+      )
+    } catch {
+      fallbackChainsChanged = true
+    }
+
+    return (
+      rolesChanged ||
+      advisorEnabled !== ompConfig.advisorEnabled ||
+      autoResume !== ompConfig.autoResume ||
+      thinkingLevel !== (ompConfig.defaultThinkingLevel ?? "medium") ||
+      modelFallbackEnabled !== ompConfig.modelFallbackEnabled ||
+      [...proxyProviders].sort().join("\u0000") !==
+        [...ompConfig.proxyProviders].sort().join("\u0000") ||
+      fallbackChainsChanged
+    )
+  }, [
+    advisorEnabled,
+    appFontFamily,
+    autoResume,
+    executable,
+    fallbackChains,
+    language,
+    modelFallbackEnabled,
+    ompConfig,
+    providerEnv,
+    proxyProviders,
+    roleDrafts,
+    runtime.ompAvailable,
+    sessionRoot,
+    settings,
+    terminalFontFamily,
+    terminalFontSize,
+    thinkingLevel,
+  ])
 
   const save = async () => {
     setSaving(true)
@@ -294,12 +372,21 @@ export function SettingsPanel({
           : null,
       })
       if (result.ompConfig) {
+        const savedRoleDrafts: Record<string, string> = {}
+        for (const role of result.ompConfig.roles) savedRoleDrafts[role.role] = role.selector
         setOmpConfig(result.ompConfig)
+        setRoleDrafts(savedRoleDrafts)
+        setAdvisorEnabled(result.ompConfig.advisorEnabled)
+        setAutoResume(result.ompConfig.autoResume)
+        setThinkingLevel(result.ompConfig.defaultThinkingLevel ?? "medium")
         setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
         setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
         setProxyProviders(result.ompConfig.proxyProviders)
         onConfigSaved?.(result.ompConfig)
       }
+      setProviderEnv(
+        Object.fromEntries(result.bootstrap.settings.providerEnvKeys.map((key) => [key, ""])),
+      )
       onSaved(result.bootstrap)
     } catch (error) {
       onError(errorMessage(error, language))
@@ -1063,7 +1150,7 @@ export function SettingsPanel({
           </button>
           <button
             className="button primary"
-            disabled={saving}
+            disabled={saving || !hasChanges}
             onClick={() => void save()}
             type="button"
           >

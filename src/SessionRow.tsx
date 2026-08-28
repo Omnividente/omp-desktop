@@ -152,14 +152,22 @@ export function SessionRow({
           <span className="session-icon">
             <Icon name="history" size={16} />
           </span>
-          <span className="session-copy" onClick={onSelect} role="presentation">
+          <span
+            className="session-copy"
+            onClick={renaming ? undefined : onSelect}
+            role="presentation"
+          >
             {renaming ? (
               <input
                 autoFocus
                 className="session-rename"
                 onBlur={onSubmitRename}
                 onChange={(e) => onRenameChange(e.target.value)}
-                onKeyDown={onRenameKeyDown}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  onRenameKeyDown(e)
+                }}
                 value={renameValue}
               />
             ) : (
