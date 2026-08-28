@@ -918,7 +918,7 @@ button:disabled {
 
 .session-item {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 28px 28px 28px 28px 28px;
+  grid-template-columns: 20px minmax(0, 1fr) repeat(5, 24px);
   align-items: center;
   min-height: 55px;
   margin-bottom: 2px;
@@ -991,6 +991,7 @@ button:disabled {
   gap: 9px;
   width: 100%;
   min-width: 0;
+  overflow: hidden;
   height: 100%;
   padding: 7px 5px 7px 9px;
   color: var(--text-soft);

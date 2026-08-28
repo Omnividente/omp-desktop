@@ -1894,6 +1894,7 @@ fn parse_session_with_names(
     let mut cwd = None;
     let mut title = None;
     let mut session_title = None;
+    let mut fallback_title = None;
     let mut codex_parent_id = None;
     let mut parent_session_path = None;
     let mut created_at = None;
@@ -1988,13 +1989,13 @@ fn parse_session_with_names(
                 }
             }
             Some("message" | "custom_message") => {
-                let role = value
-                    .get("message")
-                    .and_then(|m| m.get("role"))
-                    .and_then(Value::as_str)
-                    .or_else(|| value.get("role").and_then(Value::as_str));
+                let message = value.get("message").unwrap_or(&value);
+                let role = message.get("role").and_then(Value::as_str);
                 if role == Some("user") || role == Some("assistant") {
                     has_messages = true;
+                }
+                if fallback_title.is_none() {
+                    fallback_title = session_title_fallback_from_message(message);
                 }
             }
             _ => {}
@@ -2021,6 +2022,7 @@ fn parse_session_with_names(
         id,
         title: local_title
             .or(indexed_title)
+            .or(fallback_title)
             .unwrap_or_else(|| "Новая сессия".to_owned()),
         pinned_title: None,
         project_key: path_key(&cwd),
@@ -2242,6 +2244,61 @@ fn extract_text_content(content: Option<&Value>) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn compact_session_title(value: &str) -> Option<String> {
+    if is_synthetic_codex_text(value) {
+        return None;
+    }
+
+    let mut title = String::with_capacity(value.len().min(SESSION_TITLE_MAX_CHARS * 4));
+    let mut title_chars = 0_usize;
+    for word in value.split_whitespace() {
+        if title_chars >= SESSION_TITLE_MAX_CHARS {
+            break;
+        }
+        let separator_chars = usize::from(!title.is_empty());
+        let available = SESSION_TITLE_MAX_CHARS
+            .saturating_sub(title_chars)
+            .saturating_sub(separator_chars);
+        if available == 0 {
+            break;
+        }
+        let mut word_chars = word.chars().filter(|character| !character.is_control());
+        let Some(first) = word_chars.next() else {
+            continue;
+        };
+        if separator_chars > 0 {
+            title.push(' ');
+            title_chars += 1;
+        }
+        title.push(first);
+        title_chars += 1;
+        for character in word_chars.take(available.saturating_sub(1)) {
+            title.push(character);
+            title_chars += 1;
+        }
+    }
+
+    (!title.is_empty()).then_some(title)
+}
+
+fn session_title_fallback_from_message(message: &Value) -> Option<String> {
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return None;
+    }
+    compact_session_title(&extract_text_content(message.get("content")))
+}
+
+pub(crate) fn session_title_fallback_from_line(line: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(line).ok()?;
+    if !matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("message" | "custom_message")
+    ) {
+        return None;
+    }
+    session_title_fallback_from_message(value.get("message").unwrap_or(&value))
 }
 
 fn build_workspaces(sessions: &[SessionSummary], settings: &AppSettings) -> Vec<WorkspaceSummary> {
@@ -3165,6 +3222,9 @@ mod tests {
         assert!(sessions
             .iter()
             .any(|s| s.id == "s-untitled-msg" && s.has_messages));
+        assert!(sessions.iter().any(|session| {
+            session.id == "s-untitled-msg" && session.title == "Untitled chat in progress"
+        }));
         assert_eq!(
             sessions
                 .iter()
