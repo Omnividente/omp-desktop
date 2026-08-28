@@ -89,6 +89,7 @@ export function TerminalView({
   const onExitRef = useRef(onExit)
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
+  const inputBlockedRef = useRef(tab.switching || tab.primaryProviderPinPending)
 
   activeRef.current = active
   languageRef.current = language
@@ -97,6 +98,7 @@ export function TerminalView({
   onExitRef.current = onExit
   onErrorRef.current = onError
   onReadyRef.current = onReady
+  inputBlockedRef.current = tab.switching || tab.primaryProviderPinPending
 
   const replyToSelection = () => {
     const terminal = terminalRef.current
@@ -171,6 +173,7 @@ export function TerminalView({
       mouseSelection = null
     }
     const sendInput = (data: string) => {
+      if (inputBlockedRef.current) return
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -355,6 +358,7 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
+      if (inputBlockedRef.current) return
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })

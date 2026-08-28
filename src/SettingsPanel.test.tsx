@@ -30,6 +30,7 @@ const settings: AppSettings = {
   workspaceNames: {},
   hiddenWorkspaces: [],
   sessionTitlePins: {},
+  primaryProviderPins: [],
   railMode: "expanded",
   language: "ru",
   appFontFamily: "Inter",
@@ -53,7 +54,6 @@ const runtime: RuntimeInfo = {
 const ompConfig: OmpConfigSnapshot = {
   roles: [],
   models: [],
-  capabilities: { primaryProviderPin: true },
   advisorEnabled: false,
   autoResume: false,
   defaultThinkingLevel: null,

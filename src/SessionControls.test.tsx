@@ -32,7 +32,7 @@ const tab: TerminalTab = {
   primaryProviderPinPending: false,
 }
 
-function config(primaryProviderPin: boolean): OmpConfigSnapshot {
+function config(): OmpConfigSnapshot {
   const model = {
     provider: "provider",
     id: "primary",
@@ -55,7 +55,6 @@ function config(primaryProviderPin: boolean): OmpConfigSnapshot {
       },
     ],
     models: [model],
-    capabilities: { primaryProviderPin },
     advisorEnabled: false,
     autoResume: false,
     defaultThinkingLevel: "medium",
@@ -68,7 +67,6 @@ function config(primaryProviderPin: boolean): OmpConfigSnapshot {
     raw: {},
   }
 }
-
 describe("SessionControls primary provider pin", () => {
   let container: HTMLDivElement
   let root: Root
@@ -84,35 +82,13 @@ describe("SessionControls primary provider pin", () => {
     container.remove()
   })
 
-  it("disables the pin for OMP builds without routing support", () => {
+  it("enables the pin without a runtime capability handshake", () => {
     const onToggle = vi.fn()
     act(() => {
       root.render(
         <SessionControls
           lang="ru"
-          ompConfig={config(false)}
-          onSwitch={vi.fn()}
-          onTogglePrimaryProviderPin={onToggle}
-          runtimeStatus="normal"
-          tab={tab}
-        />,
-      )
-    })
-
-    const pin = container.querySelector<HTMLButtonElement>(".primary-provider-pin")
-    expect(pin?.disabled).toBe(true)
-    expect(pin?.title).toContain("не поддерживает")
-    act(() => pin?.click())
-    expect(onToggle).not.toHaveBeenCalled()
-  })
-
-  it("enables the pin when OMP exposes the explicit runtime capability", () => {
-    const onToggle = vi.fn()
-    act(() => {
-      root.render(
-        <SessionControls
-          lang="ru"
-          ompConfig={config(true)}
+          ompConfig={config()}
           onSwitch={vi.fn()}
           onTogglePrimaryProviderPin={onToggle}
           runtimeStatus="normal"
@@ -125,5 +101,49 @@ describe("SessionControls primary provider pin", () => {
     expect(pin?.disabled).toBe(false)
     act(() => pin?.click())
     expect(onToggle).toHaveBeenCalledWith("terminal-1", true)
+  })
+
+  it("waits for session discovery before enabling restart", () => {
+    const onToggle = vi.fn()
+    act(() => {
+      root.render(
+        <SessionControls
+          lang="ru"
+          ompConfig={config()}
+          onSwitch={vi.fn()}
+          onTogglePrimaryProviderPin={onToggle}
+          runtimeStatus="normal"
+          tab={{ ...tab, sessionPath: null }}
+        />,
+      )
+    })
+
+    const pin = container.querySelector<HTMLButtonElement>(".primary-provider-pin")
+    expect(pin?.disabled).toBe(true)
+    act(() => pin?.click())
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it("blocks conflicting controls while the session restarts", () => {
+    act(() => {
+      root.render(
+        <SessionControls
+          lang="ru"
+          ompConfig={config()}
+          onSwitch={vi.fn()}
+          onTogglePrimaryProviderPin={vi.fn()}
+          runtimeStatus="fallback"
+          tab={{ ...tab, primaryProviderPinPending: true }}
+        />,
+      )
+    })
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("select, button"),
+      ).every((control) => control.disabled),
+    ).toBe(true)
+    expect(container.textContent).toContain("Перезапускаем…")
+    expect(container.querySelector(".session-fallback")).toBeNull()
   })
 })

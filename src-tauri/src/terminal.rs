@@ -1,10 +1,11 @@
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{
-        apply_handoff_title_pins, apply_session_title_pin, canonical_project_path, parse_session,
-        path_key, session_title_fallback_from_line, validated_session_file,
+        apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
+        canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
+        transfer_session_primary_provider_pin, validated_session_file,
     },
-    settings::{resolve_omp, SettingsState},
+    settings::{ensure_primary_provider_pin_overlay, resolve_omp, save_settings, SettingsState},
     update,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -94,6 +95,7 @@ struct TerminalProcess {
     update_buffer: Vec<u8>,
     switch_input_buffer: Vec<u8>,
     switch_input_overflow_notified: bool,
+    exit_waiter: Option<mpsc::Receiver<()>>,
 }
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
@@ -149,6 +151,20 @@ pub struct LaunchRequest {
     pub args: Option<Vec<String>>,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimaryProviderPinRequest {
+    pub terminal_id: String,
+    pub pinned: bool,
+}
+
+const TERMINAL_STOP_TIMEOUT: Duration = Duration::from_secs(6);
+const TERMINAL_RESTART_STOPPED_ERROR_CODE: &str = "terminal_restart_stopped";
+
+fn terminal_restart_stopped_error(error: impl std::fmt::Display) -> String {
+    format!("[{TERMINAL_RESTART_STOPPED_ERROR_CODE}] {error}")
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,7 +254,6 @@ enum PtyRuntimeEventKind {
     RetryFallbackApplied,
     ThinkingLevelChange,
     ModelError,
-    PrimaryProviderPinChange,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -256,7 +271,6 @@ struct PtyRuntimeEvent {
     fallback_to: Option<String>,
     fallback_role: Option<String>,
     resolved_model_is_fallback: Option<bool>,
-    primary_provider_pinned: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -316,8 +330,17 @@ fn start_terminal_blocking(
     }
 
     let restartable = request.args.as_ref().is_none_or(Vec::is_empty);
+    let pin_overlay = if restartable
+        && resume_path.as_deref().is_some_and(|path| {
+            settings.primary_provider_pins.contains(&path_key(path))
+                || settings.primary_provider_pins.contains(path)
+        }) {
+        Some(ensure_primary_provider_pin_overlay(&app)?)
+    } else {
+        None
+    };
     let args = if restartable {
-        initial_agent_args(&cwd, resume_path.as_deref())
+        initial_agent_args_with_config(&cwd, resume_path.as_deref(), pin_overlay.as_deref())
     } else {
         request.args.unwrap_or_default()
     };
@@ -337,6 +360,127 @@ fn start_terminal_blocking(
         },
         restartable,
     )
+}
+
+#[tauri::command]
+pub async fn set_terminal_primary_provider_pin(
+    request: PrimaryProviderPinRequest,
+    app: AppHandle,
+) -> Result<TerminalStarted, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        set_terminal_primary_provider_pin_blocking(request, app)
+    })
+    .await
+    .map_err(|error| format!("Не удалось дождаться перезапуска сессии: {error}"))?
+}
+
+fn set_terminal_primary_provider_pin_blocking(
+    request: PrimaryProviderPinRequest,
+    app: AppHandle,
+) -> Result<TerminalStarted, String> {
+    let terminals = app.state::<TerminalState>();
+    let _session_file_guard = lock_session_files(&terminals);
+    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+        let processes = lock_processes(&terminals);
+        let process = processes
+            .get(&request.terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
+        if !process.restartable {
+            return Err("Эта служебная вкладка не поддерживает фиксацию провайдера".to_owned());
+        }
+        if process.switch_pending {
+            return Err("Сначала дождитесь завершения смены модели".to_owned());
+        }
+        if process.thinking {
+            return Err("Дождитесь завершения текущего запроса".to_owned());
+        }
+        if process.exited || process.exit_pending {
+            return Err("Процесс OMP уже завершён".to_owned());
+        }
+        (
+            process.resume_path.clone(),
+            process.cwd.clone(),
+            process.terminal_sessions_dir.clone(),
+            process.breadcrumb_snapshot.clone(),
+        )
+    };
+
+    let settings_state = app.state::<SettingsState>();
+    let settings = settings_state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let session_root = crate::settings::session_root(&app, &settings)?;
+    let resume_path = known_resume_path
+        .or_else(|| {
+            resolve_resume_path(
+                &request.terminal_id,
+                &cwd,
+                &terminal_sessions_dir,
+                &breadcrumb_snapshot,
+            )
+        })
+        .ok_or_else(|| "Сессия OMP ещё не готова к перезапуску".to_owned())?;
+    let resume_path = validated_resume_path(&resume_path, &session_root, &cwd)?;
+    if !Path::new(&resume_path).is_file() {
+        return Err(format!("Файл сессии не найден: {resume_path}"));
+    }
+
+    let omp = resolve_omp(&app, &settings);
+    if omp.version.is_none() {
+        return Err(format!(
+            "OMP не найден. Проверьте путь к исполняемому файлу в настройках: {}",
+            omp.executable
+        ));
+    }
+    let pin_overlay = request
+        .pinned
+        .then(|| ensure_primary_provider_pin_overlay(&app))
+        .transpose()?;
+    let args = initial_agent_args_with_config(&cwd, Some(&resume_path), pin_overlay.as_deref());
+
+    stop_terminal_for_restart(&request.terminal_id, &terminals)?;
+    let started = spawn_terminal_process(
+        &app,
+        &terminals,
+        &omp.executable,
+        &settings.provider_env,
+        cwd,
+        Some(resume_path.clone()),
+        args,
+        PtySize {
+            rows: 36,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+        true,
+    )
+    .map_err(terminal_restart_stopped_error)?;
+
+    let mut next = settings;
+    let session_key = path_key(&resume_path);
+    next.primary_provider_pins
+        .retain(|candidate| path_key(candidate) != session_key);
+    if request.pinned {
+        next.primary_provider_pins.insert(session_key);
+    }
+    if let Err(error) = save_settings(&app, &next) {
+        let cleanup = stop_terminal_for_restart(&started.terminal_id, &terminals).err();
+        let detail = match cleanup {
+            Some(cleanup) => {
+                format!("{error}; не удалось остановить незаписанный restart: {cleanup}")
+            }
+            None => error,
+        };
+        return Err(terminal_restart_stopped_error(detail));
+    }
+    *settings_state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
+    Ok(started)
 }
 
 #[tauri::command]
@@ -834,8 +978,16 @@ fn validate_switch_request(request: &SwitchRequest) -> Result<(), String> {
     Ok(())
 }
 
-fn initial_agent_args(cwd: &str, resume_path: Option<&str>) -> Vec<String> {
+fn initial_agent_args_with_config(
+    cwd: &str,
+    resume_path: Option<&str>,
+    config_path: Option<&Path>,
+) -> Vec<String> {
     let mut args = vec!["--cwd".to_owned(), cwd.to_owned()];
+    if let Some(config_path) = config_path {
+        args.push("--config".to_owned());
+        args.push(config_path.to_string_lossy().into_owned());
+    }
     if let Some(resume_path) = resume_path {
         args.push("--resume".to_owned());
         args.push(resume_path.to_owned());
@@ -917,6 +1069,7 @@ fn spawn_terminal_process(
     drop(pair.slave);
 
     let runtime_session_path = resume_path.clone();
+    let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
 
     let process = TerminalProcess {
         master: Some(pair.master),
@@ -941,9 +1094,10 @@ fn spawn_terminal_process(
         update_buffer: Vec::new(),
         switch_input_buffer: Vec::new(),
         switch_input_overflow_notified: false,
+        exit_waiter: Some(exit_receiver),
     };
     lock_processes(terminals).insert(terminal_id.clone(), process);
-    let output_exit = match spawn_reader(app.clone(), terminal_id.clone(), reader) {
+    let output_exit = match spawn_reader(app.clone(), terminal_id.clone(), reader, exit_sender) {
         Ok(output_exit) => output_exit,
         Err(error) => {
             drop(lock_processes(terminals).remove(&terminal_id));
@@ -1070,6 +1224,7 @@ fn apply_known_session_title_pin(app: &AppHandle, session: &mut crate::models::S
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     apply_session_title_pin(session, &settings.session_title_pins);
+    apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
 }
 
 fn apply_handoff_session_titles(
@@ -1090,6 +1245,7 @@ fn apply_handoff_session_titles(
         == path_key(active_path.to_string_lossy().as_ref())
     {
         apply_session_title_pin(active_session, &settings.session_title_pins);
+        apply_session_primary_provider_pin(active_session, &settings.primary_provider_pins);
         return Ok(());
     }
 
@@ -1108,8 +1264,14 @@ fn apply_handoff_session_titles(
         &mut settings.session_title_pins,
         archive_label,
     )?;
+    transfer_session_primary_provider_pin(
+        previous_path.to_string_lossy().as_ref(),
+        active_path.to_string_lossy().as_ref(),
+        &mut settings.primary_provider_pins,
+    );
     crate::settings::save_settings(app, &settings)?;
     apply_session_title_pin(active_session, &settings.session_title_pins);
+    apply_session_primary_provider_pin(active_session, &settings.primary_provider_pins);
     Ok(())
 }
 
@@ -1866,7 +2028,6 @@ fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
             fallback_to: None,
             fallback_role: None,
             resolved_model_is_fallback: None,
-            primary_provider_pinned: None,
         },
     );
 }
@@ -2110,7 +2271,6 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to,
                 fallback_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
                 resolved_model_is_fallback: None,
-                primary_provider_pinned: None,
             })
         }
         "model_change" => Some(PtyRuntimeEvent {
@@ -2131,7 +2291,6 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             resolved_model_is_fallback: value
                 .get("resolvedModelIsFallback")
                 .and_then(Value::as_bool),
-            primary_provider_pinned: None,
         }),
         "thinking_level_change" => {
             let thinking_level = value
@@ -2156,27 +2315,6 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to: None,
                 fallback_role: None,
                 resolved_model_is_fallback: None,
-                primary_provider_pinned: None,
-            })
-        }
-        "custom"
-            if value.get("customType").and_then(Value::as_str) == Some("primary_provider_pin") =>
-        {
-            let pinned = value.pointer("/data/pinned").and_then(Value::as_bool)?;
-            Some(PtyRuntimeEvent {
-                terminal_id: terminal_id.to_owned(),
-                kind: PtyRuntimeEventKind::PrimaryProviderPinChange,
-                model: None,
-                model_role: None,
-                thinking_level: None,
-                configured_thinking_level: None,
-                activity: None,
-                error_message: None,
-                fallback_from: None,
-                fallback_to: None,
-                fallback_role: None,
-                resolved_model_is_fallback: None,
-                primary_provider_pinned: Some(pinned),
             })
         }
         "message" | "custom" => {
@@ -2198,7 +2336,6 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
                 fallback_to: None,
                 fallback_role: None,
                 resolved_model_is_fallback: None,
-                primary_provider_pinned: None,
             })
         }
         _ => None,
@@ -2274,6 +2411,37 @@ pub fn resize_terminal(
             pixel_height: 0,
         })
         .map_err(|error| format!("Не удалось изменить размер терминала: {error}"))
+}
+
+fn stop_terminal_for_restart(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let exit_waiter = {
+        let mut processes = lock_processes(terminals);
+        let process = processes
+            .get_mut(terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+        if !process.exited && !process.exit_pending {
+            process
+                .killer
+                .as_mut()
+                .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?
+                .kill()
+                .map_err(|error| format!("Не удалось остановить процесс OMP: {error}"))?;
+            process.exit_pending = true;
+        }
+        process
+            .exit_waiter
+            .take()
+            .ok_or_else(|| "Остановка процесса OMP уже выполняется".to_owned())?
+    };
+
+    if let Err(error) = exit_waiter.recv_timeout(TERMINAL_STOP_TIMEOUT) {
+        drop(lock_processes(terminals).remove(terminal_id));
+        return Err(terminal_restart_stopped_error(format!(
+            "Процесс OMP не завершился после остановки: {error}"
+        )));
+    }
+    drop(lock_processes(terminals).remove(terminal_id));
+    Ok(())
 }
 
 #[tauri::command]
@@ -2508,6 +2676,7 @@ fn forward_output_batches(
     terminal_id: String,
     output_receiver: mpsc::Receiver<Vec<u8>>,
     exit_receiver: mpsc::Receiver<PtyExitEvent>,
+    finalized_sender: mpsc::SyncSender<()>,
 ) {
     run_output_pipeline(
         output_receiver,
@@ -2516,12 +2685,14 @@ fn forward_output_batches(
         |batch| route_output(&app, &terminal_id, batch),
         |event| finalize_terminal_exit(&app, &terminal_id, event),
     );
+    let _ = finalized_sender.send(());
 }
 
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
     mut reader: Box<dyn Read + Send>,
+    finalized_sender: mpsc::SyncSender<()>,
 ) -> Result<PtyExitSignal, String> {
     let (output_sender, output_receiver) = mpsc::sync_channel(PTY_OUTPUT_QUEUE_CAPACITY);
     let output_waker = output_sender.clone();
@@ -2537,6 +2708,7 @@ fn spawn_reader(
                 output_terminal_id,
                 output_receiver,
                 exit_receiver,
+                finalized_sender,
             )
         })
         .map_err(|error| format!("Не удалось запустить поток группировки PTY: {error}"))?;
@@ -2767,7 +2939,7 @@ mod tests {
     use super::RuntimeFileIdentity;
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, decode_terminal_binary,
-        discover_session, feed_runtime_lines, initial_agent_args, model_switch_input,
+        discover_session, feed_runtime_lines, initial_agent_args_with_config, model_switch_input,
         normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
         receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
         resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
@@ -2783,6 +2955,7 @@ mod tests {
         ffi::OsStr,
         fs,
         io::Write,
+        path::Path,
         sync::mpsc,
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -2918,8 +3091,27 @@ mod tests {
     #[test]
     fn initial_args_always_use_exact_resume_path() {
         assert_eq!(
-            initial_agent_args("/tmp/project", Some("/tmp/session.jsonl")),
+            initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), None,),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
+        );
+    }
+
+    #[test]
+    fn pinned_resume_adds_overlay_before_exact_session_path() {
+        assert_eq!(
+            initial_agent_args_with_config(
+                "/tmp/project",
+                Some("/tmp/session.jsonl"),
+                Some(Path::new("/tmp/primary-provider-pin.yml")),
+            ),
+            vec![
+                "--cwd",
+                "/tmp/project",
+                "--config",
+                "/tmp/primary-provider-pin.yml",
+                "--resume",
+                "/tmp/session.jsonl",
+            ]
         );
     }
 
@@ -3103,15 +3295,12 @@ mod tests {
     }
 
     #[test]
-    fn primary_provider_pin_custom_entry_becomes_runtime_event() {
-        let event = runtime_event_from_line(
+    fn legacy_primary_provider_pin_entry_is_not_a_runtime_control() {
+        assert!(runtime_event_from_line(
             "terminal-1",
             br#"{"type":"custom","customType":"primary_provider_pin","data":{"pinned":true}}"#,
         )
-        .expect("primary provider pin should parse");
-
-        assert_eq!(event.kind, PtyRuntimeEventKind::PrimaryProviderPinChange);
-        assert_eq!(event.primary_provider_pinned, Some(true));
+        .is_none());
     }
 
     #[test]

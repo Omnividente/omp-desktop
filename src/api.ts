@@ -70,6 +70,15 @@ export function switchTerminal(
   })
 }
 
+export function setTerminalPrimaryProviderPin(
+  terminalId: string,
+  pinned: boolean,
+): Promise<TerminalStarted> {
+  return invoke("set_terminal_primary_provider_pin", {
+    request: { terminalId, pinned },
+  })
+}
+
 export function attachTerminal(terminalId: string): Promise<TerminalAttachment> {
   return invoke("attach_terminal", { terminalId })
 }
@@ -207,6 +216,10 @@ export function errorMessage(error: unknown, language: Lang = "ru"): string {
   )
 }
 
+export function backendErrorCode(error: unknown): string | null {
+  return parseBackendError(error).code ?? null
+}
+
 function parseBackendError(error: unknown): BackendError {
   if (error && typeof error === "object" && !(error instanceof Error)) {
     const candidate = error as BackendError
@@ -218,6 +231,10 @@ function parseBackendError(error: unknown): BackendError {
       : typeof error === "string"
         ? error
         : JSON.stringify(error)
+  const coded = /^\[([a-z_]+)]\s*([\s\S]*)$/.exec(raw ?? "")
+  if (coded) {
+    return { code: coded[1], details: coded[2] || undefined }
+  }
   if (raw?.startsWith("{") && raw.endsWith("}")) {
     try {
       return JSON.parse(raw) as BackendError

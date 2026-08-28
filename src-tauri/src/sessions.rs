@@ -9,7 +9,7 @@ use crate::{
 };
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env, fs,
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -124,6 +124,7 @@ pub fn build_bootstrap(
     let mut sessions = scan_sessions(Path::new(&runtime.session_root))?;
     for session in &mut sessions {
         apply_session_title_pin(session, &settings.session_title_pins);
+        apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
     }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
     let workspaces = build_workspaces(&sessions, settings);
@@ -181,6 +182,27 @@ pub(crate) fn apply_session_title_pin(
     if let Some(title) = session.pinned_title.as_ref() {
         session.title.clone_from(title);
     }
+}
+
+pub(crate) fn apply_session_primary_provider_pin(
+    session: &mut SessionSummary,
+    pins: &BTreeSet<String>,
+) {
+    session.primary_provider_pinned = pins.contains(&path_key(&session.file_path))
+        || pins.contains(&lexical_path_key(&session.file_path));
+}
+
+pub(crate) fn transfer_session_primary_provider_pin(
+    previous_path: &str,
+    active_path: &str,
+    pins: &mut BTreeSet<String>,
+) -> bool {
+    let previous_key = path_key(previous_path);
+    if !pins.remove(&previous_key) {
+        return false;
+    }
+    pins.insert(path_key(active_path));
+    true
 }
 
 fn normalize_windows_verbatim_path(path: PathBuf) -> PathBuf {
@@ -542,7 +564,6 @@ pub fn read_session_transcript(
         TRANSCRIPT_TAIL_BYTES,
     )
 }
-
 fn read_session_transcript_with_limits(
     path: &str,
     session_root: &Path,
@@ -1903,7 +1924,6 @@ fn parse_session_with_names(
     let mut thinking_level = None;
     let mut configured_thinking_level = None;
     let mut has_messages = false;
-    let mut primary_provider_pinned = false;
 
     for line in regions
         .prefix
@@ -1920,7 +1940,6 @@ fn parse_session_with_names(
             && !bytes_contain(line, b"\"thinking_level_change\"")
             && !bytes_contain(line, b"\"title_change\"")
             && !bytes_contain(line, b"\"message\"")
-            && !bytes_contain(line, b"\"primary_provider_pin\"")
         {
             continue;
         }
@@ -1980,14 +1999,6 @@ fn parse_session_with_names(
                     .or_else(|| effective.clone());
                 thinking_level = effective;
             }
-            Some("custom")
-                if value.get("customType").and_then(Value::as_str)
-                    == Some("primary_provider_pin") =>
-            {
-                if let Some(pinned) = value.pointer("/data/pinned").and_then(Value::as_bool) {
-                    primary_provider_pinned = pinned;
-                }
-            }
             Some("message" | "custom_message") => {
                 let message = value.get("message").unwrap_or(&value);
                 let role = message.get("role").and_then(Value::as_str);
@@ -2036,7 +2047,7 @@ fn parse_session_with_names(
         configured_thinking_level,
         source: "omp".to_owned(),
         has_messages,
-        primary_provider_pinned,
+        primary_provider_pinned: false,
     }))
 }
 
@@ -2598,20 +2609,21 @@ impl IfEmpty for String {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_handoff_title_pins, apply_session_title_pin, atomic_write_file,
-        atomic_write_file_with, build_workspaces, collect_jsonl_files, commit_import_with,
-        deduplicate_codex_sessions, delete_session, encode_relative_session_dir_name,
-        encode_session_dir_name, handoff_session_titles, import_destination, import_session,
-        parse_codex_session_with_names, parse_session, parse_session_with_names, path_key,
-        read_codex_discovery_prefix, read_import_bytes, read_session_transcript,
-        read_session_transcript_with_limits, restorable_session_model, scan_sessions,
-        serialize_title_slot, stage_import_artifacts_with_limits, validated_external_import_source,
-        AppSettings, ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode,
-        ImportSessionRequest, SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
+        apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
+        atomic_write_file, atomic_write_file_with, build_workspaces, collect_jsonl_files,
+        commit_import_with, deduplicate_codex_sessions, delete_session,
+        encode_relative_session_dir_name, encode_session_dir_name, handoff_session_titles,
+        import_destination, import_session, parse_codex_session_with_names, parse_session,
+        parse_session_with_names, path_key, read_codex_discovery_prefix, read_import_bytes,
+        read_session_transcript, read_session_transcript_with_limits, restorable_session_model,
+        scan_sessions, serialize_title_slot, stage_import_artifacts_with_limits,
+        transfer_session_primary_provider_pin, validated_external_import_source, AppSettings,
+        ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
+        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
         CODEX_DISCOVERY_MAX_LINES, MAX_IMPORT_BYTES,
     };
     use std::{
-        collections::{BTreeMap, HashMap},
+        collections::{BTreeMap, BTreeSet, HashMap},
         fs, io,
         io::{Seek, SeekFrom, Write},
         path::Path,
@@ -2623,6 +2635,19 @@ mod tests {
         let key = path_key(r"D:\Projects\OMP\");
         assert!(!key.ends_with('/'));
         assert!(key.contains("/Projects/") || key.contains("/projects/"));
+    }
+
+    #[test]
+    fn handoff_moves_primary_provider_pin_to_active_session() {
+        let previous = r"C:\Sessions\previous.jsonl";
+        let active = r"C:\Sessions\active.jsonl";
+        let mut pins = BTreeSet::from([path_key(previous)]);
+
+        assert!(transfer_session_primary_provider_pin(
+            previous, active, &mut pins
+        ));
+        assert!(!pins.contains(&path_key(previous)));
+        assert!(pins.contains(&path_key(active)));
     }
 
     #[cfg(unix)]
@@ -3007,10 +3032,9 @@ mod tests {
         ));
         fs::write(&path, contents).expect("fixture should be writable");
 
-        let session = parse_session(&path)
+        let mut session = parse_session(&path)
             .expect("fixture should be readable")
             .expect("fixture should contain a session header");
-        fs::remove_file(&path).expect("fixture should be removable");
 
         assert_eq!(session.id, "session-id");
         assert_eq!(session.title, "Resume this work");
@@ -3019,8 +3043,13 @@ mod tests {
         assert_eq!(session.model.as_deref(), Some("provider/latest"));
         assert_eq!(session.thinking_level.as_deref(), Some("xhigh"));
         assert_eq!(session.configured_thinking_level.as_deref(), Some("auto"));
+        assert!(!session.primary_provider_pinned);
+
+        let pins = BTreeSet::from([path_key(path.to_string_lossy().as_ref())]);
+        apply_session_primary_provider_pin(&mut session, &pins);
         assert!(session.primary_provider_pinned);
         assert!(session.updated_at > 0);
+        fs::remove_file(&path).expect("fixture should be removable");
     }
 
     #[test]
