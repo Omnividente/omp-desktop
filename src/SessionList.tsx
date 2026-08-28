@@ -248,6 +248,7 @@ export function SessionList({
                       if (deletingSessionId === null) onLaunchSession(session)
                     }}
                     onKeySelect={(event) => {
+                      if (renaming) return
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault()
                         onSelectSession(session)

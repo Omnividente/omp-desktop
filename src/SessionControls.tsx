@@ -89,6 +89,15 @@ export function SessionControls({
     lang,
     tab.primaryProviderPinned ? "primaryProviderPinOn" : "primaryProviderPinOff",
   )
+  // OMP currently has no dedicated capability endpoint. The routing build that
+  // adds the pin action also exposes providers.proxyMode in `config list`.
+  const primaryProviderPinSupported = Object.prototype.hasOwnProperty.call(
+    ompConfig.raw,
+    "providers.proxyMode",
+  )
+  const providerPinTitle = primaryProviderPinSupported
+    ? providerPinAction
+    : t(lang, "primaryProviderPinUnsupported")
 
   return (
     <div aria-busy={tab.switching} className="session-controls">
@@ -135,12 +144,12 @@ export function SessionControls({
       <button
         aria-busy={tab.primaryProviderPinPending}
         aria-checked={tab.primaryProviderPinned}
-        aria-label={`${t(lang, "primaryProvider")}: ${providerPinState}. ${providerPinAction}`}
+        aria-label={`${t(lang, "primaryProvider")}: ${providerPinState}. ${providerPinTitle}`}
         className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}${tab.primaryProviderPinPending ? " is-pending" : ""}`}
-        disabled={tab.switching || tab.primaryProviderPinPending}
+        disabled={!primaryProviderPinSupported || tab.switching || tab.primaryProviderPinPending}
         onClick={() => onTogglePrimaryProviderPin(tab.id, !tab.primaryProviderPinned)}
         role="switch"
-        title={providerPinAction}
+        title={providerPinTitle}
         type="button"
       >
         <Icon name="pin" size={11} />

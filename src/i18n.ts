@@ -206,6 +206,8 @@ export const UI_TEXT = {
     primaryProviderPinOff: "ВЫКЛ",
     primaryProviderPinUnconfirmed:
       "OMP не подтвердил изменение фиксации основного провайдера; возвращено предыдущее состояние.",
+    primaryProviderPinUnsupported:
+      "Текущая версия OMP не поддерживает фиксацию основного провайдера. Обновите OMP.",
     thinkingUnavailable: "Не поддерживается",
     switchingSession: "Переключаем…",
     thinkingShort: "Думает",
@@ -583,6 +585,8 @@ export const UI_TEXT = {
     primaryProviderPinOff: "OFF",
     primaryProviderPinUnconfirmed:
       "OMP did not confirm the primary-provider pin change; the previous state was restored.",
+    primaryProviderPinUnsupported:
+      "The current OMP version does not support primary-provider pinning. Update OMP.",
     thinkingUnavailable: "Not supported",
     switchingSession: "Switching…",
     thinkingShort: "Thinking",
