@@ -1,10 +1,11 @@
+#[cfg(windows)]
+use crate::sessions::normalize_windows_verbatim_path;
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
     sessions::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
-        canonical_project_path, normalize_windows_verbatim_path, parse_session, path_key,
-        session_title_fallback_from_line, transfer_session_primary_provider_pin,
-        validated_session_file,
+        canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
+        transfer_session_primary_provider_pin, validated_session_file,
     },
     settings::{ensure_primary_provider_pin_overlay, resolve_omp, save_settings, SettingsState},
     update,
@@ -3233,22 +3234,26 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
-    use super::RuntimeFileIdentity;
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
         decode_terminal_binary, discover_session, feed_runtime_lines,
-        initial_agent_args_with_config, kill_terminal_process, lock_processes, model_switch_input,
-        native_pty_system, normalize_thinking_level, output_event_name, poll_runtime_file,
-        read_runtime_tail, receive_ready_output_batch, receive_timed_output_batch,
-        recover_runtime_cursor, resolve_resume_path_for_current, run_output_pipeline,
-        runtime_event_for_emit, runtime_event_from_line, session_title_for_emit,
-        session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
-        validated_resume_path, write_bytes, CommandBuilder, PtyExitEvent, PtyRuntimeEventKind,
-        PtySize, RuntimeRecovery, RuntimeWatchCursor, SwitchRequest, TerminalProcess,
-        TerminalState, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        initial_agent_args_with_config, lock_processes, model_switch_input,
+        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
+        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
+        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
+        runtime_event_from_line, session_title_for_emit, session_title_from_line,
+        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
+        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
+        SwitchRequest, TerminalProcess, TerminalState, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
+    #[cfg(windows)]
+    use super::{
+        kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
+    };
+    #[cfg(windows)]
+    use std::time::Instant;
     use std::{
         cell::RefCell,
         collections::HashMap,
@@ -3258,7 +3263,7 @@ mod tests {
         path::{Path, PathBuf},
         sync::{mpsc, Arc},
         thread,
-        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     fn switch_request() -> SwitchRequest {
