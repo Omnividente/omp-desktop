@@ -55,7 +55,7 @@ export function SessionControls({
   )
 
   const switchSelection = (model: string, thinking: string | null) => {
-    if (!model || tab.switching) return
+    if (!model || tab.switching || tab.primaryProviderPinPending) return
     onSwitch(tab.id, model, thinking)
   }
 
@@ -89,17 +89,18 @@ export function SessionControls({
     lang,
     tab.primaryProviderPinned ? "primaryProviderPinOn" : "primaryProviderPinOff",
   )
-  const primaryProviderPinSupported = ompConfig.capabilities.primaryProviderPin
-  const providerPinTitle = primaryProviderPinSupported
-    ? providerPinAction
-    : t(lang, "primaryProviderPinUnsupported")
+  const providerPinTitle = tab.sessionPath
+    ? tab.activity === "thinking"
+      ? t(lang, "primaryProviderPinBusy")
+      : providerPinAction
+    : t(lang, "primaryProviderPinNotReady")
 
   return (
-    <div aria-busy={tab.switching} className="session-controls">
+    <div aria-busy={tab.switching || tab.primaryProviderPinPending} className="session-controls">
       <select
         aria-label={t(lang, "sessionModel")}
         className="session-model-select"
-        disabled={tab.switching}
+        disabled={tab.switching || tab.primaryProviderPinPending}
         onChange={handleModelChange}
         title={t(lang, "sessionModel")}
         value={baseModel}
@@ -121,7 +122,7 @@ export function SessionControls({
       <select
         aria-label={t(lang, "sessionThinking")}
         className="session-thinking-select"
-        disabled={tab.switching || thinkingOptions.length === 0}
+        disabled={tab.switching || tab.primaryProviderPinPending || thinkingOptions.length === 0}
         onChange={handleThinkingChange}
         title={t(lang, "sessionThinking")}
         value={currentThinking ?? ""}
@@ -141,7 +142,12 @@ export function SessionControls({
         aria-checked={tab.primaryProviderPinned}
         aria-label={`${t(lang, "primaryProvider")}: ${providerPinState}. ${providerPinTitle}`}
         className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}${tab.primaryProviderPinPending ? " is-pending" : ""}`}
-        disabled={!primaryProviderPinSupported || tab.switching || tab.primaryProviderPinPending}
+        disabled={
+          tab.sessionPath === null ||
+          tab.activity === "thinking" ||
+          tab.switching ||
+          tab.primaryProviderPinPending
+        }
         onClick={() => onTogglePrimaryProviderPin(tab.id, !tab.primaryProviderPinned)}
         role="switch"
         title={providerPinTitle}
@@ -152,7 +158,7 @@ export function SessionControls({
         <span aria-hidden="true" className="primary-provider-toggle-track" />
         <span className="primary-provider-pin-state">{providerPinState}</span>
       </button>
-      {runtimeStatus === "fallback" && !tab.switching && (
+      {runtimeStatus === "fallback" && !tab.switching && !tab.primaryProviderPinPending && (
         <span aria-live="polite" className="session-fallback">
           {t(lang, "fallbackActive")}
         </span>
@@ -160,6 +166,11 @@ export function SessionControls({
       {tab.switching && (
         <span aria-live="polite" className="session-switching">
           {t(lang, "switchingSession")}
+        </span>
+      )}
+      {tab.primaryProviderPinPending && (
+        <span aria-live="polite" className="session-switching">
+          {t(lang, "restartingSession")}
         </span>
       )}
     </div>

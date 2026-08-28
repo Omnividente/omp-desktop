@@ -30,7 +30,6 @@ function runtimeEvent(overrides: Partial<PtyRuntimeEvent> = {}): PtyRuntimeEvent
     fallbackTo: null,
     fallbackRole: null,
     resolvedModelIsFallback: null,
-    primaryProviderPinned: null,
     ...overrides,
   }
 }

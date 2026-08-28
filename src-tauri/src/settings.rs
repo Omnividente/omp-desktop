@@ -209,6 +209,28 @@ pub fn session_root(app: &AppHandle, settings: &AppSettings) -> Result<PathBuf, 
         .map_err(|error| format!("Не удалось определить домашнюю папку: {error}"))
 }
 
+const PRIMARY_PROVIDER_PIN_OVERLAY_FILE: &str = "primary-provider-pin.yml";
+const PRIMARY_PROVIDER_PIN_OVERLAY: &str = "retry:\n  enabled: true\n  maxRetries: 2147483647\n  maxDelayMs: 0\n  modelFallback: false\n  usageAwareFallback: false\nproviders:\n  anthropic:\n    serverSideFallback: false\n";
+
+pub fn ensure_primary_provider_pin_overlay(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("Не удалось определить папку overlay: {error}"))?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Не удалось создать {}: {error}", directory.display()))?;
+    let path = directory.join(PRIMARY_PROVIDER_PIN_OVERLAY_FILE);
+    if fs::read(&path).ok().as_deref() != Some(PRIMARY_PROVIDER_PIN_OVERLAY.as_bytes()) {
+        atomic_write_file(&path, PRIMARY_PROVIDER_PIN_OVERLAY.as_bytes())?;
+    }
+    Ok(path)
+}
+
+#[cfg(test)]
+fn primary_provider_pin_overlay() -> &'static str {
+    PRIMARY_PROVIDER_PIN_OVERLAY
+}
+
 pub fn resolve_omp(app: &AppHandle, settings: &AppSettings) -> OmpResolution {
     let key = OmpResolutionKey {
         configured: settings
@@ -444,8 +466,8 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_omp_cached, resolve_transaction, OmpResolution, OmpResolutionCache,
-        OmpResolutionKey,
+        primary_provider_pin_overlay, resolve_omp_cached, resolve_transaction, OmpResolution,
+        OmpResolutionCache, OmpResolutionKey,
     };
     use std::{cell::Cell, time::Instant};
 
@@ -454,6 +476,49 @@ mod tests {
             executable: executable.to_owned(),
             version: Some("omp/17.1.3".to_owned()),
         }
+    }
+
+    #[test]
+    fn primary_provider_overlay_waits_without_model_fallback() {
+        let overlay = serde_saphyr::from_str::<serde_json::Value>(primary_provider_pin_overlay())
+            .expect("pin overlay should be valid YAML");
+
+        assert_eq!(
+            overlay
+                .pointer("/retry/enabled")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            overlay
+                .pointer("/retry/maxRetries")
+                .and_then(serde_json::Value::as_u64),
+            Some(2_147_483_647)
+        );
+        assert_eq!(
+            overlay
+                .pointer("/retry/maxDelayMs")
+                .and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
+        assert_eq!(
+            overlay
+                .pointer("/retry/modelFallback")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            overlay
+                .pointer("/retry/usageAwareFallback")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            overlay
+                .pointer("/providers/anthropic/serverSideFallback")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
     }
 
     #[test]

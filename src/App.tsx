@@ -12,6 +12,7 @@ import {
 import {
   addWorkspace,
   bootstrap as loadBootstrap,
+  backendErrorCode,
   checkOmpUpdate,
   closeTerminal,
   deleteSession,
@@ -24,6 +25,7 @@ import {
   sampleResourceHealth,
   saveSettingsBundle,
   setSessionTitlePin,
+  setTerminalPrimaryProviderPin,
   switchTerminal,
   startTerminal,
   writeTerminal,
@@ -81,7 +83,13 @@ import type {
   TerminalTab,
   WorkspaceSummary,
 } from "./types"
-import { localeTag, mergeSessionIntoPayload, normalizedPath, tabMatchesSession } from "./uiUtils"
+import {
+  localeTag,
+  mergeSessionIntoPayload,
+  normalizedPath,
+  replaceTerminalAfterRestart,
+  tabMatchesSession,
+} from "./uiUtils"
 import { useClientUpdater } from "./useClientUpdater"
 import { useWindowActivity } from "./useWindowActivity"
 import { useTranscript } from "./useTranscript"
@@ -180,7 +188,8 @@ function App() {
   const settingsWarningShownRef = useRef<string | null>(null)
   const pendingInitialInputRef = useRef(new Map<string, string>())
   const readyTerminalIdsRef = useRef(new Set<string>())
-  const primaryProviderPinTimeoutsRef = useRef(new Map<string, number>())
+  const restartingTerminalIdsRef = useRef(new Set<string>())
+  const restartExitEventsRef = useRef(new Map<string, PtyExitEvent>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
     terminalId: string
@@ -593,11 +602,6 @@ function App() {
     const unlistenRuntime = listen<PtyRuntimeEvent>("pty-runtime", ({ payload: event }) => {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
-      if (event.kind === "primaryProviderPinChange") {
-        const timeout = primaryProviderPinTimeoutsRef.current.get(event.terminalId)
-        if (timeout !== undefined) window.clearTimeout(timeout)
-        primaryProviderPinTimeoutsRef.current.delete(event.terminalId)
-      }
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
       const now = Date.now()
       setRuntimeIncidentState((current) =>
@@ -1165,6 +1169,8 @@ function App() {
         !tab ||
         tab.kind !== "agent" ||
         tab.status !== "running" ||
+        tab.activity === "thinking" ||
+        tab.sessionPath === null ||
         tab.switching ||
         tab.primaryProviderPinPending ||
         tab.primaryProviderPinned === pinned
@@ -1172,48 +1178,82 @@ function App() {
         return
       }
 
-      const previousPinned = tab.primaryProviderPinned
+      restartingTerminalIdsRef.current.add(terminalId)
+      restartExitEventsRef.current.delete(terminalId)
       setTabs((current) =>
         current.map((candidate) =>
           candidate.id === terminalId
-            ? {
-                ...candidate,
-                primaryProviderPinned: pinned,
-                primaryProviderPinPending: true,
-              }
+            ? { ...candidate, primaryProviderPinPending: true }
             : candidate,
         ),
       )
-      const rollback = () => {
+
+      try {
+        const started = await setTerminalPrimaryProviderPin(terminalId, pinned)
+        restartingTerminalIdsRef.current.delete(terminalId)
+        restartExitEventsRef.current.delete(terminalId)
+        rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, terminalId)
+        forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
+
+        const discoveredSession = discoveredSessionsRef.current.get(terminalId)
+        discoveredSessionsRef.current.delete(terminalId)
+        if (discoveredSession) {
+          discoveredSessionsRef.current.set(started.terminalId, {
+            ...discoveredSession,
+            primaryProviderPinned: pinned,
+          })
+        }
+        const pendingInput = pendingInitialInputRef.current.get(terminalId)
+        pendingInitialInputRef.current.delete(terminalId)
+        if (pendingInput) pendingInitialInputRef.current.set(started.terminalId, pendingInput)
+        readyTerminalIdsRef.current.delete(terminalId)
+        completionNotifiedRef.current.delete(terminalId)
+        completionNotifiedRef.current.delete(started.terminalId)
+
         setTabs((current) =>
           current.map((candidate) =>
-            candidate.id === terminalId && candidate.primaryProviderPinPending
+            replaceTerminalAfterRestart(candidate, terminalId, started, pinned),
+          ),
+        )
+        setActiveTabId((current) => (current === terminalId ? started.terminalId : current))
+        setTerminalFocusRequest((current) =>
+          current?.terminalId === terminalId
+            ? { ...current, terminalId: started.terminalId }
+            : current,
+        )
+        setUpdateSourceTerminalId((current) =>
+          current === terminalId ? started.terminalId : current,
+        )
+        void refresh()
+      } catch (error) {
+        restartingTerminalIdsRef.current.delete(terminalId)
+        const exitEvent = restartExitEventsRef.current.get(terminalId)
+        const stopped =
+          exitEvent !== undefined || backendErrorCode(error) === "terminal_restart_stopped"
+        restartExitEventsRef.current.delete(terminalId)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId
               ? {
                   ...candidate,
-                  primaryProviderPinned: previousPinned,
                   primaryProviderPinPending: false,
+                  ...(stopped
+                    ? {
+                        activity: "idle" as const,
+                        status: "exited" as const,
+                        exitCode: exitEvent?.exitCode ?? null,
+                        success: exitEvent?.success ?? false,
+                        switching: false,
+                      }
+                    : {}),
                 }
               : candidate,
           ),
         )
-      }
-      const timeout = window.setTimeout(() => {
-        primaryProviderPinTimeoutsRef.current.delete(terminalId)
-        rollback()
-        showError(t(langRef.current, "primaryProviderPinUnconfirmed"))
-      }, 5_000)
-      primaryProviderPinTimeoutsRef.current.set(terminalId, timeout)
-
-      try {
-        await writeTerminal(terminalId, "\x1bR")
-      } catch (error) {
-        window.clearTimeout(timeout)
-        primaryProviderPinTimeoutsRef.current.delete(terminalId)
-        rollback()
         showError(errorMessage(error, langRef.current))
       }
     },
-    [showError],
+    [refresh, showError],
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
@@ -1241,11 +1281,8 @@ function App() {
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
-      const primaryProviderPinTimeout = primaryProviderPinTimeoutsRef.current.get(terminalId)
-      if (primaryProviderPinTimeout !== undefined) {
-        window.clearTimeout(primaryProviderPinTimeout)
-        primaryProviderPinTimeoutsRef.current.delete(terminalId)
-      }
+      restartingTerminalIdsRef.current.delete(terminalId)
+      restartExitEventsRef.current.delete(terminalId)
       void closeTerminal(terminalId)
         .then(() => refresh())
         .catch((error) => showError(errorMessage(error, lang)))
@@ -1265,7 +1302,7 @@ function App() {
   const closeTab = useCallback(
     (terminalId: string) => {
       const target = tabs.find((tab) => tab.id === terminalId)
-      if (!target || target.switching) return
+      if (!target || target.switching || target.primaryProviderPinPending) return
       if (target.status === "running") {
         void confirm(t(lang, "stopAndCloseConfirm"), {
           title: target.label,
@@ -1393,6 +1430,12 @@ function App() {
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
       )
+      if (restartingTerminalIdsRef.current.has(event.terminalId)) {
+        restartExitEventsRef.current.set(event.terminalId, event)
+        pendingInitialInputRef.current.delete(event.terminalId)
+        readyTerminalIdsRef.current.delete(event.terminalId)
+        return
+      }
       if (completionNotifiedRef.current.has(event.terminalId)) return
       completionNotifiedRef.current.add(event.terminalId)
       pendingInitialInputRef.current.delete(event.terminalId)

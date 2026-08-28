@@ -1,5 +1,5 @@
 import type { Lang } from "./i18n"
-import type { BootstrapPayload, SessionSummary, TerminalTab } from "./types"
+import type { BootstrapPayload, SessionSummary, TerminalStarted, TerminalTab } from "./types"
 
 type SessionIdentity = Pick<SessionSummary, "id" | "filePath">
 
@@ -59,6 +59,28 @@ export function mergeSessionIntoPayload(
   ].sort((left, right) => right.updatedAt - left.updatedAt)
 
   return { ...payload, sessions }
+}
+
+export function replaceTerminalAfterRestart(
+  tab: TerminalTab,
+  previousTerminalId: string,
+  started: TerminalStarted,
+  primaryProviderPinned: boolean,
+): TerminalTab {
+  if (tab.id !== previousTerminalId) return tab
+  return {
+    ...tab,
+    id: started.terminalId,
+    cwd: started.cwd,
+    processId: started.processId,
+    status: "running",
+    activity: "idle",
+    exitCode: null,
+    success: null,
+    switching: false,
+    primaryProviderPinned,
+    primaryProviderPinPending: false,
+  }
 }
 
 export interface SessionTreeNode {

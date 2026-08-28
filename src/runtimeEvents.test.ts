@@ -38,7 +38,6 @@ function event(overrides: Partial<PtyRuntimeEvent>): PtyRuntimeEvent {
     fallbackTo: null,
     fallbackRole: null,
     resolvedModelIsFallback: null,
-    primaryProviderPinned: null,
     ...overrides,
   }
 }
@@ -58,23 +57,6 @@ describe("runtime event contract", () => {
     expect(updated.currentModel).toBe("provider/new")
     expect(updated.currentModelRole).toBe("review")
   })
-
-  it.each([true, false])(
-    "applies primary provider pin confirmation %s and clears pending state",
-    (pinned) => {
-      const pending = {
-        ...tab,
-        primaryProviderPinned: !pinned,
-        primaryProviderPinPending: true,
-      }
-      expect(
-        applyRuntimeEventToTab(
-          pending,
-          event({ kind: "primaryProviderPinChange", primaryProviderPinned: pinned }),
-        ),
-      ).toMatchObject({ primaryProviderPinned: pinned, primaryProviderPinPending: false })
-    },
-  )
 
   it("uses fallback metadata without treating the upstream role as a fallback marker", () => {
     const fallback = event({

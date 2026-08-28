@@ -13,6 +13,7 @@ export interface AppSettings {
   workspaceNames: Record<string, string>
   hiddenWorkspaces: string[]
   sessionTitlePins: Record<string, string>
+  primaryProviderPins: string[]
   railMode: RailMode
   language: "ru" | "en"
   appFontFamily: string
@@ -189,14 +190,9 @@ export interface OmpConfigWarning {
   message: string
 }
 
-export interface OmpRuntimeCapabilities {
-  primaryProviderPin: boolean
-}
-
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[]
   models: OmpModelInfo[]
-  capabilities: OmpRuntimeCapabilities
   advisorEnabled: boolean
   autoResume: boolean
   defaultThinkingLevel: string | null
@@ -287,7 +283,6 @@ export type PtyRuntimeEventKind =
   | "retryFallbackApplied"
   | "thinkingLevelChange"
   | "modelError"
-  | "primaryProviderPinChange"
 
 export interface PtyRuntimeEvent {
   terminalId: string
@@ -302,7 +297,6 @@ export interface PtyRuntimeEvent {
   fallbackTo: string | null
   fallbackRole: string | null
   resolvedModelIsFallback: boolean | null
-  primaryProviderPinned: boolean | null
 }
 
 export interface PtyUpdateEvent {

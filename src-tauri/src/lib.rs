@@ -326,11 +326,10 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
             let mut snapshot = settings_snapshot(&settings)?;
             let root = settings::session_root(&app, &snapshot)?;
             sessions::delete_session(&path, &root)?;
-            if snapshot
-                .session_title_pins
-                .remove(&path_key(&path))
-                .is_some()
-            {
+            let session_key = path_key(&path);
+            let title_pin_removed = snapshot.session_title_pins.remove(&session_key).is_some();
+            let provider_pin_removed = snapshot.primary_provider_pins.remove(&session_key);
+            if title_pin_removed || provider_pin_removed {
                 save_settings(&app, &snapshot)?;
                 *settings
                     .0
@@ -392,6 +391,10 @@ async fn read_session_transcript(
             sessions::apply_session_title_pin(
                 &mut transcript.session,
                 &snapshot.session_title_pins,
+            );
+            sessions::apply_session_primary_provider_pin(
+                &mut transcript.session,
+                &snapshot.primary_provider_pins,
             );
             Ok(transcript)
         },
@@ -508,6 +511,7 @@ pub fn run() {
             sample_resource_health,
             terminal::start_terminal,
             terminal::switch_terminal,
+            terminal::set_terminal_primary_provider_pin,
             terminal::attach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,

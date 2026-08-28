@@ -7,6 +7,7 @@ import {
   latestSessionInTree,
   mergeSessionIntoPayload,
   normalizedPath,
+  replaceTerminalAfterRestart,
   sessionAncestorIds,
   tabMatchesSession,
 } from "./uiUtils"
@@ -118,6 +119,51 @@ describe("mergeSessionIntoPayload", () => {
       "session-handoff",
       session.id,
     ])
+  })
+})
+
+describe("replaceTerminalAfterRestart", () => {
+  it("moves the tab to the replacement terminal and commits the pin", () => {
+    const pending = terminalTab({
+      id: "terminal-old",
+      status: "exited",
+      activity: "thinking",
+      exitCode: 1,
+      success: false,
+      switching: true,
+      primaryProviderPinPending: true,
+    })
+
+    expect(
+      replaceTerminalAfterRestart(
+        pending,
+        "terminal-old",
+        { terminalId: "terminal-new", processId: 4321, cwd: "C:\\Work\\OMP" },
+        true,
+      ),
+    ).toMatchObject({
+      id: "terminal-new",
+      processId: 4321,
+      status: "running",
+      activity: "idle",
+      exitCode: null,
+      success: null,
+      switching: false,
+      primaryProviderPinned: true,
+      primaryProviderPinPending: false,
+    })
+  })
+
+  it("leaves unrelated tabs unchanged", () => {
+    const tab = terminalTab({ id: "terminal-other" })
+    expect(
+      replaceTerminalAfterRestart(
+        tab,
+        "terminal-old",
+        { terminalId: "terminal-new", processId: 4321, cwd: tab.cwd },
+        true,
+      ),
+    ).toBe(tab)
   })
 })
 

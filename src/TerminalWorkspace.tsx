@@ -171,7 +171,7 @@ export function TerminalWorkspace({
                     <button
                       aria-pressed={tab.pinnedTitle !== null}
                       className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
-                      disabled={tab.switching}
+                      disabled={tab.switching || tab.primaryProviderPinPending}
                       onClick={() => onToggleTitlePin(tab)}
                       title={t(language, tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
                       type="button"
@@ -181,7 +181,7 @@ export function TerminalWorkspace({
                   )}
                   <button
                     className="tab-close"
-                    disabled={tab.switching}
+                    disabled={tab.switching || tab.primaryProviderPinPending}
                     onClick={() => onCloseTab(tab.id)}
                     title={
                       tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")

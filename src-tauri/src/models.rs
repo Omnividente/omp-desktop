@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
 };
 
@@ -81,6 +81,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub session_title_pins: BTreeMap<String, String>,
     #[serde(default)]
+    pub primary_provider_pins: BTreeSet<String>,
+    #[serde(default)]
     pub rail_mode: RailMode,
     #[serde(default = "default_language")]
     pub language: String,
@@ -110,6 +112,7 @@ impl Default for AppSettings {
             workspace_names: BTreeMap::new(),
             hidden_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
+            primary_provider_pins: BTreeSet::new(),
             rail_mode: RailMode::default(),
             language: default_language(),
             app_font_family: default_app_font_family(),
@@ -133,6 +136,10 @@ impl fmt::Debug for AppSettings {
             .field("workspace_name_count", &self.workspace_names.len())
             .field("hidden_workspace_count", &self.hidden_workspaces.len())
             .field("session_title_pin_count", &self.session_title_pins.len())
+            .field(
+                "primary_provider_pin_count",
+                &self.primary_provider_pins.len(),
+            )
             .field("rail_mode", &self.rail_mode)
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
@@ -395,18 +402,11 @@ pub struct OmpConfigWarning {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OmpRuntimeCapabilities {
-    pub primary_provider_pin: bool,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
-    pub capabilities: OmpRuntimeCapabilities,
     pub advisor_enabled: bool,
     pub auto_resume: bool,
     pub default_thinking_level: Option<String>,
@@ -550,6 +550,22 @@ mod tests {
             serde_json::from_str(&serialized).expect("settings should deserialize");
 
         assert_eq!(restored.session_title_pins, settings.session_title_pins);
+    }
+    #[test]
+    fn primary_provider_pins_survive_settings_round_trip() {
+        let mut settings = AppSettings::default();
+        settings
+            .primary_provider_pins
+            .insert("c:/sessions/session.jsonl".to_owned());
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let restored: AppSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+
+        assert_eq!(
+            restored.primary_provider_pins,
+            settings.primary_provider_pins
+        );
     }
 
     #[test]
