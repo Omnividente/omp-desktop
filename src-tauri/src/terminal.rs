@@ -7,7 +7,10 @@ use crate::{
         canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
         transfer_session_primary_provider_pin, validated_session_file,
     },
-    settings::{ensure_primary_provider_pin_overlay, resolve_omp, save_settings, SettingsState},
+    settings::{
+        ensure_primary_provider_pin_overlay, resolve_omp, save_settings, settings_snapshot,
+        with_settings_transaction, SettingsState,
+    },
     update,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -32,8 +35,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 #[cfg(windows)]
 use windows_sys::Win32::{
-    Foundation::CloseHandle,
+    Foundation::{CloseHandle, HANDLE},
     System::{
+        JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        },
         Threading::{GetCurrentThreadId, OpenThread, THREAD_TERMINATE},
         IO::CancelSynchronousIo,
     },
@@ -60,6 +68,57 @@ const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
 ];
 const MAX_SWITCH_INPUT_BUFFER: usize = 64 * 1024;
+
+#[cfg(windows)]
+struct WindowsJobObject(HANDLE);
+
+#[cfg(windows)]
+unsafe impl Send for WindowsJobObject {}
+
+#[cfg(windows)]
+impl WindowsJobObject {
+    fn new() -> std::io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self(handle);
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let configured = unsafe {
+            SetInformationJobObject(
+                job.0,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if configured == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+
+    fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
+        if unsafe { AssignProcessToJobObject(self.0, process.cast()) } == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+static NEXT_SWITCH_RECOVERY_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(windows)]
+impl Drop for WindowsJobObject {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
 
 /// Префикс имени файла breadcrumb, который OMP-агент пишет для привязки terminal_id к сессии.
 /// Wire contract (не менять без доказанного стабильного OMP RPC):
@@ -101,6 +160,18 @@ struct TerminalWriter {
 
 impl TerminalWriter {
     fn enqueue(&self, data: Vec<u8>, wait_for_completion: bool) -> Result<(), String> {
+        let completion = self.enqueue_request(data, wait_for_completion)?;
+        match completion {
+            Some(receiver) => self.wait_for_completion(receiver),
+            None => Ok(()),
+        }
+    }
+
+    fn enqueue_request(
+        &self,
+        data: Vec<u8>,
+        wait_for_completion: bool,
+    ) -> Result<Option<mpsc::Receiver<Result<(), String>>>, String> {
         if self.control.closed.load(Ordering::Acquire) {
             return Err("Процесс OMP уже завершён".to_owned());
         }
@@ -122,20 +193,18 @@ impl TerminalWriter {
             .cloned()
             .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
         match sender.try_send(PtyWriteRequest { data, completion }) {
-            Ok(()) => {}
-            Err(mpsc::TrySendError::Full(_)) => {
-                return Err("Буфер ввода PTY заполнен".to_owned());
-            }
-            Err(mpsc::TrySendError::Disconnected(_)) => {
-                return Err(self
-                    .error()
-                    .unwrap_or_else(|| "Процесс OMP уже завершён".to_owned()));
-            }
+            Ok(()) => Ok(completion_receiver),
+            Err(mpsc::TrySendError::Full(_)) => Err("Буфер ввода PTY заполнен".to_owned()),
+            Err(mpsc::TrySendError::Disconnected(_)) => Err(self
+                .error()
+                .unwrap_or_else(|| "Процесс OMP уже завершён".to_owned())),
         }
+    }
 
-        let Some(receiver) = completion_receiver else {
-            return Ok(());
-        };
+    fn wait_for_completion(
+        &self,
+        receiver: mpsc::Receiver<Result<(), String>>,
+    ) -> Result<(), String> {
         match receiver.recv_timeout(PTY_INPUT_WRITE_TIMEOUT) {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -303,6 +372,10 @@ struct TerminalProcess {
     switch_input_buffer: Vec<u8>,
     switch_input_overflow_notified: bool,
     exit_waiter: Option<mpsc::Receiver<()>>,
+    switch_generation: u64,
+    switch_recovery: Option<SwitchInputRecovery>,
+    #[cfg(windows)]
+    _containment: WindowsJobObject,
 }
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
@@ -432,6 +505,96 @@ pub struct SwitchRequest {
     pub current_thinking_configured: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum SwitchInputRecoveryState {
+    Pending,
+    Sending,
+    FailedSend,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchInputRecoveryMetadata {
+    terminal_id: String,
+    state: SwitchInputRecoveryState,
+    generation: u64,
+    byte_count: usize,
+    token: String,
+}
+
+struct SwitchInputRecovery {
+    state: SwitchInputRecoveryState,
+    generation: u64,
+    token: String,
+    buffer: Vec<u8>,
+}
+
+impl SwitchInputRecovery {
+    fn new(terminal_id: &str, generation: u64, buffer: Vec<u8>) -> Self {
+        let nonce = NEXT_SWITCH_RECOVERY_TOKEN.fetch_add(1, Ordering::Relaxed);
+        Self {
+            state: SwitchInputRecoveryState::Pending,
+            generation,
+            token: format!("{terminal_id}-{generation:016x}-{nonce:016x}"),
+            buffer,
+        }
+    }
+
+    fn metadata(&self, terminal_id: &str) -> SwitchInputRecoveryMetadata {
+        SwitchInputRecoveryMetadata {
+            terminal_id: terminal_id.to_owned(),
+            state: self.state,
+            generation: self.generation,
+            byte_count: self.buffer.len(),
+            token: self.token.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSwitchError {
+    code: String,
+    message: String,
+    recovery: Option<SwitchInputRecoveryMetadata>,
+}
+
+impl TerminalSwitchError {
+    fn new(code: &str, message: impl Into<String>) -> Self {
+        Self {
+            code: code.to_owned(),
+            message: message.into(),
+            recovery: None,
+        }
+    }
+
+    fn with_recovery(
+        code: &str,
+        message: impl Into<String>,
+        recovery: SwitchInputRecoveryMetadata,
+    ) -> Self {
+        Self {
+            code: code.to_owned(),
+            message: message.into(),
+            recovery: Some(recovery),
+        }
+    }
+}
+
+impl From<String> for TerminalSwitchError {
+    fn from(message: String) -> Self {
+        Self::new("terminal_switch_failed", message)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchInputRecoveryRequest {
+    terminal_id: String,
+    generation: u64,
+    token: String,
+}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalStarted {
@@ -545,10 +708,14 @@ fn validated_resume_path(path: &str, session_root: &Path, cwd: &str) -> Result<S
 pub async fn start_terminal(
     request: LaunchRequest,
     app: AppHandle,
-) -> Result<TerminalStarted, String> {
-    tauri::async_runtime::spawn_blocking(move || start_terminal_blocking(request, app))
-        .await
-        .map_err(|error| format!("Не удалось дождаться запуска OMP: {error}"))?
+) -> Result<TerminalStarted, crate::models::AppError> {
+    crate::run_blocking(
+        "запуска OMP",
+        "terminal_start_failed",
+        "Не удалось запустить OMP",
+        move || start_terminal_blocking(request, app),
+    )
+    .await
 }
 
 fn start_terminal_blocking(
@@ -556,16 +723,11 @@ fn start_terminal_blocking(
     app: AppHandle,
 ) -> Result<TerminalStarted, String> {
     let terminals = app.state::<TerminalState>();
+    let settings_state = app.state::<SettingsState>();
+    let settings = settings_snapshot(&app, &settings_state)?;
     let _session_file_guard = lock_session_files(&terminals);
     let cwd = canonical_project_path(&request.cwd)?;
     let cwd = cwd.to_string_lossy().into_owned();
-
-    let settings = app
-        .state::<SettingsState>()
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
     let session_root = crate::settings::session_root(&app, &settings)?;
     let resume_path = request
         .resume_path
@@ -618,12 +780,14 @@ fn start_terminal_blocking(
 pub async fn set_terminal_primary_provider_pin(
     request: PrimaryProviderPinRequest,
     app: AppHandle,
-) -> Result<TerminalStarted, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        set_terminal_primary_provider_pin_blocking(request, app)
-    })
+) -> Result<TerminalStarted, crate::models::AppError> {
+    crate::run_blocking(
+        "перезапуска сессии с фиксацией провайдера",
+        "terminal_provider_pin_failed",
+        "Не удалось перезапустить сессию",
+        move || set_terminal_primary_provider_pin_blocking(request, app),
+    )
     .await
-    .map_err(|error| format!("Не удалось дождаться перезапуска сессии: {error}"))?
 }
 
 fn set_terminal_primary_provider_pin_blocking(
@@ -631,7 +795,7 @@ fn set_terminal_primary_provider_pin_blocking(
     app: AppHandle,
 ) -> Result<TerminalStarted, String> {
     let terminals = app.state::<TerminalState>();
-    let _session_file_guard = lock_session_files(&terminals);
+    let settings_state = app.state::<SettingsState>();
     let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
         let processes = lock_processes(&terminals);
         let process = processes
@@ -642,6 +806,9 @@ fn set_terminal_primary_provider_pin_blocking(
         }
         if process.switch_pending {
             return Err("Сначала дождитесь завершения смены модели".to_owned());
+        }
+        if process.switch_recovery.is_some() {
+            return Err("Сначала отправьте или удалите сохранённый ввод".to_owned());
         }
         if process.thinking {
             return Err("Дождитесь завершения текущего запроса".to_owned());
@@ -657,113 +824,133 @@ fn set_terminal_primary_provider_pin_blocking(
         )
     };
 
-    let settings_state = app.state::<SettingsState>();
-    let settings = settings_state
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
-    let session_root = crate::settings::session_root(&app, &settings)?;
-    let resume_path = known_resume_path
-        .or_else(|| {
-            resolve_resume_path(
-                &request.terminal_id,
-                &cwd,
-                &terminal_sessions_dir,
-                &breadcrumb_snapshot,
-            )
-        })
-        .ok_or_else(|| "Сессия OMP ещё не готова к перезапуску".to_owned())?;
-    let resume_path = validated_resume_path(&resume_path, &session_root, &cwd)?;
-    if !Path::new(&resume_path).is_file() {
-        return Err(format!("Файл сессии не найден: {resume_path}"));
-    }
+    with_settings_transaction(&app, &settings_state, |transaction| {
+        let settings = transaction.candidate().clone();
+        let session_root = crate::settings::session_root(&app, &settings)?;
+        let resume_path = known_resume_path
+            .clone()
+            .or_else(|| {
+                resolve_resume_path(
+                    &request.terminal_id,
+                    &cwd,
+                    &terminal_sessions_dir,
+                    &breadcrumb_snapshot,
+                )
+            })
+            .ok_or_else(|| "Сессия OMP ещё не готова к перезапуску".to_owned())?;
+        let resume_path = validated_resume_path(&resume_path, &session_root, &cwd)?;
+        if !Path::new(&resume_path).is_file() {
+            return Err(format!("Файл сессии не найден: {resume_path}"));
+        }
 
-    let omp = resolve_omp(&app, &settings);
-    if omp.version.is_none() {
-        return Err(format!(
-            "OMP не найден. Проверьте путь к исполняемому файлу в настройках: {}",
-            omp.executable
-        ));
-    }
-    let pin_overlay = request
-        .pinned
-        .then(|| ensure_primary_provider_pin_overlay(&app))
-        .transpose()?;
-    let args = initial_agent_args_with_config(&cwd, Some(&resume_path), pin_overlay.as_deref());
+        let omp = resolve_omp(&app, &settings);
+        if omp.version.is_none() {
+            return Err(format!(
+                "OMP не найден. Проверьте путь к исполняемому файлу в настройках: {}",
+                omp.executable
+            ));
+        }
+        let pin_overlay = request
+            .pinned
+            .then(|| ensure_primary_provider_pin_overlay(&app))
+            .transpose()?;
+        let args = initial_agent_args_with_config(&cwd, Some(&resume_path), pin_overlay.as_deref());
 
-    stop_terminal_for_restart(&request.terminal_id, &terminals)?;
-    let started = spawn_terminal_process(
-        &app,
-        &terminals,
-        &omp.executable,
-        &settings.provider_env,
-        cwd,
-        Some(resume_path.clone()),
-        args,
-        PtySize {
-            rows: 36,
-            cols: 120,
-            pixel_width: 0,
-            pixel_height: 0,
-        },
-        true,
-    )
-    .map_err(terminal_restart_stopped_error)?;
+        let _session_file_guard = lock_session_files(&terminals);
+        stop_terminal_for_restart(&request.terminal_id, &terminals)?;
+        let started = spawn_terminal_process(
+            &app,
+            &terminals,
+            &omp.executable,
+            &settings.provider_env,
+            cwd.clone(),
+            Some(resume_path.clone()),
+            args,
+            PtySize {
+                rows: 36,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            true,
+        )
+        .map_err(terminal_restart_stopped_error)?;
 
-    let mut next = settings;
-    let session_key = path_key(&resume_path);
-    next.primary_provider_pins
-        .retain(|candidate| path_key(candidate) != session_key);
-    if request.pinned {
-        next.primary_provider_pins.insert(session_key);
-    }
-    if let Err(error) = save_settings(&app, &next) {
-        let cleanup = stop_terminal_for_restart(&started.terminal_id, &terminals).err();
-        let detail = match cleanup {
-            Some(cleanup) => {
-                format!("{error}; не удалось остановить незаписанный restart: {cleanup}")
-            }
-            None => error,
-        };
-        return Err(terminal_restart_stopped_error(detail));
-    }
-    *settings_state
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
-    Ok(started)
+        let mut next = settings;
+        let session_key = path_key(&resume_path);
+        next.primary_provider_pins
+            .retain(|candidate| path_key(candidate) != session_key);
+        if request.pinned {
+            next.primary_provider_pins.insert(session_key);
+        }
+        if let Err(error) = save_settings(&app, &next) {
+            let cleanup = stop_terminal_for_restart(&started.terminal_id, &terminals).err();
+            let detail = match cleanup {
+                Some(cleanup) => {
+                    format!("{error}; не удалось остановить незаписанный restart: {cleanup}")
+                }
+                None => error,
+            };
+            return Err(terminal_restart_stopped_error(detail));
+        }
+        *transaction.candidate_mut() = next;
+        Ok(started)
+    })
 }
 
 #[tauri::command]
 pub async fn switch_terminal(
     request: SwitchRequest,
     app: AppHandle,
-) -> Result<TerminalRuntime, String> {
+) -> Result<TerminalRuntime, TerminalSwitchError> {
     tauri::async_runtime::spawn_blocking(move || switch_terminal_blocking(request, app))
         .await
-        .map_err(|error| format!("Не удалось дождаться переключения модели: {error}"))?
+        .map_err(|error| {
+            TerminalSwitchError::new(
+                "backend_join_failed",
+                format!("Не удалось дождаться переключения модели: {error}"),
+            )
+        })?
 }
 
 fn switch_terminal_blocking(
     request: SwitchRequest,
     app: AppHandle,
-) -> Result<TerminalRuntime, String> {
-    validate_switch_request(&request)?;
+) -> Result<TerminalRuntime, TerminalSwitchError> {
+    validate_switch_request(&request).map_err(TerminalSwitchError::from)?;
     let terminals = app.state::<TerminalState>();
     let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
         let processes = lock_processes(&terminals);
-        let process = processes
-            .get(&request.terminal_id)
-            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
+        let process = processes.get(&request.terminal_id).ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_failed",
+                format!("Терминал не найден: {}", request.terminal_id),
+            )
+        })?;
         if !process.restartable {
-            return Err("Эта служебная вкладка не поддерживает смену модели".to_owned());
+            return Err(TerminalSwitchError::new(
+                "terminal_switch_failed",
+                "Эта служебная вкладка не поддерживает смену модели",
+            ));
         }
         if process.switch_pending {
-            return Err("Смена модели уже выполняется".to_owned());
+            return Err(TerminalSwitchError::new(
+                "terminal_switch_busy",
+                "Смена модели уже выполняется",
+            ));
+        }
+        if let Some(recovery) = process.switch_recovery.as_ref() {
+            return Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_pending",
+                "Сначала отправьте или удалите сохранённый ввод",
+                recovery.metadata(&request.terminal_id),
+            ));
         }
         if process.exited || process.exit_pending {
-            return Err("Процесс OMP уже завершён".to_owned());
+            return Err(TerminalSwitchError::new(
+                "terminal_switch_failed",
+                "Процесс OMP уже завершён",
+            ));
         }
         (
             process.resume_path.clone(),
@@ -781,25 +968,56 @@ fn switch_terminal_blocking(
                 &breadcrumb_snapshot,
             )
         })
-        .ok_or_else(|| "Сессия OMP ещё не готова к переключению".to_owned())?;
+        .ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_failed",
+                "Сессия OMP ещё не готова к переключению",
+            )
+        })?;
     if !Path::new(&resume_path).is_file() {
-        return Err(format!("Файл сессии не найден: {resume_path}"));
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_failed",
+            format!("Файл сессии не найден: {resume_path}"),
+        ));
     }
 
     let should_spawn_runtime_watcher = {
         let mut processes = lock_processes(&terminals);
-        let process = processes
-            .get_mut(&request.terminal_id)
-            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
+        let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_failed",
+                format!("Терминал не найден: {}", request.terminal_id),
+            )
+        })?;
         if process.switch_pending {
-            return Err("Смена модели уже выполняется".to_owned());
+            return Err(TerminalSwitchError::new(
+                "terminal_switch_busy",
+                "Смена модели уже выполняется",
+            ));
+        }
+        if let Some(recovery) = process.switch_recovery.as_ref() {
+            return Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_pending",
+                "Сначала отправьте или удалите сохранённый ввод",
+                recovery.metadata(&request.terminal_id),
+            ));
         }
         if process.exited || process.exit_pending {
-            return Err("Процесс OMP уже завершён".to_owned());
+            return Err(TerminalSwitchError::new(
+                "terminal_switch_failed",
+                "Процесс OMP уже завершён",
+            ));
         }
+        let next_generation = process.switch_generation.checked_add(1).ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_failed",
+                "Исчерпан счётчик поколений смены модели",
+            )
+        })?;
         let should_spawn = process.resume_path.is_none();
         process.resume_path = Some(resume_path.clone());
         process.switch_pending = true;
+        process.switch_generation = next_generation;
         process.switch_input_buffer.clear();
         process.switch_input_overflow_notified = false;
         should_spawn
@@ -812,36 +1030,286 @@ fn switch_terminal_blocking(
         );
     }
 
-    let result = perform_terminal_switch(&request, &resume_path, &terminals);
-    let flush_result = finish_switch_input(&request.terminal_id, &terminals);
-    match (result, flush_result) {
-        (Err(error), _) => Err(error),
-        (Ok(runtime), Ok(())) => Ok(runtime),
-        (Ok(_), Err(error)) => Err(error),
+    finalize_switch_result(
+        &request.terminal_id,
+        &terminals,
+        perform_terminal_switch(&request, &resume_path, &terminals),
+    )
+}
+
+fn finalize_switch_result<T>(
+    terminal_id: &str,
+    terminals: &TerminalState,
+    result: Result<T, String>,
+) -> Result<T, TerminalSwitchError> {
+    match result {
+        Ok(value) => {
+            finish_successful_switch_input(terminal_id, terminals)?;
+            Ok(value)
+        }
+        Err(error) => Err(fail_switch_input(terminal_id, terminals, error)),
     }
 }
 
-fn finish_switch_input(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
-    let (writer, buffered) = {
+fn fail_switch_input(
+    terminal_id: &str,
+    terminals: &TerminalState,
+    message: String,
+) -> TerminalSwitchError {
+    let mut processes = lock_processes(terminals);
+    let Some(process) = processes.get_mut(terminal_id) else {
+        return TerminalSwitchError::new("terminal_switch_failed", message);
+    };
+    process.switch_pending = false;
+    process.switch_input_overflow_notified = false;
+    let buffered = std::mem::take(&mut process.switch_input_buffer);
+    if buffered.is_empty() {
+        return TerminalSwitchError::new("terminal_switch_failed", message);
+    }
+
+    let recovery = SwitchInputRecovery::new(terminal_id, process.switch_generation, buffered);
+    let metadata = recovery.metadata(terminal_id);
+    process.switch_recovery = Some(recovery);
+    TerminalSwitchError::with_recovery("terminal_switch_input_recovery", message, metadata)
+}
+
+fn finish_successful_switch_input(
+    terminal_id: &str,
+    terminals: &TerminalState,
+) -> Result<(), TerminalSwitchError> {
+    let (writer, completion, generation, token) = {
         let mut processes = lock_processes(terminals);
-        let process = processes
-            .get_mut(terminal_id)
-            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
+        let process = processes.get_mut(terminal_id).ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_failed",
+                format!("Терминал не найден: {terminal_id}"),
+            )
+        })?;
+        let buffered = std::mem::take(&mut process.switch_input_buffer);
         process.switch_pending = false;
         process.switch_input_overflow_notified = false;
-        let buffered = std::mem::take(&mut process.switch_input_buffer);
-        let writer = process
-            .writer
-            .clone()
-            .ok_or_else(|| "Процесс OMP уже завершён".to_owned())?;
-        (writer, buffered)
+        if buffered.is_empty() {
+            return Ok(());
+        }
+
+        let mut recovery =
+            SwitchInputRecovery::new(terminal_id, process.switch_generation, buffered);
+        let writer = match process.writer.clone() {
+            Some(writer) => writer,
+            None => {
+                let metadata = recovery.metadata(terminal_id);
+                process.switch_recovery = Some(recovery);
+                return Err(TerminalSwitchError::with_recovery(
+                    "terminal_switch_input_recovery",
+                    "Процесс OMP завершился до отправки сохранённого ввода",
+                    metadata,
+                ));
+            }
+        };
+        let completion = match writer.enqueue_request(recovery.buffer.clone(), true) {
+            Ok(Some(completion)) => completion,
+            Ok(None) => unreachable!("confirmed PTY request must return a completion receiver"),
+            Err(error) => {
+                let metadata = recovery.metadata(terminal_id);
+                process.switch_recovery = Some(recovery);
+                return Err(TerminalSwitchError::with_recovery(
+                    "terminal_switch_input_recovery",
+                    format!("Не удалось поставить сохранённый ввод в очередь: {error}"),
+                    metadata,
+                ));
+            }
+        };
+        recovery.state = SwitchInputRecoveryState::Sending;
+        let generation = recovery.generation;
+        let token = recovery.token.clone();
+        process.switch_recovery = Some(recovery);
+        (writer, completion, generation, token)
     };
-    if buffered.is_empty() {
-        return Ok(());
+
+    let result = writer.wait_for_completion(completion);
+    let mut processes = lock_processes(terminals);
+    let process = processes.get_mut(terminal_id).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Терминал был закрыт во время отправки сохранённого ввода",
+        )
+    })?;
+    let Some(recovery) = process.switch_recovery.as_mut() else {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Состояние сохранённого ввода уже изменилось",
+        ));
+    };
+    if recovery.generation != generation || recovery.token != token {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Состояние сохранённого ввода уже изменилось",
+        ));
     }
-    writer
-        .enqueue(buffered, true)
-        .map_err(|error| format!("Не удалось восстановить ввод после смены модели: {error}"))
+    match result {
+        Ok(()) => {
+            process.switch_recovery = None;
+            Ok(())
+        }
+        Err(error) => {
+            recovery.state = SwitchInputRecoveryState::FailedSend;
+            let metadata = recovery.metadata(terminal_id);
+            Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_send_failed",
+                format!("Не удалось отправить сохранённый ввод: {error}"),
+                metadata,
+            ))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn send_switch_input_recovery(
+    request: SwitchInputRecoveryRequest,
+    app: AppHandle,
+) -> Result<(), TerminalSwitchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let terminals = app.state::<TerminalState>();
+        send_switch_input_recovery_blocking(&request, &terminals)
+    })
+    .await
+    .map_err(|error| {
+        TerminalSwitchError::new(
+            "backend_join_failed",
+            format!("Не удалось дождаться отправки сохранённого ввода: {error}"),
+        )
+    })?
+}
+
+fn send_switch_input_recovery_blocking(
+    request: &SwitchInputRecoveryRequest,
+    terminals: &TerminalState,
+) -> Result<(), TerminalSwitchError> {
+    let (writer, completion) = {
+        let mut processes = lock_processes(terminals);
+        let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_recovery_stale",
+                format!("Терминал не найден: {}", request.terminal_id),
+            )
+        })?;
+        let writer = process.writer.clone().ok_or_else(|| {
+            TerminalSwitchError::new("terminal_switch_recovery_stale", "Процесс OMP уже завершён")
+        })?;
+        let recovery = process.switch_recovery.as_mut().ok_or_else(|| {
+            TerminalSwitchError::new(
+                "terminal_switch_recovery_stale",
+                "Сохранённый ввод уже обработан",
+            )
+        })?;
+        if recovery.generation != request.generation || recovery.token != request.token {
+            return Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_stale",
+                "Состояние сохранённого ввода уже изменилось",
+                recovery.metadata(&request.terminal_id),
+            ));
+        }
+        if recovery.state != SwitchInputRecoveryState::Pending {
+            return Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_stale",
+                "Повторная отправка сохранённого ввода запрещена",
+                recovery.metadata(&request.terminal_id),
+            ));
+        }
+
+        recovery.state = SwitchInputRecoveryState::Sending;
+        let completion = match writer.enqueue_request(recovery.buffer.clone(), true) {
+            Ok(Some(completion)) => completion,
+            Ok(None) => unreachable!("confirmed PTY request must return a completion receiver"),
+            Err(error) => {
+                recovery.state = SwitchInputRecoveryState::FailedSend;
+                return Err(TerminalSwitchError::with_recovery(
+                    "terminal_switch_recovery_send_failed",
+                    format!("Не удалось поставить сохранённый ввод в очередь: {error}"),
+                    recovery.metadata(&request.terminal_id),
+                ));
+            }
+        };
+        (writer, completion)
+    };
+
+    let result = writer.wait_for_completion(completion);
+    let mut processes = lock_processes(terminals);
+    let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Терминал был закрыт во время отправки сохранённого ввода",
+        )
+    })?;
+    let Some(recovery) = process.switch_recovery.as_mut() else {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Сохранённый ввод уже обработан",
+        ));
+    };
+    if recovery.generation != request.generation || recovery.token != request.token {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Состояние сохранённого ввода уже изменилось",
+        ));
+    }
+    match result {
+        Ok(()) => {
+            process.switch_recovery = None;
+            Ok(())
+        }
+        Err(error) => {
+            recovery.state = SwitchInputRecoveryState::FailedSend;
+            Err(TerminalSwitchError::with_recovery(
+                "terminal_switch_recovery_send_failed",
+                format!("Не удалось отправить сохранённый ввод: {error}"),
+                recovery.metadata(&request.terminal_id),
+            ))
+        }
+    }
+}
+
+#[tauri::command]
+pub fn discard_switch_input_recovery(
+    request: SwitchInputRecoveryRequest,
+    terminals: State<'_, TerminalState>,
+) -> Result<(), TerminalSwitchError> {
+    discard_switch_input_recovery_from_state(&request, &terminals)
+}
+
+fn discard_switch_input_recovery_from_state(
+    request: &SwitchInputRecoveryRequest,
+    terminals: &TerminalState,
+) -> Result<(), TerminalSwitchError> {
+    let mut processes = lock_processes(terminals);
+    let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            format!("Терминал не найден: {}", request.terminal_id),
+        )
+    })?;
+    let recovery = process.switch_recovery.as_ref().ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_recovery_stale",
+            "Сохранённый ввод уже обработан",
+        )
+    })?;
+    if recovery.generation != request.generation || recovery.token != request.token {
+        return Err(TerminalSwitchError::with_recovery(
+            "terminal_switch_recovery_stale",
+            "Состояние сохранённого ввода уже изменилось",
+            recovery.metadata(&request.terminal_id),
+        ));
+    }
+    if recovery.state == SwitchInputRecoveryState::Sending {
+        return Err(TerminalSwitchError::with_recovery(
+            "terminal_switch_recovery_busy",
+            "Отправка сохранённого ввода уже выполняется",
+            recovery.metadata(&request.terminal_id),
+        ));
+    }
+    process.switch_recovery = None;
+    Ok(())
 }
 
 #[derive(Default)]
@@ -1316,10 +1784,25 @@ fn spawn_terminal_process(
     let pair = pty_system
         .openpty(size)
         .map_err(|error| format!("Не удалось создать PTY: {error}"))?;
+    #[cfg(windows)]
+    let containment = WindowsJobObject::new()
+        .map_err(|error| format!("Не удалось создать Windows Job Object для OMP: {error}"))?;
     let mut child = pair
         .slave
         .spawn_command(command)
         .map_err(|error| format!("Не удалось запустить OMP: {error}"))?;
+    #[cfg(windows)]
+    {
+        let process_handle = child.as_raw_handle().ok_or_else(|| {
+            "Не удалось получить Windows process handle для containment OMP".to_owned()
+        })?;
+        if let Err(error) = containment.assign(process_handle) {
+            let _ = child.kill();
+            return Err(format!(
+                "Не удалось назначить OMP в Windows Job Object: {error}"
+            ));
+        }
+    }
     let process_id = child.process_id();
     let killer = child.clone_killer();
     let reader = match pair.master.try_clone_reader() {
@@ -1375,6 +1858,10 @@ fn spawn_terminal_process(
         switch_input_buffer: Vec::new(),
         switch_input_overflow_notified: false,
         exit_waiter: Some(exit_receiver),
+        switch_generation: 0,
+        switch_recovery: None,
+        #[cfg(windows)]
+        _containment: containment,
     };
     lock_processes(terminals).insert(terminal_id.clone(), process);
     let output_exit = match spawn_reader(app.clone(), terminal_id.clone(), reader, exit_sender) {
@@ -1498,11 +1985,10 @@ fn discover_session(
 }
 
 fn apply_known_session_title_pin(app: &AppHandle, session: &mut crate::models::SessionSummary) {
-    let settings = app.state::<SettingsState>();
-    let settings = settings
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let settings_state = app.state::<SettingsState>();
+    let Ok(settings) = settings_snapshot(app, &settings_state) else {
+        return;
+    };
     apply_session_title_pin(session, &settings.session_title_pins);
     apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
 }
@@ -1514,61 +2000,86 @@ fn apply_handoff_session_titles(
     active_session: &mut crate::models::SessionSummary,
 ) -> Result<(), String> {
     let settings_state = app.state::<SettingsState>();
-    let mut settings = settings_state
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let root = crate::settings::session_root(app, &settings)?;
-    let previous_path = validated_session_file(previous_path, &root)?;
-    let active_path = validated_session_file(active_path, &root)?;
-    if path_key(previous_path.to_string_lossy().as_ref())
-        == path_key(active_path.to_string_lossy().as_ref())
-    {
-        apply_session_title_pin(active_session, &settings.session_title_pins);
-        apply_session_primary_provider_pin(active_session, &settings.primary_provider_pins);
-        return Ok(());
-    }
+    let terminals = app.state::<TerminalState>();
+    with_settings_transaction(app, &settings_state, |transaction| {
+        let _session_file_guard = lock_session_files(&terminals);
+        let root = crate::settings::session_root(app, transaction.candidate())?;
+        let previous_path = validated_session_file(previous_path, &root)?;
+        let active_path = validated_session_file(active_path, &root)?;
+        if path_key(previous_path.to_string_lossy().as_ref())
+            == path_key(active_path.to_string_lossy().as_ref())
+        {
+            apply_session_title_pin(active_session, &transaction.candidate().session_title_pins);
+            apply_session_primary_provider_pin(
+                active_session,
+                &transaction.candidate().primary_provider_pins,
+            );
+            return Ok(());
+        }
 
-    let mut previous_session = parse_session(&previous_path)?
-        .ok_or_else(|| format!("В файле нет session header: {}", previous_path.display()))?;
-    apply_session_title_pin(&mut previous_session, &settings.session_title_pins);
-    let archive_label = if settings.language == "en" {
-        "archive"
-    } else {
-        "архив"
-    };
-    apply_handoff_title_pins(
-        previous_path.to_string_lossy().as_ref(),
-        active_path.to_string_lossy().as_ref(),
-        &previous_session.title,
-        &mut settings.session_title_pins,
-        archive_label,
-    )?;
-    transfer_session_primary_provider_pin(
-        previous_path.to_string_lossy().as_ref(),
-        active_path.to_string_lossy().as_ref(),
-        &mut settings.primary_provider_pins,
-    );
-    crate::settings::save_settings(app, &settings)?;
-    apply_session_title_pin(active_session, &settings.session_title_pins);
-    apply_session_primary_provider_pin(active_session, &settings.primary_provider_pins);
-    Ok(())
+        let mut previous_session = parse_session(&previous_path)?
+            .ok_or_else(|| format!("В файле нет session header: {}", previous_path.display()))?;
+        apply_session_title_pin(
+            &mut previous_session,
+            &transaction.candidate().session_title_pins,
+        );
+        let archive_label = if transaction.candidate().language == "en" {
+            "archive"
+        } else {
+            "архив"
+        };
+        let previous_path_string = previous_path.to_string_lossy().into_owned();
+        let active_path_string = active_path.to_string_lossy().into_owned();
+        {
+            let candidate = transaction.candidate_mut();
+            apply_handoff_title_pins(
+                &previous_path_string,
+                &active_path_string,
+                &previous_session.title,
+                &mut candidate.session_title_pins,
+                archive_label,
+            )?;
+            transfer_session_primary_provider_pin(
+                &previous_path_string,
+                &active_path_string,
+                &mut candidate.primary_provider_pins,
+            );
+        }
+        let next = transaction.candidate().clone();
+        crate::settings::save_settings(app, &next)?;
+        apply_session_title_pin(active_session, &next.session_title_pins);
+        apply_session_primary_provider_pin(active_session, &next.primary_provider_pins);
+        Ok(())
+    })
+}
+
+enum ResumePathPoll {
+    Stop,
+    Continue,
+    Discovered {
+        resume_path: String,
+        previous_path: Option<String>,
+        session: Box<crate::models::SessionSummary>,
+    },
 }
 
 fn cache_resume_path(app: &AppHandle, terminal_id: &str) -> bool {
     let state = app.state::<TerminalState>();
-    let _session_file_guard = lock_session_files(&state);
-    cache_resume_path_locked(app, terminal_id, &state)
+    let poll = {
+        let _session_file_guard = lock_session_files(&state);
+        poll_resume_path_locked(terminal_id, &state)
+    };
+    finish_resume_path_poll(app, terminal_id, poll)
 }
 
-fn cache_resume_path_locked(app: &AppHandle, terminal_id: &str, state: &TerminalState) -> bool {
+fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePathPoll {
     let context = {
         let processes = lock_processes(state);
         let Some(process) = processes.get(terminal_id) else {
-            return true;
+            return ResumePathPoll::Stop;
         };
         if !process.restartable || process.exited || process.exit_pending {
-            return true;
+            return ResumePathPoll::Stop;
         }
         (
             process.cwd.clone(),
@@ -1577,32 +2088,50 @@ fn cache_resume_path_locked(app: &AppHandle, terminal_id: &str, state: &Terminal
             process.resume_path.clone(),
         )
     };
-    let Some((resume_path, mut session)) = discover_session(
+    let Some((resume_path, session)) = discover_session(
         terminal_id,
         &context.0,
         &context.1,
         &context.2,
         context.3.as_deref(),
     ) else {
-        return false;
+        return ResumePathPoll::Continue;
     };
 
     let previous_path = {
         let mut processes = lock_processes(state);
         let Some(process) = processes.get_mut(terminal_id) else {
-            return true;
+            return ResumePathPoll::Stop;
         };
         if !process.restartable || process.exited || process.exit_pending {
-            return true;
+            return ResumePathPoll::Stop;
         }
         if process
             .resume_path
             .as_deref()
             .is_some_and(|current| path_key(current) == path_key(&resume_path))
         {
-            return false;
+            return ResumePathPoll::Continue;
         }
         process.resume_path.replace(resume_path.clone())
+    };
+
+    ResumePathPoll::Discovered {
+        resume_path,
+        previous_path,
+        session: Box::new(session),
+    }
+}
+
+fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathPoll) -> bool {
+    let (resume_path, previous_path, mut session) = match poll {
+        ResumePathPoll::Stop => return true,
+        ResumePathPoll::Continue => return false,
+        ResumePathPoll::Discovered {
+            resume_path,
+            previous_path,
+            session,
+        } => (resume_path, previous_path, *session),
     };
 
     if let Some(previous_path) = previous_path.as_deref() {
@@ -2748,15 +3277,22 @@ fn append_switch_input(
     overflow_notified: &mut bool,
     data: &[u8],
 ) -> Result<(), String> {
-    let available = MAX_SWITCH_INPUT_BUFFER.saturating_sub(buffer.len());
-    buffer.extend_from_slice(&data[..data.len().min(available)]);
-    if data.len() > available && !*overflow_notified {
-        *overflow_notified = true;
-        return Err(format!(
-            "Буфер ввода во время смены модели заполнен ({} KiB)",
-            MAX_SWITCH_INPUT_BUFFER / 1024
-        ));
+    if *overflow_notified {
+        return Ok(());
     }
+    let available = MAX_SWITCH_INPUT_BUFFER.saturating_sub(buffer.len());
+    if data.len() > available {
+        if !*overflow_notified {
+            *overflow_notified = true;
+            return Err(format!(
+                "Буфер ввода во время смены модели ограничен {} KiB; текущие {} байт не приняты, дальнейший ввод до завершения переключения игнорируется",
+                MAX_SWITCH_INPUT_BUFFER / 1024,
+                data.len()
+            ));
+        }
+        return Ok(());
+    }
+    buffer.extend_from_slice(data);
     Ok(())
 }
 
@@ -2948,6 +3484,10 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
         process.exit_code = event.exit_code;
         process.exit_success = event.success;
         process.exit_error = event.error.clone();
+        process.switch_pending = false;
+        process.switch_input_buffer.clear();
+        process.switch_input_overflow_notified = false;
+        process.switch_recovery = None;
         process.attached
     };
 
@@ -3068,9 +3608,14 @@ where
             // restart already owns this guard and already has an exact resume path.
             {
                 let state = app.state::<TerminalState>();
-                if let Some(_session_file_guard) = try_lock_session_files(&state) {
-                    let _ = cache_resume_path_locked(&app, &terminal_id, &state);
-                };
+                let poll = try_lock_session_files(&state).map(|session_file_guard| {
+                    let poll = poll_resume_path_locked(&terminal_id, &state);
+                    drop(session_file_guard);
+                    poll
+                });
+                if let Some(poll) = poll {
+                    let _ = finish_resume_path_poll(&app, &terminal_id, poll);
+                }
             }
 
             let (master, writer, mut killer) = {
@@ -3236,21 +3781,23 @@ fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
 mod tests {
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
-        decode_terminal_binary, discover_session, feed_runtime_lines,
-        initial_agent_args_with_config, lock_processes, model_switch_input,
-        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
-        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
-        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, session_title_for_emit, session_title_from_line,
-        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
-        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
-        SwitchRequest, TerminalProcess, TerminalState, MAX_RUNTIME_EVENT_LINE,
-        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
-        PTY_OUTPUT_BATCH_LIMIT,
+        decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
+        feed_runtime_lines, finalize_switch_result, initial_agent_args_with_config, lock_processes,
+        model_switch_input, normalize_thinking_level, output_event_name, poll_runtime_file,
+        read_runtime_tail, receive_ready_output_batch, receive_timed_output_batch,
+        recover_runtime_cursor, resolve_resume_path_for_current, run_output_pipeline,
+        runtime_event_for_emit, runtime_event_from_line, send_switch_input_recovery_blocking,
+        session_title_for_emit, session_title_from_line, spawn_terminal_writer, thinking_cycle,
+        validate_switch_request, validated_resume_path, write_bytes, PtyExitEvent,
+        PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchInputRecoveryRequest,
+        SwitchInputRecoveryState, SwitchRequest, TerminalProcess, TerminalState,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
         kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
+        WindowsJobObject,
     };
     #[cfg(windows)]
     use std::time::Instant;
@@ -3261,7 +3808,7 @@ mod tests {
         fs,
         io::{self, Write},
         path::{Path, PathBuf},
-        sync::{mpsc, Arc},
+        sync::{mpsc, Arc, Mutex},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
@@ -3308,6 +3855,11 @@ mod tests {
             switch_input_buffer: Vec::new(),
             switch_input_overflow_notified: false,
             exit_waiter: None,
+            switch_generation: 0,
+            switch_recovery: None,
+            #[cfg(windows)]
+            _containment: super::WindowsJobObject::new()
+                .expect("test Windows Job Object should initialize"),
         }
     }
 
@@ -3329,6 +3881,62 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
+        }
+    }
+
+    struct RecordingWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.bytes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "injected writer failure",
+            ))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn switching_state(writer: Box<dyn Write + Send>, buffered: &[u8]) -> TerminalState {
+        let state = TerminalState::default();
+        let mut process = terminal_process(None, Some(writer));
+        process.switch_pending = true;
+        process.switch_generation = 1;
+        process.switch_input_buffer = buffered.to_vec();
+        lock_processes(&state).insert("terminal-1".to_owned(), process);
+        state
+    }
+
+    fn recovery_request(state: &TerminalState) -> SwitchInputRecoveryRequest {
+        let processes = lock_processes(state);
+        let recovery = processes
+            .get("terminal-1")
+            .and_then(|process| process.switch_recovery.as_ref())
+            .expect("recovery should exist");
+        SwitchInputRecoveryRequest {
+            terminal_id: "terminal-1".to_owned(),
+            generation: recovery.generation,
+            token: recovery.token.clone(),
         }
     }
 
@@ -3553,6 +4161,246 @@ mod tests {
         drop(pair.master);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_job_object_kills_direct_child_and_descendant_on_owner_drop() {
+        use std::{
+            os::windows::io::AsRawHandle,
+            process::{Command, Stdio},
+        };
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT},
+            System::Threading::{
+                OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+                PROCESS_SYNCHRONIZE,
+            },
+        };
+
+        fn wait_until_terminated(process_id: u32, deadline: Instant) -> bool {
+            loop {
+                let handle = unsafe {
+                    OpenProcess(
+                        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                        0,
+                        process_id,
+                    )
+                };
+                if handle.is_null() {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(87) {
+                        return true;
+                    }
+                    panic!("process {process_id} could not be inspected: {error}");
+                }
+                let status = unsafe { WaitForSingleObject(handle, 0) };
+                unsafe {
+                    CloseHandle(handle);
+                }
+                if status == WAIT_OBJECT_0 {
+                    return true;
+                }
+                assert_eq!(status, WAIT_TIMEOUT, "unexpected process wait status");
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-windows-job-tree-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+        let script = root.join("tree.ps1");
+        let gate = root.join("assigned.gate");
+        let pid_file = root.join("pids.txt");
+        fs::write(
+            &script,
+            r#"param([string]$Gate, [string]$PidFile)
+while (-not [System.IO.File]::Exists($Gate)) { Start-Sleep -Milliseconds 10 }
+$child = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList '/d', '/c', 'ping -n 120 127.0.0.1 > nul' -PassThru
+[System.IO.File]::WriteAllText($PidFile, "$PID`n$($child.Id)")
+$child.WaitForExit()
+"#,
+        )
+        .expect("PowerShell fixture should be writable");
+
+        let mut child = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+            ])
+            .arg("-File")
+            .arg(&script)
+            .arg(&gate)
+            .arg(&pid_file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("PowerShell tree fixture should start");
+        let job = WindowsJobObject::new().expect("kill-on-close Job Object should initialize");
+        job.assign(child.as_raw_handle())
+            .expect("fixture root should join Job Object before descendant launch");
+        fs::write(&gate, b"assigned").expect("fixture gate should open");
+
+        let discovery_deadline = Instant::now() + Duration::from_secs(10);
+        let process_ids = loop {
+            if let Ok(contents) = fs::read_to_string(&pid_file) {
+                let ids = contents
+                    .lines()
+                    .filter_map(|line| line.trim().parse::<u32>().ok())
+                    .collect::<Vec<_>>();
+                if ids.len() == 2 {
+                    break ids;
+                }
+            }
+            if let Some(status) = child
+                .try_wait()
+                .expect("fixture root status should be readable")
+            {
+                panic!("fixture root exited before publishing descendant PID: {status}");
+            }
+            assert!(
+                Instant::now() < discovery_deadline,
+                "fixture did not publish process tree PIDs"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(process_ids[0], child.id());
+
+        drop(job);
+        let termination_deadline = Instant::now() + Duration::from_secs(5);
+        assert!(
+            wait_until_terminated(process_ids[0], termination_deadline),
+            "direct child survived Job Object owner close"
+        );
+        assert!(
+            wait_until_terminated(process_ids[1], termination_deadline),
+            "descendant survived Job Object owner close"
+        );
+        child
+            .wait()
+            .expect("terminated fixture root should be waitable");
+        fs::remove_dir_all(root).expect("fixture directory should be removable");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_switch_actual_conpty_keeps_input_until_explicit_send() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("omp-switch-conpty-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+        let ready = root.join("ready.txt");
+        let received = root.join("received.txt");
+
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("ConPTY fixture should open");
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("ConPTY reader should clone");
+        let mut raw_writer = pair
+            .master
+            .take_writer()
+            .expect("ConPTY writer should open");
+        let mut command = CommandBuilder::new("powershell.exe");
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[IO.File]::WriteAllText($env:OMP_SWITCH_READY, 'ready'); $line = [Console]::In.ReadLine(); [IO.File]::WriteAllText($env:OMP_SWITCH_RECEIVED, $line)",
+        ]);
+        command.env("OMP_SWITCH_READY", &ready);
+        command.env("OMP_SWITCH_RECEIVED", &received);
+        let mut child = pair
+            .slave
+            .spawn_command(command)
+            .expect("PowerShell input fixture should start");
+        drop(pair.slave);
+
+        let mut cursor_query = [0_u8; 4];
+        reader
+            .read_exact(&mut cursor_query)
+            .expect("read ConPTY cursor-position query");
+        assert_eq!(&cursor_query, b"\x1b[6n");
+        raw_writer
+            .write_all(b"\x1b[1;1R")
+            .expect("answer ConPTY cursor-position query");
+        raw_writer
+            .flush()
+            .expect("flush ConPTY cursor-position response");
+
+        let ready_deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.is_file() {
+            if let Some(status) = child
+                .try_wait()
+                .expect("fixture process status should be readable")
+            {
+                panic!("input fixture exited before becoming ready: {status}");
+            }
+            assert!(
+                Instant::now() < ready_deadline,
+                "input fixture did not become ready"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let state = switching_state(raw_writer, b"sensitive-input\r");
+        let _ = finalize_switch_result::<()>(
+            "terminal-1",
+            &state,
+            Err("injected switch failure".to_owned()),
+        );
+        thread::sleep(Duration::from_millis(300));
+        assert!(
+            !received.exists(),
+            "failed switch must not send buffered user input automatically"
+        );
+
+        let request = recovery_request(&state);
+        send_switch_input_recovery_blocking(&request, &state)
+            .expect("explicit send should reach the live ConPTY");
+        let received_deadline = Instant::now() + Duration::from_secs(10);
+        while !received.is_file() {
+            assert!(
+                Instant::now() < received_deadline,
+                "explicitly sent input did not reach ConPTY fixture"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            fs::read_to_string(&received).expect("received input should be readable"),
+            "sensitive-input"
+        );
+
+        drop(lock_processes(&state).remove("terminal-1"));
+        drop(pair.master);
+        drop(reader);
+        child
+            .wait()
+            .expect("input fixture should exit after one line");
+        fs::remove_dir_all(root).expect("fixture directory should be removable");
+    }
+
     #[test]
     fn active_session_cannot_be_deleted_by_backend_command() {
         let nonce = SystemTime::now()
@@ -3696,12 +4544,182 @@ mod tests {
         let mut overflow_notified = false;
 
         assert!(append_switch_input(&mut buffer, &mut overflow_notified, &[2, 3]).is_err());
-        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER);
-        assert_eq!(buffer.last(), Some(&2));
+        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER - 1);
+        assert_eq!(buffer.last(), Some(&1));
         assert!(overflow_notified);
 
         assert!(append_switch_input(&mut buffer, &mut overflow_notified, &[4]).is_ok());
-        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER);
+        assert_eq!(buffer.len(), MAX_SWITCH_INPUT_BUFFER - 1);
+    }
+
+    #[test]
+    fn failed_switch_preserves_input_without_writing_any_user_byte() {
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let state = switching_state(
+            Box::new(RecordingWriter {
+                bytes: recorded.clone(),
+            }),
+            b"private draft",
+        );
+
+        let error = finalize_switch_result::<()>(
+            "terminal-1",
+            &state,
+            Err("injected switch failure".to_owned()),
+        )
+        .expect_err("failed switch should return recovery metadata");
+        assert!(recorded
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty());
+        let serialized = serde_json::to_value(error).expect("switch error should serialize");
+        assert_eq!(
+            serialized.pointer("/recovery/byteCount"),
+            Some(&serde_json::json!(13))
+        );
+        assert!(!serialized.to_string().contains("private draft"));
+
+        let processes = lock_processes(&state);
+        let process = processes.get("terminal-1").expect("terminal should remain");
+        assert!(!process.switch_pending);
+        let recovery = process
+            .switch_recovery
+            .as_ref()
+            .expect("input should remain");
+        assert_eq!(recovery.state, SwitchInputRecoveryState::Pending);
+        assert_eq!(recovery.buffer, b"private draft");
+    }
+
+    #[test]
+    fn successful_switch_flushes_buffer_exactly_once() {
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let state = switching_state(
+            Box::new(RecordingWriter {
+                bytes: recorded.clone(),
+            }),
+            b"ordered input",
+        );
+
+        finalize_switch_result("terminal-1", &state, Ok(()))
+            .expect("successful switch should flush input");
+        assert_eq!(
+            *recorded
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            b"ordered input"
+        );
+        let processes = lock_processes(&state);
+        let process = processes.get("terminal-1").expect("terminal should remain");
+        assert!(!process.switch_pending);
+        assert!(process.switch_recovery.is_none());
+    }
+
+    #[test]
+    fn recovery_token_is_one_shot_and_duplicate_send_writes_nothing_more() {
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let state = switching_state(
+            Box::new(RecordingWriter {
+                bytes: recorded.clone(),
+            }),
+            b"one shot",
+        );
+        let _ = finalize_switch_result::<()>(
+            "terminal-1",
+            &state,
+            Err("injected switch failure".to_owned()),
+        );
+        let request = recovery_request(&state);
+
+        send_switch_input_recovery_blocking(&request, &state)
+            .expect("first explicit send should succeed");
+        assert!(send_switch_input_recovery_blocking(&request, &state).is_err());
+        assert_eq!(
+            *recorded
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            b"one shot"
+        );
+    }
+
+    #[test]
+    fn stale_recovery_identity_does_not_change_private_buffer() {
+        let state = switching_state(Box::new(io::sink()), b"keep me");
+        let _ = finalize_switch_result::<()>(
+            "terminal-1",
+            &state,
+            Err("injected switch failure".to_owned()),
+        );
+        let request = recovery_request(&state);
+        let stale = SwitchInputRecoveryRequest {
+            terminal_id: request.terminal_id.clone(),
+            generation: request.generation + 1,
+            token: request.token.clone(),
+        };
+
+        assert!(send_switch_input_recovery_blocking(&stale, &state).is_err());
+        assert!(discard_switch_input_recovery_from_state(&stale, &state).is_err());
+        {
+            let processes = lock_processes(&state);
+            let recovery = processes
+                .get("terminal-1")
+                .and_then(|process| process.switch_recovery.as_ref())
+                .expect("stale requests must preserve recovery");
+            assert_eq!(recovery.buffer, b"keep me");
+            assert_eq!(recovery.state, SwitchInputRecoveryState::Pending);
+        }
+        discard_switch_input_recovery_from_state(&request, &state)
+            .expect("current recovery identity should discard");
+        assert!(lock_processes(&state)
+            .get("terminal-1")
+            .expect("terminal should remain")
+            .switch_recovery
+            .is_none());
+    }
+
+    #[test]
+    fn writer_failure_becomes_terminal_failed_send_until_discard() {
+        let state = switching_state(Box::new(FailingWriter), b"uncertain write");
+        let _ = finalize_switch_result::<()>(
+            "terminal-1",
+            &state,
+            Err("injected switch failure".to_owned()),
+        );
+        let request = recovery_request(&state);
+
+        let error = send_switch_input_recovery_blocking(&request, &state)
+            .expect_err("writer failure must be reported");
+        let serialized = serde_json::to_value(error).expect("send error should serialize");
+        assert_eq!(
+            serialized.pointer("/recovery/state"),
+            Some(&serde_json::json!("failedSend"))
+        );
+        assert!(send_switch_input_recovery_blocking(&request, &state).is_err());
+        {
+            let processes = lock_processes(&state);
+            let recovery = processes
+                .get("terminal-1")
+                .and_then(|process| process.switch_recovery.as_ref())
+                .expect("failed send should remain until discard");
+            assert_eq!(recovery.state, SwitchInputRecoveryState::FailedSend);
+            assert_eq!(recovery.buffer, b"uncertain write");
+        }
+        discard_switch_input_recovery_from_state(&request, &state)
+            .expect("failed send should permit safe discard");
+    }
+
+    #[test]
+    fn automatic_flush_failure_keeps_metadata_and_disables_retry() {
+        let state = switching_state(Box::new(FailingWriter), b"automatic write");
+
+        let error = finalize_switch_result("terminal-1", &state, Ok(()))
+            .expect_err("failed automatic flush should be recoverable only by discard");
+        let serialized = serde_json::to_value(error).expect("flush error should serialize");
+        assert_eq!(
+            serialized.pointer("/recovery/state"),
+            Some(&serde_json::json!("failedSend"))
+        );
+        let request = recovery_request(&state);
+        assert!(send_switch_input_recovery_blocking(&request, &state).is_err());
     }
 
     #[test]

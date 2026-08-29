@@ -4,21 +4,51 @@ use std::{
     fmt,
 };
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsFailureWire {
+    settings_path: String,
+    backup_path: Option<String>,
+    failure_stage: String,
+    reason: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppError {
     pub code: String,
     pub message: String,
     pub details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_stage: Option<String>,
 }
 
 impl AppError {
     pub fn from_internal(default_code: &str, message: &str, error: String) -> Self {
-        let (code, details) = parse_internal_error_code(default_code, &error);
+        let (code, parsed_details) = parse_internal_error_code(default_code, &error);
+        if code == "settings_unavailable" {
+            if let Ok(failure) = serde_json::from_str::<SettingsFailureWire>(&parsed_details) {
+                return Self {
+                    code,
+                    message: message.to_owned(),
+                    details: Some(failure.reason),
+                    settings_path: Some(failure.settings_path),
+                    backup_path: failure.backup_path,
+                    failure_stage: Some(failure.failure_stage),
+                };
+            }
+        }
         Self {
             code,
             message: message.to_owned(),
-            details: Some(details),
+            details: Some(parsed_details),
+            settings_path: None,
+            backup_path: None,
+            failure_stage: None,
         }
     }
 
@@ -27,6 +57,9 @@ impl AppError {
             code: "backend_join_failed".to_owned(),
             message: format!("Не удалось дождаться {operation}"),
             details: Some(error.to_string()),
+            settings_path: None,
+            backup_path: None,
+            failure_stage: None,
         }
     }
 }
@@ -416,7 +449,6 @@ pub struct OmpConfigSnapshot {
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
-    pub raw: serde_json::Value,
 }
 
 #[derive(Clone, Deserialize)]
@@ -500,7 +532,9 @@ pub struct SessionTranscript {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY};
+    use super::{
+        AppError, AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY,
+    };
 
     #[test]
     fn app_settings_never_serialize_provider_secret_values() {
@@ -610,5 +644,45 @@ mod tests {
             patch.rail_mode,
             SettingsPatch::Set(Some(RailMode::Collapsed))
         ));
+    }
+
+    #[test]
+    fn settings_unavailable_error_serializes_recovery_metadata_only() {
+        let error = AppError::from_internal(
+            "bootstrap_failed",
+            "Не удалось загрузить данные OMP",
+            concat!(
+                "[settings_unavailable] ",
+                r#"{"settingsPath":"C:\\Users\\Test\\settings.json","backupPath":"C:\\Users\\Test\\settings.backup.json","failureStage":"defaults_write","reason":"permission denied"}"#
+            )
+            .to_owned(),
+        );
+        let serialized = serde_json::to_value(error).expect("AppError should serialize");
+
+        assert_eq!(serialized["code"], "settings_unavailable");
+        assert_eq!(serialized["failureStage"], "defaults_write");
+        assert_eq!(serialized["details"], "permission denied");
+        assert_eq!(serialized["settingsPath"], r#"C:\Users\Test\settings.json"#);
+        assert_eq!(
+            serialized["backupPath"],
+            r#"C:\Users\Test\settings.backup.json"#
+        );
+        assert!(serialized.get("reason").is_none());
+    }
+
+    #[test]
+    fn malformed_settings_metadata_does_not_spoof_structured_fields() {
+        let error = AppError::from_internal(
+            "bootstrap_failed",
+            "Не удалось загрузить данные OMP",
+            "[settings_unavailable] not-json".to_owned(),
+        );
+        let serialized = serde_json::to_value(error).expect("AppError should serialize");
+
+        assert_eq!(serialized["code"], "settings_unavailable");
+        assert_eq!(serialized["details"], "not-json");
+        assert!(serialized.get("settingsPath").is_none());
+        assert!(serialized.get("backupPath").is_none());
+        assert!(serialized.get("failureStage").is_none());
     }
 }

@@ -16,6 +16,7 @@ const tab: TerminalTab = {
   success: null,
   kind: "agent",
   switching: false,
+  switchRecovery: null,
   currentModel: "provider/primary",
   currentModelRole: "default",
   currentThinking: "medium",

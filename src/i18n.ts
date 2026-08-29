@@ -49,6 +49,18 @@ export const UI_TEXT = {
     loadError: "Не удалось загрузить данные OMP",
     settingsRecovered:
       "Повреждённый settings.json сохранён в {path}; применены настройки по умолчанию.",
+    settingsRecoveryTitle: "Настройки недоступны",
+    settingsRecoveryDescription:
+      "OMP Desktop не продолжит работу с настройками по умолчанию, пока исходный файл не будет исправлен или сохранён в резервную копию.",
+    settingsPath: "Файл настроек",
+    settingsBackupPath: "Резервная копия",
+    settingsFailureStage: "Этап сбоя",
+    settingsFailureReason: "Причина",
+    openSettingsFolder: "Открыть папку настроек",
+    startWithDefaults: "Запустить с настройками по умолчанию",
+    startWithDefaultsConfirm:
+      "Сохранить исходный settings.json в приватную резервную копию и записать настройки по умолчанию?",
+    startWithDefaultsConfirmTitle: "Запуск с настройками по умолчанию",
     retry: "Повторить",
     projectNotSelected: "Проект не выбран",
     settings: "Настройки",
@@ -209,6 +221,16 @@ export const UI_TEXT = {
     primaryProviderPinNotReady: "Сессия ещё не готова к перезапуску.",
     thinkingUnavailable: "Не поддерживается",
     switchingSession: "Переключаем…",
+    switchRecoveryTitle: "Сохранённый ввод",
+    switchRecoveryPending:
+      "Смена модели не завершилась. {count} байт ввода сохранены и не отправлены.",
+    switchRecoverySending: "Отправляем {count} байт сохранённого ввода…",
+    switchRecoveryFailedSend:
+      "Отправка {count} байт могла завершиться частично. Повтор запрещён; безопасно только удалить копию.",
+    switchRecoverySend: "Отправить",
+    switchRecoveryDiscard: "Удалить",
+    switchRecoverySendConfirm:
+      "Отправить {count} байт, введённых во время неудачной смены модели? Состояние OMP могло измениться.",
     restartingSession: "Перезапускаем…",
     ompTerminated: "OMP завершён",
     ompExitedCode: "Процесс OMP завершён · код {code}",
@@ -431,6 +453,18 @@ export const UI_TEXT = {
     loadError: "Failed to load OMP data",
     settingsRecovered:
       "The invalid settings.json was saved to {path}; default settings were applied.",
+    settingsRecoveryTitle: "Settings unavailable",
+    settingsRecoveryDescription:
+      "OMP Desktop will not continue with implicit defaults until the source file is fixed or preserved in a backup.",
+    settingsPath: "Settings file",
+    settingsBackupPath: "Backup",
+    settingsFailureStage: "Failure stage",
+    settingsFailureReason: "Reason",
+    openSettingsFolder: "Open settings folder",
+    startWithDefaults: "Start with defaults",
+    startWithDefaultsConfirm:
+      "Preserve the source settings.json in a private backup and write default settings?",
+    startWithDefaultsConfirmTitle: "Start with default settings",
     retry: "Retry",
     projectNotSelected: "No project selected",
     settings: "Settings",
@@ -589,6 +623,16 @@ export const UI_TEXT = {
     primaryProviderPinNotReady: "The session is not ready to restart yet.",
     thinkingUnavailable: "Not supported",
     switchingSession: "Switching…",
+    switchRecoveryTitle: "Preserved input",
+    switchRecoveryPending:
+      "The model switch failed. {count} bytes of input were preserved and not sent.",
+    switchRecoverySending: "Sending {count} bytes of preserved input…",
+    switchRecoveryFailedSend:
+      "Sending {count} bytes may have partially succeeded. Retrying is blocked; only discarding the copy is safe.",
+    switchRecoverySend: "Send",
+    switchRecoveryDiscard: "Discard",
+    switchRecoverySendConfirm:
+      "Send the {count} bytes entered during the failed model switch? OMP state may have changed.",
     restartingSession: "Restarting…",
     ompTerminated: "OMP terminated",
     ompExitedCode: "OMP process finished · exit code {code}",

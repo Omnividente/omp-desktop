@@ -93,6 +93,7 @@ export function replaceTerminalAfterRestart(
     exitCode: null,
     success: null,
     switching: false,
+    switchRecovery: null,
     primaryProviderPinned,
     primaryProviderPinPending: false,
   }

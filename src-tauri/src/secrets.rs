@@ -1,4 +1,7 @@
-use crate::{diagnostics, sessions::atomic_write_file};
+use crate::{
+    diagnostics,
+    sessions::{atomic_write_private_file, harden_private_directory, harden_private_file},
+};
 use keyring::v1::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -295,6 +298,12 @@ fn fallback_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("Не удалось определить папку настроек: {error}"))?;
     fs::create_dir_all(&directory)
         .map_err(|error| format!("Не удалось создать {}: {error}", directory.display()))?;
+    harden_private_directory(&directory).map_err(|error| {
+        format!(
+            "Не удалось ограничить права каталога {}: {error}",
+            directory.display()
+        )
+    })?;
     Ok(directory.join("provider-secrets.json"))
 }
 
@@ -302,6 +311,7 @@ fn read_fallback(path: &Path) -> Result<BTreeMap<String, String>, String> {
     if !path.exists() {
         return Ok(BTreeMap::new());
     }
+    set_private_permissions(path)?;
     let contents = fs::read_to_string(path)
         .map_err(|error| format!("Не удалось прочитать резервное хранилище: {error}"))?;
     serde_json::from_str::<FallbackSecrets>(&contents)
@@ -317,8 +327,7 @@ fn write_fallback(path: &Path, values: &BTreeMap<String, String>) -> Result<(), 
         values: values.clone(),
     })
     .map_err(|error| format!("Не удалось подготовить резервное хранилище: {error}"))?;
-    atomic_write_file(path, &contents)?;
-    set_private_permissions(path)
+    atomic_write_private_file(path, &contents)
 }
 
 fn remove_fallback(path: &Path) -> Result<(), String> {
@@ -329,14 +338,14 @@ fn remove_fallback(path: &Path) -> Result<(), String> {
     }
 }
 
-pub fn set_private_permissions(_path: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(_path, fs::Permissions::from_mode(0o600))
-            .map_err(|error| format!("Не удалось ограничить права {}: {error}", _path.display()))?;
-    }
-    Ok(())
+pub fn set_private_permissions(path: &Path) -> Result<(), String> {
+    harden_private_file(path)
+        .map_err(|error| format!("Не удалось ограничить права {}: {error}", path.display()))
+}
+
+pub fn set_private_directory_permissions(path: &Path) -> Result<(), String> {
+    harden_private_directory(path)
+        .map_err(|error| format!("Не удалось ограничить права {}: {error}", path.display()))
 }
 
 #[cfg(test)]

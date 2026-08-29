@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core"
 import type {
   BootstrapPayload,
   CodexSessionSummary,
@@ -10,14 +10,43 @@ import type {
   ResourceHealthSnapshot,
   SettingsSavePayload,
   SettingsSaveRequest,
+  SettingsUnavailableDetails,
   TerminalAttachment,
   TerminalStarted,
   TerminalRuntime,
+  SwitchInputRecoveryMetadata,
 } from "./types"
 import type { Lang } from "./i18n"
 
+type SettingsUnavailableListener = (details: SettingsUnavailableDetails) => void
+
+const settingsUnavailableListeners = new Set<SettingsUnavailableListener>()
+
+async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
+  try {
+    return await tauriInvoke<T>(cmd, args, options)
+  } catch (error) {
+    const details = settingsUnavailableDetails(error)
+    if (details) {
+      for (const listener of settingsUnavailableListeners) listener(details)
+    }
+    throw error
+  }
+}
+
+export function subscribeSettingsUnavailable(listener: SettingsUnavailableListener): () => void {
+  settingsUnavailableListeners.add(listener)
+  return () => {
+    settingsUnavailableListeners.delete(listener)
+  }
+}
+
 export function bootstrap(): Promise<BootstrapPayload> {
   return invoke("bootstrap")
+}
+
+export function startWithDefaults(): Promise<BootstrapPayload> {
+  return invoke("start_with_defaults")
 }
 
 export function addWorkspace(path: string): Promise<BootstrapPayload> {
@@ -67,6 +96,26 @@ export function switchTerminal(
       currentThinking,
       currentThinkingConfigured,
     },
+  })
+}
+
+export function sendSwitchInputRecovery(
+  terminalId: string,
+  generation: number,
+  token: string,
+): Promise<void> {
+  return invoke("send_switch_input_recovery", {
+    request: { terminalId, generation, token },
+  })
+}
+
+export function discardSwitchInputRecovery(
+  terminalId: string,
+  generation: number,
+  token: string,
+): Promise<void> {
+  return invoke("discard_switch_input_recovery", {
+    request: { terminalId, generation, token },
   })
 }
 
@@ -137,6 +186,10 @@ interface BackendError {
   code?: string
   message?: string
   details?: string
+  settingsPath?: string
+  backupPath?: string | null
+  failureStage?: string
+  recovery?: SwitchInputRecoveryMetadata | null
 }
 
 const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
@@ -145,6 +198,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
     en: "The backend background operation failed",
   },
   bootstrap_failed: { ru: "Не удалось загрузить данные OMP", en: "Failed to load OMP data" },
+  settings_unavailable: {
+    ru: "Настройки OMP Desktop недоступны",
+    en: "OMP Desktop settings are unavailable",
+  },
   workspace_add_failed: { ru: "Не удалось добавить проект", en: "Failed to add the project" },
   workspace_rename_failed: {
     ru: "Не удалось переименовать проект",
@@ -208,6 +265,28 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   omp_io_failed: { ru: "Ошибка обмена данными с OMP", en: "Failed to communicate with OMP" },
   omp_invalid_json: { ru: "OMP вернул некорректные данные", en: "OMP returned invalid data" },
   omp_command_failed: { ru: "Команда OMP завершилась с ошибкой", en: "The OMP command failed" },
+  terminal_switch_failed: { ru: "Не удалось сменить модель", en: "Failed to switch models" },
+  terminal_switch_busy: { ru: "Смена модели уже выполняется", en: "A model switch is in progress" },
+  terminal_switch_input_recovery: {
+    ru: "Смена модели не завершилась; ввод сохранён",
+    en: "The model switch failed; input was preserved",
+  },
+  terminal_switch_recovery_pending: {
+    ru: "Сначала обработайте сохранённый ввод",
+    en: "Resolve the preserved input first",
+  },
+  terminal_switch_recovery_send_failed: {
+    ru: "Не удалось безопасно отправить сохранённый ввод",
+    en: "Failed to send the preserved input safely",
+  },
+  terminal_switch_recovery_stale: {
+    ru: "Состояние сохранённого ввода уже изменилось",
+    en: "The preserved input state has changed",
+  },
+  terminal_switch_recovery_busy: {
+    ru: "Сохранённый ввод уже отправляется",
+    en: "The preserved input is already being sent",
+  },
 }
 
 export function errorMessage(error: unknown, language: Lang = "ru"): string {
@@ -222,6 +301,43 @@ export function errorMessage(error: unknown, language: Lang = "ru"): string {
 
 export function backendErrorCode(error: unknown): string | null {
   return parseBackendError(error).code ?? null
+}
+
+export function settingsUnavailableDetails(error: unknown): SettingsUnavailableDetails | null {
+  const parsed = parseBackendError(error)
+  if (parsed.code !== "settings_unavailable") return null
+  return {
+    code: "settings_unavailable",
+    message: parsed.message || "Настройки OMP Desktop недоступны",
+    details: parsed.details || null,
+    settingsPath: parsed.settingsPath?.trim() || "settings.json",
+    backupPath: parsed.backupPath?.trim() || null,
+    failureStage: parsed.failureStage?.trim() || "unknown",
+  }
+}
+
+export function switchInputRecoveryDetails(error: unknown): SwitchInputRecoveryMetadata | null {
+  const recovery = parseBackendError(error).recovery
+  if (!recovery || typeof recovery !== "object") return null
+  if (
+    typeof recovery.terminalId !== "string" ||
+    !["pending", "sending", "failedSend"].includes(recovery.state) ||
+    !Number.isSafeInteger(recovery.generation) ||
+    recovery.generation < 0 ||
+    !Number.isSafeInteger(recovery.byteCount) ||
+    recovery.byteCount < 0 ||
+    typeof recovery.token !== "string" ||
+    recovery.token.length === 0
+  ) {
+    return null
+  }
+  return {
+    terminalId: recovery.terminalId,
+    state: recovery.state,
+    generation: recovery.generation,
+    byteCount: recovery.byteCount,
+    token: recovery.token,
+  }
 }
 
 function parseBackendError(error: unknown): BackendError {

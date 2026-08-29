@@ -5,7 +5,7 @@ use crate::{
         OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
-    settings::{resolve_omp, SettingsState},
+    settings::{resolve_omp, SettingsTransaction},
     update,
 };
 use serde_json::{Map, Value};
@@ -14,7 +14,7 @@ use std::{
     env, fs,
     path::PathBuf,
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 const KNOWN_ROLES: &[&str] = &[
     "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
@@ -88,7 +88,6 @@ pub fn load_config_snapshot(
             .collect(),
         credentials,
         warnings,
-        raw,
     })
 }
 
@@ -262,15 +261,11 @@ fn looks_like_environment_key(value: &str) -> bool {
 
 pub fn save_config(
     app: &AppHandle,
-    settings: &State<'_, SettingsState>,
-    mut app_settings: AppSettings,
+    transaction: &mut SettingsTransaction<'_>,
     request: OmpConfigSaveRequest,
 ) -> Result<OmpConfigSnapshot, String> {
-    let previous_settings = settings
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
+    let previous_settings = transaction.previous().clone();
+    let mut app_settings = transaction.candidate().clone();
     let omp = resolve_omp(app, &app_settings);
     if omp.version.is_none() {
         return Err(format!("OMP не найден: {}", omp.executable));
@@ -316,7 +311,7 @@ pub fn save_config(
             .collect::<Map<String, Value>>(),
     );
     let mut settings_save_attempted = false;
-    let transaction = (|| {
+    let transaction_result = (|| {
         set_omp_config(
             &omp.executable,
             "modelRoles",
@@ -407,7 +402,7 @@ pub fn save_config(
         Ok(snapshot)
     })();
 
-    let snapshot = crate::settings::resolve_transaction(transaction, || {
+    let snapshot = crate::settings::resolve_transaction(transaction_result, || {
         let mut rollback_errors = rollback_omp_config(
             app,
             &omp.executable,
@@ -434,10 +429,7 @@ pub fn save_config(
         }
         rollback_errors
     })?;
-    *settings
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = app_settings;
+    *transaction.candidate_mut() = app_settings;
     Ok(snapshot)
 }
 
@@ -568,16 +560,8 @@ fn verify_saved_config(
     Ok(())
 }
 
-pub fn check_update(
-    app: &AppHandle,
-    settings: &State<'_, SettingsState>,
-) -> Result<OmpUpdateInfo, String> {
-    let app_settings = settings
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
-    let omp = resolve_omp(app, &app_settings);
+pub fn check_update(app: &AppHandle, app_settings: &AppSettings) -> Result<OmpUpdateInfo, String> {
+    let omp = resolve_omp(app, app_settings);
     if omp.version.is_none() {
         return Err(format!("OMP не найден: {}", omp.executable));
     }

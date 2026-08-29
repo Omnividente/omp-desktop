@@ -72,7 +72,6 @@ const ompConfig: OmpConfigSnapshot = {
     },
   ],
   warnings: [],
-  raw: {},
 }
 
 describe("SettingsPanel Save state", () => {

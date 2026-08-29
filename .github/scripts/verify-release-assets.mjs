@@ -240,7 +240,7 @@ function normalizedUrl(value, label) {
   }
 }
 
-export function requireDraftRelease({ releaseMetadata, tag }) {
+export function requireReleaseState({ releaseMetadata, tag, state }) {
   requireCondition(
     releaseMetadata && typeof releaseMetadata === "object",
     "Release metadata is required",
@@ -249,7 +249,41 @@ export function requireDraftRelease({ releaseMetadata, tag }) {
     releaseMetadata.tag_name === tag,
     `Release metadata tag ${releaseMetadata.tag_name} does not match ${tag}`,
   )
-  requireCondition(releaseMetadata.draft === true, `Release ${tag} is already published`)
+
+  const expected = {
+    draft: { draft: true },
+    "draft-prerelease": { draft: true, prerelease: true },
+    "candidate-prerelease": { draft: false, prerelease: true },
+    stable: { draft: false, prerelease: false },
+  }[state]
+  requireCondition(expected, `Unknown release state: ${state}`)
+  const stateError =
+    state === "draft" && releaseMetadata.draft === false
+      ? `Release ${tag} is already published`
+      : `Release ${tag} is not in ${state} state`
+  requireCondition(releaseMetadata.draft === expected.draft, stateError)
+  if (expected.prerelease !== undefined) {
+    requireCondition(
+      releaseMetadata.prerelease === expected.prerelease,
+      `Release ${tag} is not in ${state} state`,
+    )
+  }
+}
+
+export function requireDraftRelease({ releaseMetadata, tag }) {
+  requireReleaseState({ releaseMetadata, tag, state: "draft" })
+}
+
+export function requireDraftPrerelease({ releaseMetadata, tag }) {
+  requireReleaseState({ releaseMetadata, tag, state: "draft-prerelease" })
+}
+
+export function requireCandidatePrerelease({ releaseMetadata, tag }) {
+  requireReleaseState({ releaseMetadata, tag, state: "candidate-prerelease" })
+}
+
+export function requireStableRelease({ releaseMetadata, tag }) {
+  requireReleaseState({ releaseMetadata, tag, state: "stable" })
 }
 
 export function selectDraftRelease({ releasePages, tag, allowMissing = false }) {
@@ -341,8 +375,8 @@ export async function waitForDraftRelease({
   )
 }
 
-function releaseAssetUrls(releaseMetadata, tag, repository) {
-  requireDraftRelease({ releaseMetadata, tag })
+function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
+  requireReleaseState({ releaseMetadata, tag, state })
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
 
   const apiPath = `/repos/${repository}/releases/assets/`
@@ -389,6 +423,7 @@ export async function verifyReleaseAssets({
   repository,
   releaseMetadata,
   updaterPublicKey,
+  releaseState = "draft",
 }) {
   requireCondition(directory, "Release asset directory is required")
   requireCondition(version, "Release version is required")
@@ -398,7 +433,7 @@ export async function verifyReleaseAssets({
 
   const names = await fileNames(directory)
   const files = new Set(names)
-  const assetUrls = releaseAssetUrls(releaseMetadata, tag, repository)
+  const assetUrls = releaseAssetUrls(releaseMetadata, tag, repository, releaseState)
 
   for (const required of ["latest.json", "SHA256SUMS-linux.txt", "SHA256SUMS-windows.txt"]) {
     requireCondition(files.has(required), `Required release asset is missing: ${required}`)
@@ -490,6 +525,21 @@ export async function verifyReleaseAssets({
     updaterTargets: platformEntries.length,
   }
 }
+async function verifyCliReleaseAssets({ directory, releaseState }) {
+  requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
+  const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+  const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"))
+  const summary = await verifyReleaseAssets({
+    directory,
+    tag: process.env.RELEASE_TAG,
+    version: process.env.RELEASE_VERSION,
+    repository: process.env.RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
+    releaseMetadata,
+    updaterPublicKey: tauriConfig.plugins?.updater?.pubkey,
+    releaseState,
+  })
+  console.log(`Verified ${releaseState} release assets: ${JSON.stringify(summary)}`)
+}
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null
 if (invokedPath === import.meta.url) {
@@ -525,30 +575,37 @@ if (invokedPath === import.meta.url) {
         },
       })
       console.log(String(release.id))
-    } else if (mode === "--require-draft") {
+    } else if (
+      mode === "--require-draft" ||
+      mode === "--require-draft-prerelease" ||
+      mode === "--require-candidate-prerelease" ||
+      mode === "--require-stable"
+    ) {
       requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
       requireCondition(process.env.RELEASE_TAG, "Release tag is required")
       const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
-      requireDraftRelease({ releaseMetadata, tag: process.env.RELEASE_TAG })
-      console.log(`Verified draft release ${process.env.RELEASE_TAG}`)
+      const stateByMode = {
+        "--require-draft": "draft",
+        "--require-draft-prerelease": "draft-prerelease",
+        "--require-candidate-prerelease": "candidate-prerelease",
+        "--require-stable": "stable",
+      }
+      const releaseState = stateByMode[mode]
+      requireReleaseState({ releaseMetadata, tag: process.env.RELEASE_TAG, state: releaseState })
+      console.log(`Verified ${releaseState} release ${process.env.RELEASE_TAG}`)
+    } else if (mode === "--verify-candidate-prerelease" || mode === "--verify-stable") {
+      const directory = process.argv[3] ?? process.env.RELEASE_DIR
+      await verifyCliReleaseAssets({
+        directory,
+        releaseState: mode === "--verify-candidate-prerelease" ? "candidate-prerelease" : "stable",
+      })
     } else if (mode === "--write-checksums") {
       const directory = process.argv[3] ?? process.env.RELEASE_DIR
       const summary = await writeReleaseChecksums({ directory })
       console.log(`Wrote release checksums: ${JSON.stringify(summary)}`)
     } else {
       const directory = process.argv[2] ?? process.env.RELEASE_DIR
-      requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
-      const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
-      const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"))
-      const summary = await verifyReleaseAssets({
-        directory,
-        tag: process.env.RELEASE_TAG,
-        version: process.env.RELEASE_VERSION,
-        repository: process.env.RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
-        releaseMetadata,
-        updaterPublicKey: tauriConfig.plugins?.updater?.pubkey,
-      })
-      console.log(`Verified release assets: ${JSON.stringify(summary)}`)
+      await verifyCliReleaseAssets({ directory, releaseState: "draft" })
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

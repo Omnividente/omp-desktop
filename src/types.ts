@@ -1,3 +1,17 @@
+export interface SettingsUnavailableDetails {
+  code: "settings_unavailable"
+  message: string
+  details: string | null
+  settingsPath: string
+  backupPath: string | null
+  failureStage: string
+}
+
+export interface SingleInstanceEvent {
+  args: string[]
+  cwd: string
+}
+
 export interface SettingsWarning {
   code: string
   message: string
@@ -202,7 +216,6 @@ export interface OmpConfigSnapshot {
   providerEnvKeys: string[]
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
-  raw: Record<string, unknown>
 }
 
 export interface OmpConfigSaveRequest {
@@ -256,6 +269,16 @@ export interface TerminalRuntime {
   modelRole: string | null
   thinkingLevel: string | null
   configuredThinkingLevel: string | null
+}
+
+export type SwitchInputRecoveryState = "pending" | "sending" | "failedSend"
+
+export interface SwitchInputRecoveryMetadata {
+  terminalId: string
+  state: SwitchInputRecoveryState
+  generation: number
+  byteCount: number
+  token: string
 }
 
 export interface TerminalAttachment {
@@ -332,6 +355,7 @@ export interface TerminalTab {
   success: boolean | null
   kind: "agent" | "utility"
   switching: boolean
+  switchRecovery: SwitchInputRecoveryMetadata | null
   currentModel?: string
   currentModelRole?: string | null
   currentThinking?: string | null

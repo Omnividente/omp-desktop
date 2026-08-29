@@ -1,12 +1,17 @@
+import { execFile } from "node:child_process"
 import { createHash, generateKeyPairSync, sign } from "node:crypto"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { afterEach, describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
   classifyReleaseAsset,
+  requireCandidatePrerelease,
+  requireDraftPrerelease,
   requireDraftRelease,
+  requireStableRelease,
   selectDraftRelease,
   waitForDraftRelease,
   verifyReleaseAssets,
@@ -136,6 +141,7 @@ async function releaseFixture() {
   const releaseMetadata = {
     id: 999,
     draft: true,
+    prerelease: true,
     tag_name: tag,
     assets: definitions.map(({ key, name, id }) => ({
       name,
@@ -181,6 +187,41 @@ async function writeSignedAsset(fixture, asset, bytes, signingKey = fixture.sign
   ])
 }
 
+const verifierPath = fileURLToPath(new URL("./verify-release-assets.mjs", import.meta.url))
+
+async function runVerifierCli(fixture, releaseMetadata, mode) {
+  const root = await mkdtemp(join(tmpdir(), "omp-release-cli-"))
+  directories.push(root)
+  await mkdir(join(root, "src-tauri"), { recursive: true })
+  const metadataPath = join(root, "release-metadata.json")
+  await Promise.all([
+    writeFile(metadataPath, JSON.stringify(releaseMetadata)),
+    writeFile(
+      join(root, "src-tauri", "tauri.conf.json"),
+      JSON.stringify({ plugins: { updater: { pubkey: fixture.updaterPublicKey } } }),
+    ),
+  ])
+
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [verifierPath, mode, fixture.directory],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          RELEASE_METADATA: metadataPath,
+          RELEASE_TAG: fixture.tag,
+          RELEASE_VERSION: fixture.version,
+          RELEASE_REPOSITORY: fixture.repository,
+        },
+        maxBuffer: 1_000_000,
+      },
+      (error, stdout, stderr) => resolve({ error, stdout, stderr }),
+    )
+  })
+}
+
 afterEach(async () => {
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -205,6 +246,39 @@ describe("release asset verification", () => {
       await readFile(join(fixture.directory, "SHA256SUMS-windows.txt"), "utf8"),
       checksumFor(fixture.windowsInstallers, fixture.assets),
     )
+  })
+  it("accepts a public candidate prerelease state", async () => {
+    const fixture = await releaseFixture()
+    const releaseMetadata = { ...fixture.releaseMetadata, draft: false, prerelease: true }
+
+    const summary = await verifyReleaseAssets({
+      ...fixture,
+      releaseMetadata,
+      releaseState: "candidate-prerelease",
+    })
+
+    assert.equal(summary.verifiedSignatures, 5)
+  })
+  it("fails closed in CLI mode for tampered assets and confused states", async () => {
+    const fixture = await releaseFixture()
+    const candidate = { ...fixture.releaseMetadata, draft: false, prerelease: true }
+
+    const valid = await runVerifierCli(fixture, candidate, "--verify-candidate-prerelease")
+    assert.ifError(valid.error)
+
+    await writeFile(join(fixture.directory, fixture.assets.appImage.name), "tampered")
+    const tampered = await runVerifierCli(fixture, candidate, "--verify-candidate-prerelease")
+    assert.ok(tampered.error)
+    assert.match(tampered.stderr, /cryptographically invalid/)
+
+    const draft = { ...candidate, draft: true }
+    const confused = await runVerifierCli(fixture, draft, "--verify-candidate-prerelease")
+    assert.ok(confused.error)
+    assert.match(confused.stderr, /not in candidate-prerelease state/)
+
+    const stableConfused = await runVerifierCli(fixture, candidate, "--verify-stable")
+    assert.ok(stableConfused.error)
+    assert.match(stableConfused.stderr, /not in stable state/)
   })
 
   it("rejects a missing installer signature before release publication", async () => {
@@ -298,12 +372,59 @@ describe("release asset verification", () => {
     await assert.rejects(() => verifyReleaseAssets(fixture), /does not match release version/)
   })
 
+  it("rejects a latest.json version that differs from the release version", async () => {
+    const fixture = await releaseFixture()
+    fixture.updater.version = "1.2.2"
+    await writeUpdater(fixture)
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /latest.json version 1.2.2 does not match 1.2.3/,
+    )
+  })
+
   it("rejects mutation of an already published release", async () => {
     const fixture = await releaseFixture()
     fixture.releaseMetadata.draft = false
 
     assert.throws(
       () => requireDraftRelease({ releaseMetadata: fixture.releaseMetadata, tag: fixture.tag }),
+      /is already published/,
+    )
+  })
+
+  it("enforces the draft, candidate, and stable state matrix", async () => {
+    const fixture = await releaseFixture()
+    const draft = { ...fixture.releaseMetadata, draft: true, prerelease: true }
+    const candidate = { ...draft, draft: false, prerelease: true }
+    const stable = { ...candidate, prerelease: false }
+
+    assert.doesNotThrow(() => requireDraftRelease({ releaseMetadata: draft, tag: fixture.tag }))
+    assert.doesNotThrow(() => requireDraftPrerelease({ releaseMetadata: draft, tag: fixture.tag }))
+    assert.throws(
+      () => requireCandidatePrerelease({ releaseMetadata: draft, tag: fixture.tag }),
+      /not in candidate-prerelease state/,
+    )
+    assert.throws(
+      () => requireStableRelease({ releaseMetadata: draft, tag: fixture.tag }),
+      /not in stable state/,
+    )
+
+    assert.doesNotThrow(() =>
+      requireCandidatePrerelease({ releaseMetadata: candidate, tag: fixture.tag }),
+    )
+    assert.throws(
+      () => requireDraftPrerelease({ releaseMetadata: candidate, tag: fixture.tag }),
+      /not in draft-prerelease state/,
+    )
+    assert.throws(
+      () => requireStableRelease({ releaseMetadata: candidate, tag: fixture.tag }),
+      /not in stable state/,
+    )
+
+    assert.doesNotThrow(() => requireStableRelease({ releaseMetadata: stable, tag: fixture.tag }))
+    assert.throws(
+      () => requireDraftRelease({ releaseMetadata: stable, tag: fixture.tag }),
       /is already published/,
     )
   })

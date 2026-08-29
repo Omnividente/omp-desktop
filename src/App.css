@@ -3406,6 +3406,72 @@ button:disabled {
   white-space: nowrap;
 }
 
+.switch-input-recovery {
+  display: inline-flex;
+  max-width: min(560px, 44vw);
+  height: 27px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 5px 0 8px;
+  color: #f0ce8a;
+  border: 1px solid rgba(239, 199, 119, 0.42);
+  border-radius: 6px;
+  background: rgba(239, 199, 119, 0.1);
+}
+
+.switch-input-recovery.is-failedSend {
+  color: #f09b91;
+  border-color: rgba(239, 112, 112, 0.46);
+  background: rgba(239, 112, 112, 0.1);
+}
+
+.switch-input-recovery.is-sending {
+  color: var(--accent);
+  border-color: rgba(185, 242, 124, 0.35);
+  background: rgba(185, 242, 124, 0.08);
+}
+
+.switch-input-recovery-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switch-input-recovery-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.switch-input-recovery-actions button {
+  height: 19px;
+  padding: 0 6px;
+  color: #dce4de;
+  border: 1px solid #4c5850;
+  border-radius: 4px;
+  background: #171d19;
+  cursor: pointer;
+  font: inherit;
+}
+
+.switch-input-recovery-actions button:hover:not(:disabled) {
+  color: #fff;
+  border-color: #718176;
+  background: #202922;
+}
+
+.switch-input-recovery-actions button:focus-visible {
+  border-color: rgba(185, 242, 124, 0.7);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.1);
+}
+
+.switch-input-recovery-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .session-fallback {
   padding: 3px 6px;
   color: #efc777;
@@ -3911,6 +3977,129 @@ button:disabled {
   max-width: 520px;
   color: #c58b85;
   line-height: 1.5;
+}
+
+.settings-recovery-screen {
+  box-sizing: border-box;
+  min-height: 100%;
+  height: auto;
+  padding: 32px;
+  overflow: auto;
+}
+
+.settings-recovery-card {
+  display: grid;
+  width: min(720px, 100%);
+  grid-template-columns: auto 1fr;
+  gap: 0 18px;
+  padding: 28px;
+  border: 1px solid rgba(197, 139, 133, 0.28);
+  border-radius: 18px;
+  background: rgba(20, 23, 21, 0.96);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.34);
+  text-align: left;
+}
+
+.settings-recovery-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  color: #d89a91;
+  border: 1px solid rgba(216, 154, 145, 0.24);
+  border-radius: 14px;
+  background: rgba(216, 154, 145, 0.07);
+}
+
+.settings-recovery-card h1 {
+  margin: 1px 0 8px;
+  font-size: 24px;
+}
+
+.splash-screen .settings-recovery-description {
+  display: block;
+  max-width: 590px;
+  margin: 0;
+  color: #9aa49e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-recovery-details {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  margin: 24px 0;
+}
+
+.settings-recovery-details > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.28fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.settings-recovery-details dt {
+  color: #6f7872;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settings-recovery-details dd {
+  min-width: 0;
+  margin: 0;
+  color: #c5ccc7;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-recovery-details code {
+  color: #d8ded9;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: normal;
+}
+
+.settings-recovery-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 620px) {
+  .settings-recovery-screen {
+    padding: 16px;
+  }
+
+  .settings-recovery-card {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+
+  .settings-recovery-icon {
+    margin-bottom: 12px;
+  }
+
+  .settings-recovery-details > div {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .settings-recovery-actions {
+    justify-content: stretch;
+  }
+
+  .settings-recovery-actions .button {
+    width: 100%;
+  }
 }
 
 .loading-dot {
