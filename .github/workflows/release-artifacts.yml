@@ -107,15 +107,13 @@ jobs:
             node .github/scripts/verify-release-assets.mjs --select-draft)
 
           if [[ "$release_id" == "none" ]]; then
-            prerelease=false
-            if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
             created_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               --raw-field tag_name="$RELEASE_TAG" \
               --raw-field target_commitish="$RELEASE_SHA" \
               --raw-field name="OMP Desktop $RELEASE_TAG" \
               --raw-field body="$release_body" \
               --field draft=true \
-              --field prerelease="$prerelease" \
+              --field prerelease=true \
               --jq .id)
             release_id=$(EXPECTED_RELEASE_ID="$created_id" \
               RELEASE_TAG="$RELEASE_TAG" \
@@ -126,8 +124,14 @@ jobs:
             fi
           else
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              --raw-field body="$release_body" >/dev/null
+              --raw-field body="$release_body" \
+              --field draft=true \
+              --field prerelease=true >/dev/null
           fi
+          prepared_metadata="$RUNNER_TEMP/prepared-release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$prepared_metadata"
+          RELEASE_METADATA="$prepared_metadata" RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
 
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
@@ -225,15 +229,14 @@ jobs:
           tagName: v__VERSION__
           releaseName: OMP Desktop v__VERSION__
           releaseBody: ${{ steps.release-notes.outputs.body }}
-          releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: true
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
           uploadWorkflowArtifacts: true
 
   publish-release:
-    name: Publish draft release
+    name: Publish public candidate prerelease
     needs:
       - prepare-release
       - publish
@@ -277,7 +280,7 @@ jobs:
           fi
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
-            node .github/scripts/verify-release-assets.mjs --require-draft
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
 
           rm -rf release-assets
           mkdir -p release-assets
@@ -298,7 +301,7 @@ jobs:
           fi
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
-            node .github/scripts/verify-release-assets.mjs --require-draft
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
           gh release upload "$tag" \
             release-assets/SHA256SUMS-linux.txt \
             release-assets/SHA256SUMS-windows.txt \
@@ -368,7 +371,7 @@ jobs:
           EOF
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
-            node .github/scripts/verify-release-assets.mjs --require-draft
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
           gh release upload "$tag" release-assets-manifest.json --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish release after all platform uploads
@@ -399,7 +402,7 @@ jobs:
           fi
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
-            node .github/scripts/verify-release-assets.mjs --require-draft
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
 
           remote_refs=$(git ls-remote --exit-code origin \
             "refs/tags/${RELEASE_TAG}" \
@@ -421,4 +424,9 @@ jobs:
           gh api --method PATCH \
             "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             --field draft=false \
+            --field prerelease=true \
+            --raw-field make_latest=false \
             --silent
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --require-candidate-prerelease
