@@ -2089,8 +2089,20 @@ fn spawn_terminal_process(
         .openpty(size)
         .map_err(|error| format!("Не удалось создать PTY: {error}"))?;
     #[cfg(windows)]
-    let containment = WindowsJobObject::new()
-        .map_err(|error| format!("Не удалось создать Windows Job Object для OMP: {error}"))?;
+    let containment = match WindowsJobObject::new() {
+        Ok(job) => job,
+        Err(error) => {
+            let os_code = error.raw_os_error().unwrap_or(-1);
+            crate::diagnostics::warn(
+                "windows_job.create",
+                &format!("CreateJobObject failed (code {os_code}): {error}"),
+            );
+            return Err(format!(
+                "Не удалось создать Windows Job Object для изоляции OMP (код {os_code}: {error}). \
+                 Проверьте политики безопасности Windows, ограничения прав или настройки антивируса/EDR."
+            ));
+        }
+    };
     let mut child = pair
         .slave
         .spawn_command(command)
@@ -2101,9 +2113,20 @@ fn spawn_terminal_process(
             "Не удалось получить Windows process handle для containment OMP".to_owned()
         })?;
         if let Err(error) = containment.assign(process_handle) {
+            let os_code = error.raw_os_error().unwrap_or(-1);
             let _ = child.kill();
+            crate::diagnostics::warn(
+                "windows_job.assign",
+                &format!("AssignProcessToJobObject failed (code {os_code}): {error}"),
+            );
+            let hint = if os_code == 5 {
+                " (ERROR_ACCESS_DENIED: возможно, процесс уже входит в сторонний Job Object или ограничен политиками окружения)"
+            } else {
+                ""
+            };
             return Err(format!(
-                "Не удалось назначить OMP в Windows Job Object: {error}"
+                "Не удалось назначить OMP в Windows Job Object (код {os_code}: {error}){hint}. \
+                 Запуск отклонён для предотвращения появления неуправляемых фоновых процессов."
             ));
         }
     }
@@ -2412,7 +2435,7 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
     };
     let session_lease = match SessionLease::acquire(
         Path::new(&resume_path),
-        SessionLeasePurpose::Discovered,
+        SessionLeasePurpose::RuntimeDiscovered,
         false,
     ) {
         Ok(lease) => lease,
@@ -4853,6 +4876,15 @@ $child.WaitForExit()
         fs::remove_dir_all(root).expect("fixture directory should be removable");
     }
     #[cfg(windows)]
+    #[test]
+    fn windows_job_object_assign_returns_os_error_code_on_invalid_handle() {
+        let job = WindowsJobObject::new().expect("Job Object should initialize");
+        let invalid_handle = std::ptr::null_mut();
+        let error = job
+            .assign(invalid_handle)
+            .expect_err("invalid handle should fail");
+        assert!(error.raw_os_error().is_some());
+    }
     #[test]
     fn failed_switch_actual_conpty_keeps_input_until_explicit_send() {
         let nonce = SystemTime::now()

@@ -200,9 +200,23 @@ fn contains_sensitive_assignment(lower: &str) -> bool {
         "apikey",
         "access_token",
         "refresh_token",
+        "auth_token",
+        "oauth_token",
+        "bearer_token",
+        "github_token",
+        "gh_token",
+        "private_token",
+        "personal_access_token",
+        "secret_token",
+        "api_token",
+        "bot_token",
+        "id_token",
+        "session_token",
         "password",
-        "secret",
-        "token",
+        "client_secret",
+        "secret_key",
+        "api_secret",
+        "webhook_secret",
         "providerenv",
         "provider_env",
     ]
@@ -228,6 +242,10 @@ fn contains_known_secret_token(token: &str) -> bool {
         "ya29.",
         "xoxb-",
         "xoxp-",
+        "AKIA",
+        "ASIA",
+        "glpat-",
+        "xapp-",
     ]
     .iter()
     .any(|prefix| {
@@ -262,14 +280,27 @@ mod tests {
             r#"credentials={"OPENAI_API_KEY":"opaque-value"}"#,
             "\n",
             r#"payload={"providerEnv":{"CUSTOM_CREDENTIAL":"opaque-value"}}"#,
+            "\n",
+            "recovery token: 42\n",
+            "tokens: 15\n",
+            "aws credentials AKIAIOSFODNN7EXAMPLE active\n",
+            "access_token: opaque-token\n",
+            "ANTHROPIC_OAUTH_TOKEN=oauth-secret\n",
+            "GITHUB_TOKEN: github-secret\n",
         );
         let redacted = redact_text(text);
         assert!(redacted.contains("request failed"));
         assert!(redacted.contains("[REDACTED SENSITIVE LINE]"));
-        assert!(redacted.contains("upstream [REDACTED] failed"));
+        assert!(redacted.contains("recovery token: 42"));
+        assert!(redacted.contains("tokens: 15"));
+        assert!(redacted.contains("aws credentials [REDACTED] active"));
         assert!(!redacted.contains("abc"));
         assert!(!redacted.contains("sk-test-secret"));
         assert!(!redacted.contains("opaque-value"));
+        assert!(!redacted.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!redacted.contains("opaque-token"));
+        assert!(!redacted.contains("oauth-secret"));
+        assert!(!redacted.contains("github-secret"));
     }
 
     #[test]

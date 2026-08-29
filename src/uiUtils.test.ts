@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { BootstrapPayload, SessionSummary, TerminalTab } from "./types"
 import {
   buildSessionTree,
+  extractSingleInstanceWorkspace,
   filterSessionTree,
   formatTerminalExitLine,
   flattenSessionTree,
@@ -80,6 +81,58 @@ describe("formatTerminalExitLine", () => {
         "ru",
       ),
     ).toBe("\r\n\x1b[38;2;129;201;149mПроцесс OMP завершён · код 0\x1b[0m\r\n")
+  })
+})
+describe("extractSingleInstanceWorkspace", () => {
+  it("extracts path from --project flag", () => {
+    expect(
+      extractSingleInstanceWorkspace(["omp-desktop.exe", "--project", "D:\\Projects\\Test"]),
+    ).toBe("D:\\Projects\\Test")
+  })
+
+  it("extracts path from --project= argument", () => {
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "--project=D:\\Projects\\Test"])).toBe(
+      "D:\\Projects\\Test",
+    )
+  })
+
+  it("extracts path from short -p flag", () => {
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "-p", "/home/user/code"])).toBe(
+      "/home/user/code",
+    )
+  })
+
+  it("extracts positional directory argument when flags are omitted", () => {
+    expect(
+      extractSingleInstanceWorkspace(["omp-desktop", "C:\\Users\\Omniv\\Projects\\MyApp"]),
+    ).toBe("C:\\Users\\Omniv\\Projects\\MyApp")
+  })
+
+  it("uses the second instance cwd when no explicit path is present", () => {
+    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"], "D:\\Launch\\Project")).toBe(
+      "D:\\Launch\\Project",
+    )
+  })
+
+  it("supports the -- separator and ignores command flags", () => {
+    expect(
+      extractSingleInstanceWorkspace(["omp-desktop", "--verbose", "--", "/home/user/code"]),
+    ).toBe("/home/user/code")
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"], "/tmp/project")).toBe(
+      "/tmp/project",
+    )
+  })
+
+  it("does not consume a missing flag value", () => {
+    expect(
+      extractSingleInstanceWorkspace(["omp-desktop", "--project", "--verbose"], "/tmp/project"),
+    ).toBe("/tmp/project")
+  })
+
+  it("returns null when no workspace argument is provided", () => {
+    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"])).toBeNull()
+    expect(extractSingleInstanceWorkspace([])).toBeNull()
+    expect(extractSingleInstanceWorkspace(undefined)).toBeNull()
   })
 })
 

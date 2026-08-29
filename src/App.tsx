@@ -95,6 +95,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import {
+  extractSingleInstanceWorkspace,
   localeTag,
   mergeSessionIntoPayload,
   normalizedPath,
@@ -592,7 +593,22 @@ function App() {
   useEffect(() => {
     let disposed = false
     let stop: (() => void) | undefined
-    void listen<SingleInstanceEvent>("single-instance", () => {
+    void listen<SingleInstanceEvent>("single-instance", async (event) => {
+      if (disposed) return
+      const requested = extractSingleInstanceWorkspace(event.payload.args, event.payload.cwd)
+      if (requested) {
+        try {
+          const next = await addWorkspace(requested)
+          if (disposed) return
+          applyPayload(next, requested)
+          setSelectedSessionId(null)
+          setSearch("")
+          return
+        } catch (error) {
+          if (!disposed) showError(errorMessage(error, langRef.current))
+          return
+        }
+      }
       if (!disposed) void refresh()
     })
       .then((unlisten) => {
@@ -606,7 +622,7 @@ function App() {
       disposed = true
       stop?.()
     }
-  }, [refresh, showError])
+  }, [applyPayload, refresh, showError])
   useEffect(() => {
     let disposed = false
     let runtimeFrame: number | null = null

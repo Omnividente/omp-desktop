@@ -1,0 +1,149 @@
+name: Promote Release to Stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to promote (e.g. v0.6.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote candidate to stable
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    environment: production-release
+    steps:
+      - name: Check out repository at tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Require tagged commit on main
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+            echo "Release tag must be a semantic v-prefixed tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          tag_sha=$(git rev-parse --verify "${RELEASE_TAG}^{commit}")
+          printf '%s\n' "$tag_sha" > "$RUNNER_TEMP/release-tag-sha"
+          if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
+            echo "Release tag $RELEASE_TAG ($tag_sha) must point to a commit reachable from main." >&2
+            exit 1
+          fi
+
+      - name: Verify candidate assets before promotion
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$metadata"
+          release_id=$(jq -er '.id' "$metadata")
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "GitHub returned an invalid release id: $release_id" >&2
+            exit 1
+          fi
+          printf '%s\n' "$release_id" > "$RUNNER_TEMP/release-id"
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --require-candidate-prerelease
+
+          rm -rf release-assets
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
+          RELEASE_VERSION="${RELEASE_TAG#v}" RELEASE_TAG="$RELEASE_TAG" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --verify-candidate-prerelease release-assets
+
+      - name: Promote release to stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          metadata="$RUNNER_TEMP/release-metadata.json"
+          expected_release_id=$(cat "$RUNNER_TEMP/release-id")
+          expected_tag_sha=$(cat "$RUNNER_TEMP/release-tag-sha")
+          remote_refs=$(git ls-remote --exit-code origin \
+            "refs/tags/${RELEASE_TAG}" \
+            "refs/tags/${RELEASE_TAG}^{}")
+          direct_sha=""
+          peeled_sha=""
+          while read -r sha ref; do
+            case "$ref" in
+              "refs/tags/${RELEASE_TAG}") direct_sha="$sha" ;;
+              "refs/tags/${RELEASE_TAG}^{}") peeled_sha="$sha" ;;
+            esac
+          done <<< "$remote_refs"
+          remote_sha="${peeled_sha:-$direct_sha}"
+          if [[ -z "$remote_sha" || "$remote_sha" != "$expected_tag_sha" ]]; then
+            echo "Release tag $RELEASE_TAG moved from $expected_tag_sha to ${remote_sha:-missing}." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$metadata"
+          release_id=$(jq -er '.id' "$metadata")
+          if [[ "$release_id" != "$expected_release_id" ]]; then
+            echo "Release $RELEASE_TAG changed from $expected_release_id to $release_id before promotion." >&2
+            exit 1
+          fi
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --require-candidate-prerelease
+          rm -rf release-assets
+          mkdir -p release-assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
+          RELEASE_VERSION="${RELEASE_TAG#v}" RELEASE_TAG="$RELEASE_TAG" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --verify-candidate-prerelease release-assets
+
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --field draft=false \
+            --field prerelease=false \
+            --raw-field make_latest=true \
+            --silent
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          promoted_release_id=$(jq -er '.id' "$metadata")
+          if [[ "$promoted_release_id" != "$expected_release_id" ]]; then
+            echo "GitHub returned a different release after promotion: $promoted_release_id" >&2
+            exit 1
+          fi
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$RELEASE_TAG" \
+            node .github/scripts/verify-release-assets.mjs --require-stable
+          RELEASE_VERSION="${RELEASE_TAG#v}" RELEASE_TAG="$RELEASE_TAG" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --verify-stable release-assets
+      - name: Verify latest release endpoint
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [[ "$latest_tag" != "$RELEASE_TAG" ]]; then
+            echo "Expected latest release tag $RELEASE_TAG, but got $latest_tag" >&2
+            exit 1
+          fi
+          echo "Promoted $RELEASE_TAG is now the verified stable latest release."
