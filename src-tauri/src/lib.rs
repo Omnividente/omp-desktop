@@ -1,3 +1,6 @@
+// AppError intentionally carries bounded recovery metadata in the serialized IPC contract.
+#![allow(clippy::result_large_err)]
+
 mod diagnostics;
 mod models;
 mod omp_bridge;

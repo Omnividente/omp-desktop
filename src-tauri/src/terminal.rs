@@ -3806,7 +3806,7 @@ mod tests {
         collections::HashMap,
         ffi::OsStr,
         fs,
-        io::{self, Read, Write},
+        io::{self, Write},
         path::{Path, PathBuf},
         sync::{mpsc, Arc, Mutex},
         thread,
