@@ -108,25 +108,21 @@ describe("extractSingleInstanceWorkspace", () => {
     ).toBe("C:\\Users\\Omniv\\Projects\\MyApp")
   })
 
-  it("uses the second instance cwd when no explicit path is present", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"], "D:\\Launch\\Project")).toBe(
-      "D:\\Launch\\Project",
-    )
+  it("does not use cwd without an explicit workspace argument", () => {
+    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"], "D:\\Launch\\Project")).toBeNull()
   })
 
   it("supports the -- separator and ignores command flags", () => {
     expect(
       extractSingleInstanceWorkspace(["omp-desktop", "--verbose", "--", "/home/user/code"]),
     ).toBe("/home/user/code")
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"], "/tmp/project")).toBe(
-      "/tmp/project",
-    )
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"], "/tmp/project")).toBeNull()
   })
 
   it("does not consume a missing flag value", () => {
     expect(
       extractSingleInstanceWorkspace(["omp-desktop", "--project", "--verbose"], "/tmp/project"),
-    ).toBe("/tmp/project")
+    ).toBeNull()
   })
 
   it("returns null when no workspace argument is provided", () => {

@@ -60,7 +60,7 @@ export function tabMatchesSession(
 }
 export function extractSingleInstanceWorkspace(
   args: string[] | undefined,
-  cwd?: string,
+  _cwd?: string,
 ): string | null {
   const list = args ?? []
   const clean = (value: string | undefined): string | null => {
@@ -90,13 +90,13 @@ export function extractSingleInstanceWorkspace(
   for (let i = 1; i < list.length; i++) {
     const arg = list[i].trim()
     if (!arg) continue
-    if (arg === "--") return clean(list[i + 1]) ?? clean(cwd)
+    if (arg === "--") return clean(list[i + 1])
     if (arg.startsWith("-")) continue
     if (["run", "dev", "open"].includes(arg.toLowerCase())) continue
     return arg
   }
 
-  return clean(cwd)
+  return null
 }
 
 export function mergeSessionIntoPayload(

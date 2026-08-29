@@ -1,5 +1,6 @@
 use crate::sessions::{harden_private_directory, harden_private_file};
 use std::{
+    borrow::Cow,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -193,37 +194,95 @@ fn redact_line(line: &str) -> String {
         .collect()
 }
 
+const SENSITIVE_ASSIGNMENT_MARKERS: &[&str] = &[
+    "authorization",
+    "api_key",
+    "apikey",
+    "access_token",
+    "accesstoken",
+    "refresh_token",
+    "refreshtoken",
+    "auth_token",
+    "authtoken",
+    "oauth_token",
+    "oauthtoken",
+    "bearer_token",
+    "bearertoken",
+    "github_token",
+    "githubtoken",
+    "gh_token",
+    "ghtoken",
+    "private_token",
+    "privatetoken",
+    "personal_access_token",
+    "personalaccesstoken",
+    "secret_token",
+    "secrettoken",
+    "api_token",
+    "apitoken",
+    "bot_token",
+    "bottoken",
+    "id_token",
+    "idtoken",
+    "session_token",
+    "sessiontoken",
+    "hf_token",
+    "hftoken",
+    "slack_token",
+    "slacktoken",
+    "npm_token",
+    "npmtoken",
+    "registry_token",
+    "registrytoken",
+    "cargo_registry_token",
+    "cargoregistrytoken",
+    "password",
+    "client_secret",
+    "clientsecret",
+    "secret_key",
+    "secretkey",
+    "api_secret",
+    "apisecret",
+    "webhook_secret",
+    "webhooksecret",
+    "jwt_secret",
+    "jwtsecret",
+    "app_secret",
+    "appsecret",
+    "session_secret",
+    "sessionsecret",
+    "signing_secret",
+    "signingsecret",
+    "encryption_secret",
+    "encryptionsecret",
+    "providerenv",
+    "provider_env",
+];
+
+fn canonicalize_assignment_text(lower: &str) -> Cow<'_, str> {
+    if !lower
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(byte, b'-' | b'.' | b' '))
+    {
+        return Cow::Borrowed(lower);
+    }
+    Cow::Owned(
+        lower
+            .chars()
+            .map(|character| match character {
+                '-' | '.' | ' ' => '_',
+                _ => character,
+            })
+            .collect(),
+    )
+}
+
 fn contains_sensitive_assignment(lower: &str) -> bool {
-    [
-        "authorization",
-        "api_key",
-        "apikey",
-        "access_token",
-        "refresh_token",
-        "auth_token",
-        "oauth_token",
-        "bearer_token",
-        "github_token",
-        "gh_token",
-        "private_token",
-        "personal_access_token",
-        "secret_token",
-        "api_token",
-        "bot_token",
-        "id_token",
-        "session_token",
-        "password",
-        "client_secret",
-        "secret_key",
-        "api_secret",
-        "webhook_secret",
-        "providerenv",
-        "provider_env",
-    ]
-    .iter()
-    .any(|marker| {
-        lower.match_indices(marker).any(|(index, _)| {
-            lower[index + marker.len()..]
+    let canonical = canonicalize_assignment_text(lower);
+    SENSITIVE_ASSIGNMENT_MARKERS.iter().any(|marker| {
+        canonical.match_indices(marker).any(|(index, _)| {
+            canonical[index + marker.len()..]
                 .trim_start_matches(|character: char| {
                     character.is_ascii_whitespace()
                         || matches!(character, '\'' | '"' | '`' | ']' | '}')
@@ -281,8 +340,18 @@ mod tests {
             "\n",
             r#"payload={"providerEnv":{"CUSTOM_CREDENTIAL":"opaque-value"}}"#,
             "\n",
+            "X-Auth-Token: header-secret\n",
+            "api.token: dot-secret\n",
+            "auth token: spaced-secret\n",
+            "apiToken: camel-secret\n",
+            "JWT_SECRET=jwt-secret\n",
+            "NPM_TOKEN=npm-secret\n",
+            "HF_TOKEN=hf-secret\n",
+            "SLACK_TOKEN=slack-secret\n",
+            "CARGO_REGISTRY_TOKEN=cargo-secret\n",
             "recovery token: 42\n",
             "tokens: 15\n",
+            "ownerToken: 12\n",
             "aws credentials AKIAIOSFODNN7EXAMPLE active\n",
             "access_token: opaque-token\n",
             "ANTHROPIC_OAUTH_TOKEN=oauth-secret\n",
@@ -291,12 +360,23 @@ mod tests {
         let redacted = redact_text(text);
         assert!(redacted.contains("request failed"));
         assert!(redacted.contains("[REDACTED SENSITIVE LINE]"));
+        assert!(redacted.contains("upstream [REDACTED] failed"));
         assert!(redacted.contains("recovery token: 42"));
         assert!(redacted.contains("tokens: 15"));
+        assert!(redacted.contains("ownerToken: 12"));
         assert!(redacted.contains("aws credentials [REDACTED] active"));
         assert!(!redacted.contains("abc"));
         assert!(!redacted.contains("sk-test-secret"));
         assert!(!redacted.contains("opaque-value"));
+        assert!(!redacted.contains("header-secret"));
+        assert!(!redacted.contains("dot-secret"));
+        assert!(!redacted.contains("spaced-secret"));
+        assert!(!redacted.contains("camel-secret"));
+        assert!(!redacted.contains("jwt-secret"));
+        assert!(!redacted.contains("npm-secret"));
+        assert!(!redacted.contains("hf-secret"));
+        assert!(!redacted.contains("slack-secret"));
+        assert!(!redacted.contains("cargo-secret"));
         assert!(!redacted.contains("AKIAIOSFODNN7EXAMPLE"));
         assert!(!redacted.contains("opaque-token"));
         assert!(!redacted.contains("oauth-secret"));
