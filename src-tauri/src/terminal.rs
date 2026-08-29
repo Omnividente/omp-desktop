@@ -4885,6 +4885,7 @@ $child.WaitForExit()
             .expect_err("invalid handle should fail");
         assert!(error.raw_os_error().is_some());
     }
+    #[cfg(windows)]
     #[test]
     fn failed_switch_actual_conpty_keeps_input_until_explicit_send() {
         let nonce = SystemTime::now()
