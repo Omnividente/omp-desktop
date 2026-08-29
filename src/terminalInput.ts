@@ -1,4 +1,5 @@
 import type { Terminal } from "@xterm/xterm"
+import type { TerminalTab } from "./types"
 
 const CURSOR_LEFT = "\x1b[D"
 const CURSOR_RIGHT = "\x1b[C"
@@ -23,6 +24,12 @@ export interface MouseSelectionEdit {
 interface BufferRange {
   start: { x: number; y: number }
   end: { x: number; y: number }
+}
+
+export function terminalInputBlocked(
+  tab: Pick<TerminalTab, "switching" | "primaryProviderPinPending" | "switchRecovery">,
+): boolean {
+  return tab.switching || tab.primaryProviderPinPending
 }
 
 export function formatSelectionReply(

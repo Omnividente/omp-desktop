@@ -30,6 +30,7 @@ interface TerminalWorkspaceProps {
   tabs: TerminalTab[]
   workspaceSessions: SessionSummary[]
   onReorderTabs?: (draggedId: string, targetId: string) => void
+  onDiscardSwitchRecovery: (terminalId: string) => void
   onCloseTab: (terminalId: string) => void
   onError: (message: string) => void
   onExit: (event: PtyExitEvent) => void
@@ -38,6 +39,7 @@ interface TerminalWorkspaceProps {
   onOpenFolder: () => void
   onReady: (terminalId: string) => void
   onReveal: (path: string) => void
+  onSendSwitchRecovery: (terminalId: string) => void
   onSwitch: (terminalId: string, model: string, thinking: string | null) => void
   onTogglePrimaryProviderPin: (terminalId: string, pinned: boolean) => void
   onToggleTitlePin: (tab: TerminalTab) => void
@@ -57,6 +59,7 @@ export function TerminalWorkspace({
   selectedWorkspace,
   tabs,
   workspaceSessions,
+  onDiscardSwitchRecovery,
   onCloseTab,
   onError,
   onExit,
@@ -66,6 +69,7 @@ export function TerminalWorkspace({
   onReady,
   onReorderTabs,
   onReveal,
+  onSendSwitchRecovery,
   onSwitch,
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
@@ -209,6 +213,8 @@ export function TerminalWorkspace({
                 key={activeTab.id}
                 lang={language}
                 ompConfig={ompConfig}
+                onDiscardSwitchRecovery={onDiscardSwitchRecovery}
+                onSendSwitchRecovery={onSendSwitchRecovery}
                 onSwitch={onSwitch}
                 onTogglePrimaryProviderPin={onTogglePrimaryProviderPin}
                 runtimeStatus={activeRuntimeStatus}

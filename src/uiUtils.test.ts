@@ -46,6 +46,7 @@ function terminalTab(overrides: Partial<TerminalTab> = {}): TerminalTab {
     success: null,
     kind: "agent",
     switching: false,
+    switchRecovery: null,
     primaryProviderPinned: false,
     primaryProviderPinPending: false,
     ...overrides,
@@ -180,6 +181,7 @@ describe("replaceTerminalAfterRestart", () => {
       exitCode: null,
       success: null,
       switching: false,
+      switchRecovery: null,
       primaryProviderPinned: true,
       primaryProviderPinPending: false,
     })

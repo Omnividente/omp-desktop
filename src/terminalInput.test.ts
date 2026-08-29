@@ -5,6 +5,7 @@ import {
   cursorMoveInput,
   deleteInput,
   formatSelectionReply,
+  terminalInputBlocked,
   type TerminalCell,
 } from "./terminalInput"
 
@@ -99,6 +100,30 @@ describe("terminal desktop input editing", () => {
 
   it("maps Ctrl+A followed by delete to OMP's clear-editor chord", () => {
     expect(deleteInput(terminalFixture(), true, null)).toBe("\x03")
+  })
+
+  it("unblocks ordinary input while failed-switch bytes await an explicit decision", () => {
+    const recovery = {
+      terminalId: "terminal-1",
+      state: "pending" as const,
+      generation: 4,
+      byteCount: 12,
+      token: "opaque-token",
+    }
+    expect(
+      terminalInputBlocked({
+        switching: false,
+        primaryProviderPinPending: false,
+        switchRecovery: recovery,
+      }),
+    ).toBe(false)
+    expect(
+      terminalInputBlocked({
+        switching: true,
+        primaryProviderPinPending: false,
+        switchRecovery: recovery,
+      }),
+    ).toBe(true)
   })
 })
 

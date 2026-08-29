@@ -15,6 +15,8 @@ interface SessionControlsProps {
   ompConfig: OmpConfigSnapshot | null
   lang: Lang
   runtimeStatus: RuntimeHealthStatus
+  onDiscardSwitchRecovery: (tabId: string) => void
+  onSendSwitchRecovery: (tabId: string) => void
   onSwitch: (tabId: string, model: string, thinking: string | null) => void
   onTogglePrimaryProviderPin: (tabId: string, pinned: boolean) => void
 }
@@ -23,6 +25,8 @@ export function SessionControls({
   tab,
   ompConfig,
   lang,
+  onDiscardSwitchRecovery,
+  onSendSwitchRecovery,
   runtimeStatus,
   onSwitch,
   onTogglePrimaryProviderPin,
@@ -54,8 +58,9 @@ export function SessionControls({
     {},
   )
 
+  const recoveryPending = tab.switchRecovery !== null
   const switchSelection = (model: string, thinking: string | null) => {
-    if (!model || tab.switching || tab.primaryProviderPinPending) return
+    if (!model || tab.switching || tab.primaryProviderPinPending || recoveryPending) return
     onSwitch(tab.id, model, thinking)
   }
 
@@ -96,11 +101,14 @@ export function SessionControls({
     : t(lang, "primaryProviderPinNotReady")
 
   return (
-    <div aria-busy={tab.switching || tab.primaryProviderPinPending} className="session-controls">
+    <div
+      aria-busy={tab.switching || tab.primaryProviderPinPending || recoveryPending}
+      className="session-controls"
+    >
       <select
         aria-label={t(lang, "sessionModel")}
         className="session-model-select"
-        disabled={tab.switching || tab.primaryProviderPinPending}
+        disabled={tab.switching || tab.primaryProviderPinPending || recoveryPending}
         onChange={handleModelChange}
         title={t(lang, "sessionModel")}
         value={baseModel}
@@ -122,7 +130,12 @@ export function SessionControls({
       <select
         aria-label={t(lang, "sessionThinking")}
         className="session-thinking-select"
-        disabled={tab.switching || tab.primaryProviderPinPending || thinkingOptions.length === 0}
+        disabled={
+          tab.switching ||
+          tab.primaryProviderPinPending ||
+          recoveryPending ||
+          thinkingOptions.length === 0
+        }
         onChange={handleThinkingChange}
         title={t(lang, "sessionThinking")}
         value={currentThinking ?? ""}
@@ -146,6 +159,7 @@ export function SessionControls({
           tab.sessionPath === null ||
           tab.activity === "thinking" ||
           tab.switching ||
+          recoveryPending ||
           tab.primaryProviderPinPending
         }
         onClick={() => onTogglePrimaryProviderPin(tab.id, !tab.primaryProviderPinned)}
@@ -158,6 +172,40 @@ export function SessionControls({
         <span aria-hidden="true" className="primary-provider-toggle-track" />
         <span className="primary-provider-pin-state">{providerPinState}</span>
       </button>
+      {tab.switchRecovery && (
+        <div
+          aria-live={tab.switchRecovery.state === "sending" ? "polite" : "assertive"}
+          className={`switch-input-recovery is-${tab.switchRecovery.state}`}
+          role={tab.switchRecovery.state === "sending" ? "status" : "alert"}
+        >
+          <span className="switch-input-recovery-message">
+            {t(
+              lang,
+              tab.switchRecovery.state === "failedSend"
+                ? "switchRecoveryFailedSend"
+                : tab.switchRecovery.state === "sending"
+                  ? "switchRecoverySending"
+                  : "switchRecoveryPending",
+            ).replace("{count}", String(tab.switchRecovery.byteCount))}
+          </span>
+          <span className="switch-input-recovery-actions">
+            <button
+              disabled={tab.switchRecovery.state !== "pending"}
+              onClick={() => onSendSwitchRecovery(tab.id)}
+              type="button"
+            >
+              {t(lang, "switchRecoverySend")}
+            </button>
+            <button
+              disabled={tab.switchRecovery.state === "sending"}
+              onClick={() => onDiscardSwitchRecovery(tab.id)}
+              type="button"
+            >
+              {t(lang, "switchRecoveryDiscard")}
+            </button>
+          </span>
+        </div>
+      )}
       {runtimeStatus === "fallback" && !tab.switching && !tab.primaryProviderPinPending && (
         <span aria-live="polite" className="session-fallback">
           {t(lang, "fallbackActive")}

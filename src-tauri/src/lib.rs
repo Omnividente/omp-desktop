@@ -17,15 +17,100 @@ use models::{
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
-    initialize_settings, normalize_app_font_family, normalize_optional,
-    normalize_terminal_font_family, normalize_terminal_font_size, save_settings,
-    update_provider_secrets, SettingsState,
+    normalize_app_font_family, normalize_optional, normalize_terminal_font_family,
+    normalize_terminal_font_size, save_settings, settings_snapshot,
+    start_with_defaults as reset_settings_with_defaults, update_provider_secrets,
+    with_settings_transaction, SettingsState, SettingsTransaction,
 };
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 use terminal::TerminalState;
 
-async fn run_blocking<T, F>(
+const SINGLE_INSTANCE_EVENT: &str = "single-instance";
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SingleInstanceEvent {
+    args: Vec<String>,
+    cwd: String,
+}
+
+fn dispatch_second_instance<F, E>(args: Vec<String>, cwd: String, focus: F, emit: E)
+where
+    F: FnOnce(),
+    E: FnOnce(SingleInstanceEvent),
+{
+    let event = SingleInstanceEvent { args, cwd };
+    focus();
+    emit(event);
+}
+
+fn focus_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        diagnostics::warn(
+            "single_instance.focus",
+            "main webview window is unavailable",
+        );
+        return;
+    };
+    if let Err(error) = window.show() {
+        diagnostics::warn("single_instance.show", &error.to_string());
+    }
+    if let Err(error) = window.unminimize() {
+        diagnostics::warn("single_instance.unminimize", &error.to_string());
+    }
+    if let Err(error) = window.set_focus() {
+        diagnostics::warn("single_instance.focus", &error.to_string());
+    }
+}
+
+fn handle_second_instance(app: &AppHandle, args: Vec<String>, cwd: String) {
+    dispatch_second_instance(
+        args,
+        cwd,
+        || focus_main_window(app),
+        |event| {
+            if let Err(error) = app.emit(SINGLE_INSTANCE_EVENT, event) {
+                diagnostics::warn("single_instance.emit", &error.to_string());
+            }
+        },
+    );
+}
+
+#[cfg(test)]
+mod single_instance_tests {
+    use super::{dispatch_second_instance, SingleInstanceEvent};
+    use std::cell::RefCell;
+
+    #[test]
+    fn repeat_launch_focuses_before_forwarding_exact_arguments() {
+        let actions = RefCell::new(Vec::new());
+        let emitted = RefCell::new(None);
+        let expected = SingleInstanceEvent {
+            args: vec![
+                "omp-desktop".to_owned(),
+                "--project".to_owned(),
+                "D:\\Projects\\Пример".to_owned(),
+            ],
+            cwd: "D:\\Launch".to_owned(),
+        };
+
+        dispatch_second_instance(
+            expected.args.clone(),
+            expected.cwd.clone(),
+            || actions.borrow_mut().push("focus"),
+            |event| {
+                actions.borrow_mut().push("emit");
+                emitted.replace(Some(event));
+            },
+        );
+
+        assert_eq!(actions.into_inner(), ["focus", "emit"]);
+        assert_eq!(emitted.into_inner(), Some(expected));
+    }
+}
+
+pub(crate) async fn run_blocking<T, F>(
     operation: &'static str,
     error_code: &'static str,
     error_message: &'static str,
@@ -56,8 +141,7 @@ async fn bootstrap(app: AppHandle) -> Result<BootstrapPayload, AppError> {
         "Не удалось загрузить данные OMP",
         move || {
             let settings = app.state::<SettingsState>();
-            initialize_settings(&app, &settings)?;
-            let snapshot = settings_snapshot(&settings)?;
+            let snapshot = settings_snapshot(&app, &settings)?;
             build_bootstrap(&app, &snapshot)
         },
     )
@@ -78,16 +162,18 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
             let workspace = workspace.to_string_lossy().into_owned();
             let workspace_key = path_key(&workspace);
             let state = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&state)?;
-            snapshot
-                .recent_workspaces
-                .retain(|existing| path_key(existing) != workspace_key);
-            snapshot
-                .hidden_workspaces
-                .retain(|hidden| path_key(hidden) != workspace_key);
-            snapshot.recent_workspaces.insert(0, workspace);
-            snapshot.recent_workspaces.truncate(24);
-            commit_workspace_settings(&app, &state, snapshot)
+            with_settings_transaction(&app, &state, |transaction| {
+                let snapshot = transaction.candidate_mut();
+                snapshot
+                    .recent_workspaces
+                    .retain(|existing| path_key(existing) != workspace_key);
+                snapshot
+                    .hidden_workspaces
+                    .retain(|hidden| path_key(hidden) != workspace_key);
+                snapshot.recent_workspaces.insert(0, workspace);
+                snapshot.recent_workspaces.truncate(24);
+                commit_workspace_settings(&app, transaction)
+            })
         },
     )
     .await
@@ -95,14 +181,10 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
 
 fn commit_workspace_settings(
     app: &AppHandle,
-    state: &SettingsState,
-    snapshot: AppSettings,
+    transaction: &mut SettingsTransaction<'_>,
 ) -> Result<BootstrapPayload, String> {
+    let snapshot = transaction.candidate().clone();
     save_settings(app, &snapshot)?;
-    *state
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
     build_bootstrap(app, &snapshot)
 }
 
@@ -136,9 +218,13 @@ async fn rename_workspace(
             let key = path_key(path.trim());
             let name = normalize_workspace_name(&name)?;
             let state = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&state)?;
-            snapshot.workspace_names.insert(key, name);
-            commit_workspace_settings(&app, &state, snapshot)
+            with_settings_transaction(&app, &state, |transaction| {
+                transaction
+                    .candidate_mut()
+                    .workspace_names
+                    .insert(key, name);
+                commit_workspace_settings(&app, transaction)
+            })
         },
     )
     .await
@@ -153,16 +239,18 @@ async fn remove_workspace(path: String, app: AppHandle) -> Result<BootstrapPaylo
         move || {
             let key = path_key(path.trim());
             let state = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&state)?;
-            snapshot
-                .recent_workspaces
-                .retain(|existing| path_key(existing) != key);
-            snapshot.workspace_names.remove(&key);
-            snapshot
-                .hidden_workspaces
-                .retain(|hidden| path_key(hidden) != key);
-            snapshot.hidden_workspaces.push(key);
-            commit_workspace_settings(&app, &state, snapshot)
+            with_settings_transaction(&app, &state, |transaction| {
+                let snapshot = transaction.candidate_mut();
+                snapshot
+                    .recent_workspaces
+                    .retain(|existing| path_key(existing) != key);
+                snapshot.workspace_names.remove(&key);
+                snapshot
+                    .hidden_workspaces
+                    .retain(|hidden| path_key(hidden) != key);
+                snapshot.hidden_workspaces.push(key);
+                commit_workspace_settings(&app, transaction)
+            })
         },
     )
     .await
@@ -205,27 +293,39 @@ async fn save_settings_bundle(
         "Не удалось сохранить настройки",
         move || {
             let state = app.state::<SettingsState>();
-            let previous = settings_snapshot(&state)?;
-            let mut next = previous.clone();
-            apply_settings_update(&mut next, &request.update);
-            let provider_env = match &request.update.provider_env {
-                SettingsPatch::Set(Some(values)) => Some(values.clone()),
-                SettingsPatch::Missing | SettingsPatch::Set(None) => None,
-            };
+            with_settings_transaction(&app, &state, |transaction| {
+                let previous = transaction.previous().clone();
+                apply_settings_update(transaction.candidate_mut(), &request.update);
+                let provider_env = match &request.update.provider_env {
+                    SettingsPatch::Set(Some(values)) => Some(values.clone()),
+                    SettingsPatch::Missing | SettingsPatch::Set(None) => None,
+                };
 
-            let omp_config = if let Some(mut config) = request.omp_config {
-                if config.provider_env.is_none() {
-                    config.provider_env = provider_env;
+                if let Some(mut config) = request.omp_config {
+                    if config.provider_env.is_none() {
+                        config.provider_env = provider_env;
+                    }
+                    let omp_config = omp_bridge::save_config(&app, transaction, config)?;
+                    let committed = transaction.candidate().clone();
+                    let bootstrap = build_bootstrap(&app, &committed)?;
+                    return Ok(SettingsSavePayload {
+                        bootstrap,
+                        omp_config: Some(omp_config),
+                    });
                 }
-                Some(omp_bridge::save_config(&app, &state, next, config)?)
-            } else {
+
                 let credentials_changed = if let Some(values) = provider_env {
-                    update_provider_secrets(&app, &mut next, values)?;
+                    update_provider_secrets(&app, transaction.candidate_mut(), values)?;
                     true
                 } else {
                     false
                 };
-                settings::resolve_transaction(save_settings(&app, &next), || {
+                let next = transaction.candidate().clone();
+                let persistence = (|| {
+                    save_settings(&app, &next)?;
+                    build_bootstrap(&app, &next)
+                })();
+                let bootstrap = settings::resolve_transaction(persistence, || {
                     let mut rollback_errors = Vec::new();
                     if credentials_changed {
                         if let Err(rollback_error) =
@@ -239,17 +339,10 @@ async fn save_settings_bundle(
                     }
                     rollback_errors
                 })?;
-                *state
-                    .0
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
-                None
-            };
-            let committed = settings_snapshot(&state)?;
-            let bootstrap = build_bootstrap(&app, &committed)?;
-            Ok(SettingsSavePayload {
-                bootstrap,
-                omp_config,
+                Ok(SettingsSavePayload {
+                    bootstrap,
+                    omp_config: None,
+                })
             })
         },
     )
@@ -267,14 +360,28 @@ async fn sample_resource_health(
         "Не удалось проверить системные ресурсы",
         move || {
             let settings = app.state::<SettingsState>();
-            initialize_settings(&app, &settings)?;
-            let snapshot = settings_snapshot(&settings)?;
+            let snapshot = settings_snapshot(&app, &settings)?;
             let session_root = settings::session_root(&app, &snapshot)?;
             let terminal_processes = app.state::<TerminalState>().resource_processes();
             resource_health::sample_resource_health(
                 resource_health::default_resource_paths(&session_root, workspace_path.as_deref()),
                 terminal_processes,
             )
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn start_with_defaults(app: AppHandle) -> Result<BootstrapPayload, AppError> {
+    run_blocking(
+        "применения настроек по умолчанию",
+        "settings_unavailable",
+        "Не удалось применить настройки по умолчанию",
+        move || {
+            let state = app.state::<SettingsState>();
+            let snapshot = reset_settings_with_defaults(&app, &state)?;
+            build_bootstrap(&app, &snapshot)
         },
     )
     .await
@@ -291,25 +398,23 @@ async fn set_session_title_pin(
         "session_title_pin_failed",
         "Не удалось зафиксировать название сессии",
         move || {
-            if !PathBuf::from(&path).is_file() {
-                return Err(format!("Файл сессии не найден: {path}"));
-            }
             let state = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&state)?;
-            let key = path_key(&path);
-            if let Some(title) = title {
-                snapshot
-                    .session_title_pins
-                    .insert(key, sessions::normalize_pinned_title(&title)?);
-            } else {
-                snapshot.session_title_pins.remove(&key);
-            }
-            save_settings(&app, &snapshot)?;
-            *state
-                .0
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
-            build_bootstrap(&app, &snapshot)
+            with_settings_transaction(&app, &state, |transaction| {
+                let root = settings::session_root(&app, transaction.candidate())?;
+                let validated = sessions::validated_session_file(&path, &root)?;
+                let key = path_key(&validated.to_string_lossy());
+                let snapshot = transaction.candidate_mut();
+                if let Some(title) = title {
+                    snapshot
+                        .session_title_pins
+                        .insert(key, sessions::normalize_pinned_title(&title)?);
+                } else {
+                    snapshot.session_title_pins.remove(&key);
+                }
+                let next = transaction.candidate().clone();
+                save_settings(&app, &next)?;
+                build_bootstrap(&app, &next)
+            })
         },
     )
     .await
@@ -323,21 +428,20 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
         "Не удалось удалить сессию",
         move || {
             let settings = app.state::<SettingsState>();
-            let mut snapshot = settings_snapshot(&settings)?;
-            let root = settings::session_root(&app, &snapshot)?;
-            app.state::<TerminalState>()
-                .delete_inactive_session(&path, &root)?;
-            let session_key = path_key(&path);
-            let title_pin_removed = snapshot.session_title_pins.remove(&session_key).is_some();
-            let provider_pin_removed = snapshot.primary_provider_pins.remove(&session_key);
-            if title_pin_removed || provider_pin_removed {
-                save_settings(&app, &snapshot)?;
-                *settings
-                    .0
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot.clone();
-            }
-            build_bootstrap(&app, &snapshot)
+            with_settings_transaction(&app, &settings, |transaction| {
+                let root = settings::session_root(&app, transaction.candidate())?;
+                app.state::<TerminalState>()
+                    .delete_inactive_session(&path, &root)?;
+                let session_key = path_key(&path);
+                let snapshot = transaction.candidate_mut();
+                let title_pin_removed = snapshot.session_title_pins.remove(&session_key).is_some();
+                let provider_pin_removed = snapshot.primary_provider_pins.remove(&session_key);
+                let next = snapshot.clone();
+                if title_pin_removed || provider_pin_removed {
+                    save_settings(&app, &next)?;
+                }
+                build_bootstrap(&app, &next)
+            })
         },
     )
     .await
@@ -354,7 +458,7 @@ async fn import_sessions(
         "Не удалось импортировать сессии",
         move || {
             let settings = app.state::<SettingsState>();
-            let snapshot = settings_snapshot(&settings)?;
+            let snapshot = settings_snapshot(&app, &settings)?;
             let root = settings::session_root(&app, &snapshot)?;
             let items = sessions::import_sessions(&requests, &root);
             let bootstrap = build_bootstrap(&app, &snapshot)?;
@@ -386,7 +490,7 @@ async fn read_session_transcript(
         "Не удалось прочитать транскрипт",
         move || {
             let settings = app.state::<SettingsState>();
-            let snapshot = settings_snapshot(&settings)?;
+            let snapshot = settings_snapshot(&app, &settings)?;
             let root = settings::session_root(&app, &snapshot)?;
             let mut transcript = sessions::read_session_transcript(&path, &root)?;
             sessions::apply_session_title_pin(
@@ -404,22 +508,16 @@ async fn read_session_transcript(
 }
 
 #[tauri::command]
-async fn load_omp_config(
-    app: AppHandle,
-    settings: State<'_, SettingsState>,
-) -> Result<OmpConfigSnapshot, AppError> {
-    let snapshot = settings_snapshot(&settings).map_err(|error| {
-        AppError::from_internal(
-            "omp_config_load_failed",
-            "Не удалось загрузить настройки OMP",
-            error,
-        )
-    })?;
+async fn load_omp_config(app: AppHandle) -> Result<OmpConfigSnapshot, AppError> {
     run_blocking(
         "загрузки настроек OMP",
         "omp_config_load_failed",
         "Не удалось загрузить настройки OMP",
-        move || omp_bridge::load_config_snapshot(&app, &snapshot),
+        move || {
+            let settings = app.state::<SettingsState>();
+            let snapshot = settings_snapshot(&app, &settings)?;
+            omp_bridge::load_config_snapshot(&app, &snapshot)
+        },
     )
     .await
 }
@@ -432,18 +530,11 @@ async fn check_omp_update(app: AppHandle) -> Result<OmpUpdateInfo, AppError> {
         "Не удалось проверить обновление OMP",
         move || {
             let settings = app.state::<SettingsState>();
-            omp_bridge::check_update(&app, &settings)
+            let snapshot = settings_snapshot(&app, &settings)?;
+            omp_bridge::check_update(&app, &snapshot)
         },
     )
     .await
-}
-
-fn settings_snapshot(settings: &SettingsState) -> Result<AppSettings, String> {
-    Ok(settings
-        .0
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone())
 }
 
 #[cfg(target_os = "linux")]
@@ -476,7 +567,10 @@ fn configure_linux_ca_bundle() {}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     configure_linux_ca_bundle();
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(handle_second_instance));
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
@@ -512,11 +606,14 @@ pub fn run() {
             sample_resource_health,
             terminal::start_terminal,
             terminal::switch_terminal,
+            terminal::send_switch_input_recovery,
+            terminal::discard_switch_input_recovery,
             terminal::set_terminal_primary_provider_pin,
             terminal::attach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,
             terminal::resize_terminal,
+            start_with_defaults,
             terminal::close_terminal,
         ])
         .build(tauri::generate_context!())

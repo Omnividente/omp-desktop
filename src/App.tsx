@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { revealItemInDir } from "@tauri-apps/plugin-opener"
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
 import {
   isPermissionGranted,
   requestPermission,
@@ -15,6 +15,7 @@ import {
   backendErrorCode,
   checkOmpUpdate,
   closeTerminal,
+  discardSwitchInputRecovery,
   deleteSession,
   errorMessage,
   importSessions,
@@ -26,8 +27,13 @@ import {
   saveSettingsBundle,
   setSessionTitlePin,
   setTerminalPrimaryProviderPin,
-  switchTerminal,
+  sendSwitchInputRecovery,
+  settingsUnavailableDetails,
   startTerminal,
+  startWithDefaults,
+  subscribeSettingsUnavailable,
+  switchTerminal,
+  switchInputRecoveryDetails,
   writeTerminal,
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
@@ -54,6 +60,7 @@ import {
 } from "./runtimeIncidents"
 import { ResourceHealthPanel } from "./ResourceHealthPanel"
 import { SettingsPanel } from "./SettingsPanel"
+import { SettingsRecoveryScreen } from "./SettingsRecoveryScreen"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
 import { TranscriptModal } from "./TranscriptModal"
@@ -80,6 +87,8 @@ import type {
   PtyUpdateEvent,
   OmpConfigSnapshot,
   SessionSummary,
+  SettingsUnavailableDetails,
+  SingleInstanceEvent,
   TerminalTab,
   WorkspaceSummary,
 } from "./types"
@@ -115,6 +124,14 @@ type SessionLaunchTarget = Pick<
 >
 const MAX_ENDED_RUNTIME_TERMINALS = 256
 const UPDATE_REMINDER_SNOOZE_MS = 5 * 60 * 60 * 1_000
+
+function settingsDirectory(path: string): string {
+  const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
+  if (separator < 0) return "."
+  if (separator === 0) return path.slice(0, 1)
+  if (separator === 2 && path[1] === ":") return path.slice(0, 3)
+  return path.slice(0, separator)
+}
 
 function summarizeImport(items: ImportItemResult[], language: Lang): string {
   const counts = {
@@ -200,6 +217,8 @@ function App() {
   const [launching, setLaunching] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
+  const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
+  const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renamingWorkspaceKey, setRenamingWorkspaceKey] = useState<string | null>(null)
@@ -278,6 +297,17 @@ function App() {
   const showNotice = useCallback(
     (message: string) => pushToast({ kind: "notice", message }),
     [pushToast],
+  )
+
+  useEffect(
+    () =>
+      subscribeSettingsUnavailable((recovery) => {
+        setSettingsRecovery(recovery)
+        setStartupError(recovery.message)
+        setRefreshing(false)
+        setSettingsRecoveryBusy(false)
+      }),
+    [],
   )
 
   const dismissToast = useCallback((id: string) => {
@@ -363,6 +393,7 @@ function App() {
   const applyPayload = useCallback(
     (next: BootstrapPayload, preferredWorkspace?: string) => {
       setPayload(next)
+      setSettingsRecovery(null)
       setTabs((current) =>
         current.map((tab) => {
           const session = next.sessions.find((candidate) =>
@@ -501,18 +532,74 @@ function App() {
     try {
       applyPayload(await loadBootstrap())
     } catch (error) {
-      const message = errorMessage(error, lang)
-      setStartupError(message)
-      showError(message)
+      const recovery = settingsUnavailableDetails(error)
+      if (recovery) {
+        setSettingsRecovery(recovery)
+        setStartupError(recovery.message)
+      } else {
+        const message = errorMessage(error, lang)
+        setStartupError(message)
+        showError(message)
+      }
     } finally {
       setRefreshing(false)
     }
   }, [applyPayload, lang, showError])
 
+  const openSettingsRecoveryFolder = useCallback(async () => {
+    if (!settingsRecovery) return
+    try {
+      await openPath(settingsDirectory(settingsRecovery.settingsPath))
+    } catch (error) {
+      showError(errorMessage(error, lang))
+    }
+  }, [lang, settingsRecovery, showError])
+
+  const recoverSettingsWithDefaults = useCallback(async () => {
+    if (!settingsRecovery || settingsRecoveryBusy) return
+    const accepted = await confirm(t(lang, "startWithDefaultsConfirm"), {
+      title: t(lang, "startWithDefaultsConfirmTitle"),
+      kind: "warning",
+    })
+    if (!accepted) return
+    setSettingsRecoveryBusy(true)
+    try {
+      applyPayload(await startWithDefaults())
+    } catch (error) {
+      const recovery = settingsUnavailableDetails(error)
+      if (recovery) {
+        setSettingsRecovery(recovery)
+        setStartupError(recovery.message)
+      } else {
+        showError(errorMessage(error, lang))
+      }
+    } finally {
+      setSettingsRecoveryBusy(false)
+    }
+  }, [applyPayload, lang, settingsRecovery, settingsRecoveryBusy, showError])
+
   useEffect(() => {
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    let disposed = false
+    let stop: (() => void) | undefined
+    void listen<SingleInstanceEvent>("single-instance", () => {
+      if (!disposed) void refresh()
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten()
+        else stop = unlisten
+      })
+      .catch((error) => {
+        if (!disposed) showError(errorMessage(error, langRef.current))
+      })
+    return () => {
+      disposed = true
+      stop?.()
+    }
+  }, [refresh, showError])
   useEffect(() => {
     let disposed = false
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
@@ -523,6 +610,7 @@ function App() {
       setPayload((current) =>
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
+
       setSelectedSessionId(session.id)
       setSearch("")
       setTabs((current) =>
@@ -915,6 +1003,7 @@ function App() {
           exitCode: null,
           kind: "agent",
           switching: false,
+          switchRecovery: null,
           currentModel: initialModel
             ? splitSelector(initialModel.selector).base
             : initialSelector.base || undefined,
@@ -985,6 +1074,7 @@ function App() {
         success: null,
         kind: "utility",
         switching: false,
+        switchRecovery: null,
         primaryProviderPinned: false,
         primaryProviderPinPending: false,
       }
@@ -1117,7 +1207,15 @@ function App() {
   const switchTerminalRuntime = useCallback(
     async (terminalId: string, model: string, thinking: string | null) => {
       const tab = tabs.find((candidate) => candidate.id === terminalId)
-      if (!tab || tab.kind !== "agent" || tab.status !== "running" || tab.switching) return
+      if (
+        !tab ||
+        tab.kind !== "agent" ||
+        tab.status !== "running" ||
+        tab.switching ||
+        tab.switchRecovery
+      ) {
+        return
+      }
       const targetModel = ompConfig?.models.find((candidate) => matchesSelector(candidate, model))
 
       setTabs((current) =>
@@ -1141,6 +1239,7 @@ function App() {
               ? {
                   ...candidate,
                   switching: false,
+                  switchRecovery: null,
                   currentModel: runtime.model,
                   currentModelRole: runtime.modelRole,
                   currentThinking: runtime.thinkingLevel,
@@ -1151,15 +1250,95 @@ function App() {
         )
         void refresh()
       } catch (error) {
+        const recovery = switchInputRecoveryDetails(error)
         setTabs((current) =>
           current.map((candidate) =>
-            candidate.id === terminalId ? { ...candidate, switching: false } : candidate,
+            candidate.id === terminalId
+              ? { ...candidate, switching: false, switchRecovery: recovery }
+              : candidate,
+          ),
+        )
+        if (!recovery) showError(errorMessage(error, lang))
+      }
+    },
+    [lang, ompConfig, refresh, showError, tabs],
+  )
+
+  const sendRecoveredSwitchInput = useCallback(
+    async (terminalId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+      const recovery = tab?.switchRecovery
+      if (!recovery || recovery.state !== "pending") return
+      const accepted = await confirm(
+        t(lang, "switchRecoverySendConfirm").replace("{count}", String(recovery.byteCount)),
+        { title: t(lang, "switchRecoveryTitle"), kind: "warning" },
+      )
+      if (!accepted) return
+
+      setTabs((current) =>
+        current.map((candidate) =>
+          candidate.id === terminalId && candidate.switchRecovery?.token === recovery.token
+            ? {
+                ...candidate,
+                switchRecovery: { ...candidate.switchRecovery, state: "sending" },
+              }
+            : candidate,
+        ),
+      )
+      try {
+        await sendSwitchInputRecovery(terminalId, recovery.generation, recovery.token)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId ? { ...candidate, switchRecovery: null } : candidate,
+          ),
+        )
+        focusTerminal(terminalId)
+      } catch (error) {
+        const currentRecovery = switchInputRecoveryDetails(error)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId
+              ? {
+                  ...candidate,
+                  switchRecovery: currentRecovery ?? candidate.switchRecovery,
+                }
+              : candidate,
           ),
         )
         showError(errorMessage(error, lang))
       }
     },
-    [lang, ompConfig, refresh, showError, tabs],
+    [focusTerminal, lang, showError],
+  )
+
+  const discardRecoveredSwitchInput = useCallback(
+    async (terminalId: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+      const recovery = tab?.switchRecovery
+      if (!recovery || recovery.state === "sending") return
+      try {
+        await discardSwitchInputRecovery(terminalId, recovery.generation, recovery.token)
+        setTabs((current) =>
+          current.map((candidate) =>
+            candidate.id === terminalId ? { ...candidate, switchRecovery: null } : candidate,
+          ),
+        )
+        focusTerminal(terminalId)
+      } catch (error) {
+        const currentRecovery = switchInputRecoveryDetails(error)
+        if (currentRecovery) {
+          setTabs((current) =>
+            current.map((candidate) =>
+              candidate.id === terminalId
+                ? { ...candidate, switchRecovery: currentRecovery }
+                : candidate,
+            ),
+          )
+        }
+        showError(errorMessage(error, lang))
+      }
+    },
+    [focusTerminal, lang, showError],
   )
 
   const togglePrimaryProviderPin = useCallback(
@@ -1172,6 +1351,7 @@ function App() {
         tab.activity === "thinking" ||
         tab.sessionPath === null ||
         tab.switching ||
+        tab.switchRecovery ||
         tab.primaryProviderPinPending ||
         tab.primaryProviderPinned === pinned
       ) {
@@ -1244,6 +1424,7 @@ function App() {
                         exitCode: exitEvent?.exitCode ?? null,
                         success: exitEvent?.success ?? false,
                         switching: false,
+                        switchRecovery: null,
                       }
                     : {}),
                 }
@@ -1457,6 +1638,7 @@ function App() {
                 exitCode: event.exitCode,
                 success: event.success,
                 switching: false,
+                switchRecovery: null,
               }
             : tab,
         ),
@@ -1568,6 +1750,19 @@ function App() {
     transcriptSession,
   ])
 
+  if (settingsRecovery) {
+    return (
+      <SettingsRecoveryScreen
+        busy={settingsRecoveryBusy || refreshing}
+        language={lang}
+        recovery={settingsRecovery}
+        onOpenFolder={() => void openSettingsRecoveryFolder()}
+        onRetry={() => void refresh()}
+        onStartWithDefaults={() => void recoverSettingsWithDefaults()}
+      />
+    )
+  }
+
   if (!payload) {
     return (
       <main className="splash-screen">
@@ -1678,6 +1873,7 @@ function App() {
           terminalFontSize={payload.settings.terminalFontSize}
           launching={launching}
           ompConfig={ompConfig}
+          onDiscardSwitchRecovery={(terminalId) => void discardRecoveredSwitchInput(terminalId)}
           onCloseTab={closeTab}
           onError={showError}
           onExit={handleExit}
@@ -1686,6 +1882,7 @@ function App() {
           onOpenFolder={() => void openFolder()}
           onReorderTabs={handleReorderTabs}
           onReady={handleTerminalReady}
+          onSendSwitchRecovery={(terminalId) => void sendRecoveredSwitchInput(terminalId)}
           onReveal={reveal}
           onSwitch={(tabId, model, thinking) => void switchTerminalRuntime(tabId, model, thinking)}
           onTogglePrimaryProviderPin={(terminalId, pinned) =>

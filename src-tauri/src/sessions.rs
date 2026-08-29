@@ -259,11 +259,38 @@ fn encode_relative_session_dir_name(prefix: &str, relative: &str) -> String {
         format!("{prefix}-{encoded}")
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AtomicWriteMode {
+    Regular,
+    Private,
+}
+
 pub(crate) fn atomic_write_file(destination: &Path, contents: &[u8]) -> Result<(), String> {
     atomic_write_file_with(destination, contents, replace_file_atomically)
 }
 
+pub(crate) fn atomic_write_private_file(destination: &Path, contents: &[u8]) -> Result<(), String> {
+    atomic_write_file_with_mode(
+        destination,
+        contents,
+        AtomicWriteMode::Private,
+        replace_file_atomically,
+    )
+}
+
 fn atomic_write_file_with<F>(destination: &Path, contents: &[u8], replace: F) -> Result<(), String>
+where
+    F: FnOnce(&Path, &Path) -> io::Result<()>,
+{
+    atomic_write_file_with_mode(destination, contents, AtomicWriteMode::Regular, replace)
+}
+
+fn atomic_write_file_with_mode<F>(
+    destination: &Path,
+    contents: &[u8],
+    mode: AtomicWriteMode,
+    replace: F,
+) -> Result<(), String>
 where
     F: FnOnce(&Path, &Path) -> io::Result<()>,
 {
@@ -277,9 +304,28 @@ where
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("session.jsonl");
-    let permissions = fs::metadata(destination)
-        .ok()
-        .map(|metadata| metadata.permissions());
+    let permissions = (mode == AtomicWriteMode::Regular)
+        .then(|| {
+            fs::metadata(destination)
+                .ok()
+                .map(|metadata| metadata.permissions())
+        })
+        .flatten();
+
+    if mode == AtomicWriteMode::Private {
+        harden_private_directory(parent).map_err(|error| {
+            format!(
+                "Не удалось ограничить права каталога {}: {error}",
+                parent.display()
+            )
+        })?;
+        harden_existing_private_file(destination).map_err(|error| {
+            format!(
+                "Не удалось ограничить права {}: {error}",
+                destination.display()
+            )
+        })?;
+    }
 
     let mut temporary = None;
     for _ in 0..16 {
@@ -288,12 +334,25 @@ where
             std::process::id(),
             rand::random::<u64>()
         ));
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
         {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&candidate) {
             Ok(file) => {
+                if mode == AtomicWriteMode::Private {
+                    if let Err(error) = harden_private_file(&candidate) {
+                        drop(file);
+                        let _ = fs::remove_file(&candidate);
+                        return Err(format!(
+                            "Не удалось ограничить права временного файла {}: {error}",
+                            candidate.display()
+                        ));
+                    }
+                }
                 temporary = Some((candidate, file));
                 break;
             }
@@ -318,16 +377,11 @@ where
         temporary_file.flush()?;
         if let Some(permissions) = permissions {
             temporary_file.set_permissions(permissions)?;
-        } else {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                temporary_file.set_permissions(fs::Permissions::from_mode(0o600))?;
-            }
         }
         temporary_file.sync_all()?;
         drop(temporary_file);
-        replace(&temporary_path, destination)
+        replace(&temporary_path, destination)?;
+        sync_parent_directory(parent)
     })();
 
     if let Err(error) = result {
@@ -337,6 +391,370 @@ where
             destination.display()
         ));
     }
+    Ok(())
+}
+
+fn harden_existing_private_file(path: &Path) -> io::Result<()> {
+    match harden_private_file(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+pub(crate) fn harden_private_file(path: &Path) -> io::Result<()> {
+    harden_private_path(path, false)
+}
+
+pub(crate) fn harden_private_directory(path: &Path) -> io::Result<()> {
+    harden_private_path(path, true)
+}
+
+fn harden_private_path(path: &Path, directory: bool) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "private path must not be a symbolic link: {}",
+                path.display()
+            ),
+        ));
+    }
+    if metadata.is_dir() != directory {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("private path has an unexpected type: {}", path.display()),
+        ));
+    }
+    if directory {
+        set_private_directory_permissions(path)
+    } else {
+        set_private_file_permissions(path)
+    }
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(unix)]
+fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(windows)]
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    set_private_windows_acl(path, false)
+}
+
+#[cfg(windows)]
+fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
+    set_private_windows_acl(path, true)
+}
+
+#[cfg(windows)]
+fn current_process_user_sid(
+    storage: &mut Vec<usize>,
+) -> io::Result<windows_sys::Win32::Security::PSID> {
+    use std::{ffi::c_void, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER},
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
+    };
+
+    struct TokenHandle(HANDLE);
+
+    impl Drop for TokenHandle {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    let mut token = ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let token = TokenHandle(token);
+    let mut required = 0_u32;
+    unsafe {
+        GetTokenInformation(token.0, TokenUser, ptr::null_mut(), 0, &mut required);
+    }
+    if required < std::mem::size_of::<TOKEN_USER>() as u32 {
+        return Err(io::Error::last_os_error());
+    }
+    let word_size = std::mem::size_of::<usize>();
+    let words = (required as usize).div_ceil(word_size);
+    storage.clear();
+    storage.resize(words, 0);
+    if unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            storage.as_mut_ptr().cast::<c_void>(),
+            required,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let user = unsafe { &*storage.as_ptr().cast::<TOKEN_USER>() };
+    if user.User.Sid.is_null() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Windows did not return the current user SID",
+        ));
+    }
+    Ok(user.User.Sid)
+}
+
+#[cfg(windows)]
+fn well_known_windows_sid(
+    kind: i32,
+    storage: &mut [u32; 17],
+) -> io::Result<windows_sys::Win32::Security::PSID> {
+    use std::{ffi::c_void, ptr};
+    use windows_sys::Win32::Security::{CreateWellKnownSid, SECURITY_MAX_SID_SIZE};
+
+    let mut size = SECURITY_MAX_SID_SIZE;
+    let sid = storage.as_mut_ptr().cast::<c_void>();
+    if unsafe { CreateWellKnownSid(kind, ptr::null_mut(), sid, &mut size) } == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(sid)
+    }
+}
+
+#[cfg(windows)]
+fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
+    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::{LocalFree, ERROR_SUCCESS},
+        Security::{
+            Authorization::{
+                SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE,
+                SET_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_USER,
+                TRUSTEE_IS_WELL_KNOWN_GROUP, TRUSTEE_W,
+            },
+            WinBuiltinAdministratorsSid, WinLocalSystemSid, DACL_SECURITY_INFORMATION,
+            PROTECTED_DACL_SECURITY_INFORMATION, PSID, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+        },
+        Storage::FileSystem::FILE_ALL_ACCESS,
+    };
+
+    struct LocalAllocation(*mut c_void);
+
+    impl Drop for LocalAllocation {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    LocalFree(self.0);
+                }
+            }
+        }
+    }
+
+    fn win32_status(status: u32) -> io::Result<()> {
+        if status == ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(status as i32))
+        }
+    }
+
+    fn access_entry(sid: PSID, inheritance: u32, trustee_type: i32) -> EXPLICIT_ACCESS_W {
+        EXPLICIT_ACCESS_W {
+            grfAccessPermissions: FILE_ALL_ACCESS,
+            grfAccessMode: SET_ACCESS,
+            grfInheritance: inheritance,
+            Trustee: TRUSTEE_W {
+                pMultipleTrustee: ptr::null_mut(),
+                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: trustee_type,
+                ptstrName: sid.cast::<u16>(),
+            },
+        }
+    }
+
+    let path = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut current_user_storage = Vec::new();
+    let current_user = current_process_user_sid(&mut current_user_storage)?;
+    let mut system_storage = [0_u32; 17];
+    let mut administrators_storage = [0_u32; 17];
+    let system = well_known_windows_sid(WinLocalSystemSid, &mut system_storage)?;
+    let administrators =
+        well_known_windows_sid(WinBuiltinAdministratorsSid, &mut administrators_storage)?;
+    let inheritance = if directory {
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT
+    } else {
+        0
+    };
+    let entries = [
+        access_entry(current_user, inheritance, TRUSTEE_IS_USER),
+        access_entry(system, inheritance, TRUSTEE_IS_USER),
+        access_entry(administrators, inheritance, TRUSTEE_IS_WELL_KNOWN_GROUP),
+    ];
+    let mut acl = ptr::null_mut();
+    let status = unsafe {
+        SetEntriesInAclW(
+            entries.len() as u32,
+            entries.as_ptr(),
+            ptr::null(),
+            &mut acl,
+        )
+    };
+    win32_status(status)?;
+    let _acl = LocalAllocation(acl.cast::<c_void>());
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            acl,
+            ptr::null_mut(),
+        )
+    };
+    win32_status(status)
+}
+
+#[cfg(all(test, windows))]
+pub(crate) fn windows_private_acl_summary(
+    path: &Path,
+) -> io::Result<(bool, u32, bool, bool, bool)> {
+    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::{LocalFree, ERROR_SUCCESS},
+        Security::{
+            AclSizeInformation,
+            Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT},
+            EqualSid, GetAce, GetAclInformation, GetSecurityDescriptorControl,
+            WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER,
+            ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            SE_DACL_PROTECTED,
+        },
+        Storage::FileSystem::FILE_ALL_ACCESS,
+    };
+
+    struct LocalAllocation(*mut c_void);
+
+    impl Drop for LocalAllocation {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    LocalFree(self.0);
+                }
+            }
+        }
+    }
+
+    let path = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut dacl = ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut dacl,
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _descriptor = LocalAllocation(descriptor);
+    if descriptor.is_null() || dacl.is_null() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Windows did not return a private DACL",
+        ));
+    }
+
+    let mut control = 0;
+    let mut revision = 0;
+    if unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut information = ACL_SIZE_INFORMATION::default();
+    if unsafe {
+        GetAclInformation(
+            dacl,
+            (&mut information as *mut ACL_SIZE_INFORMATION).cast(),
+            std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let mut current_user_storage = Vec::new();
+    let current_user = current_process_user_sid(&mut current_user_storage)?;
+    let mut system_storage = [0_u32; 17];
+    let mut administrators_storage = [0_u32; 17];
+    let system = well_known_windows_sid(WinLocalSystemSid, &mut system_storage)?;
+    let administrators =
+        well_known_windows_sid(WinBuiltinAdministratorsSid, &mut administrators_storage)?;
+    let mut has_current_user = false;
+    let mut has_system = false;
+    let mut has_administrators = false;
+    for index in 0..information.AceCount {
+        let mut raw_ace = ptr::null_mut();
+        if unsafe { GetAce(dacl, index, &mut raw_ace) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let header = unsafe { &*raw_ace.cast::<ACE_HEADER>() };
+        if header.AceType != 0 {
+            continue;
+        }
+        let ace = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
+        if ace.Mask != FILE_ALL_ACCESS {
+            continue;
+        }
+        let sid = (&ace.SidStart as *const u32).cast_mut().cast::<c_void>();
+        has_current_user |= unsafe { EqualSid(sid, current_user) } != 0;
+        has_system |= unsafe { EqualSid(sid, system) } != 0;
+        has_administrators |= unsafe { EqualSid(sid, administrators) } != 0;
+    }
+    Ok((
+        control & SE_DACL_PROTECTED != 0,
+        information.AceCount,
+        has_current_user,
+        has_system,
+        has_administrators,
+    ))
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> io::Result<()> {
+    fs::File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -2610,8 +3028,8 @@ impl IfEmpty for String {
 mod tests {
     use super::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
-        atomic_write_file, atomic_write_file_with, build_workspaces, collect_jsonl_files,
-        commit_import_with, deduplicate_codex_sessions, delete_session,
+        atomic_write_file, atomic_write_file_with, atomic_write_private_file, build_workspaces,
+        collect_jsonl_files, commit_import_with, deduplicate_codex_sessions, delete_session,
         encode_relative_session_dir_name, encode_session_dir_name, handoff_session_titles,
         import_destination, import_session, parse_codex_session_with_names, parse_session,
         parse_session_with_names, path_key, read_codex_discovery_prefix, read_import_bytes,
@@ -2927,6 +3345,70 @@ mod tests {
             b"new\n"
         );
         fs::remove_dir_all(&root).expect("fixture directory should be removable");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn private_atomic_write_installs_protected_windows_dacl() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-private-acl-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("settings.json");
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+
+        atomic_write_private_file(&destination, b"private")
+            .expect("private atomic write should succeed");
+        assert_eq!(
+            super::windows_private_acl_summary(&root).expect("directory DACL should be readable"),
+            (true, 3, true, true, true)
+        );
+        assert_eq!(
+            super::windows_private_acl_summary(&destination).expect("file DACL should be readable"),
+            (true, 3, true, true, true)
+        );
+        fs::remove_dir_all(root).expect("fixture directory should be removable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_atomic_write_sets_unix_directory_and_file_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-private-mode-{}-{nonce}",
+            std::process::id()
+        ));
+        let destination = root.join("settings.json");
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+
+        atomic_write_private_file(&destination, b"private")
+            .expect("private atomic write should succeed");
+        assert_eq!(
+            fs::metadata(&root)
+                .expect("private directory metadata should be readable")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&destination)
+                .expect("private file metadata should be readable")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        fs::remove_dir_all(root).expect("fixture directory should be removable");
     }
 
     #[test]

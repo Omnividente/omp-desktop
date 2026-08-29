@@ -21,6 +21,7 @@ import {
   formatSelectionReply,
   type MouseSelectionEdit,
   type TerminalCell,
+  terminalInputBlocked,
 } from "./terminalInput"
 import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
 import { formatTerminalExitLine } from "./uiUtils"
@@ -81,7 +82,7 @@ export function TerminalView({
   const onExitRef = useRef(onExit)
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
-  const inputBlockedRef = useRef(tab.switching || tab.primaryProviderPinPending)
+  const inputBlockedRef = useRef(terminalInputBlocked(tab))
 
   activeRef.current = active
   languageRef.current = language
@@ -90,7 +91,7 @@ export function TerminalView({
   onExitRef.current = onExit
   onErrorRef.current = onError
   onReadyRef.current = onReady
-  inputBlockedRef.current = tab.switching || tab.primaryProviderPinPending
+  inputBlockedRef.current = terminalInputBlocked(tab)
 
   const replyToSelection = () => {
     const terminal = terminalRef.current
