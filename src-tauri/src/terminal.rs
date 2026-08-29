@@ -2,6 +2,7 @@
 use crate::sessions::normalize_windows_verbatim_path;
 use crate::{
     omp_command::GITHUB_AUTH_ENV_KEYS,
+    session_lease::{SessionLease, SessionLeasePurpose},
     sessions::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
         canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
@@ -20,7 +21,8 @@ use serde_json::Value;
 #[cfg(windows)]
 use std::sync::atomic::AtomicU32;
 use std::{
-    collections::HashMap,
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -46,8 +48,7 @@ use windows_sys::Win32::{
         IO::CancelSynchronousIo,
     },
 };
-
-const MAX_PENDING_OUTPUT: usize = 2 * 1024 * 1024;
+const MAX_REPLAY_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
 const PTY_EXIT_FINALIZE_TIMEOUT: Duration = Duration::from_secs(5);
 const PTY_EXIT_TRUNCATION_ERROR: &str =
@@ -57,6 +58,7 @@ const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
 const PTY_INPUT_QUEUE_CAPACITY: usize = 64;
 const PTY_INPUT_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_OUTPUT_GENERATION: AtomicU64 = AtomicU64::new(1);
 // Deliberate 4 Hz polling: watchers exist only while the PTY is alive, and polling avoids
 // platform-specific rename/replacement gaps for OMP's append-only runtime files.
 const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
@@ -341,12 +343,131 @@ where
         .map_err(|error| format!("Не удалось запустить поток ввода PTY: {error}"))?;
     Ok(terminal_writer)
 }
+#[derive(Clone)]
+struct BufferedOutput {
+    seq: u64,
+    data: Vec<u8>,
+    start: usize,
+}
+
+impl BufferedOutput {
+    fn bytes(&self) -> &[u8] {
+        &self.data[self.start..]
+    }
+
+    fn len(&self) -> usize {
+        self.data.len() - self.start
+    }
+}
+
+#[derive(Default)]
+struct OutputReplay {
+    batches: VecDeque<BufferedOutput>,
+    byte_count: usize,
+    dropped_bytes: u64,
+    dropped_through_seq: Option<u64>,
+}
+
+struct OutputReplaySnapshot {
+    data: Vec<u8>,
+    first_seq: Option<u64>,
+    last_seq: Option<u64>,
+    truncated: bool,
+    dropped_bytes: u64,
+}
+
+impl OutputReplay {
+    fn push(&mut self, seq: u64, data: &[u8]) {
+        if data.len() >= MAX_REPLAY_OUTPUT {
+            self.dropped_bytes = self
+                .dropped_bytes
+                .saturating_add(self.byte_count as u64)
+                .saturating_add((data.len() - MAX_REPLAY_OUTPUT) as u64);
+            self.dropped_through_seq = Some(seq);
+            self.batches.clear();
+            self.byte_count = MAX_REPLAY_OUTPUT;
+            self.batches.push_back(BufferedOutput {
+                seq,
+                data: data[data.len() - MAX_REPLAY_OUTPUT..].to_vec(),
+                start: 0,
+            });
+            return;
+        }
+
+        let mut overflow = self
+            .byte_count
+            .saturating_add(data.len())
+            .saturating_sub(MAX_REPLAY_OUTPUT);
+        while overflow > 0 {
+            let Some(front) = self.batches.front_mut() else {
+                break;
+            };
+            if front.len() <= overflow {
+                let removed = self.batches.pop_front().expect("front batch should exist");
+                let removed_len = removed.len();
+                overflow -= removed_len;
+                self.byte_count -= removed_len;
+                self.dropped_bytes = self.dropped_bytes.saturating_add(removed_len as u64);
+                self.dropped_through_seq = Some(removed.seq);
+            } else {
+                front.start += overflow;
+                self.byte_count -= overflow;
+                self.dropped_bytes = self.dropped_bytes.saturating_add(overflow as u64);
+                self.dropped_through_seq = Some(front.seq);
+                overflow = 0;
+            }
+        }
+        self.byte_count += data.len();
+        self.batches.push_back(BufferedOutput {
+            seq,
+            data: data.to_vec(),
+            start: 0,
+        });
+    }
+
+    fn snapshot(&self, after_seq: Option<u64>, baseline_reset: bool) -> OutputReplaySnapshot {
+        let effective_after = (!baseline_reset).then_some(after_seq).flatten();
+        let data_len = self
+            .batches
+            .iter()
+            .filter(|batch| effective_after.is_none_or(|after| batch.seq > after))
+            .map(BufferedOutput::len)
+            .sum();
+        let mut data = Vec::with_capacity(data_len);
+        let mut first_seq = None;
+        let mut last_seq = None;
+        for batch in self
+            .batches
+            .iter()
+            .filter(|batch| effective_after.is_none_or(|after| batch.seq > after))
+        {
+            first_seq.get_or_insert(batch.seq);
+            last_seq = Some(batch.seq);
+            data.extend_from_slice(batch.bytes());
+        }
+        let truncated = match effective_after {
+            Some(after) => self
+                .dropped_through_seq
+                .is_some_and(|dropped| after < dropped),
+            None => self.dropped_bytes > 0,
+        };
+        OutputReplaySnapshot {
+            data,
+            first_seq,
+            last_seq,
+            truncated,
+            dropped_bytes: self.dropped_bytes,
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct TerminalState {
     processes: Mutex<HashMap<String, TerminalProcess>>,
     session_files: Mutex<()>,
 }
+
+type SharedTerminalOutput = Arc<Mutex<TerminalOutputState>>;
 
 struct TerminalProcess {
     master: Option<Box<dyn MasterPty + Send>>,
@@ -355,10 +476,10 @@ struct TerminalProcess {
     process_id: Option<u32>,
     cwd: String,
     resume_path: Option<String>,
+    session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
-    pending_output: Vec<u8>,
-    attached: bool,
+    output: SharedTerminalOutput,
     exit_pending: bool,
     exited: bool,
     exit_code: Option<u32>,
@@ -367,8 +488,6 @@ struct TerminalProcess {
     thinking: bool,
     restartable: bool,
     switch_pending: bool,
-    update_notified: bool,
-    update_buffer: Vec<u8>,
     switch_input_buffer: Vec<u8>,
     switch_input_overflow_notified: bool,
     exit_waiter: Option<mpsc::Receiver<()>>,
@@ -377,8 +496,97 @@ struct TerminalProcess {
     #[cfg(windows)]
     _containment: WindowsJobObject,
 }
+
+struct TerminalOutputState {
+    replay: OutputReplay,
+    attachment_id: Option<String>,
+    generation: u64,
+    next_seq: u64,
+    closed: bool,
+}
+
+struct PreparedTerminalAttachment {
+    snapshot: OutputReplaySnapshot,
+    generation: u64,
+    next_seq: u64,
+    baseline_reset: bool,
+}
+
+impl TerminalOutputState {
+    fn new(generation: u64) -> Self {
+        Self {
+            replay: OutputReplay::default(),
+            attachment_id: None,
+            generation,
+            next_seq: 1,
+            closed: false,
+        }
+    }
+
+    fn attach(
+        &mut self,
+        request: &TerminalAttachmentRequest,
+    ) -> Result<PreparedTerminalAttachment, String> {
+        if request.attachment_id.trim().is_empty() {
+            return Err("[terminal_attachment_invalid] Пустой attachment id".to_owned());
+        }
+        if self.closed {
+            return Err("Процесс OMP уже завершён".to_owned());
+        }
+        let baseline_reset = request.generation != Some(self.generation);
+        if !baseline_reset
+            && request
+                .after_seq
+                .is_some_and(|after| after >= self.next_seq)
+        {
+            return Err(format!(
+                "[terminal_sequence_invalid] Sequence baseline {} опережает terminal {}",
+                request.after_seq.unwrap_or_default(),
+                self.next_seq.saturating_sub(1)
+            ));
+        }
+        self.attachment_id = Some(request.attachment_id.clone());
+        Ok(PreparedTerminalAttachment {
+            snapshot: self.replay.snapshot(request.after_seq, baseline_reset),
+            generation: self.generation,
+            next_seq: self.next_seq,
+            baseline_reset,
+        })
+    }
+
+    fn detach(&mut self, attachment_id: &str) {
+        if self.attachment_id.as_deref() == Some(attachment_id) {
+            self.attachment_id = None;
+        }
+    }
+
+    fn record(&mut self, data: &[u8]) -> Option<(u64, u64, bool)> {
+        if self.closed {
+            return None;
+        }
+        let seq = self.next_seq;
+        self.next_seq = self.next_seq.saturating_add(1);
+        self.replay.push(seq, data);
+        Some((self.generation, seq, self.attachment_id.is_some()))
+    }
+
+    fn is_current_attachment(&self, generation: u64) -> bool {
+        !self.closed && self.generation == generation && self.attachment_id.is_some()
+    }
+
+    fn has_attachment(&self) -> bool {
+        !self.closed && self.attachment_id.is_some()
+    }
+
+    fn close(&mut self) {
+        self.closed = true;
+        self.attachment_id = None;
+    }
+}
+
 impl Drop for TerminalProcess {
     fn drop(&mut self) {
+        lock_terminal_output(&self.output).close();
         if let Some(writer) = self.writer.as_ref() {
             writer.close();
         }
@@ -387,6 +595,24 @@ impl Drop for TerminalProcess {
                 let _ = kill_terminal_process(killer.as_mut());
             }
         }
+    }
+}
+
+pub(crate) struct PreparedSessionDeletion<'a> {
+    canonical: String,
+    key: String,
+    root: PathBuf,
+    _lease: SessionLease,
+    _session_file_guard: std::sync::MutexGuard<'a, ()>,
+}
+
+impl PreparedSessionDeletion<'_> {
+    pub(crate) fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub(crate) fn commit(self) -> Result<(), String> {
+        crate::sessions::delete_session(&self.canonical, &self.root)
     }
 }
 
@@ -418,22 +644,51 @@ impl TerminalState {
         })
     }
 
-    pub fn delete_inactive_session(&self, path: &str, root: &Path) -> Result<(), String> {
-        let _session_file_guard = lock_session_files(self);
-        if self.is_session_active(path) {
+    pub(crate) fn prepare_inactive_session_deletion<'a>(
+        &'a self,
+        path: &str,
+        root: &Path,
+    ) -> Result<PreparedSessionDeletion<'a>, String> {
+        let session_file_guard = lock_session_files(self);
+        let session_path = validated_session_file(path, root)?;
+        let canonical = session_path.to_string_lossy().into_owned();
+        let key = path_key(&canonical);
+        if self.is_session_active(&canonical) {
             return Err(format!(
-                "[session_active_delete] Сессия используется активным терминалом: {path}"
+                "[session_active_delete] Сессия используется активным терминалом: {canonical}"
             ));
         }
-        crate::sessions::delete_session(path, root)
+        let lease = SessionLease::acquire(&session_path, SessionLeasePurpose::Delete, false)?;
+        Ok(PreparedSessionDeletion {
+            canonical,
+            key,
+            root: root.to_path_buf(),
+            _lease: lease,
+            _session_file_guard: session_file_guard,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn delete_inactive_session(&self, path: &str, root: &Path) -> Result<String, String> {
+        let deletion = self.prepare_inactive_session_deletion(path, root)?;
+        let key = deletion.key().to_owned();
+        deletion.commit()?;
+        Ok(key)
     }
 }
-
 fn lock_processes(
     state: &TerminalState,
 ) -> std::sync::MutexGuard<'_, HashMap<String, TerminalProcess>> {
     state
         .processes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn lock_terminal_output(
+    output: &SharedTerminalOutput,
+) -> std::sync::MutexGuard<'_, TerminalOutputState> {
+    output
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -474,6 +729,8 @@ pub struct LaunchRequest {
     pub resume_path: Option<String>,
     #[serde(default)]
     pub args: Option<Vec<String>>,
+    #[serde(default)]
+    pub force_session_lease: bool,
     pub cols: u16,
     pub rows: u16,
 }
@@ -562,9 +819,10 @@ pub struct TerminalSwitchError {
 
 impl TerminalSwitchError {
     fn new(code: &str, message: impl Into<String>) -> Self {
+        let message = message.into();
         Self {
             code: code.to_owned(),
-            message: message.into(),
+            message: crate::models::sanitize_error_text(&message),
             recovery: None,
         }
     }
@@ -574,9 +832,10 @@ impl TerminalSwitchError {
         message: impl Into<String>,
         recovery: SwitchInputRecoveryMetadata,
     ) -> Self {
+        let message = message.into();
         Self {
             code: code.to_owned(),
-            message: message.into(),
+            message: crate::models::sanitize_error_text(&message),
             recovery: Some(recovery),
         }
     }
@@ -613,10 +872,33 @@ pub struct TerminalRuntime {
     pub configured_thinking_level: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalAttachmentRequest {
+    terminal_id: String,
+    attachment_id: String,
+    generation: Option<u64>,
+    after_seq: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalDetachRequest {
+    terminal_id: String,
+    attachment_id: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalAttachment {
     pub data: String,
+    pub generation: u64,
+    pub first_seq: Option<u64>,
+    pub last_seq: Option<u64>,
+    pub next_seq: u64,
+    pub truncated: bool,
+    pub dropped_bytes: u64,
+    pub baseline_reset: bool,
     pub exited: bool,
     pub exit_code: Option<u32>,
     pub success: bool,
@@ -628,6 +910,8 @@ pub struct TerminalAttachment {
 struct PtyOutputEvent {
     terminal_id: String,
     data: String,
+    generation: u64,
+    seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -644,6 +928,7 @@ struct PtyExitEvent {
 struct PtyExitSignal {
     event_sender: mpsc::SyncSender<PtyExitEvent>,
     output_waker: mpsc::SyncSender<Vec<u8>>,
+    output: SharedTerminalOutput,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -773,6 +1058,7 @@ fn start_terminal_blocking(
             pixel_height: 0,
         },
         restartable,
+        request.force_session_lease,
     )
 }
 
@@ -873,13 +1159,16 @@ fn set_terminal_primary_provider_pin_blocking(
                 pixel_height: 0,
             },
             true,
+            false,
         )
         .map_err(terminal_restart_stopped_error)?;
 
         let mut next = settings;
         let session_key = path_key(&resume_path);
-        next.primary_provider_pins
-            .retain(|candidate| path_key(candidate) != session_key);
+        crate::sessions::remove_session_primary_provider_pin(
+            &session_key,
+            &mut next.primary_provider_pins,
+        );
         if request.pinned {
             next.primary_provider_pins.insert(session_key);
         }
@@ -1771,6 +2060,7 @@ fn spawn_terminal_process(
     args: Vec<String>,
     size: PtySize,
     restartable: bool,
+    force_session_lease: bool,
 ) -> Result<TerminalStarted, String> {
     let terminal_id = format!(
         "terminal-{}-{}",
@@ -1779,6 +2069,20 @@ fn spawn_terminal_process(
     );
     let terminal_sessions_dir = terminal_sessions_dir(app)?;
     let breadcrumb_snapshot = snapshot_breadcrumbs(&terminal_sessions_dir);
+    let session_lease = if restartable {
+        resume_path
+            .as_deref()
+            .map(|path| {
+                SessionLease::acquire(
+                    Path::new(path),
+                    SessionLeasePurpose::Resume,
+                    force_session_lease,
+                )
+            })
+            .transpose()?
+    } else {
+        None
+    };
     let command = build_omp_command(executable, &cwd, &terminal_id, provider_env, &args);
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -1833,6 +2137,9 @@ fn spawn_terminal_process(
     };
     let runtime_session_path = resume_path.clone();
     let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
+    let output = Arc::new(Mutex::new(TerminalOutputState::new(
+        NEXT_OUTPUT_GENERATION.fetch_add(1, Ordering::Relaxed),
+    )));
 
     let process = TerminalProcess {
         master: Some(pair.master),
@@ -1841,10 +2148,10 @@ fn spawn_terminal_process(
         process_id,
         cwd: cwd.clone(),
         resume_path,
+        session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
-        pending_output: Vec::new(),
-        attached: false,
+        output: output.clone(),
         exit_pending: false,
         exited: false,
         exit_code: None,
@@ -1853,8 +2160,6 @@ fn spawn_terminal_process(
         thinking: false,
         restartable,
         switch_pending: false,
-        update_notified: false,
-        update_buffer: Vec::new(),
         switch_input_buffer: Vec::new(),
         switch_input_overflow_notified: false,
         exit_waiter: Some(exit_receiver),
@@ -1864,7 +2169,13 @@ fn spawn_terminal_process(
         _containment: containment,
     };
     lock_processes(terminals).insert(terminal_id.clone(), process);
-    let output_exit = match spawn_reader(app.clone(), terminal_id.clone(), reader, exit_sender) {
+    let output_exit = match spawn_reader(
+        app.clone(),
+        terminal_id.clone(),
+        output,
+        reader,
+        exit_sender,
+    ) {
         Ok(output_exit) => output_exit,
         Err(error) => {
             drop(lock_processes(terminals).remove(&terminal_id));
@@ -2056,9 +2367,11 @@ fn apply_handoff_session_titles(
 enum ResumePathPoll {
     Stop,
     Continue,
+    LeaseFailed(String),
     Discovered {
         resume_path: String,
         previous_path: Option<String>,
+        previous_lease: Option<SessionLease>,
         session: Box<crate::models::SessionSummary>,
     },
 }
@@ -2097,8 +2410,16 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
     ) else {
         return ResumePathPoll::Continue;
     };
+    let session_lease = match SessionLease::acquire(
+        Path::new(&resume_path),
+        SessionLeasePurpose::Discovered,
+        false,
+    ) {
+        Ok(lease) => lease,
+        Err(error) => return ResumePathPoll::LeaseFailed(error),
+    };
 
-    let previous_path = {
+    let (previous_path, previous_lease) = {
         let mut processes = lock_processes(state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return ResumePathPoll::Stop;
@@ -2113,25 +2434,40 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         {
             return ResumePathPoll::Continue;
         }
-        process.resume_path.replace(resume_path.clone())
+        (
+            process.resume_path.replace(resume_path.clone()),
+            process.session_lease.replace(session_lease),
+        )
     };
 
     ResumePathPoll::Discovered {
         resume_path,
         previous_path,
+        previous_lease,
         session: Box::new(session),
     }
 }
 
 fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathPoll) -> bool {
-    let (resume_path, previous_path, mut session) = match poll {
+    let (resume_path, previous_path, previous_lease, mut session) = match poll {
         ResumePathPoll::Stop => return true,
         ResumePathPoll::Continue => return false,
+        ResumePathPoll::LeaseFailed(error) => {
+            emit_runtime_error(app, terminal_id, error);
+            let state = app.state::<TerminalState>();
+            if let Some(process) = lock_processes(&state).get_mut(terminal_id) {
+                if let Some(killer) = process.killer.as_mut() {
+                    let _ = kill_terminal_process(killer.as_mut());
+                }
+            }
+            return true;
+        }
         ResumePathPoll::Discovered {
             resume_path,
             previous_path,
+            previous_lease,
             session,
-        } => (resume_path, previous_path, *session),
+        } => (resume_path, previous_path, previous_lease, *session),
     };
 
     if let Some(previous_path) = previous_path.as_deref() {
@@ -2148,6 +2484,7 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
     } else {
         apply_known_session_title_pin(app, &mut session);
     }
+    drop(previous_lease);
 
     let _ = app.emit(
         "pty-session",
@@ -3158,23 +3495,62 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
 
 #[tauri::command]
 pub fn attach_terminal(
-    terminal_id: String,
+    request: TerminalAttachmentRequest,
     terminals: State<'_, TerminalState>,
 ) -> Result<TerminalAttachment, String> {
-    let mut processes = lock_processes(&terminals);
-    let process = processes
-        .get_mut(&terminal_id)
-        .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?;
-    process.attached = true;
-    let pending = std::mem::take(&mut process.pending_output);
-
+    let output = {
+        let processes = lock_processes(&terminals);
+        processes
+            .get(&request.terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?
+            .output
+            .clone()
+    };
+    let prepared = lock_terminal_output(&output).attach(&request)?;
+    let (exited, exit_code, success, error) = {
+        let processes = lock_processes(&terminals);
+        let process = processes
+            .get(&request.terminal_id)
+            .filter(|process| Arc::ptr_eq(&process.output, &output))
+            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?;
+        (
+            process.exited,
+            process.exit_code,
+            process.exit_success,
+            process.exit_error.clone(),
+        )
+    };
     Ok(TerminalAttachment {
-        data: BASE64.encode(pending),
-        exited: process.exited,
-        exit_code: process.exit_code,
-        success: process.exit_success,
-        error: process.exit_error.clone(),
+        data: BASE64.encode(prepared.snapshot.data),
+        generation: prepared.generation,
+        first_seq: prepared.snapshot.first_seq,
+        last_seq: prepared.snapshot.last_seq,
+        next_seq: prepared.next_seq,
+        truncated: prepared.snapshot.truncated,
+        dropped_bytes: prepared.snapshot.dropped_bytes,
+        baseline_reset: prepared.baseline_reset,
+        exited,
+        exit_code,
+        success,
+        error,
     })
+}
+
+#[tauri::command]
+pub fn detach_terminal(
+    request: TerminalDetachRequest,
+    terminals: State<'_, TerminalState>,
+) -> Result<(), String> {
+    let output = {
+        let processes = lock_processes(&terminals);
+        processes
+            .get(&request.terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {}", request.terminal_id))?
+            .output
+            .clone()
+    };
+    lock_terminal_output(&output).detach(&request.attachment_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -3465,15 +3841,23 @@ fn run_output_pipeline<Output, Exit>(
     exit(event);
 }
 
-fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEvent) {
+fn finalize_terminal_exit(
+    app: &AppHandle,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    event: PtyExitEvent,
+) {
     let runtime_error = event
         .output_truncated
         .then(|| event.error.clone())
         .flatten();
-    let should_emit = {
+    let session_lease = {
         let state = app.state::<TerminalState>();
         let mut processes = lock_processes(&state);
-        let Some(process) = processes.get_mut(terminal_id) else {
+        let Some(process) = processes
+            .get_mut(terminal_id)
+            .filter(|process| Arc::ptr_eq(&process.output, output))
+        else {
             return;
         };
         if process.exited {
@@ -3488,10 +3872,11 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
         process.switch_input_buffer.clear();
         process.switch_input_overflow_notified = false;
         process.switch_recovery = None;
-        process.attached
+        process.session_lease.take()
     };
+    drop(session_lease);
 
-    if should_emit {
+    if lock_terminal_output(output).has_attachment() {
         if let Some(error) = runtime_error {
             emit_runtime_error(app, terminal_id, error);
         }
@@ -3502,16 +3887,36 @@ fn finalize_terminal_exit(app: &AppHandle, terminal_id: &str, event: PtyExitEven
 fn forward_output_batches(
     app: AppHandle,
     terminal_id: String,
+    output: SharedTerminalOutput,
     output_receiver: mpsc::Receiver<Vec<u8>>,
     exit_receiver: mpsc::Receiver<PtyExitEvent>,
     finalized_sender: mpsc::SyncSender<()>,
 ) {
+    let update_detector = RefCell::new(UpdateDetector::new());
     run_output_pipeline(
         output_receiver,
         exit_receiver,
         PTY_EXIT_FINALIZE_TIMEOUT,
-        |batch| route_output(&app, &terminal_id, batch),
-        |event| finalize_terminal_exit(&app, &terminal_id, event),
+        |batch| {
+            route_output(
+                &app,
+                &terminal_id,
+                &output,
+                batch,
+                &mut update_detector.borrow_mut(),
+            )
+        },
+        |event| {
+            if update_detector.borrow_mut().flush() {
+                let _ = app.emit(
+                    "omp-update-notice",
+                    PtyUpdateEvent {
+                        terminal_id: terminal_id.clone(),
+                    },
+                );
+            }
+            finalize_terminal_exit(&app, &terminal_id, &output, event)
+        },
     );
     let _ = finalized_sender.send(());
 }
@@ -3519,6 +3924,7 @@ fn forward_output_batches(
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
+    output: SharedTerminalOutput,
     mut reader: Box<dyn Read + Send>,
     finalized_sender: mpsc::SyncSender<()>,
 ) -> Result<PtyExitSignal, String> {
@@ -3527,6 +3933,7 @@ fn spawn_reader(
     let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
     let output_app = app.clone();
     let output_terminal_id = terminal_id.clone();
+    let output_for_thread = output.clone();
 
     thread::Builder::new()
         .name(format!("pty-output-{terminal_id}"))
@@ -3534,6 +3941,7 @@ fn spawn_reader(
             forward_output_batches(
                 output_app,
                 output_terminal_id,
+                output_for_thread,
                 output_receiver,
                 exit_receiver,
                 finalized_sender,
@@ -3569,6 +3977,7 @@ fn spawn_reader(
     Ok(PtyExitSignal {
         event_sender: exit_sender,
         output_waker,
+        output,
     })
 }
 
@@ -3621,7 +4030,10 @@ where
             let (master, writer, mut killer) = {
                 let state = app.state::<TerminalState>();
                 let mut processes = lock_processes(&state);
-                let Some(process) = processes.get_mut(&terminal_id) else {
+                let Some(process) = processes
+                    .get_mut(&terminal_id)
+                    .filter(|process| Arc::ptr_eq(&process.output, &exit_signal.output))
+                else {
                     return;
                 };
                 process.exit_pending = true;
@@ -3646,11 +4058,11 @@ where
 
             let fallback_event = event.clone();
             if let Err(error) = exit_signal.event_sender.send(event) {
-                finalize_terminal_exit(&app, &terminal_id, error.0);
+                finalize_terminal_exit(&app, &terminal_id, &exit_signal.output, error.0);
                 return;
             }
             if exit_signal.output_waker.send(Vec::new()).is_err() {
-                finalize_terminal_exit(&app, &terminal_id, fallback_event);
+                finalize_terminal_exit(&app, &terminal_id, &exit_signal.output, fallback_event);
             }
         })
         .map(|_| ())
@@ -3661,39 +4073,32 @@ fn output_event_name(terminal_id: &str) -> String {
     format!("pty-output:{terminal_id}")
 }
 
-fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
-    let (payload, emit_update) = {
-        let state = app.state::<TerminalState>();
-        let mut processes = lock_processes(&state);
-        let Some(process) = processes.get_mut(terminal_id) else {
-            return;
-        };
-
-        let emit_update = if !process.update_notified {
-            if detect_update_notice(&mut process.update_buffer, data) {
-                process.update_notified = true;
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        let payload = if process.attached {
-            Some(PtyOutputEvent {
-                terminal_id: terminal_id.to_owned(),
-                data: BASE64.encode(data),
-            })
-        } else {
-            append_pending(&mut process.pending_output, data);
-            None
-        };
-        (payload, emit_update)
+fn route_output(
+    app: &AppHandle,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    data: &[u8],
+    detector: &mut UpdateDetector,
+) {
+    let Some((generation, seq, should_emit)) = lock_terminal_output(output).record(data) else {
+        return;
     };
+    let emit_update = detector.observe(data);
 
-    if let Some(payload) = payload {
-        let event_name = output_event_name(terminal_id);
-        let _ = app.emit(&event_name, payload);
+    if should_emit {
+        let encoded = BASE64.encode(data);
+        if lock_terminal_output(output).is_current_attachment(generation) {
+            let event_name = output_event_name(terminal_id);
+            let _ = app.emit(
+                &event_name,
+                PtyOutputEvent {
+                    terminal_id: terminal_id.to_owned(),
+                    data: encoded,
+                    generation,
+                    seq,
+                },
+            );
+        }
     }
     if emit_update {
         let _ = app.emit(
@@ -3706,6 +4111,101 @@ fn route_output(app: &AppHandle, terminal_id: &str, data: &[u8]) {
 }
 
 const MAX_UPDATE_BUFFER: usize = 4096;
+const UPDATE_DETECTOR_VOLUME_THRESHOLD: usize = 2048;
+const MAX_UPDATE_NOTICE_SPAN: usize = 512;
+const _: () =
+    assert!(UPDATE_DETECTOR_VOLUME_THRESHOLD <= MAX_UPDATE_BUFFER - MAX_UPDATE_NOTICE_SPAN);
+
+#[derive(Default)]
+struct UpdateDetector {
+    buffer: Vec<u8>,
+    uninspected_bytes: usize,
+    notified: bool,
+}
+
+impl UpdateDetector {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feeds output bytes into the rolling buffer.
+    ///
+    /// Volume throttling triggers scanning only when at least
+    /// `UPDATE_DETECTOR_VOLUME_THRESHOLD` (2048) new bytes have accumulated since the
+    /// last check.
+    ///
+    /// Invariant: the supported OMP update-notice span is bounded to
+    /// `MAX_UPDATE_NOTICE_SPAN` (512) bytes. The retained overlap is
+    /// `MAX_UPDATE_BUFFER - UPDATE_DETECTOR_VOLUME_THRESHOLD = 2048` bytes, so a
+    /// notice split across detector runs remains fully present for the next scan.
+    fn observe(&mut self, data: &[u8]) -> bool {
+        if self.notified {
+            return false;
+        }
+        append_update_buffer(&mut self.buffer, data);
+        self.uninspected_bytes = self.uninspected_bytes.saturating_add(data.len());
+        if self.uninspected_bytes >= UPDATE_DETECTOR_VOLUME_THRESHOLD {
+            self.scan()
+        } else {
+            false
+        }
+    }
+
+    fn flush(&mut self) -> bool {
+        if self.notified || self.uninspected_bytes == 0 {
+            return false;
+        }
+        self.scan()
+    }
+
+    fn scan(&mut self) -> bool {
+        self.uninspected_bytes = 0;
+        if detect_update_notice_in_buffer(&self.buffer) {
+            self.notified = true;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn append_update_buffer(buffer: &mut Vec<u8>, data: &[u8]) {
+    if data.len() >= MAX_UPDATE_BUFFER {
+        buffer.clear();
+        buffer.extend_from_slice(&data[data.len() - MAX_UPDATE_BUFFER..]);
+    } else {
+        let overflow = buffer
+            .len()
+            .saturating_add(data.len())
+            .saturating_sub(MAX_UPDATE_BUFFER);
+        if overflow > 0 {
+            buffer.drain(..overflow);
+        }
+        buffer.extend_from_slice(data);
+    }
+}
+
+#[cfg(test)]
+fn detect_update_notice(buffer: &mut Vec<u8>, data: &[u8]) -> bool {
+    append_update_buffer(buffer, data);
+    detect_update_notice_in_buffer(buffer)
+}
+
+fn detect_update_notice_in_buffer(buffer: &[u8]) -> bool {
+    let clean = strip_ansi_bytes(buffer);
+    let text = String::from_utf8_lossy(&clean);
+    let lower = text.to_lowercase();
+    let advertises_update = [
+        "new version",
+        "update available",
+        "upgrade available",
+        "новая версия",
+        "доступно обновление",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    advertises_update && lower.contains("omp update") && update::contains_version(&text)
+}
 
 fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len());
@@ -3730,69 +4230,23 @@ fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
     out
 }
 
-fn detect_update_notice(buffer: &mut Vec<u8>, data: &[u8]) -> bool {
-    if data.len() >= MAX_UPDATE_BUFFER {
-        buffer.clear();
-        buffer.extend_from_slice(&data[data.len() - MAX_UPDATE_BUFFER..]);
-    } else {
-        let overflow = buffer
-            .len()
-            .saturating_add(data.len())
-            .saturating_sub(MAX_UPDATE_BUFFER);
-        if overflow > 0 {
-            buffer.drain(..overflow);
-        }
-        buffer.extend_from_slice(data);
-    }
-
-    let clean = strip_ansi_bytes(buffer);
-    let text = String::from_utf8_lossy(&clean);
-    let lower = text.to_lowercase();
-    let advertises_update = [
-        "new version",
-        "update available",
-        "upgrade available",
-        "новая версия",
-        "доступно обновление",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker));
-    advertises_update && lower.contains("omp update") && update::contains_version(&text)
-}
-
-fn append_pending(pending: &mut Vec<u8>, data: &[u8]) {
-    if data.len() >= MAX_PENDING_OUTPUT {
-        pending.clear();
-        pending.extend_from_slice(&data[data.len() - MAX_PENDING_OUTPUT..]);
-        return;
-    }
-
-    let overflow = pending
-        .len()
-        .saturating_add(data.len())
-        .saturating_sub(MAX_PENDING_OUTPUT);
-    if overflow > 0 {
-        pending.drain(..overflow);
-    }
-    pending.extend_from_slice(data);
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
         decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
         feed_runtime_lines, finalize_switch_result, initial_agent_args_with_config, lock_processes,
-        model_switch_input, normalize_thinking_level, output_event_name, poll_runtime_file,
-        read_runtime_tail, receive_ready_output_batch, receive_timed_output_batch,
-        recover_runtime_cursor, resolve_resume_path_for_current, run_output_pipeline,
-        runtime_event_for_emit, runtime_event_from_line, send_switch_input_recovery_blocking,
-        session_title_for_emit, session_title_from_line, spawn_terminal_writer, thinking_cycle,
-        validate_switch_request, validated_resume_path, write_bytes, PtyExitEvent,
-        PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SwitchInputRecoveryRequest,
-        SwitchInputRecoveryState, SwitchRequest, TerminalProcess, TerminalState,
-        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        lock_terminal_output, model_switch_input, normalize_thinking_level, output_event_name,
+        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
+        receive_timed_output_batch, recover_runtime_cursor, resolve_resume_path_for_current,
+        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line,
+        send_switch_input_recovery_blocking, session_title_for_emit, session_title_from_line,
+        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
+        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
+        SessionLease, SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState,
+        SwitchRequest, TerminalAttachmentRequest, TerminalOutputState, TerminalProcess,
+        TerminalState, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -3838,10 +4292,10 @@ mod tests {
             process_id: Some(7),
             cwd: "/tmp/project".to_owned(),
             resume_path,
+            session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),
-            pending_output: Vec::new(),
-            attached: false,
+            output: Arc::new(Mutex::new(TerminalOutputState::new(7))),
             exit_pending: false,
             exited: false,
             exit_code: None,
@@ -3850,17 +4304,123 @@ mod tests {
             thinking: false,
             restartable: true,
             switch_pending: false,
-            update_notified: false,
-            update_buffer: Vec::new(),
             switch_input_buffer: Vec::new(),
             switch_input_overflow_notified: false,
             exit_waiter: None,
             switch_generation: 0,
             switch_recovery: None,
+
             #[cfg(windows)]
             _containment: super::WindowsJobObject::new()
                 .expect("test Windows Job Object should initialize"),
         }
+    }
+    #[test]
+    fn attach_detach_reattach_replays_only_unseen_output_and_exit_state() {
+        let mut process = terminal_process(None, None);
+        let first = {
+            let mut output = lock_terminal_output(&process.output);
+            assert_eq!(output.record(b"first"), Some((7, 1, false)));
+            output
+                .attach(&TerminalAttachmentRequest {
+                    terminal_id: "terminal-1".to_owned(),
+                    attachment_id: "view-1".to_owned(),
+                    generation: None,
+                    after_seq: None,
+                })
+                .expect("first view should attach")
+        };
+        assert!(first.baseline_reset);
+        assert_eq!(first.snapshot.data, b"first");
+        assert_eq!(first.snapshot.first_seq, Some(1));
+        assert_eq!(first.snapshot.last_seq, Some(1));
+
+        {
+            let mut output = lock_terminal_output(&process.output);
+            output.detach("view-1");
+            assert!(output.attachment_id.is_none());
+            assert_eq!(output.record(b"second"), Some((7, 2, false)));
+        }
+        process.exited = true;
+        process.exit_code = Some(0);
+        process.exit_success = true;
+        let second = lock_terminal_output(&process.output)
+            .attach(&TerminalAttachmentRequest {
+                terminal_id: "terminal-1".to_owned(),
+                attachment_id: "view-2".to_owned(),
+                generation: Some(7),
+                after_seq: Some(1),
+            })
+            .expect("replacement view should reattach");
+        assert!(!second.baseline_reset);
+        assert_eq!(second.snapshot.data, b"second");
+        assert_eq!(second.snapshot.first_seq, Some(2));
+        assert_eq!(second.snapshot.last_seq, Some(2));
+        assert!(process.exited);
+        assert_eq!(process.exit_code, Some(0));
+        assert!(process.exit_success);
+    }
+
+    #[test]
+    fn stale_detach_cannot_disconnect_newer_attachment() {
+        let process = terminal_process(None, None);
+        let mut output = lock_terminal_output(&process.output);
+        output
+            .attach(&TerminalAttachmentRequest {
+                terminal_id: "terminal-1".to_owned(),
+                attachment_id: "old-view".to_owned(),
+                generation: None,
+                after_seq: None,
+            })
+            .expect("old view should attach");
+        output
+            .attach(&TerminalAttachmentRequest {
+                terminal_id: "terminal-1".to_owned(),
+                attachment_id: "new-view".to_owned(),
+                generation: Some(7),
+                after_seq: Some(0),
+            })
+            .expect("new view should atomically replace old view");
+        output.detach("old-view");
+        assert_eq!(output.attachment_id.as_deref(), Some("new-view"));
+        output.detach("new-view");
+        assert!(output.attachment_id.is_none());
+    }
+
+    #[test]
+    fn bounded_replay_marks_partial_batch_truncation() {
+        let process = terminal_process(None, None);
+        let oversized = vec![b'x'; MAX_REPLAY_OUTPUT + 37];
+        let mut output = lock_terminal_output(&process.output);
+        assert_eq!(output.record(&oversized), Some((7, 1, false)));
+        let attachment = output
+            .attach(&TerminalAttachmentRequest {
+                terminal_id: "terminal-1".to_owned(),
+                attachment_id: "view".to_owned(),
+                generation: Some(7),
+                after_seq: Some(0),
+            })
+            .expect("view should attach after overflow");
+        assert_eq!(attachment.snapshot.data.len(), MAX_REPLAY_OUTPUT);
+        assert!(attachment.snapshot.truncated);
+        assert_eq!(attachment.snapshot.dropped_bytes, 37);
+        assert_eq!(attachment.snapshot.first_seq, Some(1));
+        assert_eq!(attachment.snapshot.last_seq, Some(1));
+    }
+
+    #[test]
+    fn attachment_rejects_future_sequence_baseline() {
+        let process = terminal_process(None, None);
+        let error = lock_terminal_output(&process.output)
+            .attach(&TerminalAttachmentRequest {
+                terminal_id: "terminal-1".to_owned(),
+                attachment_id: "view".to_owned(),
+                generation: Some(7),
+                after_seq: Some(1),
+            })
+            .err()
+            .expect("future sequence must be rejected");
+        assert!(error.starts_with("[terminal_sequence_invalid] "));
     }
 
     struct BlockingWriter {
@@ -4432,6 +4992,14 @@ $child.WaitForExit()
             .get_mut("terminal-1")
             .expect("terminal fixture")
             .exited = true;
+        let external_lease = SessionLease::acquire(&session, SessionLeasePurpose::Resume, false)
+            .expect("external owner should acquire the session lease");
+        let lease_error = state
+            .delete_inactive_session(&session_path, &root)
+            .expect_err("OS-leased session deletion must fail");
+        assert!(lease_error.starts_with("[session_lease_active] "));
+        assert!(session.is_file());
+        drop(external_lease);
         state
             .delete_inactive_session(&session_path, &root)
             .expect("exited session should be deletable");
@@ -5899,5 +6467,27 @@ $child.WaitForExit()
             &mut missing_version,
             b"New version is available. Run: omp update\n"
         ));
+    }
+
+    #[test]
+    fn update_detector_preserves_split_notice_across_throttled_scans() {
+        use super::{UpdateDetector, UPDATE_DETECTOR_VOLUME_THRESHOLD};
+
+        let mut detector = UpdateDetector::new();
+        let prefix = b"\x1b[32mNew vers";
+        let filler = vec![b'x'; UPDATE_DETECTOR_VOLUME_THRESHOLD - prefix.len()];
+        assert!(!detector.observe(&filler));
+        assert!(!detector.observe(prefix));
+        assert!(!detector.observe(b"ion 17.1.0 is available.\x1b[0m Run: omp update\n"));
+        assert!(detector.flush());
+        assert!(!detector.flush(), "one notice must emit only once");
+
+        let mut localized = "Доступна новая версия OMP 17.2.0. Запустите omp update\n"
+            .as_bytes()
+            .to_vec();
+        localized.resize(UPDATE_DETECTOR_VOLUME_THRESHOLD, b' ');
+        let mut localized_detector = UpdateDetector::new();
+        assert!(localized_detector.observe(&localized));
+        assert!(!localized_detector.observe(&localized));
     }
 }

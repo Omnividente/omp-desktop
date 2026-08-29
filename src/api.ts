@@ -71,9 +71,10 @@ export function startTerminal(
   cols = 120,
   rows = 36,
   args: string[] | null = null,
+  forceSessionLease = false,
 ): Promise<TerminalStarted> {
   return invoke("start_terminal", {
-    request: { cwd, resumePath, cols, rows, args },
+    request: { cwd, resumePath, cols, rows, args, forceSessionLease },
   })
 }
 
@@ -128,8 +129,19 @@ export function setTerminalPrimaryProviderPin(
   })
 }
 
-export function attachTerminal(terminalId: string): Promise<TerminalAttachment> {
-  return invoke("attach_terminal", { terminalId })
+export function attachTerminal(
+  terminalId: string,
+  attachmentId: string,
+  generation: number | null,
+  afterSeq: number | null,
+): Promise<TerminalAttachment> {
+  return invoke("attach_terminal", {
+    request: { terminalId, attachmentId, generation, afterSeq },
+  })
+}
+
+export function detachTerminal(terminalId: string, attachmentId: string): Promise<void> {
+  return invoke("detach_terminal", { request: { terminalId, attachmentId } })
 }
 
 export function writeTerminal(terminalId: string, data: string): Promise<void> {
@@ -192,6 +204,14 @@ interface BackendError {
   recovery?: SwitchInputRecoveryMetadata | null
 }
 
+export interface SessionLeaseConflictDetails {
+  metadataState: "valid" | "corrupt" | "missing"
+  ownerPid: number | null
+  ownerStartedAt: string | null
+  acquiredAt: string | null
+  sessionPath: string
+}
+
 const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   backend_join_failed: {
     ru: "Фоновая операция backend завершилась аварийно",
@@ -223,6 +243,18 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   session_active_delete: {
     ru: "Сначала остановите активную сессию OMP",
     en: "Stop the active OMP session before deleting it",
+  },
+  session_lease_active: {
+    ru: "Эта сессия уже открыта другим процессом OMP Desktop",
+    en: "This session is already open in another OMP Desktop process",
+  },
+  session_lease_stale: {
+    ru: "После аварийного завершения осталась запись владельца сессии",
+    en: "A stale session owner record remains after an interrupted run",
+  },
+  session_lease_failed: {
+    ru: "Не удалось безопасно получить владение сессией",
+    en: "Failed to acquire session ownership safely",
   },
   session_rename_failed: {
     ru: "Не удалось переименовать сессию",
@@ -303,6 +335,39 @@ export function backendErrorCode(error: unknown): string | null {
   return parseBackendError(error).code ?? null
 }
 
+export function sessionLeaseConflictDetails(error: unknown): SessionLeaseConflictDetails | null {
+  const parsed = parseBackendError(error)
+  if (parsed.code !== "session_lease_active" && parsed.code !== "session_lease_stale") return null
+  if (!parsed.details) return null
+  try {
+    const details = JSON.parse(parsed.details) as Partial<SessionLeaseConflictDetails>
+    if (
+      !["valid", "corrupt", "missing"].includes(details.metadataState ?? "") ||
+      typeof details.sessionPath !== "string" ||
+      (details.ownerPid !== null &&
+        details.ownerPid !== undefined &&
+        !Number.isSafeInteger(details.ownerPid)) ||
+      (details.ownerStartedAt !== null &&
+        details.ownerStartedAt !== undefined &&
+        typeof details.ownerStartedAt !== "string") ||
+      (details.acquiredAt !== null &&
+        details.acquiredAt !== undefined &&
+        typeof details.acquiredAt !== "string")
+    ) {
+      return null
+    }
+    return {
+      metadataState: details.metadataState as SessionLeaseConflictDetails["metadataState"],
+      ownerPid: details.ownerPid ?? null,
+      ownerStartedAt: details.ownerStartedAt ?? null,
+      acquiredAt: details.acquiredAt ?? null,
+      sessionPath: details.sessionPath,
+    }
+  } catch {
+    return null
+  }
+}
+
 export function settingsUnavailableDetails(error: unknown): SettingsUnavailableDetails | null {
   const parsed = parseBackendError(error)
   if (parsed.code !== "settings_unavailable") return null
@@ -340,24 +405,55 @@ export function switchInputRecoveryDetails(error: unknown): SwitchInputRecoveryM
   }
 }
 
-function parseBackendError(error: unknown): BackendError {
-  if (error && typeof error === "object" && !(error instanceof Error)) {
-    const candidate = error as BackendError
-    if (candidate.code || candidate.message || candidate.details) return candidate
+const MAX_BACKEND_ERROR_TEXT = 8 * 1024
+
+function normalizeBackendError(value: unknown): BackendError | null {
+  if (!value || typeof value !== "object" || value instanceof Error) return null
+  const candidate = value as Record<string, unknown>
+  const normalized: BackendError = {}
+  if (typeof candidate.code === "string") normalized.code = candidate.code
+  if (typeof candidate.message === "string") normalized.message = candidate.message
+  if (typeof candidate.details === "string") normalized.details = candidate.details
+  if (typeof candidate.settingsPath === "string") normalized.settingsPath = candidate.settingsPath
+  if (candidate.backupPath === null || typeof candidate.backupPath === "string") {
+    normalized.backupPath = candidate.backupPath
   }
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error)
-  const coded = /^\[([a-z_]+)]\s*([\s\S]*)$/.exec(raw ?? "")
+  if (typeof candidate.failureStage === "string") normalized.failureStage = candidate.failureStage
+  if (candidate.recovery && typeof candidate.recovery === "object") {
+    normalized.recovery = candidate.recovery as SwitchInputRecoveryMetadata
+  }
+  return normalized.code || normalized.message || normalized.details ? normalized : null
+}
+
+function boundedBackendErrorText(value: string): string {
+  return value.length <= MAX_BACKEND_ERROR_TEXT
+    ? value
+    : `${value.slice(0, MAX_BACKEND_ERROR_TEXT)}…`
+}
+
+function parseBackendError(error: unknown): BackendError {
+  const structured = normalizeBackendError(error)
+  if (structured) return structured
+
+  let raw: string
+  if (error instanceof Error) raw = error.message
+  else if (typeof error === "string") raw = error
+  else {
+    try {
+      raw = JSON.stringify(error) ?? ""
+    } catch {
+      raw = String(error)
+    }
+  }
+  raw = boundedBackendErrorText(raw)
+  const coded = /^\[([a-z_]+)]\s*([\s\S]*)$/.exec(raw)
   if (coded) {
     return { code: coded[1], details: coded[2] || undefined }
   }
-  if (raw?.startsWith("{") && raw.endsWith("}")) {
+  if (raw.startsWith("{") && raw.endsWith("}")) {
     try {
-      return JSON.parse(raw) as BackendError
+      const parsed = normalizeBackendError(JSON.parse(raw))
+      if (parsed) return parsed
     } catch {
       // Fall through to the plain message.
     }

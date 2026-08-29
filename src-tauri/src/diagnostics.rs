@@ -166,7 +166,7 @@ fn remove_old_logs(directory: &Path) {
     }
 }
 
-fn redact_text(value: &str) -> String {
+pub(crate) fn redact_text(value: &str) -> String {
     value
         .lines()
         .map(redact_line)
@@ -176,20 +176,7 @@ fn redact_text(value: &str) -> String {
 
 fn redact_line(line: &str) -> String {
     let lower = line.to_ascii_lowercase();
-    if [
-        "authorization:",
-        "authorization=",
-        "bearer ",
-        "api_key=",
-        "apikey=",
-        "access_token=",
-        "refresh_token=",
-        "password=",
-        "secret=",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
-    {
+    if lower.contains("bearer ") || contains_sensitive_assignment(&lower) {
         return "[REDACTED SENSITIVE LINE]".to_owned();
     }
 
@@ -197,7 +184,7 @@ fn redact_line(line: &str) -> String {
         .map(|token| {
             let trimmed = token.trim_end_matches(char::is_whitespace);
             let suffix = &token[trimmed.len()..];
-            if looks_like_secret_token(trimmed) {
+            if contains_known_secret_token(trimmed) {
                 format!("[REDACTED]{suffix}")
             } else {
                 token.to_owned()
@@ -206,15 +193,54 @@ fn redact_line(line: &str) -> String {
         .collect()
 }
 
-fn looks_like_secret_token(token: &str) -> bool {
-    let token = token.trim_matches(['\'', '"', '`', '(', ')', '[', ']', '{', '}', ',', ';']);
-    token.starts_with("sk-")
-        || token.starts_with("AIza")
-        || token.starts_with("ghp_")
-        || token.starts_with("github_pat_")
-        || token.starts_with("ya29.")
-        || token.starts_with("xoxb-")
-        || token.starts_with("xoxp-")
+fn contains_sensitive_assignment(lower: &str) -> bool {
+    [
+        "authorization",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "password",
+        "secret",
+        "token",
+        "providerenv",
+        "provider_env",
+    ]
+    .iter()
+    .any(|marker| {
+        lower.match_indices(marker).any(|(index, _)| {
+            lower[index + marker.len()..]
+                .trim_start_matches(|character: char| {
+                    character.is_ascii_whitespace()
+                        || matches!(character, '\'' | '"' | '`' | ']' | '}')
+                })
+                .starts_with([':', '='])
+        })
+    })
+}
+
+fn contains_known_secret_token(token: &str) -> bool {
+    [
+        "sk-",
+        "AIza",
+        "ghp_",
+        "github_pat_",
+        "ya29.",
+        "xoxb-",
+        "xoxp-",
+    ]
+    .iter()
+    .any(|prefix| {
+        token.match_indices(prefix).any(|(index, _)| {
+            index == 0
+                || token
+                    .as_bytes()
+                    .get(index.wrapping_sub(1))
+                    .is_some_and(|byte| {
+                        matches!(byte, b'=' | b':' | b'\'' | b'"' | b'`' | b'(' | b'[' | b'{')
+                    })
+        })
+    })
 }
 
 #[cfg(test)]
@@ -229,13 +255,21 @@ mod tests {
 
     #[test]
     fn redacts_sensitive_assignments_and_known_token_prefixes() {
-        let text = "request failed\nAuthorization: Bearer abc\nupstream sk-test-secret failed";
+        let text = concat!(
+            "request failed\n",
+            "Authorization: Bearer abc\n",
+            "upstream sk-test-secret failed\n",
+            r#"credentials={"OPENAI_API_KEY":"opaque-value"}"#,
+            "\n",
+            r#"payload={"providerEnv":{"CUSTOM_CREDENTIAL":"opaque-value"}}"#,
+        );
         let redacted = redact_text(text);
         assert!(redacted.contains("request failed"));
         assert!(redacted.contains("[REDACTED SENSITIVE LINE]"));
         assert!(redacted.contains("upstream [REDACTED] failed"));
         assert!(!redacted.contains("abc"));
         assert!(!redacted.contains("sk-test-secret"));
+        assert!(!redacted.contains("opaque-value"));
     }
 
     #[test]

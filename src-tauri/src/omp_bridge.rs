@@ -1,8 +1,8 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo,
-        OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
+        AppSettings, BootstrapPayload, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning,
+        OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
     settings::{resolve_omp, SettingsTransaction},
@@ -259,11 +259,16 @@ fn looks_like_environment_key(value: &str) -> bool {
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
+pub(crate) struct OmpConfigSaveResult {
+    pub snapshot: OmpConfigSnapshot,
+    pub bootstrap: BootstrapPayload,
+}
+
 pub fn save_config(
     app: &AppHandle,
     transaction: &mut SettingsTransaction<'_>,
     request: OmpConfigSaveRequest,
-) -> Result<OmpConfigSnapshot, String> {
+) -> Result<OmpConfigSaveResult, String> {
     let previous_settings = transaction.previous().clone();
     let mut app_settings = transaction.candidate().clone();
     let omp = resolve_omp(app, &app_settings);
@@ -397,12 +402,16 @@ pub fn save_config(
                 proxy_providers: expected_proxy_providers.as_deref(),
             },
         )?;
+        let bootstrap = crate::sessions::build_bootstrap(app, &app_settings)?;
         settings_save_attempted = true;
         crate::settings::save_settings(app, &app_settings)?;
-        Ok(snapshot)
+        Ok(OmpConfigSaveResult {
+            snapshot,
+            bootstrap,
+        })
     })();
 
-    let snapshot = crate::settings::resolve_transaction(transaction_result, || {
+    let result = crate::settings::resolve_transaction(transaction_result, || {
         let mut rollback_errors = rollback_omp_config(
             app,
             &omp.executable,
@@ -430,7 +439,7 @@ pub fn save_config(
         rollback_errors
     })?;
     *transaction.candidate_mut() = app_settings;
-    Ok(snapshot)
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]
