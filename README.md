@@ -28,6 +28,8 @@
 - Монитор системных ресурсов показывает доступную RAM, swap pressure, свободное место для сессий, проекта и временных файлов, а также RSS Desktop и прямых процессов OMP. Он ничего не завершает и не удаляет автоматически.
 - Боковая панель имеет сохраняемые режимы «развёрнута», «компактная» и «автоскрытие» (`Ctrl+B`).
 - Полные Unicode-названия сессий доступны по наведению и keyboard focus. Название новой сессии синхронно обновляется во вкладке и списке; если OMP ещё не сгенерировал его, используется первая пользовательская реплика. Выделенный текст терминала можно добавить в текущий ввод как явную цитату кнопкой «Ответить» или правой кнопкой мыши; отправка остаётся под контролем пользователя. `Ctrl+A` явно выбирает текущий ввод OMP для очистки, а перемещение мышью ограничено безопасно распознанными wrapped-строками.
+- Межпроцессное владение session JSONL защищено OS lease: активные resume/discovered/delete операции удерживают lock, а stale metadata требует явного reclaim. После сбоя старые данные сохраняются в bounded quarantine; автоматического silent takeover нет.
+- Второй запуск с `--project <path>`, `-p <path>` или позиционным путём передаёт workspace в уже открытое окно.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -78,6 +80,8 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - The resource monitor reports available RAM, swap pressure, free space for sessions, the workspace and temporary files, plus RSS for Desktop and direct OMP processes. It never terminates processes or deletes data automatically.
 - The project sidebar has persisted expanded, compact and auto-hide modes (`Ctrl+B`).
 - Full Unicode session titles are available on hover and keyboard focus. A new session title updates in the tab and session list together; until OMP generates one, the first user message provides the fallback. Selected terminal text can be added to the current input as an explicit quote via Reply or the right mouse button, while sending remains under user control. `Ctrl+A` visibly arms the current OMP input for clearing; mouse movement is limited to safely recognized wrapped lines.
+- Cross-process ownership of session JSONL uses an OS lease: active resume/discovered/delete operations hold the lock, and stale metadata requires explicit reclaim. Crash remnants are retained in bounded quarantine; silent automatic takeover is not performed.
+- A second launch with `--project <path>`, `-p <path>`, or a positional path forwards the workspace to the existing window.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation

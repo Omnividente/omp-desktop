@@ -58,6 +58,46 @@ export function tabMatchesSession(
     )
   )
 }
+export function extractSingleInstanceWorkspace(
+  args: string[] | undefined,
+  _cwd?: string,
+): string | null {
+  const list = args ?? []
+  const clean = (value: string | undefined): string | null => {
+    const trimmed = value?.trim() ?? ""
+    return trimmed || null
+  }
+
+  for (let i = 1; i < list.length; i++) {
+    const arg = list[i].trim()
+    if (arg === "--project" || arg === "-p" || arg === "--workspace" || arg === "-w") {
+      const next = list[i + 1]?.trim()
+      if (next && next !== "--" && !next.startsWith("-")) return clean(next)
+      continue
+    }
+    if (
+      arg.startsWith("--project=") ||
+      arg.startsWith("--workspace=") ||
+      arg.startsWith("-p=") ||
+      arg.startsWith("-w=")
+    ) {
+      const value = arg.slice(arg.indexOf("=") + 1)
+      const result = clean(value)
+      if (result) return result
+    }
+  }
+
+  for (let i = 1; i < list.length; i++) {
+    const arg = list[i].trim()
+    if (!arg) continue
+    if (arg === "--") return clean(list[i + 1])
+    if (arg.startsWith("-")) continue
+    if (["run", "dev", "open"].includes(arg.toLowerCase())) continue
+    return arg
+  }
+
+  return null
+}
 
 export function mergeSessionIntoPayload(
   payload: BootstrapPayload,

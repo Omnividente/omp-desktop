@@ -1,9 +1,11 @@
 use crate::sessions::{atomic_write_private_file, harden_private_file};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::cell::Cell;
 use std::{
     ffi::OsString,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -12,6 +14,8 @@ use std::{
 
 const LOCK_SUFFIX: &str = ".omp-desktop.lock";
 const MAX_LEASE_METADATA_BYTES: u64 = 64 * 1024;
+const MAX_RECLAIM_QUARANTINES: usize = 3;
+const RECLAIM_PENDING_SUFFIX: &str = ".reclaiming.json";
 const ACTIVE_ERROR_CODE: &str = "session_lease_active";
 const STALE_ERROR_CODE: &str = "session_lease_stale";
 const LEASE_ERROR_CODE: &str = "session_lease_failed";
@@ -30,7 +34,8 @@ static PROCESS_IDENTITY: LazyLock<String> = LazyLock::new(|| {
 #[serde(rename_all = "snake_case")]
 pub enum SessionLeasePurpose {
     Resume,
-    Discovered,
+    #[serde(alias = "discovered")]
+    RuntimeDiscovered,
     Delete,
 }
 
@@ -60,6 +65,14 @@ enum ExistingMetadata {
     Empty,
     Valid(SessionLeaseOwner, Vec<u8>),
     Corrupt(Vec<u8>),
+    ReclaimPending {
+        owner: Option<SessionLeaseOwner>,
+        path: PathBuf,
+    },
+}
+#[cfg(test)]
+thread_local! {
+    static FAIL_NEXT_METADATA_WRITE: Cell<bool> = const { Cell::new(false) };
 }
 
 pub struct SessionLease {
@@ -109,8 +122,8 @@ impl SessionLease {
         })?;
 
         if let Err(error) = file.try_lock_exclusive() {
-            let metadata =
-                read_existing_metadata(&mut file).unwrap_or(ExistingMetadata::Corrupt(Vec::new()));
+            let metadata = read_existing_metadata(&mut file, &lock_path)
+                .unwrap_or(ExistingMetadata::Corrupt(Vec::new()));
             let detail = failure_detail(&session_path, &metadata);
             return if lock_is_contended(&error) {
                 Err(format!("[{ACTIVE_ERROR_CODE}] {detail}"))
@@ -125,7 +138,7 @@ impl SessionLease {
             };
         }
 
-        let existing = match read_existing_metadata(&mut file) {
+        let existing = match read_existing_metadata(&mut file, &lock_path) {
             Ok(existing) => existing,
             Err(error) => {
                 let _ = FileExt::unlock(&file);
@@ -137,16 +150,19 @@ impl SessionLease {
             let _ = FileExt::unlock(&file);
             return Err(format!("[{STALE_ERROR_CODE}] {detail}"));
         }
-        if !matches!(existing, ExistingMetadata::Empty) {
-            let bytes = match &existing {
-                ExistingMetadata::Valid(_, bytes) | ExistingMetadata::Corrupt(bytes) => bytes,
-                ExistingMetadata::Empty => unreachable!(),
-            };
-            quarantine_metadata(&lock_path, bytes).map_err(|error| {
-                let _ = FileExt::unlock(&file);
-                coded_error(LEASE_ERROR_CODE, error)
-            })?;
-        }
+        let pending_reclaim = match &existing {
+            ExistingMetadata::Empty => None,
+            ExistingMetadata::Valid(_, bytes) | ExistingMetadata::Corrupt(bytes) => {
+                match begin_reclaim_metadata(&lock_path, bytes) {
+                    Ok(path) => Some(path),
+                    Err(error) => {
+                        let _ = FileExt::unlock(&file);
+                        return Err(coded_error(LEASE_ERROR_CODE, error));
+                    }
+                }
+            }
+            ExistingMetadata::ReclaimPending { path, .. } => Some(path.clone()),
+        };
 
         let owner = SessionLeaseOwner {
             owner_token: PROCESS_IDENTITY.clone(),
@@ -160,6 +176,14 @@ impl SessionLease {
             let _ = FileExt::unlock(&file);
             return Err(coded_error(LEASE_ERROR_CODE, error));
         }
+        if let Some(pending_path) = pending_reclaim {
+            if let Err(error) = finish_reclaim_metadata(&lock_path, &pending_path) {
+                let _ = restore_metadata(&mut file, &existing);
+                let _ = FileExt::unlock(&file);
+                return Err(coded_error(LEASE_ERROR_CODE, error));
+            }
+        }
+        prune_reclaim_quarantines(&lock_path);
         Ok(Self {
             file,
             _lock_path: lock_path,
@@ -177,11 +201,9 @@ impl SessionLease {
         if !self.clear_on_drop {
             return;
         }
-        if metadata_belongs_to(&mut self.file, &self.owner.owner_token) {
-            let _ = self.file.set_len(0);
-            let _ = self.file.seek(SeekFrom::Start(0));
-            let _ = self.file.sync_data();
-        }
+        clear_metadata_if_owned(&mut self.file, &self.owner.owner_token);
+        // Keep the empty sidecar. Unlinking after unlock can split ownership when
+        // another process already opened the old inode before the deletion.
         let _ = FileExt::unlock(&self.file);
         self.clear_on_drop = false;
     }
@@ -227,12 +249,26 @@ fn lock_is_contended(error: &io::Error) -> bool {
     false
 }
 
-fn read_existing_metadata(file: &mut File) -> Result<ExistingMetadata, String> {
+fn read_existing_metadata(file: &mut File, lock_path: &Path) -> Result<ExistingMetadata, String> {
     let length = file
         .metadata()
         .map_err(|error| format!("Не удалось прочитать metadata lease: {error}"))?
         .len();
     if length == 0 {
+        let pending = reclaim_pending_path(lock_path)?;
+        if pending.is_file() {
+            let bytes = fs::read(&pending).map_err(|error| {
+                format!(
+                    "Не удалось прочитать незавершённый reclaim {}: {error}",
+                    pending.display()
+                )
+            })?;
+            let owner = serde_json::from_slice::<SessionLeaseOwner>(&bytes).ok();
+            return Ok(ExistingMetadata::ReclaimPending {
+                owner,
+                path: pending,
+            });
+        }
         return Ok(ExistingMetadata::Empty);
     }
     if length > MAX_LEASE_METADATA_BYTES {
@@ -257,6 +293,10 @@ fn write_metadata(file: &mut File, owner: &SessionLeaseOwner) -> Result<(), Stri
         .map_err(|error| format!("Не удалось сериализовать lease metadata: {error}"))?;
     file.set_len(0)
         .map_err(|error| format!("Не удалось очистить lease metadata: {error}"))?;
+    #[cfg(test)]
+    if FAIL_NEXT_METADATA_WRITE.with(|flag| flag.replace(false)) {
+        return Err("simulated write metadata failure after truncate".to_owned());
+    }
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("Не удалось начать запись lease metadata: {error}"))?;
     file.write_all(&bytes)
@@ -265,14 +305,78 @@ fn write_metadata(file: &mut File, owner: &SessionLeaseOwner) -> Result<(), Stri
         .map_err(|error| format!("Не удалось записать lease metadata: {error}"))
 }
 
-fn metadata_belongs_to(file: &mut File, owner_token: &str) -> bool {
-    matches!(
-        read_existing_metadata(file),
-        Ok(ExistingMetadata::Valid(owner, _)) if owner.owner_token == owner_token
-    )
+fn restore_metadata(file: &mut File, metadata: &ExistingMetadata) -> Result<(), String> {
+    let bytes = match metadata {
+        ExistingMetadata::Valid(_, bytes) | ExistingMetadata::Corrupt(bytes) => bytes,
+        ExistingMetadata::ReclaimPending { .. } => return Ok(()),
+        ExistingMetadata::Empty => {
+            file.set_len(0).map_err(|error| {
+                format!("Не удалось восстановить пустую lease metadata: {error}")
+            })?;
+            return Ok(());
+        }
+    };
+    file.set_len(0)
+        .and_then(|_| file.seek(SeekFrom::Start(0)))
+        .and_then(|_| file.write_all(bytes))
+        .and_then(|_| file.flush())
+        .and_then(|_| file.sync_data())
+        .map_err(|error| format!("Не удалось восстановить lease metadata: {error}"))
 }
 
-fn quarantine_metadata(lock_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+fn clear_metadata_if_owned(file: &mut File, owner_token: &str) {
+    if metadata_belongs_to(file, owner_token) {
+        let _ = file.set_len(0);
+        let _ = file.seek(SeekFrom::Start(0));
+        let _ = file.sync_data();
+    }
+}
+
+fn metadata_belongs_to(file: &mut File, owner_token: &str) -> bool {
+    let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
+        return false;
+    };
+    if length == 0 || length > MAX_LEASE_METADATA_BYTES {
+        return false;
+    }
+    let Ok(_) = file.seek(SeekFrom::Start(0)) else {
+        return false;
+    };
+    let mut bytes = Vec::with_capacity(length as usize);
+    if file
+        .take(MAX_LEASE_METADATA_BYTES)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return false;
+    }
+    match serde_json::from_slice::<SessionLeaseOwner>(&bytes) {
+        Ok(owner) => owner.owner_token == owner_token,
+        Err(_) => false,
+    }
+}
+
+fn reclaim_pending_path(lock_path: &Path) -> Result<PathBuf, String> {
+    let file_name = lock_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session.omp-desktop.lock");
+    let parent = lock_path.parent().ok_or_else(|| {
+        format!(
+            "Не удалось определить каталог lease {}",
+            lock_path.display()
+        )
+    })?;
+    Ok(parent.join(format!(".{file_name}{RECLAIM_PENDING_SUFFIX}")))
+}
+
+fn begin_reclaim_metadata(lock_path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    let pending = reclaim_pending_path(lock_path)?;
+    atomic_write_private_file(&pending, bytes)?;
+    Ok(pending)
+}
+
+fn finish_reclaim_metadata(lock_path: &Path, pending: &Path) -> Result<(), String> {
     let file_name = lock_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -292,10 +396,53 @@ fn quarantine_metadata(lock_path: &Path, bytes: &[u8]) -> Result<PathBuf, String
         if quarantine.exists() {
             continue;
         }
-        atomic_write_private_file(&quarantine, bytes)?;
-        return Ok(quarantine);
+        if fs::rename(pending, &quarantine).is_ok() {
+            return Ok(());
+        }
     }
-    Err("Не удалось подобрать уникальный путь карантина lease metadata".to_owned())
+    let bytes = fs::read(pending)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", pending.display()))?;
+    let quarantine = parent.join(format!(
+        ".{file_name}.stale-{}-{:016x}.json",
+        now_millis(),
+        rand::random::<u64>()
+    ));
+    atomic_write_private_file(&quarantine, &bytes)?;
+    let _ = fs::remove_file(pending);
+    Ok(())
+}
+
+fn prune_reclaim_quarantines(lock_path: &Path) {
+    let file_name = lock_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session.omp-desktop.lock");
+    let Some(parent) = lock_path.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    let prefix = format!(".{file_name}.stale-");
+    let mut files = entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let text = name.to_string_lossy();
+            text.starts_with(&prefix) && text.ends_with(".json")
+        })
+        .map(|entry| {
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            (modified, entry.path())
+        })
+        .collect::<Vec<_>>();
+    files.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0));
+    for (_, path) in files.into_iter().skip(MAX_RECLAIM_QUARANTINES) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn failure_detail(session_path: &Path, metadata: &ExistingMetadata) -> String {
@@ -303,6 +450,7 @@ fn failure_detail(session_path: &Path, metadata: &ExistingMetadata) -> String {
         ExistingMetadata::Empty => ("missing", None),
         ExistingMetadata::Valid(owner, _) => ("valid", Some(owner)),
         ExistingMetadata::Corrupt(_) => ("corrupt", None),
+        ExistingMetadata::ReclaimPending { owner, .. } => ("reclaim_pending", owner.as_ref()),
     };
     serde_json::to_string(&SessionLeaseFailureWire {
         metadata_state: state,
@@ -331,7 +479,9 @@ fn now_millis() -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use super::{lease_path, SessionLease, SessionLeaseOwner, SessionLeasePurpose};
+    use super::{
+        lease_path, SessionLease, SessionLeaseOwner, SessionLeasePurpose, FAIL_NEXT_METADATA_WRITE,
+    };
     use std::{
         fs,
         process::{Command, Stdio},
@@ -352,6 +502,20 @@ mod tests {
         let session = root.join("session.jsonl");
         fs::write(&session, b"{}\n").expect("session fixture should be writable");
         (root, session)
+    }
+
+    #[test]
+    fn runtime_discovered_purpose_has_stable_wire_name_and_reads_legacy_name() {
+        assert_eq!(
+            serde_json::to_string(&SessionLeasePurpose::RuntimeDiscovered)
+                .expect("purpose should serialize"),
+            "\"runtime_discovered\"",
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionLeasePurpose>("\"discovered\"")
+                .expect("legacy purpose should remain readable"),
+            SessionLeasePurpose::RuntimeDiscovered,
+        );
     }
 
     #[test]
@@ -504,6 +668,84 @@ mod tests {
         assert!(stale.starts_with("[session_lease_stale] "));
         SessionLease::acquire(&session, SessionLeasePurpose::Resume, true)
             .expect("OS lock should be released automatically when owner crashes");
+        fs::remove_dir_all(root).expect("lease fixture should be removable");
+    }
+    #[test]
+    fn failed_write_metadata_during_reclaim_preserves_stale_confirmation_requirement() {
+        let (root, session) = fixture("reclaim-failure");
+        let lock_path = lease_path(&session).expect("lock path should resolve");
+        let stale = SessionLeaseOwner {
+            owner_token: "old-owner-token".to_owned(),
+            desktop_pid: std::process::id(),
+            desktop_started_at: "old-started".to_owned(),
+            acquired_at: "old-time".to_owned(),
+            session_path: session.to_string_lossy().into_owned(),
+            purpose: SessionLeasePurpose::Resume,
+        };
+        fs::write(
+            &lock_path,
+            serde_json::to_vec(&stale).expect("metadata should serialize"),
+        )
+        .expect("stale metadata should be writable");
+
+        FAIL_NEXT_METADATA_WRITE.with(|flag| flag.set(true));
+        let failed_reclaim = SessionLease::acquire(&session, SessionLeasePurpose::Resume, true)
+            .err()
+            .expect("injected metadata write failure should fail acquisition");
+        assert!(failed_reclaim.contains("simulated write metadata failure"));
+        let pending = super::reclaim_pending_path(&lock_path).expect("pending path should resolve");
+        assert_eq!(
+            fs::read(&pending).expect("reclaim journal should survive write failure"),
+            serde_json::to_vec(&stale).expect("metadata should serialize"),
+        );
+
+        // Confirmation MUST still be required; normal acquisition without force MUST fail.
+        let retry_normal = SessionLease::acquire(&session, SessionLeasePurpose::Resume, false)
+            .err()
+            .expect("reclaim failure must not silently bypass confirmation on next attempt");
+        assert!(retry_normal.starts_with("[session_lease_stale] "));
+
+        let retry_forced = SessionLease::acquire(&session, SessionLeasePurpose::Resume, true)
+            .expect("subsequent explicit reclaim should succeed");
+        drop(retry_forced);
+        fs::remove_dir_all(root).expect("lease fixture should be removable");
+    }
+
+    #[test]
+    fn reclaim_quarantines_are_bounded_to_retention_limit() {
+        let (root, session) = fixture("quarantine-bound");
+        let lock_path = lease_path(&session).expect("lock path should resolve");
+
+        for i in 0..6 {
+            let stale = SessionLeaseOwner {
+                owner_token: format!("owner-{i}"),
+                desktop_pid: std::process::id(),
+                desktop_started_at: format!("started-{i}"),
+                acquired_at: format!("acquired-{i}"),
+                session_path: session.to_string_lossy().into_owned(),
+                purpose: SessionLeasePurpose::Resume,
+            };
+            fs::write(
+                &lock_path,
+                serde_json::to_vec(&stale).expect("metadata should serialize"),
+            )
+            .expect("stale metadata should be writable");
+
+            let lease = SessionLease::acquire(&session, SessionLeasePurpose::Resume, true)
+                .expect("reclaim should succeed");
+            drop(lease);
+        }
+
+        let quarantines = fs::read_dir(&root)
+            .expect("fixture directory should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".stale-"))
+            .count();
+        assert!(
+            quarantines <= super::MAX_RECLAIM_QUARANTINES,
+            "quarantine count {quarantines} exceeded limit {}",
+            super::MAX_RECLAIM_QUARANTINES
+        );
         fs::remove_dir_all(root).expect("lease fixture should be removable");
     }
 }
