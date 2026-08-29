@@ -219,7 +219,9 @@ fn lock_is_contended(error: &io::Error) -> bool {
     }
     #[cfg(unix)]
     {
-        return matches!(error.raw_os_error(), Some(libc::EAGAIN | libc::EWOULDBLOCK));
+        return error
+            .raw_os_error()
+            .is_some_and(|code| code == libc::EAGAIN || code == libc::EWOULDBLOCK);
     }
     #[allow(unreachable_code)]
     false
