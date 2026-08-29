@@ -1,8 +1,23 @@
+use crate::diagnostics;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
 };
+const MAX_APP_ERROR_DETAILS_CHARS: usize = 8 * 1024;
+
+pub(crate) fn sanitize_error_text(value: &str) -> String {
+    let redacted = diagnostics::redact_text(value);
+    let mut characters = redacted.chars();
+    let mut bounded = characters
+        .by_ref()
+        .take(MAX_APP_ERROR_DETAILS_CHARS)
+        .collect::<String>();
+    if characters.next().is_some() {
+        bounded.push('…');
+    }
+    bounded
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,17 +50,27 @@ impl AppError {
                 return Self {
                     code,
                     message: message.to_owned(),
-                    details: Some(failure.reason),
+                    details: Some(sanitize_error_text(&failure.reason)),
                     settings_path: Some(failure.settings_path),
                     backup_path: failure.backup_path,
                     failure_stage: Some(failure.failure_stage),
+                };
+            }
+            if default_code != "settings_unavailable" {
+                return Self {
+                    code: default_code.to_owned(),
+                    message: message.to_owned(),
+                    details: Some(sanitize_error_text(&error)),
+                    settings_path: None,
+                    backup_path: None,
+                    failure_stage: None,
                 };
             }
         }
         Self {
             code,
             message: message.to_owned(),
-            details: Some(parsed_details),
+            details: Some(sanitize_error_text(&parsed_details)),
             settings_path: None,
             backup_path: None,
             failure_stage: None,
@@ -56,7 +81,7 @@ impl AppError {
         Self {
             code: "backend_join_failed".to_owned(),
             message: format!("Не удалось дождаться {operation}"),
-            details: Some(error.to_string()),
+            details: Some(sanitize_error_text(&error.to_string())),
             settings_path: None,
             backup_path: None,
             failure_stage: None,
@@ -71,11 +96,21 @@ fn parse_internal_error_code(default_code: &str, error: &str) -> (String, String
     let Some((code, details)) = rest.split_once("] ") else {
         return (default_code.to_owned(), error.to_owned());
     };
-    if code.is_empty()
-        || !code
-            .chars()
-            .all(|character| character.is_ascii_lowercase() || character == '_')
-    {
+    if !matches!(
+        code,
+        "settings_unavailable"
+            | "session_active_delete"
+            | "session_lease_active"
+            | "session_lease_stale"
+            | "session_lease_failed"
+            | "omp_timeout"
+            | "omp_output_limit"
+            | "omp_spawn_failed"
+            | "omp_io_failed"
+            | "omp_invalid_json"
+            | "omp_command_failed"
+            | "terminal_restart_stopped"
+    ) {
         return (default_code.to_owned(), error.to_owned());
     }
     (code.to_owned(), details.to_owned())
@@ -534,6 +569,7 @@ pub struct SessionTranscript {
 mod tests {
     use super::{
         AppError, AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY,
+        MAX_APP_ERROR_DETAILS_CHARS,
     };
 
     #[test]
@@ -679,10 +715,33 @@ mod tests {
         );
         let serialized = serde_json::to_value(error).expect("AppError should serialize");
 
-        assert_eq!(serialized["code"], "settings_unavailable");
-        assert_eq!(serialized["details"], "not-json");
+        assert_eq!(serialized["code"], "bootstrap_failed");
+        assert_eq!(serialized["details"], "[settings_unavailable] not-json");
         assert!(serialized.get("settingsPath").is_none());
         assert!(serialized.get("backupPath").is_none());
         assert!(serialized.get("failureStage").is_none());
+    }
+
+    #[test]
+    fn app_error_rejects_unknown_codes_and_redacts_bounded_details() {
+        let spoofed = AppError::from_internal(
+            "bootstrap_failed",
+            "Не удалось загрузить данные OMP",
+            "[attacker_code] upstream sk-private-value".to_owned(),
+        );
+        assert_eq!(spoofed.code, "bootstrap_failed");
+        assert_eq!(
+            spoofed.details.as_deref(),
+            Some("[attacker_code] upstream [REDACTED]")
+        );
+
+        let oversized = AppError::from_internal(
+            "bootstrap_failed",
+            "Не удалось загрузить данные OMP",
+            "x".repeat(MAX_APP_ERROR_DETAILS_CHARS + 100),
+        );
+        let details = oversized.details.expect("bounded details should exist");
+        assert_eq!(details.chars().count(), MAX_APP_ERROR_DETAILS_CHARS + 1);
+        assert!(details.ends_with('…'));
     }
 }

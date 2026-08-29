@@ -13,7 +13,7 @@ use std::{
     env, fs,
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    sync::{LazyLock, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
@@ -45,11 +45,11 @@ struct CachedSessionSummary {
     thread_names_stamp: u64,
 }
 
-static SESSION_SUMMARY_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedSessionSummary>>> =
-    OnceLock::new();
+static SESSION_SUMMARY_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedSessionSummary>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, CachedSessionSummary>> {
-    SESSION_SUMMARY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    &SESSION_SUMMARY_CACHE
 }
 
 fn session_file_stamp(path: &Path) -> Result<SessionFileStamp, String> {
@@ -120,8 +120,19 @@ pub fn build_bootstrap(
     app: &AppHandle,
     settings: &AppSettings,
 ) -> Result<BootstrapPayload, String> {
+    build_bootstrap_excluding(app, settings, None)
+}
+
+pub(crate) fn build_bootstrap_excluding(
+    app: &AppHandle,
+    settings: &AppSettings,
+    excluded_session_key: Option<&str>,
+) -> Result<BootstrapPayload, String> {
     let runtime = runtime_info(app, settings)?;
     let mut sessions = scan_sessions(Path::new(&runtime.session_root))?;
+    if let Some(excluded) = excluded_session_key {
+        sessions.retain(|session| path_key(&session.file_path) != excluded);
+    }
     for session in &mut sessions {
         apply_session_title_pin(session, &settings.session_title_pins);
         apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
@@ -192,15 +203,29 @@ pub(crate) fn apply_session_primary_provider_pin(
         || pins.contains(&lexical_path_key(&session.file_path));
 }
 
+pub(crate) fn remove_session_title_pin(path: &str, pins: &mut BTreeMap<String, String>) -> bool {
+    let target = path_key(path);
+    let previous_len = pins.len();
+    pins.retain(|candidate, _| path_key(candidate) != target);
+    pins.len() != previous_len
+}
+
+pub(crate) fn remove_session_primary_provider_pin(path: &str, pins: &mut BTreeSet<String>) -> bool {
+    let target = path_key(path);
+    let previous_len = pins.len();
+    pins.retain(|candidate| path_key(candidate) != target);
+    pins.len() != previous_len
+}
+
 pub(crate) fn transfer_session_primary_provider_pin(
     previous_path: &str,
     active_path: &str,
     pins: &mut BTreeSet<String>,
 ) -> bool {
-    let previous_key = path_key(previous_path);
-    if !pins.remove(&previous_key) {
+    if !remove_session_primary_provider_pin(previous_path, pins) {
         return false;
     }
+    remove_session_primary_provider_pin(active_path, pins);
     pins.insert(path_key(active_path));
     true
 }
@@ -2893,6 +2918,8 @@ pub(crate) fn apply_handoff_title_pins(
 ) -> Result<(String, String), String> {
     let (active_title, archive_title) =
         handoff_session_titles(current_title, title_pins, archive_label)?;
+    remove_session_title_pin(previous_path, title_pins);
+    remove_session_title_pin(active_path, title_pins);
     title_pins.insert(path_key(previous_path), archive_title.clone());
     title_pins.insert(path_key(active_path), active_title.clone());
     Ok((active_title, archive_title))
@@ -2979,6 +3006,16 @@ fn now_iso() -> String {
         })
 }
 
+struct CachedCodexIndex {
+    path: PathBuf,
+    modified: SystemTime,
+    len: u64,
+    names: HashMap<String, String>,
+}
+
+static CODEX_INDEX_CACHE: LazyLock<Mutex<Option<CachedCodexIndex>>> =
+    LazyLock::new(|| Mutex::new(None));
+
 fn load_codex_thread_names() -> HashMap<String, String> {
     let Some(index_path) = codex_sessions_root()
         .parent()
@@ -2986,11 +3023,33 @@ fn load_codex_thread_names() -> HashMap<String, String> {
     else {
         return HashMap::new();
     };
+    load_codex_thread_names_from_path(&index_path)
+}
+
+fn load_codex_thread_names_from_path(index_path: &Path) -> HashMap<String, String> {
+    let Ok(metadata) = fs::metadata(index_path) else {
+        let mut cache = CODEX_INDEX_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        *cache = None;
+        return HashMap::new();
+    };
+    let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+    let len = metadata.len();
+
+    {
+        let cache = CODEX_INDEX_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(cached) = cache.as_ref() {
+            if cached.path == index_path && cached.modified == modified && cached.len == len {
+                return cached.names.clone();
+            }
+        }
+    }
+
     let Ok(text) = fs::read_to_string(index_path) else {
         return HashMap::new();
     };
 
-    text.lines()
+    let names: HashMap<String, String> = text
+        .lines()
         .filter_map(|line| {
             let value = serde_json::from_str::<Value>(line).ok()?;
             let id = value.get("id").and_then(Value::as_str)?.trim();
@@ -3000,7 +3059,16 @@ fn load_codex_thread_names() -> HashMap<String, String> {
             }
             Some((id.to_owned(), thread_name.to_owned()))
         })
-        .collect()
+        .collect();
+
+    let mut cache = CODEX_INDEX_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    *cache = Some(CachedCodexIndex {
+        path: index_path.to_path_buf(),
+        modified,
+        len,
+        names: names.clone(),
+    });
+    names
 }
 
 fn codex_sessions_root() -> PathBuf {
@@ -3045,6 +3113,7 @@ mod tests {
         fs, io,
         io::{Seek, SeekFrom, Write},
         path::Path,
+        thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -3059,13 +3128,67 @@ mod tests {
     fn handoff_moves_primary_provider_pin_to_active_session() {
         let previous = r"C:\Sessions\previous.jsonl";
         let active = r"C:\Sessions\active.jsonl";
-        let mut pins = BTreeSet::from([path_key(previous)]);
+        let mut pins = BTreeSet::from([previous.to_owned(), active.to_owned()]);
 
         assert!(transfer_session_primary_provider_pin(
             previous, active, &mut pins
         ));
-        assert!(!pins.contains(&path_key(previous)));
-        assert!(pins.contains(&path_key(active)));
+        assert_eq!(pins, BTreeSet::from([path_key(active)]));
+    }
+
+    #[test]
+    fn codex_thread_names_cache_invalidates_on_file_update() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-cache-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+        let index_path = directory.join("session_index.jsonl");
+
+        fs::write(
+            &index_path,
+            b"{\"id\":\"session-1\",\"thread_name\":\"Thread Alpha\"}\n",
+        )
+        .expect("initial index should be writable");
+
+        let names1 = super::load_codex_thread_names_from_path(&index_path);
+        assert_eq!(
+            names1.get("session-1").map(String::as_str),
+            Some("Thread Alpha")
+        );
+
+        let names2 = super::load_codex_thread_names_from_path(&index_path);
+        assert_eq!(
+            names2.get("session-1").map(String::as_str),
+            Some("Thread Alpha")
+        );
+
+        thread::sleep(Duration::from_millis(20));
+        fs::write(
+            &index_path,
+            b"{\"id\":\"session-1\",\"thread_name\":\"Thread Beta\"}\n{\"id\":\"session-2\",\"thread_name\":\"Thread Gamma\"}\n",
+        )
+        .expect("updated index should be writable");
+
+        let names3 = super::load_codex_thread_names_from_path(&index_path);
+        assert_eq!(
+            names3.get("session-1").map(String::as_str),
+            Some("Thread Beta")
+        );
+        assert_eq!(
+            names3.get("session-2").map(String::as_str),
+            Some("Thread Gamma")
+        );
+
+        fs::remove_file(&index_path).expect("index file should be removable");
+        let names4 = super::load_codex_thread_names_from_path(&index_path);
+        assert!(names4.is_empty());
+
+        fs::remove_dir_all(directory).expect("fixture directory should be removable");
     }
 
     #[cfg(unix)]
@@ -3212,8 +3335,10 @@ mod tests {
         let first = "D:/Sessions/first.jsonl";
         let second = "D:/Sessions/second.jsonl";
         let third = "D:/Sessions/third.jsonl";
-        let mut pins = BTreeMap::from([(path_key(first), "Release investigation".to_owned())]);
-
+        let mut pins = BTreeMap::from([(
+            r"D:\Sessions\first.jsonl".to_owned(),
+            "Release investigation".to_owned(),
+        )]);
         apply_handoff_title_pins(first, second, "Release investigation", &mut pins, "архив")
             .unwrap();
         assert_eq!(
@@ -3225,6 +3350,7 @@ mod tests {
             Some("Release investigation")
         );
 
+        assert_eq!(pins.len(), 2);
         let active_title = pins.get(&path_key(second)).cloned().unwrap();
         apply_handoff_title_pins(second, third, &active_title, &mut pins, "архив").unwrap();
         assert_eq!(
@@ -3239,6 +3365,7 @@ mod tests {
             pins.get(&path_key(third)).map(String::as_str),
             Some("Release investigation")
         );
+        assert_eq!(pins.len(), 3);
     }
 
     #[test]

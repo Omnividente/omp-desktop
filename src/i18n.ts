@@ -76,6 +76,17 @@ export const UI_TEXT = {
       "Удалить сессию «{title}»? JSONL и связанные артефакты будут удалены без возможности восстановления.",
     sessionDeleted: "Сессия удалена",
     closeSessionBeforeDelete: "Сначала остановите открытую сессию",
+    reclaimSessionLeaseTitle: "Восстановление владения сессией",
+    reclaimSessionLeaseConfirm:
+      "Активная OS-блокировка отсутствует, но осталась metadata прежнего владельца{owner}. Переместить metadata в приватный карантин и продолжить сессию?",
+    unknownSessionLeaseOwner: " (владелец не определён)",
+    sessionLeaseOwnerPid: " (PID {pid})",
+    terminalOutputTruncated:
+      "[OMP Desktop] Bounded replay-буфер отбросил {bytes} байт старого вывода терминала; начало вывода недоступно.",
+    terminalOutputGap:
+      "Обнаружен разрыв вывода терминала: ожидался batch {expected}, получен {received}",
+    terminalOutputGenerationChanged:
+      "Поколение вывода терминала неожиданно изменилось; continuity baseline сброшен",
     resumeSession: "Продолжить сессию",
     expandSessionGroup: "Раскрыть дочерние сессии",
     collapseSessionGroup: "Свернуть дочерние сессии",
@@ -480,6 +491,17 @@ export const UI_TEXT = {
       "Delete session “{title}”? Its JSONL file and related artifacts will be permanently removed.",
     sessionDeleted: "Session deleted",
     closeSessionBeforeDelete: "Stop the open session before deleting it",
+    reclaimSessionLeaseTitle: "Recover session ownership",
+    reclaimSessionLeaseConfirm:
+      "No active OS lock exists, but previous owner metadata remains{owner}. Move the metadata to a private quarantine and resume the session?",
+    unknownSessionLeaseOwner: " (owner unknown)",
+    sessionLeaseOwnerPid: " (PID {pid})",
+    terminalOutputTruncated:
+      "[OMP Desktop] The bounded replay buffer dropped {bytes} bytes of older terminal output; the earliest output is unavailable.",
+    terminalOutputGap:
+      "Terminal output gap detected: expected batch {expected}, received {received}",
+    terminalOutputGenerationChanged:
+      "The terminal output generation changed unexpectedly; the continuity baseline was reset",
     resumeSession: "Resume session",
     expandSessionGroup: "Expand child sessions",
     collapseSessionGroup: "Collapse child sessions",

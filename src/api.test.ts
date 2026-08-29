@@ -34,6 +34,17 @@ describe("backend error codes", () => {
     expect(errorMessage(error, "ru")).toBe(error)
   })
 
+  it("bounds plain backend errors and tolerates circular rejection values", () => {
+    const oversized = "x".repeat(9_000)
+    const bounded = errorMessage(oversized, "en")
+    expect(bounded).toHaveLength(8 * 1024 + 1)
+    expect(bounded.endsWith("…")).toBe(true)
+
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(errorMessage(circular, "en")).toBe("[object Object]")
+  })
+
   it("localizes backend rejection of active session deletion", () => {
     const error = {
       code: "session_active_delete",

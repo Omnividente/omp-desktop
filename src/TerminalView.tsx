@@ -7,6 +7,7 @@ import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import {
   attachTerminal,
+  detachTerminal,
   errorMessage,
   resizeTerminal,
   writeTerminal,
@@ -24,6 +25,11 @@ import {
   terminalInputBlocked,
 } from "./terminalInput"
 import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
+import {
+  applyTerminalAttachment,
+  applyTerminalOutputEvent,
+  terminalContinuityBaseline,
+} from "./terminalContinuity"
 import { formatTerminalExitLine } from "./uiUtils"
 import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
@@ -301,21 +307,37 @@ export function TerminalView({
     let lastCols = 0
     let lastRows = 0
     const unlisteners: UnlistenFn[] = []
+    const attachmentId =
+      globalThis.crypto?.randomUUID?.() ??
+      `${tab.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
     const outputBatcher = createTerminalOutputBatcher((output) => terminal.write(output), {
       schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
       cancel: (handle) => window.clearTimeout(handle),
     })
-    let deferredOutput: Uint8Array[] = []
+    let deferredOutput: PtyOutputEvent[] = []
     let outputReady = false
     let exitHandled = false
     let deferredExit: PtyExitEvent | null = null
 
-    const queueOutput = (output: Uint8Array) => {
-      if (outputReady) {
-        outputBatcher.enqueue(output)
-      } else {
-        deferredOutput.push(output)
+    const reportOutputGap = (expected: number, received: number) => {
+      onErrorRef.current(
+        t(languageRef.current, "terminalOutputGap")
+          .replace("{expected}", String(expected))
+          .replace("{received}", String(received)),
+      )
+    }
+    const handleOutputEvent = (event: PtyOutputEvent) => {
+      const decision = applyTerminalOutputEvent(event)
+      if (decision.generationChanged) {
+        onErrorRef.current(t(languageRef.current, "terminalOutputGenerationChanged"))
+      } else if (decision.gap) {
+        reportOutputGap(decision.expectedSeq, decision.receivedSeq)
       }
+      if (decision.accept && event.data) outputBatcher.enqueue(decodeBase64(event.data))
+    }
+    const queueOutput = (event: PtyOutputEvent) => {
+      if (outputReady) handleOutputEvent(event)
+      else deferredOutput.push(event)
     }
 
     const handleExit = (event: PtyExitEvent) => {
@@ -359,9 +381,7 @@ export function TerminalView({
 
     const connect = async () => {
       const stopOutput = await listen<PtyOutputEvent>(`pty-output:${tab.id}`, ({ payload }) => {
-        if (!disposed && payload.data) {
-          queueOutput(decodeBase64(payload.data))
-        }
+        if (!disposed) queueOutput(payload)
       })
       if (disposed) {
         stopOutput()
@@ -384,17 +404,32 @@ export function TerminalView({
       }
       unlisteners.push(stopExit)
 
-      const attachment = await attachTerminal(tab.id)
+      const baseline = terminalContinuityBaseline(tab.id)
+      const attachment = await attachTerminal(
+        tab.id,
+        attachmentId,
+        baseline?.generation ?? null,
+        baseline?.lastSeq ?? null,
+      )
       if (disposed) {
+        void detachTerminal(tab.id, attachmentId).catch(() => undefined)
         return
       }
-      if (attachment.data) {
-        terminal.write(decodeBase64(attachment.data))
+      const continuity = applyTerminalAttachment(tab.id, attachment)
+      if (continuity.gap && continuity.receivedSeq !== null) {
+        reportOutputGap(continuity.expectedSeq, continuity.receivedSeq)
       }
+      if (attachment.truncated) {
+        terminal.write(
+          `\r\n\x1b[33m${t(languageRef.current, "terminalOutputTruncated").replace(
+            "{bytes}",
+            String(attachment.droppedBytes),
+          )}\x1b[0m\r\n`,
+        )
+      }
+      if (attachment.data) terminal.write(decodeBase64(attachment.data))
       outputReady = true
-      for (const output of deferredOutput) {
-        outputBatcher.enqueue(output)
-      }
+      for (const output of deferredOutput) handleOutputEvent(output)
       deferredOutput = []
       outputBatcher.flush()
       if (attachment.exited) {
@@ -411,9 +446,7 @@ export function TerminalView({
       }
       window.requestAnimationFrame(() => {
         fit()
-        if (activeRef.current) {
-          terminal.focus()
-        }
+        if (activeRef.current) terminal.focus()
       })
     }
 
@@ -425,6 +458,7 @@ export function TerminalView({
 
     return () => {
       disposed = true
+      void detachTerminal(tab.id, attachmentId).catch(() => undefined)
       outputBatcher.dispose()
       deferredOutput = []
       resizeObserver.disconnect()

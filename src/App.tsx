@@ -28,6 +28,7 @@ import {
   setSessionTitlePin,
   setTerminalPrimaryProviderPin,
   sendSwitchInputRecovery,
+  sessionLeaseConflictDetails,
   settingsUnavailableDetails,
   startTerminal,
   startWithDefaults,
@@ -49,6 +50,7 @@ import {
   runtimeEventFeedback,
   runtimeFeedbackDedupeKey,
 } from "./runtimeEvents"
+import { forgetTerminalContinuity } from "./terminalContinuity"
 import {
   activeRuntimeTerminalCount,
   applyRuntimeIncidentEvent,
@@ -108,6 +110,11 @@ import "./App.css"
 type PendingUpdateRestart = {
   updateTerminalId: string
   sourceTab: TerminalTab | null
+}
+type PendingRuntimeEvent = {
+  event: PtyRuntimeEvent
+  receivedAt: number
+  terminalLabel: string | null
 }
 
 type SessionLaunchTarget = Pick<
@@ -602,6 +609,46 @@ function App() {
   }, [refresh, showError])
   useEffect(() => {
     let disposed = false
+    let runtimeFrame: number | null = null
+    let pendingRuntimeEvents: PendingRuntimeEvent[] = []
+
+    const flushRuntimeEvents = () => {
+      runtimeFrame = null
+      if (disposed) {
+        pendingRuntimeEvents = []
+        return
+      }
+      const batch = pendingRuntimeEvents.filter(
+        ({ event }) => !endedRuntimeTerminalIdsRef.current.includes(event.terminalId),
+      )
+      pendingRuntimeEvents = []
+      if (batch.length === 0) return
+
+      setRuntimeIncidentState((current) =>
+        batch.reduce(
+          (next, item) =>
+            applyRuntimeIncidentEvent(next, item.event, item.receivedAt, item.terminalLabel),
+          current,
+        ),
+      )
+      const eventsByTerminal = new Map<string, PtyRuntimeEvent[]>()
+      for (const { event } of batch) {
+        const events = eventsByTerminal.get(event.terminalId)
+        if (events) events.push(event)
+        else eventsByTerminal.set(event.terminalId, [event])
+      }
+      setTabs((current) =>
+        current.map((tab) =>
+          (eventsByTerminal.get(tab.id) ?? []).reduce(applyRuntimeEventToTab, tab),
+        ),
+      )
+    }
+
+    const queueRuntimeEvent = (event: PtyRuntimeEvent, terminalLabel: string | null) => {
+      pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel })
+      if (runtimeFrame === null) runtimeFrame = window.requestAnimationFrame(flushRuntimeEvents)
+    }
+
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
       if (disposed) return
       forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
@@ -691,10 +738,7 @@ function App() {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
-      const now = Date.now()
-      setRuntimeIncidentState((current) =>
-        applyRuntimeIncidentEvent(current, event, now, terminal?.label ?? null),
-      )
+      queueRuntimeEvent(event, terminal?.label ?? null)
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -708,7 +752,7 @@ function App() {
           dedupeKey: runtimeFeedbackDedupeKey(event, feedback),
         })
       }
-      setTabs((current) => current.map((tab) => applyRuntimeEventToTab(tab, event)))
+      // Tab and incident state are applied together by flushRuntimeEvents.
     }).catch((error) => {
       if (!disposed) showError(errorMessage(error, langRef.current))
       return null
@@ -735,6 +779,9 @@ function App() {
 
     return () => {
       disposed = true
+      if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
+      runtimeFrame = null
+      pendingRuntimeEvents = []
       void unlistenSession.then((stop) => stop?.())
       void unlistenSessionTitle.then((stop) => stop?.())
       void unlistenRuntime.then((stop) => stop?.())
@@ -971,7 +1018,22 @@ function App() {
       const launchKey = session?.id ?? "new"
       setLaunching(launchKey)
       try {
-        const started = await startTerminal(cwd, session?.filePath ?? null)
+        let started
+        try {
+          started = await startTerminal(cwd, session?.filePath ?? null)
+        } catch (error) {
+          if (!session || backendErrorCode(error) !== "session_lease_stale") throw error
+          const conflict = sessionLeaseConflictDetails(error)
+          const owner = conflict?.ownerPid
+            ? t(lang, "sessionLeaseOwnerPid").replace("{pid}", String(conflict.ownerPid))
+            : t(lang, "unknownSessionLeaseOwner")
+          const accepted = await confirm(
+            t(lang, "reclaimSessionLeaseConfirm").replace("{owner}", owner),
+            { title: t(lang, "reclaimSessionLeaseTitle"), kind: "warning" },
+          )
+          if (!accepted) return
+          started = await startTerminal(cwd, session.filePath, 120, 36, null, true)
+        }
         forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
         const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null
         const runtimeSession = session ?? discoveredSession
@@ -1372,6 +1434,7 @@ function App() {
         const started = await setTerminalPrimaryProviderPin(terminalId, pinned)
         restartingTerminalIdsRef.current.delete(terminalId)
         restartExitEventsRef.current.delete(terminalId)
+        forgetTerminalContinuity(terminalId)
         rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, terminalId)
         forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
 
@@ -1451,6 +1514,7 @@ function App() {
 
   const performCloseTab = useCallback(
     (terminalId: string) => {
+      forgetTerminalContinuity(terminalId)
       rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, terminalId, Date.now()),

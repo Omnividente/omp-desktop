@@ -7,6 +7,7 @@ mod omp_bridge;
 mod omp_command;
 mod resource_health;
 mod secrets;
+mod session_lease;
 mod sessions;
 mod settings;
 mod terminal;
@@ -21,9 +22,8 @@ use models::{
 use sessions::{build_bootstrap, path_key};
 use settings::{
     normalize_app_font_family, normalize_optional, normalize_terminal_font_family,
-    normalize_terminal_font_size, save_settings, settings_snapshot,
-    start_with_defaults as reset_settings_with_defaults, update_provider_secrets,
-    with_settings_transaction, SettingsState, SettingsTransaction,
+    normalize_terminal_font_size, save_settings, settings_snapshot, start_with_defaults_prepared,
+    update_provider_secrets, with_settings_transaction, SettingsState, SettingsTransaction,
 };
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
@@ -187,8 +187,9 @@ fn commit_workspace_settings(
     transaction: &mut SettingsTransaction<'_>,
 ) -> Result<BootstrapPayload, String> {
     let snapshot = transaction.candidate().clone();
+    let bootstrap = build_bootstrap(app, &snapshot)?;
     save_settings(app, &snapshot)?;
-    build_bootstrap(app, &snapshot)
+    Ok(bootstrap)
 }
 
 fn normalize_workspace_name(name: &str) -> Result<String, String> {
@@ -308,12 +309,10 @@ async fn save_settings_bundle(
                     if config.provider_env.is_none() {
                         config.provider_env = provider_env;
                     }
-                    let omp_config = omp_bridge::save_config(&app, transaction, config)?;
-                    let committed = transaction.candidate().clone();
-                    let bootstrap = build_bootstrap(&app, &committed)?;
+                    let result = omp_bridge::save_config(&app, transaction, config)?;
                     return Ok(SettingsSavePayload {
-                        bootstrap,
-                        omp_config: Some(omp_config),
+                        bootstrap: result.bootstrap,
+                        omp_config: Some(result.snapshot),
                     });
                 }
 
@@ -324,9 +323,12 @@ async fn save_settings_bundle(
                     false
                 };
                 let next = transaction.candidate().clone();
+                let mut settings_save_attempted = false;
                 let persistence = (|| {
+                    let bootstrap = build_bootstrap(&app, &next)?;
+                    settings_save_attempted = true;
                     save_settings(&app, &next)?;
-                    build_bootstrap(&app, &next)
+                    Ok(bootstrap)
                 })();
                 let bootstrap = settings::resolve_transaction(persistence, || {
                     let mut rollback_errors = Vec::new();
@@ -337,8 +339,10 @@ async fn save_settings_bundle(
                             rollback_errors.push(rollback_error);
                         }
                     }
-                    if let Err(rollback_error) = save_settings(&app, &previous) {
-                        rollback_errors.push(rollback_error);
+                    if settings_save_attempted {
+                        if let Err(rollback_error) = save_settings(&app, &previous) {
+                            rollback_errors.push(rollback_error);
+                        }
                     }
                     rollback_errors
                 })?;
@@ -383,8 +387,10 @@ async fn start_with_defaults(app: AppHandle) -> Result<BootstrapPayload, AppErro
         "Не удалось применить настройки по умолчанию",
         move || {
             let state = app.state::<SettingsState>();
-            let snapshot = reset_settings_with_defaults(&app, &state)?;
-            build_bootstrap(&app, &snapshot)
+            let (_, bootstrap) = start_with_defaults_prepared(&app, &state, |defaults| {
+                build_bootstrap(&app, defaults)
+            })?;
+            Ok(bootstrap)
         },
     )
     .await
@@ -406,17 +412,19 @@ async fn set_session_title_pin(
                 let root = settings::session_root(&app, transaction.candidate())?;
                 let validated = sessions::validated_session_file(&path, &root)?;
                 let key = path_key(&validated.to_string_lossy());
+                let normalized_title = title
+                    .as_deref()
+                    .map(sessions::normalize_pinned_title)
+                    .transpose()?;
                 let snapshot = transaction.candidate_mut();
-                if let Some(title) = title {
-                    snapshot
-                        .session_title_pins
-                        .insert(key, sessions::normalize_pinned_title(&title)?);
-                } else {
-                    snapshot.session_title_pins.remove(&key);
+                sessions::remove_session_title_pin(&key, &mut snapshot.session_title_pins);
+                if let Some(title) = normalized_title {
+                    snapshot.session_title_pins.insert(key, title);
                 }
-                let next = transaction.candidate().clone();
+                let next = snapshot.clone();
+                let bootstrap = build_bootstrap(&app, &next)?;
                 save_settings(&app, &next)?;
-                build_bootstrap(&app, &next)
+                Ok(bootstrap)
             })
         },
     )
@@ -432,18 +440,41 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
         move || {
             let settings = app.state::<SettingsState>();
             with_settings_transaction(&app, &settings, |transaction| {
+                let previous = transaction.previous().clone();
                 let root = settings::session_root(&app, transaction.candidate())?;
-                app.state::<TerminalState>()
-                    .delete_inactive_session(&path, &root)?;
-                let session_key = path_key(&path);
+                let terminals = app.state::<TerminalState>();
+                let deletion = terminals.prepare_inactive_session_deletion(&path, &root)?;
+                let session_key = deletion.key().to_owned();
+
                 let snapshot = transaction.candidate_mut();
-                let title_pin_removed = snapshot.session_title_pins.remove(&session_key).is_some();
-                let provider_pin_removed = snapshot.primary_provider_pins.remove(&session_key);
+                let title_pin_removed = sessions::remove_session_title_pin(
+                    &session_key,
+                    &mut snapshot.session_title_pins,
+                );
+                let provider_pin_removed = sessions::remove_session_primary_provider_pin(
+                    &session_key,
+                    &mut snapshot.primary_provider_pins,
+                );
+                let settings_changed = title_pin_removed || provider_pin_removed;
                 let next = snapshot.clone();
-                if title_pin_removed || provider_pin_removed {
-                    save_settings(&app, &next)?;
-                }
-                build_bootstrap(&app, &next)
+                let bootstrap =
+                    sessions::build_bootstrap_excluding(&app, &next, Some(&session_key))?;
+
+                let mut settings_save_attempted = false;
+                let deletion_result = (|| {
+                    if settings_changed {
+                        settings_save_attempted = true;
+                        save_settings(&app, &next)?;
+                    }
+                    deletion.commit()
+                })();
+                settings::resolve_transaction(deletion_result, || {
+                    if !settings_save_attempted {
+                        return Vec::new();
+                    }
+                    save_settings(&app, &previous).err().into_iter().collect()
+                })?;
+                Ok(bootstrap)
             })
         },
     )
@@ -613,6 +644,7 @@ pub fn run() {
             terminal::discard_switch_input_recovery,
             terminal::set_terminal_primary_provider_pin,
             terminal::attach_terminal,
+            terminal::detach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,
             terminal::resize_terminal,

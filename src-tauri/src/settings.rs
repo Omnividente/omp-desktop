@@ -6,10 +6,11 @@ use crate::{
     },
     omp_command::{run_omp_command, OmpOperation},
     secrets,
-    sessions::{atomic_write_file, atomic_write_private_file},
+    sessions::{atomic_write_file, atomic_write_private_file, path_key},
 };
+use serde::de::DeserializeOwned;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     ffi::OsString,
     fs,
@@ -290,6 +291,46 @@ fn unique_settings_backup(path: &Path, label: &str) -> Result<PathBuf, String> {
     Err("Не удалось подобрать уникальный путь резервной копии настроек".to_owned())
 }
 
+fn normalize_session_pin_keys(settings: &mut AppSettings) -> bool {
+    let source_titles = std::mem::take(&mut settings.session_title_pins);
+    let source_title_len = source_titles.len();
+    let mut alias_titles = BTreeMap::new();
+    let mut canonical_titles = BTreeMap::new();
+    let mut changed = false;
+    for (candidate, title) in source_titles {
+        let key = path_key(&candidate);
+        if candidate == key {
+            canonical_titles.insert(key, title);
+        } else {
+            changed = true;
+            alias_titles.entry(key).or_insert(title);
+        }
+    }
+    alias_titles.extend(canonical_titles);
+    if alias_titles.len() != source_title_len {
+        changed = true;
+    }
+    settings.session_title_pins = alias_titles;
+
+    let source_primary = std::mem::take(&mut settings.primary_provider_pins);
+    let source_primary_len = source_primary.len();
+    let mut primary = BTreeSet::new();
+    for candidate in source_primary {
+        let key = path_key(&candidate);
+        if candidate != key {
+            changed = true;
+        }
+        if !primary.insert(key) {
+            changed = true;
+        }
+    }
+    if primary.len() != source_primary_len {
+        changed = true;
+    }
+    settings.primary_provider_pins = primary;
+    changed
+}
+
 pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app).map_err(|error| {
         settings_unavailable_error(Path::new("settings.json"), None, "path", &error)
@@ -312,6 +353,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         AppSettings::default()
     };
 
+    let pins_normalized = normalize_session_pin_keys(&mut settings);
     let legacy_values = std::mem::take(&mut settings.provider_env);
     let loaded = secrets::load_provider_secrets(app, &settings.provider_env_keys, legacy_values)
         .map_err(|error| {
@@ -320,7 +362,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     settings.provider_env = loaded.values;
     settings.provider_env_keys = loaded.keys;
     settings.secret_storage_warning = loaded.warning;
-    if loaded.migrated || recovered_backup.is_some() {
+    if loaded.migrated || recovered_backup.is_some() || pins_normalized {
         save_settings(app, &settings).map_err(|error| {
             settings_stage_error(&path, recovered_backup.as_deref(), "migration_save", error)
         })?;
@@ -354,6 +396,120 @@ fn recover_invalid_settings(
     recover_invalid_settings_with(path, parse_error, atomic_write_private_file)
 }
 
+const MAX_DAMAGED_SETTINGS_RECOVERY_BYTES: usize = 1024 * 1024;
+const MAX_RECOVERED_SETTINGS_ITEMS: usize = 4096;
+
+fn json_string_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start.checked_add(1)?;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = index.checked_add(2)?,
+            b'"' => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn recover_top_level_json_field<T: DeserializeOwned>(text: &str, key: &str) -> Option<T> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut depth = 0_u32;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' | b'[' => {
+                depth = depth.saturating_add(1);
+                index += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+            }
+            b'"' => {
+                let end = json_string_end(bytes, index)?;
+                if depth == 1
+                    && serde_json::from_slice::<String>(&bytes[index..end])
+                        .ok()
+                        .as_deref()
+                        == Some(key)
+                {
+                    let mut value_start = end;
+                    while bytes.get(value_start).is_some_and(u8::is_ascii_whitespace) {
+                        value_start += 1;
+                    }
+                    if bytes.get(value_start) != Some(&b':') {
+                        index = end;
+                        continue;
+                    }
+                    value_start += 1;
+                    while bytes.get(value_start).is_some_and(u8::is_ascii_whitespace) {
+                        value_start += 1;
+                    }
+                    let mut values = serde_json::Deserializer::from_slice(&bytes[value_start..])
+                        .into_iter::<T>();
+                    return values.next()?.ok();
+                }
+                index = end;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn recover_settings_fields(original: &[u8]) -> AppSettings {
+    let bounded = &original[..original.len().min(MAX_DAMAGED_SETTINGS_RECOVERY_BYTES)];
+    let text = String::from_utf8_lossy(bounded);
+    let mut recovered = AppSettings::default();
+
+    if let Some(mut keys) = recover_top_level_json_field::<Vec<String>>(&text, "providerEnvKeys") {
+        keys.truncate(MAX_RECOVERED_SETTINGS_ITEMS);
+        recovered.provider_env_keys = keys;
+    }
+    if let Some(value) = recover_top_level_json_field::<Option<String>>(&text, "ompExecutable") {
+        recovered.omp_executable = value;
+    }
+    if let Some(value) = recover_top_level_json_field::<Option<String>>(&text, "sessionRoot") {
+        recovered.session_root = value;
+    }
+    if let Some(mut values) = recover_top_level_json_field::<Vec<String>>(&text, "recentWorkspaces")
+    {
+        values.truncate(24);
+        recovered.recent_workspaces = values;
+    }
+    if let Some(values) =
+        recover_top_level_json_field::<BTreeMap<String, String>>(&text, "workspaceNames")
+    {
+        recovered.workspace_names = values
+            .into_iter()
+            .take(MAX_RECOVERED_SETTINGS_ITEMS)
+            .collect();
+    }
+    if let Some(mut values) = recover_top_level_json_field::<Vec<String>>(&text, "hiddenWorkspaces")
+    {
+        values.truncate(MAX_RECOVERED_SETTINGS_ITEMS);
+        recovered.hidden_workspaces = values;
+    }
+    if let Some(values) =
+        recover_top_level_json_field::<BTreeMap<String, String>>(&text, "sessionTitlePins")
+    {
+        recovered.session_title_pins = values
+            .into_iter()
+            .take(MAX_RECOVERED_SETTINGS_ITEMS)
+            .collect();
+    }
+    if let Some(values) =
+        recover_top_level_json_field::<BTreeSet<String>>(&text, "primaryProviderPins")
+    {
+        recovered.primary_provider_pins = values
+            .into_iter()
+            .take(MAX_RECOVERED_SETTINGS_ITEMS)
+            .collect();
+    }
+    normalize_session_pin_keys(&mut recovered);
+    recovered
+}
+
 fn recover_invalid_settings_with<F>(
     path: &Path,
     parse_error: &str,
@@ -383,29 +539,37 @@ where
         "settings.recovery",
         &format!("invalid settings copied to {}", backup.display()),
     );
-    let settings = AppSettings {
-        settings_warning: Some(SettingsWarning {
-            code: "settings_recovered".to_owned(),
-            message: "Повреждённый settings.json сохранён, применены настройки по умолчанию"
-                .to_owned(),
-            details: Some(backup.to_string_lossy().into_owned()),
-        }),
-        ..AppSettings::default()
-    };
+    let mut settings = recover_settings_fields(&original);
+    settings.settings_warning = Some(SettingsWarning {
+        code: "settings_recovered".to_owned(),
+        message: "Повреждённый settings.json сохранён; безопасные поля восстановлены частично. Проверьте credentials и пути."
+            .to_owned(),
+        details: Some(backup.to_string_lossy().into_owned()),
+    });
     Ok((settings, backup))
 }
 
-pub fn start_with_defaults(app: &AppHandle, state: &SettingsState) -> Result<AppSettings, String> {
+pub fn start_with_defaults_prepared<T, F>(
+    app: &AppHandle,
+    state: &SettingsState,
+    prepare: F,
+) -> Result<(AppSettings, T), String>
+where
+    F: FnOnce(&AppSettings) -> Result<T, String>,
+{
     let _mutation_guard = state.lock_mutation();
     let path = settings_path(app).map_err(|error| {
         settings_unavailable_error(Path::new("settings.json"), None, "path", &error)
     })?;
-    let defaults = start_with_defaults_at_with(&path, atomic_write_private_file)?;
+    let mut write = atomic_write_private_file;
+    let defaults = prepare_defaults_at_with(&path, &mut write)?;
+    let prepared = prepare(&defaults)?;
+    persist_defaults_at_with(&path, &defaults, &mut write)?;
     state.publish(defaults.clone());
-    Ok(defaults)
+    Ok((defaults, prepared))
 }
 
-fn start_with_defaults_at_with<F>(path: &Path, mut write: F) -> Result<AppSettings, String>
+fn prepare_defaults_at_with<F>(path: &Path, mut write: F) -> Result<AppSettings, String>
 where
     F: FnMut(&Path, &[u8]) -> Result<(), String>,
 {
@@ -439,11 +603,36 @@ where
             details: Some(backup.to_string_lossy().into_owned()),
         });
     }
-    let contents = persisted_settings_bytes(&defaults).map_err(|error| {
+    Ok(defaults)
+}
+
+fn persist_defaults_at_with<F>(
+    path: &Path,
+    defaults: &AppSettings,
+    mut write: F,
+) -> Result<(), String>
+where
+    F: FnMut(&Path, &[u8]) -> Result<(), String>,
+{
+    let backup = defaults
+        .settings_warning
+        .as_ref()
+        .and_then(|warning| warning.details.as_deref())
+        .map(PathBuf::from);
+    let contents = persisted_settings_bytes(defaults).map_err(|error| {
         settings_stage_error(path, backup.as_deref(), "defaults_serialize", error)
     })?;
     write(path, &contents)
-        .map_err(|error| settings_stage_error(path, backup.as_deref(), "defaults_write", error))?;
+        .map_err(|error| settings_stage_error(path, backup.as_deref(), "defaults_write", error))
+}
+
+#[cfg(test)]
+fn start_with_defaults_at_with<F>(path: &Path, mut write: F) -> Result<AppSettings, String>
+where
+    F: FnMut(&Path, &[u8]) -> Result<(), String>,
+{
+    let defaults = prepare_defaults_at_with(path, &mut write)?;
+    persist_defaults_at_with(path, &defaults, &mut write)?;
     Ok(defaults)
 }
 
@@ -756,13 +945,15 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_settings_reason, ensure_initialized_with, primary_provider_pin_overlay,
-        recover_invalid_settings_with, resolve_omp_cached, resolve_transaction,
-        save_settings_to_path, start_with_defaults_at_with, AppSettings, OmpResolution,
-        OmpResolutionCache, OmpResolutionKey, SettingsState, MAX_SETTINGS_FAILURE_REASON_CHARS,
+        bounded_settings_reason, ensure_initialized_with, normalize_session_pin_keys,
+        primary_provider_pin_overlay, recover_invalid_settings_with, resolve_omp_cached,
+        resolve_transaction, save_settings_to_path, start_with_defaults_at_with, AppSettings,
+        OmpResolution, OmpResolutionCache, OmpResolutionKey, SettingsState,
+        MAX_SETTINGS_FAILURE_REASON_CHARS,
     };
     use std::{
         cell::Cell,
+        collections::{BTreeMap, BTreeSet},
         fs,
         path::PathBuf,
         sync::{mpsc, Arc},
@@ -846,6 +1037,27 @@ mod tests {
                 .and_then(serde_json::Value::as_bool),
             Some(false)
         );
+    }
+    #[test]
+    fn pin_key_normalization_collapses_aliases_and_prefers_canonical_title() {
+        let alias = r"C:\Sessions\A.JSONL".to_owned();
+        let canonical = crate::sessions::path_key(&alias);
+        let mut settings = AppSettings::default();
+        settings
+            .session_title_pins
+            .insert(alias.clone(), "alias title".to_owned());
+        settings
+            .session_title_pins
+            .insert(canonical.clone(), "canonical title".to_owned());
+        settings.primary_provider_pins.insert(alias);
+        settings.primary_provider_pins.insert(canonical.clone());
+
+        assert!(normalize_session_pin_keys(&mut settings));
+        assert_eq!(
+            settings.session_title_pins,
+            BTreeMap::from([(canonical.clone(), "canonical title".to_owned())])
+        );
+        assert_eq!(settings.primary_provider_pins, BTreeSet::from([canonical]));
     }
 
     #[test]
@@ -1274,6 +1486,68 @@ mod tests {
             original
         );
         fs::remove_dir_all(root).expect("fixture directory should be removable");
+    }
+
+    #[test]
+    fn malformed_settings_recover_safe_fields_without_secret_values() {
+        let root = settings_fixture("partial-recovery");
+        let path = root.join("settings.json");
+        fs::create_dir_all(&root).expect("partial recovery directory should be writable");
+        let original = br#"{
+          "ompExecutable": "omp-custom",
+          "sessionRoot": "C:/private/sessions",
+          "recentWorkspaces": ["C:/work/project"],
+          "workspaceNames": {"C:/work/project": "Project"},
+          "hiddenWorkspaces": ["C:/work/hidden"],
+          "sessionTitlePins": {"C:/private/sessions/a.jsonl": "Pinned"},
+          "primaryProviderPins": ["C:/private/sessions/a.jsonl"],
+          "brokenField": not-json,
+          "providerEnvKeys": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+          "providerEnv": {"OPENAI_API_KEY": "must-never-be-recovered"}
+        "#;
+        fs::write(&path, original).expect("partial settings fixture should be writable");
+
+        let (recovered, backup) = recover_invalid_settings_with(
+            &path,
+            "partial parse failure",
+            crate::sessions::atomic_write_private_file,
+        )
+        .expect("partial recovery should preserve the source");
+
+        assert_eq!(recovered.omp_executable.as_deref(), Some("omp-custom"));
+        assert_eq!(
+            recovered.session_root.as_deref(),
+            Some("C:/private/sessions")
+        );
+        assert_eq!(recovered.recent_workspaces, ["C:/work/project"]);
+        assert_eq!(
+            recovered.workspace_names.get("C:/work/project"),
+            Some(&"Project".to_owned())
+        );
+        assert_eq!(recovered.hidden_workspaces, ["C:/work/hidden"]);
+        let session_key = crate::sessions::path_key("C:/private/sessions/a.jsonl");
+        assert_eq!(
+            recovered.session_title_pins.get(&session_key),
+            Some(&"Pinned".to_owned())
+        );
+        assert!(recovered.primary_provider_pins.contains(&session_key));
+        assert_eq!(
+            recovered.provider_env_keys,
+            ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+        );
+        assert!(recovered.provider_env.is_empty());
+        assert_eq!(
+            recovered
+                .settings_warning
+                .as_ref()
+                .map(|warning| warning.code.as_str()),
+            Some("settings_recovered")
+        );
+        assert_eq!(
+            fs::read(&backup).expect("backup should be readable"),
+            original
+        );
+        fs::remove_dir_all(root).expect("partial recovery fixture should be removable");
     }
 
     #[test]

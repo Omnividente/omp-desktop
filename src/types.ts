@@ -283,6 +283,13 @@ export interface SwitchInputRecoveryMetadata {
 
 export interface TerminalAttachment {
   data: string
+  generation: number
+  firstSeq: number | null
+  lastSeq: number | null
+  nextSeq: number
+  truncated: boolean
+  droppedBytes: number
+  baselineReset: boolean
   exited: boolean
   exitCode: number | null
   success: boolean
@@ -329,6 +336,8 @@ export interface PtyUpdateEvent {
 export interface PtyOutputEvent {
   terminalId: string
   data: string
+  generation: number
+  seq: number
 }
 
 export interface PtyExitEvent {
