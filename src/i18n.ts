@@ -43,7 +43,7 @@ export const UI_TEXT = {
     desktopUpdateVersion: "Версия {version}",
     desktopUpdateInstall: "Установить и перезапустить",
     desktopUpdateInstalling: "Устанавливаем…",
-    updateRemindLater: "Напомнить позже",
+    updateRemindLater: "Напомнить через 5 часов",
     updateDismissSession: "Не напоминать в этой сессии",
     loading: "Ищем проекты и сессии…",
     loadError: "Не удалось загрузить данные OMP",
@@ -79,6 +79,8 @@ export const UI_TEXT = {
     reclaimSessionLeaseTitle: "Восстановление владения сессией",
     reclaimSessionLeaseConfirm:
       "Активная OS-блокировка отсутствует, но осталась metadata прежнего владельца{owner}. Переместить metadata в приватный карантин и продолжить сессию?",
+    reclaimSessionLeaseDeleteConfirm:
+      "Активная OS-блокировка отсутствует, но осталась metadata прежнего владельца{owner}. Переместить metadata в приватный карантин и удалить сессию?",
     unknownSessionLeaseOwner: " (владелец не определён)",
     sessionLeaseOwnerPid: " (PID {pid})",
     terminalOutputTruncated:
@@ -458,7 +460,7 @@ export const UI_TEXT = {
     desktopUpdateVersion: "Version {version}",
     desktopUpdateInstall: "Install and restart",
     desktopUpdateInstalling: "Installing…",
-    updateRemindLater: "Remind me later",
+    updateRemindLater: "Remind me in 5 hours",
     updateDismissSession: "Do not remind me in this session",
     loading: "Searching for projects and sessions…",
     loadError: "Failed to load OMP data",
@@ -494,6 +496,8 @@ export const UI_TEXT = {
     reclaimSessionLeaseTitle: "Recover session ownership",
     reclaimSessionLeaseConfirm:
       "No active OS lock exists, but previous owner metadata remains{owner}. Move the metadata to a private quarantine and resume the session?",
+    reclaimSessionLeaseDeleteConfirm:
+      "No active OS lock exists, but previous owner metadata remains{owner}. Move the metadata to a private quarantine and delete the session?",
     unknownSessionLeaseOwner: " (owner unknown)",
     sessionLeaseOwnerPid: " (PID {pid})",
     terminalOutputTruncated:

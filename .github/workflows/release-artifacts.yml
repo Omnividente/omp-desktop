@@ -28,6 +28,35 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Require a verified signed release tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_ref="$RUNNER_TEMP/release-tag-ref.json"
+          tag_object="$RUNNER_TEMP/release-tag-object.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$tag_ref"
+          object_type=$(jq -er '.object.type' "$tag_ref")
+          if [[ "$object_type" != "tag" ]]; then
+            echo "Release tag $RELEASE_TAG must be an annotated signed tag, got $object_type." >&2
+            exit 1
+          fi
+          object_sha=$(jq -er '.object.sha' "$tag_ref")
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" > "$tag_object"
+          tagged_sha=$(jq -er 'select(.object.type == "commit") | .object.sha' "$tag_object")
+          verified=$(jq -r '.verification.verified // false' "$tag_object")
+          reason=$(jq -r '.verification.reason // "missing"' "$tag_object")
+          if [[ "$tagged_sha" != "$GITHUB_SHA" ]]; then
+            echo "Release tag $RELEASE_TAG targets $tagged_sha instead of workflow SHA $GITHUB_SHA." >&2
+            exit 1
+          fi
+          if [[ "$verified" != "true" || "$reason" != "valid" ]]; then
+            echo "Release tag $RELEASE_TAG has no verified signature (reason: $reason)." >&2
+            exit 1
+          fi
+
       - name: Require tagged commit on main
         shell: bash
         run: |
@@ -285,6 +314,35 @@ jobs:
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
+          latest_asset_id=$(jq -er '
+            [.assets[] | select(.name == "latest.json")] |
+            if length == 1 then .[0].id else error("expected exactly one latest.json asset") end
+          ' "$metadata")
+          gh api --method DELETE \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$latest_asset_id" \
+            --silent
+          latest_upload="$RUNNER_TEMP/latest-json-upload.json"
+          uploaded=false
+          for attempt in 1 2 3; do
+            if gh api --hostname uploads.github.com --method POST \
+              --header "Content-Type: application/json" \
+              --input release-assets/latest.json \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=latest.json" \
+              > "$latest_upload"; then
+              uploaded=true
+              break
+            fi
+            sleep "$attempt"
+          done
+          if [[ "$uploaded" != true ]]; then
+            echo "Failed to restore latest.json with Content-Type application/json." >&2
+            exit 1
+          fi
+          latest_content_type=$(jq -er '.content_type' "$latest_upload")
+          if [[ "$latest_content_type" != "application/json" ]]; then
+            echo "Uploaded latest.json has unexpected Content-Type: $latest_content_type" >&2
+            exit 1
+          fi
           rm -f release-assets/release-assets-manifest.json
           node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
           cp release-assets/SHA256SUMS-linux.txt "$RUNNER_TEMP/generated-SHA256SUMS-linux.txt"

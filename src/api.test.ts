@@ -8,6 +8,7 @@ import {
   backendErrorCode,
   bootstrap,
   errorMessage,
+  deleteSession,
   discardSwitchInputRecovery,
   sendSwitchInputRecovery,
   settingsUnavailableDetails,
@@ -115,6 +116,26 @@ describe("backend error codes", () => {
       token: "opaque-token",
     })
     expect(JSON.stringify(switchInputRecoveryDetails(error))).not.toContain("secret input")
+  })
+
+  it("sends explicit stale-lease reclaim intent for session deletion", async () => {
+    invokeMock.mockResolvedValue({})
+
+    await deleteSession("C:\\sessions\\session.jsonl")
+    await deleteSession("C:\\sessions\\session.jsonl", true)
+
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      1,
+      "delete_session",
+      { path: "C:\\sessions\\session.jsonl", forceSessionLease: false },
+      undefined,
+    )
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      "delete_session",
+      { path: "C:\\sessions\\session.jsonl", forceSessionLease: true },
+      undefined,
+    )
   })
 
   it("sends only recovery identity to send and discard commands", async () => {

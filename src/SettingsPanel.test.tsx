@@ -31,6 +31,7 @@ const settings: AppSettings = {
   hiddenWorkspaces: [],
   sessionTitlePins: {},
   primaryProviderPins: [],
+  proxyProviders: [],
   railMode: "expanded",
   language: "ru",
   appFontFamily: "Inter",

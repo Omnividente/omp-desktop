@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { applyRuntimeEventToTab, runtimeEventFeedback } from "./runtimeEvents"
+import {
+  applyRuntimeEventToTab,
+  runtimeEventFeedback,
+  suppressTransientProxyError,
+} from "./runtimeEvents"
 import type { PtyRuntimeEvent, TerminalTab } from "./types"
 
 const tab: TerminalTab = {
@@ -118,5 +122,54 @@ describe("runtime event contract", () => {
     expect(
       runtimeEventFeedback(event({ kind: "modelError", activity: "error", errorMessage: "  \n " })),
     ).toBeNull()
+  })
+})
+
+describe("proxy runtime policy", () => {
+  it("suppresses one proxy account error and surfaces a consecutive failure", () => {
+    const pending = new Set<string>()
+    const failure = event({
+      kind: "modelError",
+      activity: "error",
+      errorMessage: "Previous response owner account is unavailable",
+    })
+
+    expect(suppressTransientProxyError(pending, failure, "codex-lb/gpt-5.6", ["codex-lb"])).toBe(
+      true,
+    )
+    expect(suppressTransientProxyError(pending, failure, "codex-lb/gpt-5.6", ["codex-lb"])).toBe(
+      false,
+    )
+  })
+
+  it("re-arms proxy suppression after successful activity", () => {
+    const pending = new Set<string>()
+    const failure = event({ kind: "modelError", activity: "error", errorMessage: "quota" })
+    expect(suppressTransientProxyError(pending, failure, "codex-lb/gpt-5.6", ["codex-lb"])).toBe(
+      true,
+    )
+
+    expect(
+      suppressTransientProxyError(
+        pending,
+        event({ kind: "activity", activity: "thinking" }),
+        "codex-lb/gpt-5.6",
+        ["codex-lb"],
+      ),
+    ).toBe(false)
+    expect(suppressTransientProxyError(pending, failure, "codex-lb/gpt-5.6", ["codex-lb"])).toBe(
+      true,
+    )
+  })
+
+  it("never suppresses errors from ordinary providers", () => {
+    expect(
+      suppressTransientProxyError(
+        new Set<string>(),
+        event({ kind: "modelError", activity: "error", errorMessage: "quota" }),
+        "openai/gpt-5.6",
+        ["codex-lb"],
+      ),
+    ).toBe(false)
   })
 })

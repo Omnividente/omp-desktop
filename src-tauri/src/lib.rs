@@ -35,15 +35,14 @@ const SINGLE_INSTANCE_EVENT: &str = "single-instance";
 #[serde(rename_all = "camelCase")]
 struct SingleInstanceEvent {
     args: Vec<String>,
-    cwd: String,
 }
 
-fn dispatch_second_instance<F, E>(args: Vec<String>, cwd: String, focus: F, emit: E)
+fn dispatch_second_instance<F, E>(args: Vec<String>, focus: F, emit: E)
 where
     F: FnOnce(),
     E: FnOnce(SingleInstanceEvent),
 {
-    let event = SingleInstanceEvent { args, cwd };
+    let event = SingleInstanceEvent { args };
     focus();
     emit(event);
 }
@@ -67,10 +66,9 @@ fn focus_main_window(app: &AppHandle) {
     }
 }
 
-fn handle_second_instance(app: &AppHandle, args: Vec<String>, cwd: String) {
+fn handle_second_instance(app: &AppHandle, args: Vec<String>, _cwd: String) {
     dispatch_second_instance(
         args,
-        cwd,
         || focus_main_window(app),
         |event| {
             if let Err(error) = app.emit(SINGLE_INSTANCE_EVENT, event) {
@@ -95,12 +93,10 @@ mod single_instance_tests {
                 "--project".to_owned(),
                 "D:\\Projects\\Пример".to_owned(),
             ],
-            cwd: "D:\\Launch".to_owned(),
         };
 
         dispatch_second_instance(
             expected.args.clone(),
-            expected.cwd.clone(),
             || actions.borrow_mut().push("focus"),
             |event| {
                 actions.borrow_mut().push("emit");
@@ -432,7 +428,11 @@ async fn set_session_title_pin(
 }
 
 #[tauri::command]
-async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload, AppError> {
+async fn delete_session(
+    path: String,
+    force_session_lease: bool,
+    app: AppHandle,
+) -> Result<BootstrapPayload, AppError> {
     run_blocking(
         "удаления сессии",
         "session_delete_failed",
@@ -443,7 +443,11 @@ async fn delete_session(path: String, app: AppHandle) -> Result<BootstrapPayload
                 let previous = transaction.previous().clone();
                 let root = settings::session_root(&app, transaction.candidate())?;
                 let terminals = app.state::<TerminalState>();
-                let deletion = terminals.prepare_inactive_session_deletion(&path, &root)?;
+                let deletion = terminals.prepare_inactive_session_deletion(
+                    &path,
+                    &root,
+                    force_session_lease,
+                )?;
                 let session_key = deletion.key().to_owned();
 
                 let snapshot = transaction.candidate_mut();

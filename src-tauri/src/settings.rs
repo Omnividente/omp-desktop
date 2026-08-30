@@ -704,6 +704,52 @@ pub fn ensure_primary_provider_pin_overlay(app: &AppHandle) -> Result<PathBuf, S
     Ok(path)
 }
 
+const PROXY_PROVIDER_OVERLAY_FILE: &str = "proxy-providers.yml";
+
+fn proxy_provider_overlay(providers: &BTreeSet<String>) -> Result<Option<Vec<u8>>, String> {
+    if providers.is_empty() {
+        return Ok(None);
+    }
+    let fallback_chains = providers
+        .iter()
+        .map(|provider| (format!("{provider}/*"), vec![format!("{provider}/*")]))
+        .collect::<BTreeMap<_, _>>();
+    let mut contents = serde_json::to_vec_pretty(&serde_json::json!({
+        "retry": { "fallbackChains": fallback_chains },
+        "providers": { "openaiWebsockets": "off" },
+    }))
+    .map_err(|error| format!("Не удалось сериализовать proxy overlay: {error}"))?;
+    contents.push(b'\n');
+    Ok(Some(contents))
+}
+
+pub fn ensure_proxy_provider_overlay(
+    app: &AppHandle,
+    providers: &BTreeSet<String>,
+) -> Result<Option<PathBuf>, String> {
+    let Some(contents) = proxy_provider_overlay(providers)? else {
+        return Ok(None);
+    };
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("Не удалось определить папку overlay: {error}"))?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Не удалось создать {}: {error}", directory.display()))?;
+    let path = directory.join(PROXY_PROVIDER_OVERLAY_FILE);
+    if fs::read(&path).ok().as_deref() != Some(contents.as_slice()) {
+        atomic_write_file(&path, &contents)?;
+    }
+    Ok(Some(path))
+}
+
+#[cfg(test)]
+fn proxy_provider_overlay_for_test(providers: &BTreeSet<String>) -> Vec<u8> {
+    proxy_provider_overlay(providers)
+        .expect("proxy overlay should serialize")
+        .expect("proxy overlay should exist")
+}
+
 #[cfg(test)]
 fn primary_provider_pin_overlay() -> &'static str {
     PRIMARY_PROVIDER_PIN_OVERLAY
@@ -946,10 +992,10 @@ fn looks_like_path(value: &str) -> bool {
 mod tests {
     use super::{
         bounded_settings_reason, ensure_initialized_with, normalize_session_pin_keys,
-        primary_provider_pin_overlay, recover_invalid_settings_with, resolve_omp_cached,
-        resolve_transaction, save_settings_to_path, start_with_defaults_at_with, AppSettings,
-        OmpResolution, OmpResolutionCache, OmpResolutionKey, SettingsState,
-        MAX_SETTINGS_FAILURE_REASON_CHARS,
+        primary_provider_pin_overlay, proxy_provider_overlay_for_test,
+        recover_invalid_settings_with, resolve_omp_cached, resolve_transaction,
+        save_settings_to_path, start_with_defaults_at_with, AppSettings, OmpResolution,
+        OmpResolutionCache, OmpResolutionKey, SettingsState, MAX_SETTINGS_FAILURE_REASON_CHARS,
     };
     use std::{
         cell::Cell,
@@ -1036,6 +1082,37 @@ mod tests {
                 .pointer("/providers/anthropic/serverSideFallback")
                 .and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn proxy_provider_overlay_keeps_fallback_inside_proxy_and_disables_websockets() {
+        let providers = BTreeSet::from(["codex-lb".to_owned(), "gateway".to_owned()]);
+        let contents = proxy_provider_overlay_for_test(&providers);
+        let overlay = serde_saphyr::from_str::<serde_json::Value>(
+            std::str::from_utf8(&contents).expect("proxy overlay should be UTF-8"),
+        )
+        .expect("proxy overlay should be valid YAML");
+
+        assert_eq!(
+            overlay
+                .pointer("/retry/fallbackChains/codex-lb~1*")
+                .and_then(|value| value.get(0))
+                .and_then(serde_json::Value::as_str),
+            Some("codex-lb/*")
+        );
+        assert_eq!(
+            overlay
+                .pointer("/retry/fallbackChains/gateway~1*")
+                .and_then(|value| value.get(0))
+                .and_then(serde_json::Value::as_str),
+            Some("gateway/*")
+        );
+        assert_eq!(
+            overlay
+                .pointer("/providers/openaiWebsockets")
+                .and_then(serde_json::Value::as_str),
+            Some("off")
         );
     }
     #[test]

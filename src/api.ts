@@ -164,8 +164,8 @@ export function setSessionTitlePin(path: string, title: string | null): Promise<
   return invoke("set_session_title_pin", { path, title })
 }
 
-export function deleteSession(path: string): Promise<BootstrapPayload> {
-  return invoke("delete_session", { path })
+export function deleteSession(path: string, forceSessionLease = false): Promise<BootstrapPayload> {
+  return invoke("delete_session", { path, forceSessionLease })
 }
 
 export function readSessionTranscript(path: string): Promise<SessionTranscript> {

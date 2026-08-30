@@ -11,6 +11,7 @@ import {
   normalizedPath,
   replaceTerminalAfterRestart,
   sessionAncestorIds,
+  sessionGroupExpansionIds,
   tabMatchesSession,
 } from "./uiUtils"
 
@@ -108,21 +109,15 @@ describe("extractSingleInstanceWorkspace", () => {
     ).toBe("C:\\Users\\Omniv\\Projects\\MyApp")
   })
 
-  it("does not use cwd without an explicit workspace argument", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"], "D:\\Launch\\Project")).toBeNull()
-  })
-
   it("supports the -- separator and ignores command flags", () => {
     expect(
       extractSingleInstanceWorkspace(["omp-desktop", "--verbose", "--", "/home/user/code"]),
     ).toBe("/home/user/code")
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"], "/tmp/project")).toBeNull()
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"])).toBeNull()
   })
 
   it("does not consume a missing flag value", () => {
-    expect(
-      extractSingleInstanceWorkspace(["omp-desktop", "--project", "--verbose"], "/tmp/project"),
-    ).toBeNull()
+    expect(extractSingleInstanceWorkspace(["omp-desktop", "--project", "--verbose"])).toBeNull()
   })
 
   it("returns null when no workspace argument is provided", () => {
@@ -282,6 +277,26 @@ describe("session lineage tree", () => {
     expect(tree[0].children[0].children.map((node) => node.session.id)).toEqual(["archive"])
     expect(sessionAncestorIds(tree, "archive")).toEqual(["grandchild", "active"])
     expect(latestSessionInTree(tree[0]).id).toBe("grandchild")
+  })
+
+  it("links handoff lineage when parentSession contains a session id", () => {
+    const archive = lineageSession("archive-id", "C:\\Sessions\\archive.jsonl", null, 100)
+    const active = lineageSession("active-id", "C:\\Sessions\\active.jsonl", archive.id, 200)
+
+    const tree = buildSessionTree([archive, active], "windows")
+
+    expect(tree.map((node) => node.session.id)).toEqual(["active-id"])
+    expect(tree[0].children.map((node) => node.session.id)).toEqual(["archive-id"])
+  })
+
+  it("expands the selected handoff root and archived ancestry", () => {
+    const archive = lineageSession("archive", "C:\\Sessions\\archive.jsonl", null, 100)
+    const active = lineageSession("active", "C:\\Sessions\\active.jsonl", archive.id, 200)
+    const tree = buildSessionTree([archive, active], "windows")
+
+    expect(sessionGroupExpansionIds(tree, "active")).toEqual(["active"])
+    expect(sessionGroupExpansionIds(tree, "archive")).toEqual(["active"])
+    expect(sessionGroupExpansionIds(tree, "missing")).toEqual([])
   })
 
   it("keeps branch archives unique while choosing the newest branch as parent", () => {

@@ -15,7 +15,7 @@ import {
   buildSessionTree,
   filterSessionTree,
   flattenSessionTree,
-  sessionAncestorIds,
+  sessionGroupExpansionIds,
   tabMatchesSession,
 } from "./uiUtils"
 
@@ -106,7 +106,7 @@ export function SessionList({
 
   useEffect(() => {
     if (!selectedSessionId) return
-    const ancestors = sessionAncestorIds(sessionTree, selectedSessionId)
+    const ancestors = sessionGroupExpansionIds(sessionTree, selectedSessionId)
     if (ancestors.length === 0) return
     setExpandedSessionIds((current) => {
       const next = new Set(current)

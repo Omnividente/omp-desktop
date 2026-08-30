@@ -143,11 +143,20 @@ async function releaseFixture() {
     draft: true,
     prerelease: true,
     tag_name: tag,
-    assets: definitions.map(({ key, name, id }) => ({
-      name,
-      url: `${apiBase}/${id}`,
-      browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/${assets[key].name}`,
-    })),
+    assets: [
+      ...definitions.map(({ key, name, id }) => ({
+        name,
+        content_type: "application/octet-stream",
+        url: `${apiBase}/${id}`,
+        browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/${assets[key].name}`,
+      })),
+      {
+        name: "latest.json",
+        content_type: "application/json",
+        url: `${apiBase}/106`,
+        browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/latest.json`,
+      },
+    ],
   }
   const linuxInstallers = definitions
     .filter(({ os }) => os === "linux")
@@ -245,6 +254,16 @@ describe("release asset verification", () => {
     assert.equal(
       await readFile(join(fixture.directory, "SHA256SUMS-windows.txt"), "utf8"),
       checksumFor(fixture.windowsInstallers, fixture.assets),
+    )
+  })
+  it("rejects a latest.json asset uploaded with the wrong media type", async () => {
+    const fixture = await releaseFixture()
+    const updaterAsset = fixture.releaseMetadata.assets.find((asset) => asset.name === "latest.json")
+    updaterAsset.content_type = "application/zip"
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /latest\.json must use Content-Type application\/json, got application\/zip/,
     )
   })
   it("accepts a public candidate prerelease state", async () => {

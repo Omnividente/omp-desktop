@@ -58,10 +58,7 @@ export function tabMatchesSession(
     )
   )
 }
-export function extractSingleInstanceWorkspace(
-  args: string[] | undefined,
-  _cwd?: string,
-): string | null {
+export function extractSingleInstanceWorkspace(args: string[] | undefined): string | null {
   const list = args ?? []
   const clean = (value: string | undefined): string | null => {
     const trimmed = value?.trim() ?? ""
@@ -180,9 +177,10 @@ export function buildSessionTree(sessions: SessionSummary[], platform: string): 
   const previousById = new Map<string, SessionTreeNode>()
 
   for (const node of nodes) {
-    const parentPath = node.session.parentSessionPath?.trim()
-    if (!parentPath) continue
-    const previous = nodesByPath.get(normalizedPath(parentPath, platform))
+    const parentReference = node.session.parentSessionPath?.trim()
+    if (!parentReference) continue
+    const previous =
+      nodesByPath.get(normalizedPath(parentReference, platform)) ?? nodesById.get(parentReference)
     if (previous && previous.session.id !== node.session.id) {
       previousById.set(node.session.id, previous)
     }
@@ -279,6 +277,23 @@ export function sessionAncestorIds(nodes: SessionTreeNode[], sessionId: string):
   for (const node of nodes) {
     const ancestors = visit(node)
     if (ancestors) return ancestors
+  }
+  return []
+}
+
+export function sessionGroupExpansionIds(nodes: SessionTreeNode[], sessionId: string): string[] {
+  const visit = (node: SessionTreeNode): string[] | null => {
+    if (node.session.id === sessionId) return node.children.length > 0 ? [node.session.id] : []
+    for (const child of node.children) {
+      const descendants = visit(child)
+      if (descendants) return [node.session.id, ...descendants]
+    }
+    return null
+  }
+
+  for (const node of nodes) {
+    const expansion = visit(node)
+    if (expansion) return expansion
   }
   return []
 }

@@ -9,11 +9,7 @@ use crate::{
     update,
 };
 use serde_json::{Map, Value};
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    env, fs,
-    path::PathBuf,
-};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tauri::{AppHandle, Manager};
 
 const KNOWN_ROLES: &[&str] = &[
@@ -41,8 +37,6 @@ const PROVIDER_ENV_KEYS: &[&str] = &[
     "RDSH_API_KEY",
     "A6API_KEY",
 ];
-
-const PROXY_MODE_SETTING: &str = "providers.proxyMode";
 
 pub fn load_config_snapshot(
     app: &AppHandle,
@@ -81,7 +75,7 @@ pub fn load_config_snapshot(
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
         model_fallback_enabled: extract_bool(&raw, "retry.modelFallback").unwrap_or(true),
         fallback_chains: extract_string_lists(&raw, "retry.fallbackChains"),
-        proxy_providers: extract_proxy_providers(&raw, app),
+        proxy_providers: app_settings.proxy_providers.iter().cloned().collect(),
         provider_env_keys: PROVIDER_ENV_KEYS
             .iter()
             .map(|key| (*key).to_owned())
@@ -302,6 +296,9 @@ pub fn save_config(
         .map(normalize_proxy_providers)
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
+    if let Some(providers) = expected_proxy_providers.as_ref() {
+        app_settings.proxy_providers = providers.iter().cloned().collect();
+    }
 
     let credentials_changed = if let Some(provider_env) = request.provider_env {
         crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
@@ -322,7 +319,6 @@ pub fn save_config(
             "modelRoles",
             &roles_value,
             &app_settings.provider_env,
-            app,
         )?;
         if let Some(chains) = expected_fallback_chains.as_ref() {
             let value = Value::Object(
@@ -341,16 +337,6 @@ pub fn save_config(
                 "retry.fallbackChains",
                 &value,
                 &app_settings.provider_env,
-                app,
-            )?;
-        }
-        if let Some(providers) = expected_proxy_providers.as_ref() {
-            set_omp_config(
-                &omp.executable,
-                "providers.proxyMode",
-                &serde_json::to_value(providers).unwrap_or(Value::Array(Vec::new())),
-                &app_settings.provider_env,
-                app,
             )?;
         }
         if let Some(enabled) = expected_model_fallback {
@@ -359,7 +345,6 @@ pub fn save_config(
                 "retry.modelFallback",
                 &Value::Bool(enabled),
                 &app_settings.provider_env,
-                app,
             )?;
         }
         if let Some(enabled) = expected_advisor {
@@ -368,7 +353,6 @@ pub fn save_config(
                 "advisor.enabled",
                 &Value::Bool(enabled),
                 &app_settings.provider_env,
-                app,
             )?;
         }
         if let Some(enabled) = expected_auto_resume {
@@ -377,7 +361,6 @@ pub fn save_config(
                 "autoResume",
                 &Value::Bool(enabled),
                 &app_settings.provider_env,
-                app,
             )?;
         }
         if let Some(level) = expected_thinking.as_ref() {
@@ -386,7 +369,6 @@ pub fn save_config(
                 "defaultThinkingLevel",
                 &Value::String(level.clone()),
                 &app_settings.provider_env,
-                app,
             )?;
         }
         let snapshot = load_config_snapshot(app, &app_settings)?;
@@ -413,7 +395,6 @@ pub fn save_config(
 
     let result = crate::settings::resolve_transaction(transaction_result, || {
         let mut rollback_errors = rollback_omp_config(
-            app,
             &omp.executable,
             &app_settings.provider_env,
             &previous_config,
@@ -422,7 +403,6 @@ pub fn save_config(
             expected_thinking.is_some(),
             expected_model_fallback.is_some(),
             expected_fallback_chains.is_some(),
-            expected_proxy_providers.is_some(),
         );
         if credentials_changed {
             if let Err(rollback_error) =
@@ -444,7 +424,6 @@ pub fn save_config(
 
 #[allow(clippy::too_many_arguments)]
 fn rollback_omp_config(
-    app: &AppHandle,
     executable: &str,
     provider_env: &HashMap<String, String>,
     previous: &OmpConfigSnapshot,
@@ -453,7 +432,6 @@ fn rollback_omp_config(
     thinking_touched: bool,
     model_fallback_touched: bool,
     fallback_chains_touched: bool,
-    proxy_providers_touched: bool,
 ) -> Vec<String> {
     let mut errors = Vec::new();
     let roles = Value::Object(
@@ -465,7 +443,7 @@ fn rollback_omp_config(
             .collect(),
     );
     let mut restore = |key: &str, value: Value| {
-        if let Err(error) = set_omp_config(executable, key, &value, provider_env, app) {
+        if let Err(error) = set_omp_config(executable, key, &value, provider_env) {
             errors.push(format!("{key}: {error}"));
         }
     };
@@ -474,12 +452,6 @@ fn rollback_omp_config(
         restore(
             "retry.fallbackChains",
             serde_json::to_value(&previous.fallback_chains).unwrap_or(Value::Object(Map::new())),
-        );
-    }
-    if proxy_providers_touched {
-        restore(
-            "providers.proxyMode",
-            serde_json::to_value(&previous.proxy_providers).unwrap_or(Value::Array(Vec::new())),
         );
     }
     if model_fallback_touched {
@@ -564,7 +536,7 @@ fn verify_saved_config(
         .proxy_providers
         .is_some_and(|value| snapshot.proxy_providers != value)
     {
-        return Err("OMP не применил proxy-режим провайдеров".to_owned());
+        return Err("OMP Desktop не сохранил proxy-режим провайдеров".to_owned());
     }
     Ok(())
 }
@@ -994,22 +966,6 @@ fn extract_string_lists(raw: &Value, key: &str) -> BTreeMap<String, Vec<String>>
         .unwrap_or_default()
 }
 
-fn extract_string_list(raw: &Value, key: &str) -> Vec<String> {
-    raw.pointer(&format!("/{key}/value"))
-        .and_then(Value::as_array)
-        .or_else(|| raw.get(key).and_then(Value::as_array))
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn extract_bool(raw: &Value, key: &str) -> Option<bool> {
     raw.pointer(&format!("/{key}/value"))
         .and_then(Value::as_bool)
@@ -1155,181 +1111,19 @@ fn set_omp_config(
     key: &str,
     value: &Value,
     env_map: &HashMap<String, String>,
-    app: &AppHandle,
 ) -> Result<(), String> {
     let rendered = match value {
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
-    match run_omp_text(
+    run_omp_text(
         executable,
         &["config", "set", key, &rendered],
         env_map,
         OmpOperation::Config,
-    ) {
-        Ok(_) => Ok(()),
-        Err(error)
-            if key == PROXY_MODE_SETTING
-                && error.contains("Unknown setting: providers.proxyMode") =>
-        {
-            let providers = value
-                .as_array()
-                .ok_or_else(|| "proxyMode должен быть массивом provider id".to_owned())?
-                .iter()
-                .map(|item| {
-                    item.as_str()
-                        .map(str::to_owned)
-                        .ok_or_else(|| "proxyMode содержит нестроковое значение".to_owned())
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            save_proxy_providers_compat(app, &providers)
-        }
-        Err(error) => Err(format!("Не удалось сохранить `{key}`: {error}")),
-    }
-}
-
-fn save_proxy_providers_compat(app: &AppHandle, providers: &[String]) -> Result<(), String> {
-    let path = omp_config_file_path(app);
-    let existing = match fs::read_to_string(&path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("Не удалось прочитать {}: {error}", path.display())),
-    };
-    let updated = update_proxy_mode_yaml(&existing, providers)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Не удалось создать {}: {error}", parent.display()))?;
-    }
-    crate::sessions::atomic_write_file(&path, updated.as_bytes())
-}
-
-fn update_proxy_mode_yaml(contents: &str, providers: &[String]) -> Result<String, String> {
-    let parsed = if contents.trim().is_empty() {
-        Value::Object(Map::new())
-    } else {
-        serde_saphyr::from_str::<Value>(contents)
-            .map_err(|error| format!("Не удалось разобрать config.yml: {error}"))?
-    };
-    if !parsed.is_object() {
-        return Err("Корень config.yml должен быть объектом".to_owned());
-    }
-
-    let newline = if contents.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let had_trailing_newline = contents.ends_with('\n');
-    let encoded = serde_json::to_string(providers)
-        .map_err(|error| format!("Не удалось сериализовать proxyMode: {error}"))?;
-    let mut lines = contents.lines().map(str::to_owned).collect::<Vec<_>>();
-
-    let root_index = lines.iter().position(|line| {
-        let trimmed = line.trim();
-        yaml_indent(line) == 0 && (trimmed == "providers:" || trimmed.starts_with("providers: #"))
-    });
-
-    if let Some(root_index) = root_index {
-        let block_end = (root_index + 1..lines.len())
-            .find(|&index| {
-                let trimmed = lines[index].trim();
-                !trimmed.is_empty() && !trimmed.starts_with('#') && yaml_indent(&lines[index]) == 0
-            })
-            .unwrap_or(lines.len());
-        let child_indent = (root_index + 1..block_end)
-            .find_map(|index| {
-                let trimmed = lines[index].trim();
-                (!trimmed.is_empty() && !trimmed.starts_with('#'))
-                    .then(|| yaml_indent(&lines[index]))
-            })
-            .unwrap_or(2);
-        let proxy_index = (root_index + 1..block_end).find(|&index| {
-            yaml_indent(&lines[index]) == child_indent
-                && lines[index]
-                    .trim_start()
-                    .strip_prefix("proxyMode")
-                    .is_some_and(|suffix| suffix.starts_with(':'))
-        });
-
-        let replacement = format!("{}proxyMode: {encoded}", " ".repeat(child_indent));
-        if let Some(proxy_index) = proxy_index {
-            let node_end = (proxy_index + 1..block_end)
-                .find(|&index| {
-                    let trimmed = lines[index].trim();
-                    !trimmed.is_empty() && yaml_indent(&lines[index]) <= child_indent
-                })
-                .unwrap_or(block_end);
-            lines.splice(proxy_index..node_end, [replacement]);
-        } else {
-            lines.insert(block_end, replacement);
-        }
-    } else {
-        if parsed.get("providers").is_some() {
-            return Err(
-                "config.yml использует неподдерживаемую inline-форму секции providers".to_owned(),
-            );
-        }
-        if lines.last().is_some_and(|line| !line.trim().is_empty()) {
-            lines.push(String::new());
-        }
-        lines.push("providers:".to_owned());
-        lines.push(format!("  proxyMode: {encoded}"));
-    }
-
-    let mut updated = lines.join(newline);
-    if had_trailing_newline || contents.is_empty() {
-        updated.push_str(newline);
-    }
-    Ok(updated)
-}
-
-fn yaml_indent(line: &str) -> usize {
-    line.as_bytes()
-        .iter()
-        .take_while(|byte| **byte == b' ')
-        .count()
-}
-
-fn omp_config_file_path(app: &AppHandle) -> PathBuf {
-    if let Some(dir) = env::var_os("PI_CODING_AGENT_DIR") {
-        return PathBuf::from(dir).join("config.yml");
-    }
-    app.path()
-        .home_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".omp")
-        .join("agent")
-        .join("config.yml")
-}
-
-fn extract_proxy_providers(raw: &Value, app: &AppHandle) -> Vec<String> {
-    if raw.get(PROXY_MODE_SETTING).is_some() {
-        return extract_string_list(raw, PROXY_MODE_SETTING);
-    }
-    let path = omp_config_file_path(app);
-    let Ok(contents) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    extract_proxy_providers_yaml(&contents)
-}
-
-fn extract_proxy_providers_yaml(contents: &str) -> Vec<String> {
-    let Ok(doc) = serde_saphyr::from_str::<Value>(contents) else {
-        return Vec::new();
-    };
-    doc.pointer("/providers/proxyMode")
-        .or_else(|| doc.get(PROXY_MODE_SETTING))
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|provider| !provider.is_empty())
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
+    )
+    .map(|_| ())
+    .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))
 }
 
 fn run_omp_json(
@@ -1532,17 +1326,6 @@ providers:
     }
 
     #[test]
-    fn proxy_provider_config_extracts_wrapped_array() {
-        let raw = serde_json::json!({
-            "providers.proxyMode": { "value": ["codex-lb", " gateway ", 7, ""] }
-        });
-        assert_eq!(
-            extract_string_list(&raw, "providers.proxyMode"),
-            vec!["codex-lb".to_owned(), "gateway".to_owned()]
-        );
-    }
-
-    #[test]
     fn proxy_provider_normalization_deduplicates_and_rejects_selectors() {
         assert_eq!(
             normalize_proxy_providers(vec![
@@ -1554,55 +1337,6 @@ providers:
             vec!["codex-lb".to_owned(), "gateway".to_owned()]
         );
         assert!(normalize_proxy_providers(vec!["provider/model".to_owned()]).is_err());
-    }
-
-    #[test]
-    fn proxy_mode_compat_update_preserves_existing_yaml() {
-        let source = concat!(
-            "setupVersion: 2\r\n",
-            "providers:\r\n",
-            "  openaiWebsockets: auto\r\n",
-            "retry:\r\n",
-            "  modelFallback: true\r\n",
-        );
-        let updated = update_proxy_mode_yaml(source, &["codex-lb".to_owned()]).unwrap();
-
-        assert_eq!(
-            updated,
-            concat!(
-                "setupVersion: 2\r\n",
-                "providers:\r\n",
-                "  openaiWebsockets: auto\r\n",
-                "  proxyMode: [\"codex-lb\"]\r\n",
-                "retry:\r\n",
-                "  modelFallback: true\r\n",
-            )
-        );
-        assert_eq!(
-            extract_proxy_providers_yaml(&updated),
-            vec!["codex-lb".to_owned()]
-        );
-    }
-
-    #[test]
-    fn proxy_mode_compat_update_replaces_block_sequence() {
-        let source = concat!(
-            "providers:\n",
-            "  proxyMode:\n",
-            "    - old-proxy\n",
-            "  openaiWebsockets: auto\n",
-        );
-        let updated =
-            update_proxy_mode_yaml(source, &["codex-lb".to_owned(), "gateway".to_owned()]).unwrap();
-
-        assert_eq!(
-            updated,
-            concat!(
-                "providers:\n",
-                "  proxyMode: [\"codex-lb\",\"gateway\"]\n",
-                "  openaiWebsockets: auto\n",
-            )
-        );
     }
 
     #[test]
