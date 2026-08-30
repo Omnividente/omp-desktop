@@ -324,10 +324,11 @@ jobs:
           latest_upload="$RUNNER_TEMP/latest-json-upload.json"
           uploaded=false
           for attempt in 1 2 3; do
-            if gh api --hostname uploads.github.com --method POST \
+            if gh api --method POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
               --header "Content-Type: application/json" \
               --input release-assets/latest.json \
-              "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=latest.json" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=latest.json" \
               > "$latest_upload"; then
               uploaded=true
               break
