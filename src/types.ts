@@ -9,7 +9,6 @@ export interface SettingsUnavailableDetails {
 
 export interface SingleInstanceEvent {
   args: string[]
-  cwd: string
 }
 
 export interface SettingsWarning {
@@ -28,6 +27,7 @@ export interface AppSettings {
   hiddenWorkspaces: string[]
   sessionTitlePins: Record<string, string>
   primaryProviderPins: string[]
+  proxyProviders: string[]
   railMode: RailMode
   language: "ru" | "en"
   appFontFamily: string

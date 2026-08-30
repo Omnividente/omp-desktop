@@ -43,11 +43,12 @@ import { IncidentCenter } from "./IncidentCenter"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector, thinkingOptionsForModel } from "./ModelPicker"
-import { t, type Lang } from "./i18n"
+import { t, type Lang, type UiKey } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
   applyRuntimeEventToTab,
   runtimeEventFeedback,
+  suppressTransientProxyError,
   runtimeFeedbackDedupeKey,
 } from "./runtimeEvents"
 import { forgetTerminalContinuity } from "./terminalContinuity"
@@ -67,6 +68,11 @@ import { TerminalWorkspace } from "./TerminalWorkspace"
 import { Topbar } from "./Topbar"
 import { TranscriptModal } from "./TranscriptModal"
 import { UpdateNotice } from "./UpdateNotice"
+import {
+  persistUpdateReminderSnooze,
+  readUpdateReminderSnoozedUntil,
+  UPDATE_REMINDER_SNOOZE_MS,
+} from "./updateReminder"
 import { ToastContainer } from "./ToastContainer"
 import {
   createToastState,
@@ -131,7 +137,6 @@ type SessionLaunchTarget = Pick<
   | "primaryProviderPinned"
 >
 const MAX_ENDED_RUNTIME_TERMINALS = 256
-const UPDATE_REMINDER_SNOOZE_MS = 5 * 60 * 60 * 1_000
 
 function settingsDirectory(path: string): string {
   const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
@@ -139,6 +144,28 @@ function settingsDirectory(path: string): string {
   if (separator === 0) return path.slice(0, 1)
   if (separator === 2 && path[1] === ":") return path.slice(0, 3)
   return path.slice(0, separator)
+}
+
+async function runWithSessionLeaseReclaim<T>(
+  language: Lang,
+  confirmationKey: UiKey,
+  operation: (forceSessionLease: boolean) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await operation(false)
+  } catch (error) {
+    if (backendErrorCode(error) !== "session_lease_stale") throw error
+    const conflict = sessionLeaseConflictDetails(error)
+    const owner = conflict?.ownerPid
+      ? t(language, "sessionLeaseOwnerPid").replace("{pid}", String(conflict.ownerPid))
+      : t(language, "unknownSessionLeaseOwner")
+    const accepted = await confirm(t(language, confirmationKey).replace("{owner}", owner), {
+      title: t(language, "reclaimSessionLeaseTitle"),
+      kind: "warning",
+    })
+    if (!accepted) return null
+    return operation(true)
+  }
 }
 
 function summarizeImport(items: ImportItemResult[], language: Lang): string {
@@ -195,6 +222,8 @@ async function notifyTerminalCompletion(
 }
 function App() {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null)
+  const proxyProvidersRef = useRef<readonly string[]>([])
+  proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -208,6 +237,7 @@ function App() {
   const [incidentCenterOpen, setIncidentCenterOpen] = useState(false)
   const incidentCenterTriggerRef = useRef<HTMLButtonElement>(null)
   const endedRuntimeTerminalIdsRef = useRef<string[]>([])
+  const pendingProxyErrorsRef = useRef(new Set<string>())
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
@@ -243,7 +273,7 @@ function App() {
   const updateSourceTerminalIdRef = useRef(updateSourceTerminalId)
   updateSourceTerminalIdRef.current = updateSourceTerminalId
   const ignoredUpdateReminderKeysRef = useRef(new Set<string>())
-  const updateReminderSnoozedUntilRef = useRef(0)
+  const updateReminderSnoozedUntilRef = useRef(readUpdateReminderSnoozedUntil())
   const updateReminderTimerRef = useRef<number | null>(null)
   const [codexOpen, setCodexOpen] = useState(false)
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([])
@@ -336,19 +366,34 @@ function App() {
     window.clearTimeout(updateReminderTimerRef.current)
     updateReminderTimerRef.current = null
   }, [])
-  const remindUpdateLater = useCallback(() => {
-    clearUpdateReminderTimer()
-    updateReminderSnoozedUntilRef.current = Date.now() + UPDATE_REMINDER_SNOOZE_MS
-    setUpdateNoticeVisible(false)
-    updateReminderTimerRef.current = window.setTimeout(() => {
-      updateReminderTimerRef.current = null
-      updateReminderSnoozedUntilRef.current = 0
-      const terminalId = updateSourceTerminalIdRef.current
-      if (updateInfoRef.current?.hasUpdate && updateReminderAllowed(terminalId)) {
-        setUpdateNoticeVisible(true)
+  const releaseUpdateReminderSnooze = useCallback(() => {
+    updateReminderTimerRef.current = null
+    updateReminderSnoozedUntilRef.current = 0
+    persistUpdateReminderSnooze(0)
+    const terminalId = updateSourceTerminalIdRef.current
+    if (updateInfoRef.current?.hasUpdate && updateReminderAllowed(terminalId)) {
+      setUpdateNoticeVisible(true)
+    }
+  }, [updateReminderAllowed])
+  const scheduleUpdateReminderTimer = useCallback(
+    (until: number) => {
+      clearUpdateReminderTimer()
+      const delay = Math.max(0, until - Date.now())
+      if (delay === 0) {
+        releaseUpdateReminderSnooze()
+        return
       }
-    }, UPDATE_REMINDER_SNOOZE_MS)
-  }, [clearUpdateReminderTimer, updateReminderAllowed])
+      updateReminderTimerRef.current = window.setTimeout(releaseUpdateReminderSnooze, delay)
+    },
+    [clearUpdateReminderTimer, releaseUpdateReminderSnooze],
+  )
+  const remindUpdateLater = useCallback(() => {
+    const until = Date.now() + UPDATE_REMINDER_SNOOZE_MS
+    updateReminderSnoozedUntilRef.current = until
+    persistUpdateReminderSnooze(until)
+    setUpdateNoticeVisible(false)
+    scheduleUpdateReminderTimer(until)
+  }, [scheduleUpdateReminderTimer])
   const dismissUpdateForSession = useCallback(() => {
     const terminalId = updateSourceTerminalIdRef.current
     if (terminalId) {
@@ -356,9 +401,15 @@ function App() {
     }
     clearUpdateReminderTimer()
     updateReminderSnoozedUntilRef.current = 0
+    persistUpdateReminderSnooze(0)
     setUpdateNoticeVisible(false)
   }, [clearUpdateReminderTimer, updateReminderKey])
-  useEffect(() => clearUpdateReminderTimer, [clearUpdateReminderTimer])
+  useEffect(() => {
+    const until = updateReminderSnoozedUntilRef.current
+    if (until > Date.now()) scheduleUpdateReminderTimer(until)
+    else persistUpdateReminderSnooze(0)
+    return clearUpdateReminderTimer
+  }, [clearUpdateReminderTimer, scheduleUpdateReminderTimer])
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
@@ -595,7 +646,7 @@ function App() {
     let stop: (() => void) | undefined
     void listen<SingleInstanceEvent>("single-instance", async (event) => {
       if (disposed) return
-      const requested = extractSingleInstanceWorkspace(event.payload.args, event.payload.cwd)
+      const requested = extractSingleInstanceWorkspace(event.payload.args)
       if (requested) {
         try {
           const next = await addWorkspace(requested)
@@ -754,6 +805,16 @@ function App() {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+      if (
+        suppressTransientProxyError(
+          pendingProxyErrorsRef.current,
+          event,
+          terminal?.currentModel,
+          proxyProvidersRef.current,
+        )
+      ) {
+        return
+      }
       queueRuntimeEvent(event, terminal?.label ?? null)
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
@@ -1034,22 +1095,13 @@ function App() {
       const launchKey = session?.id ?? "new"
       setLaunching(launchKey)
       try {
-        let started
-        try {
-          started = await startTerminal(cwd, session?.filePath ?? null)
-        } catch (error) {
-          if (!session || backendErrorCode(error) !== "session_lease_stale") throw error
-          const conflict = sessionLeaseConflictDetails(error)
-          const owner = conflict?.ownerPid
-            ? t(lang, "sessionLeaseOwnerPid").replace("{pid}", String(conflict.ownerPid))
-            : t(lang, "unknownSessionLeaseOwner")
-          const accepted = await confirm(
-            t(lang, "reclaimSessionLeaseConfirm").replace("{owner}", owner),
-            { title: t(lang, "reclaimSessionLeaseTitle"), kind: "warning" },
-          )
-          if (!accepted) return
-          started = await startTerminal(cwd, session.filePath, 120, 36, null, true)
-        }
+        const started = await runWithSessionLeaseReclaim(
+          lang,
+          "reclaimSessionLeaseConfirm",
+          (forceSessionLease) =>
+            startTerminal(cwd, session?.filePath ?? null, 120, 36, null, forceSessionLease),
+        )
+        if (!started) return
         forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, started.terminalId)
         const discoveredSession = discoveredSessionsRef.current.get(started.terminalId) ?? null
         const runtimeSession = session ?? discoveredSession
@@ -1541,6 +1593,7 @@ function App() {
       pendingInitialInputRef.current.delete(terminalId)
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
+      pendingProxyErrorsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
       restartingTerminalIdsRef.current.delete(terminalId)
       restartExitEventsRef.current.delete(terminalId)
@@ -1606,7 +1659,12 @@ function App() {
         )
         if (!accepted) return
         setDeletingSessionId(session.id)
-        const next = await deleteSession(session.filePath)
+        const next = await runWithSessionLeaseReclaim(
+          lang,
+          "reclaimSessionLeaseDeleteConfirm",
+          (forceSessionLease) => deleteSession(session.filePath, forceSessionLease),
+        )
+        if (!next) return
         for (const tab of matchingTabs) closeTab(tab.id)
         applyPayload(next, selectedWorkspace?.path)
         showNotice(t(lang, "sessionDeleted"))
@@ -1739,6 +1797,7 @@ function App() {
           setUpdateNoticeVisible(false)
           clearUpdateReminderTimer()
           ignoredUpdateReminderKeysRef.current.clear()
+          persistUpdateReminderSnooze(0)
           updateReminderSnoozedUntilRef.current = 0
           showNotice(t(lang, "updateInstalled"))
           if (pendingUpdate.sourceTab?.sessionId && pendingUpdate.sourceTab.sessionPath) {

@@ -182,8 +182,8 @@ impl SessionLease {
                 let _ = FileExt::unlock(&file);
                 return Err(coded_error(LEASE_ERROR_CODE, error));
             }
+            prune_reclaim_quarantines(&lock_path);
         }
-        prune_reclaim_quarantines(&lock_path);
         Ok(Self {
             file,
             _lock_path: lock_path,
@@ -708,6 +708,36 @@ mod tests {
         let retry_forced = SessionLease::acquire(&session, SessionLeasePurpose::Resume, true)
             .expect("subsequent explicit reclaim should succeed");
         drop(retry_forced);
+        fs::remove_dir_all(root).expect("lease fixture should be removable");
+    }
+
+    #[test]
+    fn clean_acquisition_does_not_prune_reclaim_quarantines() {
+        let (root, session) = fixture("clean-no-prune");
+        let lock_path = lease_path(&session).expect("lock path should resolve");
+        let lock_name = lock_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("lock name should be UTF-8");
+        let quarantine_count = super::MAX_RECLAIM_QUARANTINES + 2;
+        for index in 0..quarantine_count {
+            let quarantine = root.join(format!(
+                ".{lock_name}.stale-{index:04}-0000000000000000.json"
+            ));
+            fs::write(quarantine, b"stale metadata")
+                .expect("quarantine fixture should be writable");
+        }
+
+        let lease = SessionLease::acquire(&session, SessionLeasePurpose::Resume, false)
+            .expect("clean lease should be acquirable");
+        drop(lease);
+
+        let remaining = fs::read_dir(&root)
+            .expect("fixture directory should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".stale-"))
+            .count();
+        assert_eq!(remaining, quarantine_count);
         fs::remove_dir_all(root).expect("lease fixture should be removable");
     }
 

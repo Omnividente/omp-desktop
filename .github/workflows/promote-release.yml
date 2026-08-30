@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to promote (e.g. v0.6.1)"
+        description: "Release tag to promote; dispatch this workflow with ref set to the same tag (e.g. v0.6.1)"
         required: true
         type: string
 
@@ -24,6 +24,18 @@ jobs:
       contents: write
     environment: production-release
     steps:
+      - name: Bind environment approval to the promoted tag
+        env:
+          DISPATCH_REF: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$DISPATCH_REF" != "$RELEASE_TAG" ]]; then
+            echo "Dispatch ref $DISPATCH_REF must match promoted tag $RELEASE_TAG." >&2
+            exit 1
+          fi
+
       - name: Check out repository at tag
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -38,6 +50,7 @@ jobs:
 
       - name: Require tagged commit on main
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
@@ -49,6 +62,27 @@ jobs:
           git fetch --no-tags origin main
           tag_sha=$(git rev-parse --verify "${RELEASE_TAG}^{commit}")
           printf '%s\n' "$tag_sha" > "$RUNNER_TEMP/release-tag-sha"
+          tag_ref="$RUNNER_TEMP/release-tag-ref.json"
+          tag_object="$RUNNER_TEMP/release-tag-object.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$tag_ref"
+          object_type=$(jq -er '.object.type' "$tag_ref")
+          if [[ "$object_type" != "tag" ]]; then
+            echo "Release tag $RELEASE_TAG must be an annotated signed tag, got $object_type." >&2
+            exit 1
+          fi
+          object_sha=$(jq -er '.object.sha' "$tag_ref")
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" > "$tag_object"
+          tagged_sha=$(jq -er 'select(.object.type == "commit") | .object.sha' "$tag_object")
+          verified=$(jq -r '.verification.verified // false' "$tag_object")
+          reason=$(jq -r '.verification.reason // "missing"' "$tag_object")
+          if [[ "$tagged_sha" != "$tag_sha" ]]; then
+            echo "Release tag $RELEASE_TAG API target $tagged_sha differs from checked-out SHA $tag_sha." >&2
+            exit 1
+          fi
+          if [[ "$verified" != "true" || "$reason" != "valid" ]]; then
+            echo "Release tag $RELEASE_TAG has no verified signature (reason: $reason)." >&2
+            exit 1
+          fi
           if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
             echo "Release tag $RELEASE_TAG ($tag_sha) must point to a commit reachable from main." >&2
             exit 1

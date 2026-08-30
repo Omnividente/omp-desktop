@@ -9,8 +9,8 @@ use crate::{
         transfer_session_primary_provider_pin, validated_session_file,
     },
     settings::{
-        ensure_primary_provider_pin_overlay, resolve_omp, save_settings, settings_snapshot,
-        with_settings_transaction, SettingsState,
+        ensure_primary_provider_pin_overlay, ensure_proxy_provider_overlay, resolve_omp,
+        save_settings, settings_snapshot, with_settings_transaction, SettingsState,
     },
     update,
 };
@@ -476,6 +476,7 @@ struct TerminalProcess {
     process_id: Option<u32>,
     cwd: String,
     resume_path: Option<String>,
+    pending_resume_path: Option<String>,
     session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
@@ -648,6 +649,7 @@ impl TerminalState {
         &'a self,
         path: &str,
         root: &Path,
+        force_session_lease: bool,
     ) -> Result<PreparedSessionDeletion<'a>, String> {
         let session_file_guard = lock_session_files(self);
         let session_path = validated_session_file(path, root)?;
@@ -658,7 +660,11 @@ impl TerminalState {
                 "[session_active_delete] Сессия используется активным терминалом: {canonical}"
             ));
         }
-        let lease = SessionLease::acquire(&session_path, SessionLeasePurpose::Delete, false)?;
+        let lease = SessionLease::acquire(
+            &session_path,
+            SessionLeasePurpose::Delete,
+            force_session_lease,
+        )?;
         Ok(PreparedSessionDeletion {
             canonical,
             key,
@@ -669,8 +675,13 @@ impl TerminalState {
     }
 
     #[allow(dead_code)]
-    pub fn delete_inactive_session(&self, path: &str, root: &Path) -> Result<String, String> {
-        let deletion = self.prepare_inactive_session_deletion(path, root)?;
+    pub fn delete_inactive_session(
+        &self,
+        path: &str,
+        root: &Path,
+        force_session_lease: bool,
+    ) -> Result<String, String> {
+        let deletion = self.prepare_inactive_session_deletion(path, root, force_session_lease)?;
         let key = deletion.key().to_owned();
         deletion.commit()?;
         Ok(key)
@@ -1029,6 +1040,11 @@ fn start_terminal_blocking(
     }
 
     let restartable = request.args.as_ref().is_none_or(Vec::is_empty);
+    let proxy_overlay = if restartable {
+        ensure_proxy_provider_overlay(&app, &settings.proxy_providers)?
+    } else {
+        None
+    };
     let pin_overlay = if restartable
         && resume_path.as_deref().is_some_and(|path| {
             settings.primary_provider_pins.contains(&path_key(path))
@@ -1038,8 +1054,12 @@ fn start_terminal_blocking(
     } else {
         None
     };
+    let config_paths = [proxy_overlay, pin_overlay]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     let args = if restartable {
-        initial_agent_args_with_config(&cwd, resume_path.as_deref(), pin_overlay.as_deref())
+        initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths)
     } else {
         request.args.unwrap_or_default()
     };
@@ -1136,11 +1156,13 @@ fn set_terminal_primary_provider_pin_blocking(
                 omp.executable
             ));
         }
-        let pin_overlay = request
-            .pinned
-            .then(|| ensure_primary_provider_pin_overlay(&app))
-            .transpose()?;
-        let args = initial_agent_args_with_config(&cwd, Some(&resume_path), pin_overlay.as_deref());
+        let mut config_paths = ensure_proxy_provider_overlay(&app, &settings.proxy_providers)?
+            .into_iter()
+            .collect::<Vec<_>>();
+        if request.pinned {
+            config_paths.push(ensure_primary_provider_pin_overlay(&app)?);
+        }
+        let args = initial_agent_args_with_config(&cwd, Some(&resume_path), &config_paths);
 
         let _session_file_guard = lock_session_files(&terminals);
         stop_terminal_for_restart(&request.terminal_id, &terminals)?;
@@ -2008,10 +2030,10 @@ fn cli_path_arg(path: &str) -> String {
 fn initial_agent_args_with_config(
     cwd: &str,
     resume_path: Option<&str>,
-    config_path: Option<&Path>,
+    config_paths: &[PathBuf],
 ) -> Vec<String> {
     let mut args = vec!["--cwd".to_owned(), cli_path_arg(cwd)];
-    if let Some(config_path) = config_path {
+    for config_path in config_paths {
         args.push("--config".to_owned());
         args.push(cli_path_arg(&config_path.to_string_lossy()));
     }
@@ -2171,6 +2193,7 @@ fn spawn_terminal_process(
         process_id,
         cwd: cwd.clone(),
         resume_path,
+        pending_resume_path: None,
         session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
@@ -2299,10 +2322,21 @@ fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
     let mut lines = contents.lines();
     let breadcrumb_cwd = lines.next()?.trim();
     let session_path = lines.next()?.trim();
-    if path_key(breadcrumb_cwd) != path_key(cwd) || !Path::new(session_path).is_file() {
+    let fresh = lines.next().is_some_and(|marker| marker.trim() == "fresh");
+    if path_key(breadcrumb_cwd) != path_key(cwd) || (!fresh && !Path::new(session_path).is_file()) {
         return None;
     }
     Some(session_path.to_owned())
+}
+
+enum SessionDiscovery {
+    PendingFresh {
+        resume_path: String,
+    },
+    Ready {
+        resume_path: String,
+        session: Box<crate::models::SessionSummary>,
+    },
 }
 
 fn discover_session(
@@ -2311,11 +2345,17 @@ fn discover_session(
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
     current_path: Option<&str>,
-) -> Option<(String, crate::models::SessionSummary)> {
+) -> Option<SessionDiscovery> {
     let resume_path =
         resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, current_path)?;
+    if !Path::new(&resume_path).is_file() {
+        return Some(SessionDiscovery::PendingFresh { resume_path });
+    }
     let session = parse_session(Path::new(&resume_path)).ok().flatten()?;
-    Some((resume_path, session))
+    Some(SessionDiscovery::Ready {
+        resume_path,
+        session: Box::new(session),
+    })
 }
 
 fn apply_known_session_title_pin(app: &AppHandle, session: &mut crate::models::SessionSummary) {
@@ -2424,7 +2464,7 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
             process.resume_path.clone(),
         )
     };
-    let Some((resume_path, session)) = discover_session(
+    let Some(discovery) = discover_session(
         terminal_id,
         &context.0,
         &context.1,
@@ -2432,6 +2472,25 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         context.3.as_deref(),
     ) else {
         return ResumePathPoll::Continue;
+    };
+    let (resume_path, session) = match discovery {
+        SessionDiscovery::PendingFresh { resume_path } => {
+            let mut processes = lock_processes(state);
+            let Some(process) = processes.get_mut(terminal_id) else {
+                return ResumePathPoll::Stop;
+            };
+            if !process.restartable || process.exited || process.exit_pending {
+                return ResumePathPoll::Stop;
+            }
+            if process.pending_resume_path.as_deref() != Some(resume_path.as_str()) {
+                process.pending_resume_path = Some(resume_path);
+            }
+            return ResumePathPoll::Continue;
+        }
+        SessionDiscovery::Ready {
+            resume_path,
+            session,
+        } => (resume_path, session),
     };
     let session_lease = match SessionLease::acquire(
         Path::new(&resume_path),
@@ -2457,6 +2516,7 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         {
             return ResumePathPoll::Continue;
         }
+        process.pending_resume_path = None;
         (
             process.resume_path.replace(resume_path.clone()),
             process.session_lease.replace(session_lease),
@@ -2467,7 +2527,7 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         resume_path,
         previous_path,
         previous_lease,
-        session: Box::new(session),
+        session,
     }
 }
 
@@ -4266,10 +4326,11 @@ mod tests {
         send_switch_input_recovery_blocking, session_title_for_emit, session_title_from_line,
         spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
         write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
-        SessionLease, SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState,
-        SwitchRequest, TerminalAttachmentRequest, TerminalOutputState, TerminalProcess,
-        TerminalState, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_LIMIT,
+        SessionDiscovery, SessionLease, SessionLeasePurpose, SwitchInputRecoveryRequest,
+        SwitchInputRecoveryState, SwitchRequest, TerminalAttachmentRequest, TerminalOutputState,
+        TerminalProcess, TerminalState, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -4284,7 +4345,7 @@ mod tests {
         ffi::OsStr,
         fs,
         io::{self, Write},
-        path::{Path, PathBuf},
+        path::PathBuf,
         sync::{mpsc, Arc, Mutex},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -4315,6 +4376,7 @@ mod tests {
             process_id: Some(7),
             cwd: "/tmp/project".to_owned(),
             resume_path,
+            pending_resume_path: None,
             session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),
@@ -5016,7 +5078,7 @@ $child.WaitForExit()
         );
 
         let error = state
-            .delete_inactive_session(&session_path, &root)
+            .delete_inactive_session(&session_path, &root, false)
             .expect_err("active session deletion must fail");
         assert!(error.starts_with("[session_active_delete] "));
         assert!(session.is_file());
@@ -5028,22 +5090,73 @@ $child.WaitForExit()
         let external_lease = SessionLease::acquire(&session, SessionLeasePurpose::Resume, false)
             .expect("external owner should acquire the session lease");
         let lease_error = state
-            .delete_inactive_session(&session_path, &root)
+            .delete_inactive_session(&session_path, &root, false)
             .expect_err("OS-leased session deletion must fail");
         assert!(lease_error.starts_with("[session_lease_active] "));
         assert!(session.is_file());
         drop(external_lease);
         state
-            .delete_inactive_session(&session_path, &root)
+            .delete_inactive_session(&session_path, &root, false)
             .expect("exited session should be deletable");
         assert!(!session.exists());
         fs::remove_dir_all(root).expect("session fixture should be removable");
     }
 
     #[test]
+    fn stale_session_deletion_requires_explicit_reclaim() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-stale-session-delete-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("session root should be writable");
+        let session = root.join("session.jsonl");
+        fs::write(&session, b"{}\n").expect("session fixture should be writable");
+        let session_path = session.to_string_lossy().into_owned();
+        let lock_path = root.join("session.jsonl.omp-desktop.lock");
+        fs::write(
+            &lock_path,
+            serde_json::to_vec(&serde_json::json!({
+                "ownerToken": "crashed-owner",
+                "desktopPid": std::process::id(),
+                "desktopStartedAt": "old-start",
+                "acquiredAt": "old-acquisition",
+                "sessionPath": session_path,
+                "purpose": "resume"
+            }))
+            .expect("stale metadata should serialize"),
+        )
+        .expect("stale metadata should be writable");
+
+        let state = TerminalState::default();
+        let error = state
+            .delete_inactive_session(&session_path, &root, false)
+            .expect_err("stale metadata should require confirmation before deletion");
+        assert!(error.starts_with("[session_lease_stale] "));
+        assert!(session.is_file());
+
+        state
+            .delete_inactive_session(&session_path, &root, true)
+            .expect("confirmed stale metadata reclaim should permit deletion");
+        assert!(!session.exists());
+        assert_eq!(
+            fs::read_dir(&root)
+                .expect("fixture directory should be readable")
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".stale-"))
+                .count(),
+            1
+        );
+        fs::remove_dir_all(root).expect("session fixture should be removable");
+    }
+
+    #[test]
     fn initial_args_always_use_exact_resume_path() {
         assert_eq!(
-            initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), None,),
+            initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), &[]),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
         );
     }
@@ -5082,16 +5195,21 @@ $child.WaitForExit()
     }
 
     #[test]
-    fn pinned_resume_adds_overlay_before_exact_session_path() {
+    fn proxy_and_pin_overlays_precede_exact_session_path() {
         assert_eq!(
             initial_agent_args_with_config(
                 "/tmp/project",
                 Some("/tmp/session.jsonl"),
-                Some(Path::new("/tmp/primary-provider-pin.yml")),
+                &[
+                    PathBuf::from("/tmp/proxy-providers.yml"),
+                    PathBuf::from("/tmp/primary-provider-pin.yml"),
+                ],
             ),
             vec![
                 "--cwd",
                 "/tmp/project",
+                "--config",
+                "/tmp/proxy-providers.yml",
                 "--config",
                 "/tmp/primary-provider-pin.yml",
                 "--resume",
@@ -6266,18 +6384,71 @@ $child.WaitForExit()
         )
         .expect("session header should be writable");
 
-        let (resolved, session) = discover_session(
+        let Some(SessionDiscovery::Ready {
+            resume_path: resolved,
+            session,
+        }) = discover_session(
             "terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
             None,
         )
-        .expect("parseable session should be discovered");
+        else {
+            panic!("parseable session should be discovered");
+        };
         fs::remove_dir_all(&directory).expect("fixture directory should be removable");
 
         assert_eq!(resolved, session_path.to_string_lossy());
         assert_eq!(session.id, "new-session");
+    }
+
+    #[test]
+    fn fresh_terminal_breadcrumb_tracks_lazy_session_until_materialized() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-fresh-breadcrumb-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("fixture directory should be writable");
+        let session_path = directory.join("lazy-session.jsonl");
+        fs::write(
+            directory.join("apple-terminal-1"),
+            format!("/tmp/project\n{}\nfresh\n", session_path.display()),
+        )
+        .expect("fresh breadcrumb should be writable");
+
+        let Some(SessionDiscovery::PendingFresh { resume_path }) = discover_session(
+            "terminal-1",
+            "/tmp/project",
+            &directory,
+            &HashMap::new(),
+            None,
+        ) else {
+            panic!("fresh breadcrumb should preserve the lazy session path");
+        };
+        assert_eq!(resume_path, session_path.to_string_lossy());
+
+        fs::write(
+            &session_path,
+            "{\"type\":\"session\",\"id\":\"lazy-session\",\"timestamp\":\"2026-07-20T12:00:00Z\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("lazy session should materialize");
+        assert!(matches!(
+            discover_session(
+                "terminal-1",
+                "/tmp/project",
+                &directory,
+                &HashMap::new(),
+                None,
+            ),
+            Some(SessionDiscovery::Ready { .. })
+        ));
+
+        fs::remove_dir_all(&directory).expect("fixture directory should be removable");
     }
 
     #[test]
@@ -6312,14 +6483,19 @@ $child.WaitForExit()
         )
         .expect("initial breadcrumb should be writable");
 
-        let (resolved_old, old_session) = discover_session(
+        let Some(SessionDiscovery::Ready {
+            resume_path: resolved_old,
+            session: old_session,
+        }) = discover_session(
             "terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
             None,
         )
-        .expect("initial session should be discovered");
+        else {
+            panic!("initial session should be discovered");
+        };
         assert_eq!(resolved_old, old_path.to_string_lossy());
         assert_eq!(old_session.id, "old-session");
 
@@ -6330,14 +6506,19 @@ $child.WaitForExit()
         .expect("handoff breadcrumb should be writable");
 
         let old_path_string = old_path.to_string_lossy().into_owned();
-        let (resolved_new, new_session) = discover_session(
+        let Some(SessionDiscovery::Ready {
+            resume_path: resolved_new,
+            session: new_session,
+        }) = discover_session(
             "terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
             Some(&old_path_string),
         )
-        .expect("handoff session should be discovered");
+        else {
+            panic!("handoff session should be discovered");
+        };
         assert_eq!(resolved_new, new_path.to_string_lossy());
         assert_eq!(new_session.id, "handoff-session");
 

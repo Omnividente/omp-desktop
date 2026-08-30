@@ -1,4 +1,4 @@
-name: Build Signed Updater E2E Artifacts
+name: Verify Updater Upgrade E2E
 
 on:
   workflow_dispatch:
@@ -11,23 +11,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Plan v0.6.0 upgrade matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      base_version: ${{ steps.plan.outputs.base_version }}
+      target_version: ${{ steps.plan.outputs.target_version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out target source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Resolve source refs and versions
+        id: plan
+        env:
+          BASE_REF: v0.6.0
+          BASE_VERSION: 0.6.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'EOF'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const targetVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+          const platforms = [
+            { os: "ubuntu-22.04", platform: "linux-x86_64" },
+            { os: "windows-latest", platform: "windows-x86_64" },
+          ];
+          const include = platforms.flatMap(({ os, platform }) => [
+            {
+              role: "base",
+              source_ref: process.env.BASE_REF,
+              version: process.env.BASE_VERSION,
+              os,
+              platform,
+            },
+            {
+              role: "target",
+              source_ref: process.env.GITHUB_SHA,
+              version: targetVersion,
+              os,
+              platform,
+            },
+          ]);
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `base_version=${process.env.BASE_VERSION}\ntarget_version=${targetVersion}\nmatrix=${JSON.stringify({ include })}\n`,
+          );
+          EOF
+
   build:
-    name: ${{ matrix.version }} (${{ matrix.os }})
+    name: Build ${{ matrix.role }} ${{ matrix.version }} (${{ matrix.platform }})
+    needs: plan
     environment: updater-e2e
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        version:
-          - 0.1.12-rc.1
-          - 0.1.12-rc.2
-        os:
-          - ubuntu-22.04
-          - windows-latest
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
-      - name: Check out repository
+      - name: Check out ${{ matrix.source_ref }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ matrix.source_ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -53,24 +99,24 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify isolated updater E2E public key
+      - name: Verify isolated updater E2E keys
         env:
           UPDATER_E2E_PUBLIC_KEY: ${{ vars.UPDATER_E2E_PUBLIC_KEY }}
-        run: >-
-          node -e "const fs = require('node:fs'); const e2e = process.env.UPDATER_E2E_PUBLIC_KEY?.trim(); if (!e2e) throw new Error('UPDATER_E2E_PUBLIC_KEY is required in the updater-e2e environment'); const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8')); const production = config?.plugins?.updater?.pubkey?.trim(); if (!production) throw new Error('Production updater public key is missing in src-tauri/tauri.conf.json'); if (e2e === production) throw new Error('UPDATER_E2E_PUBLIC_KEY must differ from the production updater public key in src-tauri/tauri.conf.json');"
-
-      - name: Verify updater E2E signing secret
-        env:
           UPDATER_E2E_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY }}
         run: >-
-          node -e "if (!process.env.UPDATER_E2E_SIGNING_PRIVATE_KEY?.trim()) throw new Error('UPDATER_E2E_SIGNING_PRIVATE_KEY is required in the updater-e2e environment');"
+          node -e "const fs = require('node:fs'); const publicKey = process.env.UPDATER_E2E_PUBLIC_KEY?.trim(); const privateKey = process.env.UPDATER_E2E_SIGNING_PRIVATE_KEY?.trim(); if (!publicKey) throw new Error('UPDATER_E2E_PUBLIC_KEY is required in the updater-e2e environment'); if (!privateKey) throw new Error('UPDATER_E2E_SIGNING_PRIVATE_KEY is required in the updater-e2e environment'); const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8')); const production = config?.plugins?.updater?.pubkey?.trim(); if (!production) throw new Error('Production updater public key is missing'); if (publicKey === production) throw new Error('Updater E2E and production public keys must differ');"
 
       - name: Create updater E2E overlays
         env:
           E2E_VERSION: ${{ matrix.version }}
           UPDATER_E2E_PUBLIC_KEY: ${{ vars.UPDATER_E2E_PUBLIC_KEY }}
-        run: >-
-          node -e "const fs = require('node:fs'); fs.writeFileSync('.tmp-tauri-updater-e2e-version.json', JSON.stringify({ version: process.env.E2E_VERSION })); fs.writeFileSync('.tmp-tauri-updater-e2e-trust.json', JSON.stringify({ plugins: { updater: { pubkey: process.env.UPDATER_E2E_PUBLIC_KEY } } }));"
+        shell: bash
+        run: |
+          node --input-type=module <<'EOF'
+          import { writeFileSync } from "node:fs";
+          writeFileSync(".tmp-tauri-updater-e2e-version.json", JSON.stringify({ version: process.env.E2E_VERSION }));
+          writeFileSync(".tmp-tauri-updater-e2e-trust.json", JSON.stringify({ plugins: { updater: { pubkey: process.env.UPDATER_E2E_PUBLIC_KEY, windows: { installMode: "quiet" } } } }));
+          EOF
 
       - name: Build signed Linux AppImage
         if: runner.os == 'Linux'
@@ -104,7 +150,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: updater-e2e-${{ matrix.version }}-linux-x86_64
+          name: updater-e2e-${{ matrix.role }}-${{ matrix.platform }}
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.AppImage.sig
@@ -115,9 +161,77 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: updater-e2e-${{ matrix.version }}-windows-x86_64
+          name: updater-e2e-${{ matrix.role }}-${{ matrix.platform }}
           path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
             src-tauri/target/release/bundle/nsis/*-setup.exe.sig
           if-no-files-found: error
           retention-days: 3
+
+  smoke:
+    name: Upgrade v${{ needs.plan.outputs.base_version }} to v${{ needs.plan.outputs.target_version }} (${{ matrix.platform }})
+    needs:
+      - plan
+      - build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+
+    steps:
+      - name: Check out upgrade harness
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Download base artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: updater-e2e-base-${{ matrix.platform }}
+          path: .tmp/updater-e2e/base
+
+      - name: Download target artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: updater-e2e-target-${{ matrix.platform }}
+          path: .tmp/updater-e2e/target
+
+      - name: Install Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libwebkit2gtk-4.1-0 \
+            libayatana-appindicator3-1 \
+            librsvg2-2 \
+            libfuse2 \
+            xvfb
+
+      - name: Exercise Linux signed update and restart
+        if: runner.os == 'Linux'
+        env:
+          E2E_BASE_DIR: ${{ github.workspace }}/.tmp/updater-e2e/base
+          E2E_TARGET_DIR: ${{ github.workspace }}/.tmp/updater-e2e/target
+          E2E_BASE_VERSION: ${{ needs.plan.outputs.base_version }}
+          E2E_TARGET_VERSION: ${{ needs.plan.outputs.target_version }}
+          E2E_WORK_DIR: ${{ runner.temp }}/omp-updater-e2e
+        run: xvfb-run --auto-servernum node .github/scripts/run-updater-e2e.mjs
+
+      - name: Exercise Windows signed update and restart
+        if: runner.os == 'Windows'
+        env:
+          E2E_BASE_DIR: ${{ github.workspace }}/.tmp/updater-e2e/base
+          E2E_TARGET_DIR: ${{ github.workspace }}/.tmp/updater-e2e/target
+          E2E_BASE_VERSION: ${{ needs.plan.outputs.base_version }}
+          E2E_TARGET_VERSION: ${{ needs.plan.outputs.target_version }}
+          E2E_WORK_DIR: ${{ runner.temp }}/omp-updater-e2e
+        run: node .github/scripts/run-updater-e2e.mjs

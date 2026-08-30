@@ -151,6 +151,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub primary_provider_pins: BTreeSet<String>,
     #[serde(default)]
+    pub proxy_providers: BTreeSet<String>,
+    #[serde(default)]
     pub rail_mode: RailMode,
     #[serde(default = "default_language")]
     pub language: String,
@@ -181,6 +183,7 @@ impl Default for AppSettings {
             hidden_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
             primary_provider_pins: BTreeSet::new(),
+            proxy_providers: BTreeSet::new(),
             rail_mode: RailMode::default(),
             language: default_language(),
             app_font_family: default_app_font_family(),
@@ -208,6 +211,7 @@ impl fmt::Debug for AppSettings {
                 "primary_provider_pin_count",
                 &self.primary_provider_pins.len(),
             )
+            .field("proxy_provider_count", &self.proxy_providers.len())
             .field("rail_mode", &self.rail_mode)
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
@@ -636,6 +640,18 @@ mod tests {
             restored.primary_provider_pins,
             settings.primary_provider_pins
         );
+    }
+
+    #[test]
+    fn proxy_providers_survive_settings_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.proxy_providers.insert("codex-lb".to_owned());
+
+        let serialized = serde_json::to_string(&settings).expect("settings should serialize");
+        let restored: AppSettings =
+            serde_json::from_str(&serialized).expect("settings should deserialize");
+
+        assert_eq!(restored.proxy_providers, settings.proxy_providers);
     }
 
     #[test]

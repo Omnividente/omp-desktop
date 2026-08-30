@@ -379,6 +379,18 @@ function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
   requireReleaseState({ releaseMetadata, tag, state })
   requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
 
+  const updaterManifests = releaseMetadata.assets.filter(
+    (asset) => asset?.name?.toLowerCase() === "latest.json",
+  )
+  requireCondition(
+    updaterManifests.length === 1,
+    `Release ${tag} must contain exactly one latest.json asset`,
+  )
+  requireCondition(
+    updaterManifests[0].content_type === "application/json",
+    `Release asset latest.json must use Content-Type application/json, got ${updaterManifests[0].content_type ?? "missing"}`,
+  )
+
   const apiPath = `/repos/${repository}/releases/assets/`
   const downloadPath = `/${repository}/releases/download/`
   const urls = new Map()
