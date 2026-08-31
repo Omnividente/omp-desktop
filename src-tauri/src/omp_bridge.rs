@@ -297,6 +297,9 @@ pub fn save_config(
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
     if let Some(providers) = expected_proxy_providers.as_ref() {
+        validate_proxy_provider_membership(providers, &previous_config.models)?;
+    }
+    if let Some(providers) = expected_proxy_providers.as_ref() {
         app_settings.proxy_providers = providers.iter().cloned().collect();
     }
 
@@ -993,6 +996,37 @@ fn normalize_proxy_providers(providers: Vec<String>) -> Result<Vec<String>, Stri
     Ok(normalized.into_iter().collect())
 }
 
+fn validate_proxy_provider_membership(
+    providers: &[String],
+    models: &[OmpModelInfo],
+) -> Result<(), String> {
+    if providers.is_empty() {
+        return Ok(());
+    }
+    if models.is_empty() {
+        return Err(
+            "Не удалось подтвердить proxy providers: OMP не вернул список моделей".to_owned(),
+        );
+    }
+    let known = models
+        .iter()
+        .map(|model| model.provider.as_str())
+        .collect::<BTreeSet<_>>();
+    let unknown = providers
+        .iter()
+        .filter(|provider| !known.contains(provider.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Proxy providers отсутствуют в текущем списке моделей OMP: {}",
+            unknown.join(", ")
+        ))
+    }
+}
+
 fn normalize_fallback_chains(
     chains: HashMap<String, Vec<String>>,
 ) -> Result<BTreeMap<String, Vec<String>>, String> {
@@ -1091,7 +1125,7 @@ fn valid_role_alias(value: &str) -> bool {
         })
 }
 
-fn valid_selector_segment(value: &str) -> bool {
+pub(crate) fn valid_selector_segment(value: &str) -> bool {
     let Some(first) = value.chars().next() else {
         return false;
     };
@@ -1337,6 +1371,11 @@ providers:
             vec!["codex-lb".to_owned(), "gateway".to_owned()]
         );
         assert!(normalize_proxy_providers(vec!["provider/model".to_owned()]).is_err());
+        let models = vec![model("codex-lb", "primary"), model("gateway", "fallback")];
+        assert!(validate_proxy_provider_membership(&["codex-lb".to_owned()], &models).is_ok());
+        assert!(validate_proxy_provider_membership(&["missing".to_owned()], &models).is_err());
+        assert!(validate_proxy_provider_membership(&["missing".to_owned()], &[]).is_err());
+        assert!(validate_proxy_provider_membership(&[], &[]).is_ok());
     }
 
     #[test]
