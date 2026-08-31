@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      statuses: read
     environment: production-release
     steps:
       - name: Bind environment approval to the promoted tag
@@ -85,6 +86,20 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$tag_sha" origin/main; then
             echo "Release tag $RELEASE_TAG ($tag_sha) must point to a commit reachable from main." >&2
+            exit 1
+          fi
+
+      - name: Require successful updater E2E
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_sha=$(cat "$RUNNER_TEMP/release-tag-sha")
+          state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag_sha/status" \
+            --jq '[.statuses[] | select(.context == "Updater Upgrade E2E")][0].state // "missing"')
+          if [[ "$state" != "success" ]]; then
+            echo "Updater Upgrade E2E status for $tag_sha is $state; promotion requires success." >&2
             exit 1
           fi
 

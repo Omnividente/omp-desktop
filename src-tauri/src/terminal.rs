@@ -1,6 +1,7 @@
 #[cfg(windows)]
 use crate::sessions::normalize_windows_verbatim_path;
 use crate::{
+    diagnostics,
     omp_command::GITHUB_AUTH_ENV_KEYS,
     session_lease::{SessionLease, SessionLeasePurpose},
     sessions::{
@@ -3789,8 +3790,12 @@ fn receive_ready_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec
     batch
 }
 
-fn receive_timed_output_batch(receiver: &mpsc::Receiver<Vec<u8>>, mut batch: Vec<u8>) -> Vec<u8> {
-    let deadline = Instant::now() + PTY_OUTPUT_BATCH_INTERVAL;
+fn receive_timed_output_batch(
+    receiver: &mpsc::Receiver<Vec<u8>>,
+    mut batch: Vec<u8>,
+    batch_interval: Duration,
+) -> Vec<u8> {
+    let deadline = Instant::now() + batch_interval;
     while batch.len() < PTY_OUTPUT_BATCH_LIMIT {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -3821,6 +3826,7 @@ fn try_output_exit(receiver: &mpsc::Receiver<PtyExitEvent>) -> Option<OutputDrai
 fn drain_output_batches<Forward>(
     output_receiver: &mpsc::Receiver<Vec<u8>>,
     exit_receiver: &mpsc::Receiver<PtyExitEvent>,
+    batch_interval: Duration,
     mut forward: Forward,
 ) -> OutputDrainResult
 where
@@ -3840,7 +3846,7 @@ where
         }
 
         loop {
-            let first = match output_receiver.recv_timeout(PTY_OUTPUT_BATCH_INTERVAL) {
+            let first = match output_receiver.recv_timeout(batch_interval) {
                 Ok(first) => first,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if let Some(result) = try_output_exit(exit_receiver) {
@@ -3852,7 +3858,7 @@ where
                     return OutputDrainResult::OutputDisconnected;
                 }
             };
-            let batch = receive_timed_output_batch(output_receiver, first);
+            let batch = receive_timed_output_batch(output_receiver, first, batch_interval);
             if !batch.is_empty() {
                 forward(&batch);
             }
@@ -3900,8 +3906,12 @@ fn run_output_pipeline<Output, Exit>(
     Output: FnMut(&[u8]),
     Exit: FnMut(PtyExitEvent),
 {
-    let event = match drain_output_batches(&output_receiver, &exit_receiver, |batch| output(batch))
-    {
+    let event = match drain_output_batches(
+        &output_receiver,
+        &exit_receiver,
+        PTY_OUTPUT_BATCH_INTERVAL,
+        |batch| output(batch),
+    ) {
         OutputDrainResult::OutputDisconnected => match exit_receiver.recv() {
             Ok(event) => event,
             Err(_) => return,
@@ -3976,6 +3986,7 @@ fn forward_output_batches(
     finalized_sender: mpsc::SyncSender<()>,
 ) {
     let update_detector = RefCell::new(UpdateDetector::new());
+    let transient_backend_detector = RefCell::new(TransientBackendErrorDetector::default());
     run_output_pipeline(
         output_receiver,
         exit_receiver,
@@ -3987,6 +3998,7 @@ fn forward_output_batches(
                 &output,
                 batch,
                 &mut update_detector.borrow_mut(),
+                &mut transient_backend_detector.borrow_mut(),
             )
         },
         |event| {
@@ -4161,12 +4173,23 @@ fn route_output(
     terminal_id: &str,
     output: &SharedTerminalOutput,
     data: &[u8],
-    detector: &mut UpdateDetector,
+    update_detector: &mut UpdateDetector,
+    transient_backend_detector: &mut TransientBackendErrorDetector,
 ) {
     let Some((generation, seq, should_emit)) = lock_terminal_output(output).record(data) else {
         return;
     };
-    let emit_update = detector.observe(data);
+    let emit_update = update_detector.observe(data);
+    for category in transient_backend_detector
+        .observe(data)
+        .into_iter()
+        .flatten()
+    {
+        diagnostics::warn(
+            "pty.transient_backend",
+            &format!("terminal_id={terminal_id}; category={category}"),
+        );
+    }
 
     if should_emit {
         let encoded = BASE64.encode(data);
@@ -4252,6 +4275,83 @@ impl UpdateDetector {
     }
 }
 
+const MAX_TRANSIENT_BACKEND_PATTERN_SPAN: usize = 64;
+const TRANSIENT_BACKEND_PATTERNS: [(&[u8], u8, &str); 6] = [
+    (
+        b"previous response owner account is unavailable",
+        0b0001,
+        "stale_response_owner",
+    ),
+    (
+        b"1012 (service restart)",
+        0b0010,
+        "websocket_service_restart",
+    ),
+    (b"overloaded_error", 0b0100, "provider_overloaded"),
+    (b"ENETUNREACH", 0b1000, "network_unavailable"),
+    (b"EHOSTUNREACH", 0b1000, "network_unavailable"),
+    (b"EAI_AGAIN", 0b1000, "network_unavailable"),
+];
+
+#[derive(Default)]
+struct TransientBackendErrorDetector {
+    tail: Vec<u8>,
+    notified: u8,
+}
+
+impl TransientBackendErrorDetector {
+    fn observe(&mut self, data: &[u8]) -> [Option<&'static str>; TRANSIENT_BACKEND_PATTERNS.len()] {
+        let mut events = [None; TRANSIENT_BACKEND_PATTERNS.len()];
+        for (index, (pattern, bit, category)) in TRANSIENT_BACKEND_PATTERNS.iter().enumerate() {
+            if self.notified & bit != 0 {
+                continue;
+            }
+            if contains_ascii_case_insensitive(data, pattern)
+                || pattern_crosses_output_boundary(&self.tail, data, pattern)
+            {
+                self.notified |= bit;
+                events[index] = Some(*category);
+            }
+        }
+        append_transient_backend_tail(&mut self.tail, data);
+        events
+    }
+}
+
+fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+fn pattern_crosses_output_boundary(tail: &[u8], data: &[u8], pattern: &[u8]) -> bool {
+    (1..pattern.len()).any(|tail_len| {
+        tail.get(tail.len().saturating_sub(tail_len)..)
+            .is_some_and(|suffix| {
+                suffix.len() == tail_len && suffix.eq_ignore_ascii_case(&pattern[..tail_len])
+            })
+            && data
+                .get(..pattern.len() - tail_len)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&pattern[tail_len..]))
+    })
+}
+
+fn append_transient_backend_tail(tail: &mut Vec<u8>, data: &[u8]) {
+    if data.len() >= MAX_TRANSIENT_BACKEND_PATTERN_SPAN {
+        tail.clear();
+        tail.extend_from_slice(&data[data.len() - MAX_TRANSIENT_BACKEND_PATTERN_SPAN..]);
+        return;
+    }
+    let overflow = tail
+        .len()
+        .saturating_add(data.len())
+        .saturating_sub(MAX_TRANSIENT_BACKEND_PATTERN_SPAN);
+    if overflow > 0 {
+        tail.drain(..overflow);
+    }
+    tail.extend_from_slice(data);
+}
+
 fn append_update_buffer(buffer: &mut Vec<u8>, data: &[u8]) {
     if data.len() >= MAX_UPDATE_BUFFER {
         buffer.clear();
@@ -4318,19 +4418,19 @@ mod tests {
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
         decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
-        feed_runtime_lines, finalize_switch_result, initial_agent_args_with_config, lock_processes,
-        lock_terminal_output, model_switch_input, normalize_thinking_level, output_event_name,
-        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
-        receive_timed_output_batch, recover_runtime_cursor, resolve_resume_path_for_current,
-        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line,
-        send_switch_input_recovery_blocking, session_title_for_emit, session_title_from_line,
-        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
-        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
-        SessionDiscovery, SessionLease, SessionLeasePurpose, SwitchInputRecoveryRequest,
-        SwitchInputRecoveryState, SwitchRequest, TerminalAttachmentRequest, TerminalOutputState,
-        TerminalProcess, TerminalState, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE,
-        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
-        PTY_OUTPUT_BATCH_LIMIT,
+        drain_output_batches, feed_runtime_lines, finalize_switch_result,
+        initial_agent_args_with_config, lock_processes, lock_terminal_output, model_switch_input,
+        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
+        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
+        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
+        runtime_event_from_line, send_switch_input_recovery_blocking, session_title_for_emit,
+        session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
+        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
+        RuntimeWatchCursor, SessionDiscovery, SessionLease, SessionLeasePurpose,
+        SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
+        TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
+        MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -4350,6 +4450,121 @@ mod tests {
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    #[cfg(windows)]
+    struct ProcessFixture {
+        child: Option<std::process::Child>,
+    }
+
+    #[cfg(windows)]
+    impl ProcessFixture {
+        fn new(child: std::process::Child) -> Self {
+            Self { child: Some(child) }
+        }
+
+        fn id(&self) -> u32 {
+            self.child
+                .as_ref()
+                .expect("fixture child should exist")
+                .id()
+        }
+
+        fn raw_handle(&self) -> std::os::windows::io::RawHandle {
+            use std::os::windows::io::AsRawHandle;
+            self.child
+                .as_ref()
+                .expect("fixture child should exist")
+                .as_raw_handle()
+        }
+
+        fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
+            self.child
+                .as_mut()
+                .expect("fixture child should exist")
+                .try_wait()
+        }
+
+        fn wait(&mut self) -> io::Result<std::process::ExitStatus> {
+            let result = self
+                .child
+                .as_mut()
+                .expect("fixture child should exist")
+                .wait();
+            if result.is_ok() {
+                self.child = None;
+            }
+            result
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for ProcessFixture {
+        fn drop(&mut self) {
+            let Some(mut child) = self.child.take() else {
+                return;
+            };
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+        }
+    }
+
+    #[cfg(windows)]
+    struct PtyChildFixture {
+        child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+        killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+    }
+
+    #[cfg(windows)]
+    impl PtyChildFixture {
+        fn new(child: Box<dyn portable_pty::Child + Send + Sync>) -> Self {
+            let killer = child.clone_killer();
+            Self {
+                child: Some(child),
+                killer,
+            }
+        }
+
+        fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
+            self.child
+                .as_ref()
+                .expect("fixture child should exist")
+                .clone_killer()
+        }
+
+        fn try_wait(&mut self) -> io::Result<Option<portable_pty::ExitStatus>> {
+            self.child
+                .as_mut()
+                .expect("fixture child should exist")
+                .try_wait()
+        }
+
+        fn wait(&mut self) -> io::Result<portable_pty::ExitStatus> {
+            let result = self
+                .child
+                .as_mut()
+                .expect("fixture child should exist")
+                .wait();
+            if result.is_ok() {
+                self.child = None;
+            }
+            result
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for PtyChildFixture {
+        fn drop(&mut self) {
+            let Some(mut child) = self.child.take() else {
+                return;
+            };
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                let _ = kill_terminal_process(self.killer.as_mut());
+            }
+            let _ = child.wait();
+        }
+    }
 
     fn switch_request() -> SwitchRequest {
         SwitchRequest {
@@ -4616,11 +4831,45 @@ mod tests {
                 .expect("queued output chunk");
         }
 
-        let batch = receive_timed_output_batch(&receiver, vec![0; chunk_size]);
+        let batch =
+            receive_timed_output_batch(&receiver, vec![0; chunk_size], PTY_OUTPUT_BATCH_INTERVAL);
         assert_eq!(batch.len(), PTY_OUTPUT_BATCH_LIMIT);
         assert_eq!(batch[0], 0);
         assert_eq!(batch[chunk_size], 1);
         assert_eq!(batch[PTY_OUTPUT_BATCH_LIMIT - 1], 7);
+    }
+
+    #[test]
+    fn output_pipeline_forwards_leading_chunk_before_batch_window() {
+        let (output_sender, output_receiver) = mpsc::sync_channel(1);
+        let (_exit_sender, exit_receiver) = mpsc::sync_channel(1);
+        let (forwarded_sender, forwarded_receiver) = mpsc::sync_channel(1);
+
+        let pipeline = thread::spawn(move || {
+            let _ = drain_output_batches(
+                &output_receiver,
+                &exit_receiver,
+                Duration::from_secs(30),
+                |batch| {
+                    forwarded_sender
+                        .send(batch.to_vec())
+                        .expect("forward leading output")
+                },
+            );
+        });
+
+        output_sender
+            .send(b"leading".to_vec())
+            .expect("queue leading output");
+        assert_eq!(
+            forwarded_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("leading output must not wait for the trailing batch window"),
+            b"leading"
+        );
+
+        drop(output_sender);
+        pipeline.join().expect("join output pipeline");
     }
 
     #[test]
@@ -4762,10 +5011,11 @@ mod tests {
             .expect("ConPTY fixture should open");
         let mut command = CommandBuilder::new("powershell.exe");
         command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"]);
-        let mut child = pair
+        let child = pair
             .slave
             .spawn_command(command)
             .expect("sleeping child should start");
+        let mut child = PtyChildFixture::new(child);
         let mut killer = child.clone_killer();
         let raw_writer = pair.master.take_writer().expect("PTY writer should open");
         drop(pair.slave);
@@ -4809,10 +5059,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_job_object_kills_direct_child_and_descendant_on_owner_drop() {
-        use std::{
-            os::windows::io::AsRawHandle,
-            process::{Command, Stdio},
-        };
+        use std::process::{Command, Stdio};
         use windows_sys::Win32::{
             Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT},
             System::Threading::{
@@ -4875,7 +5122,7 @@ $child.WaitForExit()
         )
         .expect("PowerShell fixture should be writable");
 
-        let mut child = Command::new("powershell.exe")
+        let child = Command::new("powershell.exe")
             .args([
                 "-NoLogo",
                 "-NoProfile",
@@ -4892,8 +5139,9 @@ $child.WaitForExit()
             .stderr(Stdio::null())
             .spawn()
             .expect("PowerShell tree fixture should start");
+        let mut child = ProcessFixture::new(child);
         let job = WindowsJobObject::new().expect("kill-on-close Job Object should initialize");
-        job.assign(child.as_raw_handle())
+        job.assign(child.raw_handle())
             .expect("fixture root should join Job Object before descendant launch");
         fs::write(&gate, b"assigned").expect("fixture gate should open");
 
@@ -4986,10 +5234,11 @@ $child.WaitForExit()
         ]);
         command.env("OMP_SWITCH_READY", &ready);
         command.env("OMP_SWITCH_RECEIVED", &received);
-        let mut child = pair
+        let child = pair
             .slave
             .spawn_command(command)
             .expect("PowerShell input fixture should start");
+        let mut child = PtyChildFixture::new(child);
         drop(pair.slave);
 
         let mut cursor_query = [0_u8; 4];
@@ -6703,5 +6952,41 @@ $child.WaitForExit()
         let mut localized_detector = UpdateDetector::new();
         assert!(localized_detector.observe(&localized));
         assert!(!localized_detector.observe(&localized));
+    }
+
+    #[test]
+    fn transient_backend_detector_handles_split_output_and_deduplicates_categories() {
+        use super::TransientBackendErrorDetector;
+
+        let mut detector = TransientBackendErrorDetector::default();
+        assert!(detector
+            .observe(b"Previous response owner account is unavail")
+            .into_iter()
+            .flatten()
+            .next()
+            .is_none());
+        assert_eq!(
+            detector
+                .observe(b"able; retry later. (code=upstream_unavailable)")
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            vec!["stale_response_owner"]
+        );
+        assert!(detector
+            .observe(b"PREVIOUS RESPONSE OWNER ACCOUNT IS UNAVAILABLE")
+            .into_iter()
+            .flatten()
+            .next()
+            .is_none());
+
+        assert_eq!(
+            detector
+                .observe(b"transport failed: EHOSTUNREACH; EAI_AGAIN")
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            vec!["network_unavailable"]
+        );
     }
 }

@@ -36,22 +36,38 @@ fn conpty_burst_drains_after_immediate_exit() {
     // ConPTY asks the terminal for its cursor position before starting the
     // child. xterm.js answers this in the application; the isolated smoke must
     // emulate that handshake or the fixture legitimately remains blocked.
-    let mut cursor_query = [0_u8; 4];
-    reader
-        .read_exact(&mut cursor_query)
-        .expect("read ConPTY cursor-position query");
+    let (cursor_sender, cursor_receiver) = mpsc::sync_channel(1);
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let reader_thread = thread::spawn(move || {
+        let mut cursor_query = [0_u8; 4];
+        if let Err(error) = reader.read_exact(&mut cursor_query) {
+            let _ = cursor_sender.send(Err(error));
+            return;
+        }
+        if cursor_sender.send(Ok(cursor_query)).is_err() {
+            return;
+        }
+
+        let mut output = Vec::new();
+        let result = reader.read_to_end(&mut output);
+        let _ = sender.send((result, output));
+    });
+    let cursor_query = match cursor_receiver.recv_timeout(Duration::from_secs(10)) {
+        Ok(Ok(cursor_query)) => cursor_query,
+        Ok(Err(error)) => {
+            let _ = child.kill();
+            panic!("read ConPTY cursor-position query: {error}");
+        }
+        Err(error) => {
+            let _ = child.kill();
+            panic!("ConPTY cursor-position query must arrive within 10 seconds: {error}");
+        }
+    };
     assert_eq!(&cursor_query, b"\x1b[6n");
     writer
         .write_all(b"\x1b[1;1R")
         .expect("answer ConPTY cursor-position query");
     writer.flush().expect("flush ConPTY cursor response");
-
-    let (sender, receiver) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let mut output = Vec::new();
-        let result = reader.read_to_end(&mut output);
-        let _ = sender.send((result, output));
-    });
 
     let status = child.wait().expect("wait for burst fixture");
     assert!(status.success(), "burst fixture must exit successfully");
@@ -66,6 +82,7 @@ fn conpty_burst_drains_after_immediate_exit() {
         .recv_timeout(Duration::from_secs(30))
         .expect("ConPTY reader must reach EOF after master drop");
     read_result.expect("read complete ConPTY output");
+    reader_thread.join().expect("join ConPTY reader");
 
     let output = String::from_utf8_lossy(&output);
     assert!(output.contains("exit-order-0"));

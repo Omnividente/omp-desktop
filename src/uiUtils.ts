@@ -58,6 +58,21 @@ export function tabMatchesSession(
     )
   )
 }
+
+export function reorderTerminalTabs(
+  tabs: TerminalTab[],
+  draggedId: string,
+  targetId: string,
+): TerminalTab[] {
+  if (draggedId === targetId) return tabs
+  const draggedIndex = tabs.findIndex((tab) => tab.id === draggedId)
+  const targetIndex = tabs.findIndex((tab) => tab.id === targetId)
+  if (draggedIndex < 0 || targetIndex < 0) return tabs
+  const reordered = [...tabs]
+  const [moved] = reordered.splice(draggedIndex, 1)
+  reordered.splice(targetIndex, 0, moved)
+  return reordered
+}
 export function extractSingleInstanceWorkspace(args: string[] | undefined): string | null {
   const list = args ?? []
   const clean = (value: string | undefined): string | null => {

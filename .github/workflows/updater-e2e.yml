@@ -2,38 +2,81 @@ name: Verify Updater Upgrade E2E
 
 on:
   workflow_dispatch:
-
+    inputs:
+      base_tag:
+        description: Stable release tag to upgrade from
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - Build and Publish Release
+    types:
+      - completed
 permissions:
   contents: read
 
 concurrency:
-  group: updater-e2e-${{ github.ref }}
+  group: updater-e2e-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   plan:
-    name: Plan v0.6.0 upgrade matrix
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    name: Plan updater upgrade matrix
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       base_version: ${{ steps.plan.outputs.base_version }}
       target_version: ${{ steps.plan.outputs.target_version }}
+      target_ref: ${{ steps.plan.outputs.target_ref }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Check out target source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Resolve source refs and versions
         id: plan
         env:
-          BASE_REF: v0.6.0
-          BASE_VERSION: 0.6.0
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BASE_TAG: ${{ inputs.base_tag }}
+          TARGET_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module <<'EOF'
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            base_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          else
+            base_tag="$INPUT_BASE_TAG"
+          fi
+          if [[ ! "$base_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Updater E2E base tag must be a stable semantic version: $base_tag" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/$base_tag:refs/tags/$base_tag"
+          git show "$base_tag:package.json" > "$RUNNER_TEMP/updater-base-package.json"
+          BASE_TAG="$base_tag" node --input-type=module <<'EOF'
           import { appendFileSync, readFileSync } from "node:fs";
+
+          const baseVersion = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/updater-base-package.json`, "utf8")).version;
           const targetVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+          const parseVersion = (value, label) => {
+            const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);
+            if (!match) throw new Error(`${label} must be a stable semantic version, got ${value}`);
+            return match.slice(1).map(Number);
+          };
+          const baseParts = parseVersion(baseVersion, "Base version");
+          const targetParts = parseVersion(targetVersion, "Target version");
+          const targetIsNewer = targetParts.some((part, index) =>
+            part !== baseParts[index] ? part > baseParts[index] : false,
+          );
+          const firstDifference = targetParts.findIndex((part, index) => part !== baseParts[index]);
+          if (firstDifference < 0 || !targetIsNewer || targetParts[firstDifference] < baseParts[firstDifference]) {
+            throw new Error(`Target version ${targetVersion} must be newer than base ${baseVersion}`);
+          }
           const platforms = [
             { os: "ubuntu-22.04", platform: "linux-x86_64" },
             { os: "windows-latest", platform: "windows-x86_64" },
@@ -41,14 +84,14 @@ jobs:
           const include = platforms.flatMap(({ os, platform }) => [
             {
               role: "base",
-              source_ref: process.env.BASE_REF,
-              version: process.env.BASE_VERSION,
+              source_ref: process.env.BASE_TAG,
+              version: baseVersion,
               os,
               platform,
             },
             {
               role: "target",
-              source_ref: process.env.GITHUB_SHA,
+              source_ref: process.env.TARGET_REF,
               version: targetVersion,
               os,
               platform,
@@ -56,7 +99,7 @@ jobs:
           ]);
           appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `base_version=${process.env.BASE_VERSION}\ntarget_version=${targetVersion}\nmatrix=${JSON.stringify({ include })}\n`,
+            `base_version=${baseVersion}\ntarget_version=${targetVersion}\ntarget_ref=${process.env.TARGET_REF}\nmatrix=${JSON.stringify({ include })}\n`,
           );
           EOF
 
@@ -65,6 +108,7 @@ jobs:
     needs: plan
     environment: updater-e2e
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -187,6 +231,8 @@ jobs:
     steps:
       - name: Check out upgrade harness
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.plan.outputs.target_ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -235,3 +281,36 @@ jobs:
           E2E_TARGET_VERSION: ${{ needs.plan.outputs.target_version }}
           E2E_WORK_DIR: ${{ runner.temp }}/omp-updater-e2e
         run: node .github/scripts/run-updater-e2e.mjs
+
+  attest:
+    name: Record updater E2E status
+    if: always() && needs.plan.result == 'success'
+    needs:
+      - plan
+      - smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Publish commit status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+          TARGET_SHA: ${{ needs.plan.outputs.target_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          description="Signed updater upgrade failed"
+          if [[ "$SMOKE_RESULT" == "success" ]]; then
+            state=success
+            description="Signed Linux and Windows updater upgrades passed"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
+            -f state="$state" \
+            -f context="Updater Upgrade E2E" \
+            -f description="$description"
+          if [[ "$state" != "success" ]]; then
+            exit 1
+          fi

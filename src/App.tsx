@@ -106,6 +106,7 @@ import {
   mergeSessionIntoPayload,
   normalizedPath,
   replaceTerminalAfterRestart,
+  reorderTerminalTabs,
   tabMatchesSession,
 } from "./uiUtils"
 import { useClientUpdater } from "./useClientUpdater"
@@ -1569,15 +1570,7 @@ function App() {
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
-    setTabs((current) => {
-      const draggedIndex = current.findIndex((tab) => tab.id === draggedId)
-      const targetIndex = current.findIndex((tab) => tab.id === targetId)
-      if (draggedIndex < 0 || targetIndex < 0) return current
-      const copy = [...current]
-      const [moved] = copy.splice(draggedIndex, 1)
-      copy.splice(targetIndex, 0, moved)
-      return copy
-    })
+    setTabs((current) => reorderTerminalTabs(current, draggedId, targetId))
   }, [])
 
   const performCloseTab = useCallback(

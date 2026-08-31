@@ -230,6 +230,7 @@ export function TerminalWorkspace({
               active={tab.id === activeTabId}
               focusRequestSequence={focusRequest?.terminalId === tab.id ? focusRequest.sequence : 0}
               language={language}
+              platform={runtime.platform}
               terminalFontFamily={terminalFontFamily}
               terminalFontSize={terminalFontSize}
               key={tab.id}

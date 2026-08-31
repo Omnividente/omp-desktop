@@ -4,6 +4,7 @@ use crate::{
         AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_APP_FONT_FAMILY,
         DEFAULT_TERMINAL_FONT_FAMILY, DEFAULT_TERMINAL_FONT_SIZE,
     },
+    omp_bridge::valid_selector_segment,
     omp_command::{run_omp_command, OmpOperation},
     secrets,
     sessions::{atomic_write_file, atomic_write_private_file, path_key},
@@ -291,6 +292,27 @@ fn unique_settings_backup(path: &Path, label: &str) -> Result<PathBuf, String> {
     Err("Не удалось подобрать уникальный путь резервной копии настроек".to_owned())
 }
 
+fn normalize_persisted_proxy_providers(settings: &mut AppSettings) -> bool {
+    let source = std::mem::take(&mut settings.proxy_providers);
+    let source_len = source.len();
+    let mut normalized = BTreeSet::new();
+    let mut changed = false;
+    for candidate in source {
+        let provider = candidate.trim();
+        if provider != candidate || !valid_selector_segment(provider) {
+            changed = true;
+        }
+        if valid_selector_segment(provider) && !normalized.insert(provider.to_owned()) {
+            changed = true;
+        }
+    }
+    if normalized.len() != source_len {
+        changed = true;
+    }
+    settings.proxy_providers = normalized;
+    changed
+}
+
 fn normalize_session_pin_keys(settings: &mut AppSettings) -> bool {
     let source_titles = std::mem::take(&mut settings.session_title_pins);
     let source_title_len = source_titles.len();
@@ -354,6 +376,13 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     };
 
     let pins_normalized = normalize_session_pin_keys(&mut settings);
+    let proxy_providers_normalized = normalize_persisted_proxy_providers(&mut settings);
+    if proxy_providers_normalized {
+        diagnostics::warn(
+            "settings.proxy_providers",
+            "invalid or duplicate persisted provider ids were removed",
+        );
+    }
     let legacy_values = std::mem::take(&mut settings.provider_env);
     let loaded = secrets::load_provider_secrets(app, &settings.provider_env_keys, legacy_values)
         .map_err(|error| {
@@ -362,7 +391,11 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     settings.provider_env = loaded.values;
     settings.provider_env_keys = loaded.keys;
     settings.secret_storage_warning = loaded.warning;
-    if loaded.migrated || recovered_backup.is_some() || pins_normalized {
+    if loaded.migrated
+        || recovered_backup.is_some()
+        || pins_normalized
+        || proxy_providers_normalized
+    {
         save_settings(app, &settings).map_err(|error| {
             settings_stage_error(&path, recovered_backup.as_deref(), "migration_save", error)
         })?;
@@ -991,8 +1024,8 @@ fn looks_like_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_settings_reason, ensure_initialized_with, normalize_session_pin_keys,
-        primary_provider_pin_overlay, proxy_provider_overlay_for_test,
+        bounded_settings_reason, ensure_initialized_with, normalize_persisted_proxy_providers,
+        normalize_session_pin_keys, primary_provider_pin_overlay, proxy_provider_overlay_for_test,
         recover_invalid_settings_with, resolve_omp_cached, resolve_transaction,
         save_settings_to_path, start_with_defaults_at_with, AppSettings, OmpResolution,
         OmpResolutionCache, OmpResolutionKey, SettingsState, MAX_SETTINGS_FAILURE_REASON_CHARS,
@@ -1114,6 +1147,26 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("off")
         );
+    }
+
+    #[test]
+    fn persisted_proxy_provider_ids_are_trimmed_and_invalid_values_removed() {
+        let mut settings = AppSettings {
+            proxy_providers: BTreeSet::from([
+                " codex-lb ".to_owned(),
+                "codex-lb".to_owned(),
+                "provider/model".to_owned(),
+                "".to_owned(),
+            ]),
+            ..AppSettings::default()
+        };
+
+        assert!(normalize_persisted_proxy_providers(&mut settings));
+        assert_eq!(
+            settings.proxy_providers,
+            BTreeSet::from(["codex-lb".to_owned()])
+        );
+        assert!(!normalize_persisted_proxy_providers(&mut settings));
     }
     #[test]
     fn pin_key_normalization_collapses_aliases_and_prefers_canonical_title() {

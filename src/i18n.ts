@@ -387,7 +387,7 @@ export const UI_TEXT = {
     credentialModels: "моделей: {count}",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
-      "Отключает привязку Responses и WebSocket к одному upstream-аккаунту. Включайте для провайдеров, за которыми несколько взаимозаменяемых аккаунтов.",
+      "Удерживает fallback внутри пула выбранного провайдера. Пока режим включён хотя бы для одного провайдера, OMP глобально отключает OpenAI Codex WebSocket во всех новых терминалах Desktop.",
     providerKeys: "Ключи, сохранённые в Desktop",
     providerKeysHelp:
       "Значения хранятся в системном хранилище credentials и передаются только в окружение новых процессов OMP. Во frontend и settings.json попадают только имена переменных.",
@@ -802,7 +802,7 @@ export const UI_TEXT = {
     credentialModels: "models: {count}",
     providerProxyMode: "Proxy / account load balancer",
     providerProxyModeHelp:
-      "Disables Responses and WebSocket affinity to one upstream account. Enable for providers backed by interchangeable account pools.",
+      "Keeps fallback inside the selected provider's account pool. While any provider uses this mode, OMP globally disables OpenAI Codex WebSockets for every new Desktop terminal.",
     providerKeys: "Keys saved by Desktop",
     providerKeysHelp:
       "Values are kept in the operating system credential store and only injected into new OMP process environments. The frontend and settings.json receive variable names only.",

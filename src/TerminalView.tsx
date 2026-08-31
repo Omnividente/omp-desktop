@@ -31,10 +31,8 @@ import {
   terminalContinuityBaseline,
 } from "./terminalContinuity"
 import { formatTerminalExitLine } from "./uiUtils"
-import type { PtyExitEvent, PtyOutputEvent, TerminalTab } from "./types"
+import type { PtyExitEvent, PtyOutputEvent, RuntimeInfo, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
-
-const IS_LINUX_RUNTIME = typeof navigator !== "undefined" && /\bLinux\b/i.test(navigator.userAgent)
 
 interface TerminalViewProps {
   tab: TerminalTab
@@ -43,6 +41,7 @@ interface TerminalViewProps {
   language: Lang
   terminalFontFamily: string
   terminalFontSize: number
+  platform: RuntimeInfo["platform"]
   onExit: (event: PtyExitEvent) => void
   onError: (message: string) => void
   onReady: (terminalId: string) => void
@@ -70,6 +69,7 @@ export function TerminalView({
   language,
   terminalFontFamily,
   terminalFontSize,
+  platform,
   onExit,
   onError,
   onReady,
@@ -120,8 +120,9 @@ export function TerminalView({
       return
     }
 
+    const isLinuxRuntime = platform === "linux"
     const terminal = new Terminal({
-      cursorBlink: !IS_LINUX_RUNTIME,
+      cursorBlink: !isLinuxRuntime,
       cursorStyle: "bar",
       cursorWidth: 2,
       fontFamily: terminalFontFamilyRef.current,
@@ -131,7 +132,7 @@ export function TerminalView({
       letterSpacing: 0,
       lineHeight: 1.18,
       scrollback: 12_000,
-      smoothScrollDuration: IS_LINUX_RUNTIME ? 0 : 90,
+      smoothScrollDuration: isLinuxRuntime ? 0 : 90,
       theme: {
         background: "#101312",
         foreground: "#d9dedb",
@@ -478,7 +479,7 @@ export function TerminalView({
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [tab.id, tab.kind])
+  }, [platform, tab.id, tab.kind])
 
   useEffect(() => {
     const terminal = terminalRef.current
