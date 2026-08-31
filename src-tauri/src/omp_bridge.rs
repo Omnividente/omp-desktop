@@ -296,12 +296,17 @@ pub fn save_config(
         .map(normalize_proxy_providers)
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
-    if let Some(providers) = expected_proxy_providers.as_ref() {
-        validate_proxy_provider_membership(providers, &previous_config.models)?;
-    }
-    if let Some(providers) = expected_proxy_providers.as_ref() {
+    let proxy_provider_warnings = if let Some(providers) = expected_proxy_providers.as_ref() {
+        let warnings = validate_proxy_provider_membership(
+            providers,
+            &previous_config.proxy_providers,
+            &previous_config.models,
+        )?;
         app_settings.proxy_providers = providers.iter().cloned().collect();
-    }
+        warnings
+    } else {
+        Vec::new()
+    };
 
     let credentials_changed = if let Some(provider_env) = request.provider_env {
         crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
@@ -374,7 +379,8 @@ pub fn save_config(
                 &app_settings.provider_env,
             )?;
         }
-        let snapshot = load_config_snapshot(app, &app_settings)?;
+        let mut snapshot = load_config_snapshot(app, &app_settings)?;
+        snapshot.warnings.extend(proxy_provider_warnings);
         verify_saved_config(
             &snapshot,
             SavedConfigExpectation {
@@ -998,33 +1004,65 @@ fn normalize_proxy_providers(providers: Vec<String>) -> Result<Vec<String>, Stri
 
 fn validate_proxy_provider_membership(
     providers: &[String],
+    previous_providers: &[String],
     models: &[OmpModelInfo],
-) -> Result<(), String> {
+) -> Result<Vec<OmpConfigWarning>, String> {
     if providers.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     if models.is_empty() {
-        return Err(
-            "Не удалось подтвердить proxy providers: OMP не вернул список моделей".to_owned(),
+        diagnostics::warn(
+            "settings.proxy_providers",
+            "membership unverified: model catalog unavailable",
         );
+        return Ok(vec![OmpConfigWarning {
+            source: "settings.proxy_providers".to_owned(),
+            code: "proxy_provider_membership_unverified".to_owned(),
+            message: "Принадлежность proxy providers не проверена: каталог моделей OMP недоступен"
+                .to_owned(),
+        }]);
     }
+
     let known = models
         .iter()
         .map(|model| model.provider.as_str())
         .collect::<BTreeSet<_>>();
-    let unknown = providers
+    let previous = previous_providers
         .iter()
-        .filter(|provider| !known.contains(provider.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if unknown.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Proxy providers отсутствуют в текущем списке моделей OMP: {}",
-            unknown.join(", ")
-        ))
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut added_unknown = Vec::new();
+    let mut retained_unknown = Vec::new();
+    for provider in providers {
+        if known.contains(provider.as_str()) {
+            continue;
+        }
+        if previous.contains(provider.as_str()) {
+            retained_unknown.push(provider.as_str());
+        } else {
+            added_unknown.push(provider.as_str());
+        }
     }
+    if !added_unknown.is_empty() {
+        return Err(format!(
+            "Новые proxy providers отсутствуют в текущем списке моделей OMP: {}",
+            added_unknown.join(", ")
+        ));
+    }
+    if retained_unknown.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let message = format!(
+        "Сохранённые proxy providers отсутствуют в текущем списке моделей OMP: {}",
+        retained_unknown.join(", ")
+    );
+    diagnostics::warn("settings.proxy_providers", &message);
+    Ok(vec![OmpConfigWarning {
+        source: "settings.proxy_providers".to_owned(),
+        code: "proxy_provider_membership_stale".to_owned(),
+        message,
+    }])
 }
 
 fn normalize_fallback_chains(
@@ -1371,11 +1409,38 @@ providers:
             vec!["codex-lb".to_owned(), "gateway".to_owned()]
         );
         assert!(normalize_proxy_providers(vec!["provider/model".to_owned()]).is_err());
-        let models = vec![model("codex-lb", "primary"), model("gateway", "fallback")];
-        assert!(validate_proxy_provider_membership(&["codex-lb".to_owned()], &models).is_ok());
-        assert!(validate_proxy_provider_membership(&["missing".to_owned()], &models).is_err());
-        assert!(validate_proxy_provider_membership(&["missing".to_owned()], &[]).is_err());
-        assert!(validate_proxy_provider_membership(&[], &[]).is_ok());
+    }
+
+    #[test]
+    fn proxy_provider_membership_allows_unavailable_catalog_with_warning() {
+        let warnings = validate_proxy_provider_membership(&["codex-lb".to_owned()], &[], &[])
+            .expect("unavailable catalog must not block settings save");
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "proxy_provider_membership_unverified");
+    }
+
+    #[test]
+    fn proxy_provider_membership_warns_for_retained_unknown_provider() {
+        let models = vec![model("gateway", "fallback")];
+        let warnings = validate_proxy_provider_membership(
+            &["retired".to_owned()],
+            &["retired".to_owned()],
+            &models,
+        )
+        .expect("a previously saved provider must not block unrelated settings changes");
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "proxy_provider_membership_stale");
+    }
+
+    #[test]
+    fn proxy_provider_membership_rejects_new_unknown_provider() {
+        let models = vec![model("gateway", "fallback")];
+        let error = validate_proxy_provider_membership(&["missing".to_owned()], &[], &models)
+            .expect_err("a newly added provider must exist in the current model catalog");
+
+        assert!(error.contains("missing"));
     }
 
     #[test]
