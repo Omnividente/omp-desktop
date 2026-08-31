@@ -1,0 +1,45 @@
+name: Release Tag Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_run:
+    workflows:
+      - Build and Publish Release
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tag-health
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify immutable tags have releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Load repository release state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" \
+            --paginate --slurp > "$RUNNER_TEMP/version-tag-refs.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --paginate --slurp > "$RUNNER_TEMP/releases.json"
+
+      - name: Verify release tag health
+        run: >-
+          node .github/scripts/check-release-tag-health.mjs
+          "$RUNNER_TEMP/version-tag-refs.json"
+          "$RUNNER_TEMP/releases.json"
+          .github/release-tag-exceptions.json

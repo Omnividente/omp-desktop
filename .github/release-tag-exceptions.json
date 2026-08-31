@@ -1,0 +1,10 @@
+[
+  {
+    "tag": "v0.4.3",
+    "reason": "Historical immutable tag retained without a current GitHub Release; v0.4.4 supersedes it."
+  },
+  {
+    "tag": "v0.7.0",
+    "reason": "Release publication failed; v0.7.1 supersedes the immutable tag."
+  }
+]
