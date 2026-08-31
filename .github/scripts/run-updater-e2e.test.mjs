@@ -33,7 +33,7 @@ describe("updater E2E harness", () => {
     assert.deepEqual(Object.keys(linux.platforms), ["linux-x86_64"])
   })
 
-  it("accepts only a complete ordered install and restart sequence", () => {
+  it("requires the installed marker before a Linux restart", () => {
     const events = [
       { event: "started", version: "0.6.0", detail: null },
       { event: "update-found", version: "0.6.0", detail: "0.6.1" },
@@ -42,10 +42,33 @@ describe("updater E2E harness", () => {
       { event: "complete", version: "0.6.1", detail: null },
     ]
 
-    assert.doesNotThrow(() => validateMarkerEvents(events, "0.6.0", "0.6.1"))
+    assert.doesNotThrow(() => validateMarkerEvents(events, "0.6.0", "0.6.1", "linux"))
     assert.throws(
-      () => validateMarkerEvents(events.slice(0, -1), "0.6.0", "0.6.1"),
-      /marker is incomplete/,
+      () =>
+        validateMarkerEvents(
+          events.filter((event) => event.event !== "installed"),
+          "0.6.0",
+          "0.6.1",
+          "linux",
+        ),
+      /expected installed 0\.6\.0/,
+    )
+  })
+
+  it("accepts a completed Windows restart when NSIS replaces the base process", () => {
+    const observedWindowsEvents = [
+      { event: "started", version: "0.7.1", detail: null },
+      { event: "update-found", version: "0.7.1", detail: "0.7.2" },
+      { event: "started", version: "0.7.2", detail: null },
+      { event: "complete", version: "0.7.2", detail: null },
+    ]
+
+    assert.doesNotThrow(() =>
+      validateMarkerEvents(observedWindowsEvents, "0.7.1", "0.7.2", "win32"),
+    )
+    assert.throws(
+      () => validateMarkerEvents(observedWindowsEvents.slice(0, -1), "0.7.1", "0.7.2", "win32"),
+      /expected complete 0\.7\.2/,
     )
   })
 
@@ -59,6 +82,7 @@ describe("updater E2E harness", () => {
           ],
           "0.6.0",
           "0.6.1",
+          "linux",
         ),
       /signature rejected/,
     )
