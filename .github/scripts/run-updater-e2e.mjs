@@ -38,7 +38,8 @@ export function buildUpdaterManifest({ platform, signature, targetVersion, asset
   }
 }
 
-export function validateMarkerEvents(events, baseVersion, targetVersion) {
+export function validateMarkerEvents(events, baseVersion, targetVersion, platform) {
+  const updaterTarget = updaterPlatform(platform)
   const failure = events.find((event) => event?.event === "error")
   if (failure) {
     throw new Error(
@@ -48,7 +49,9 @@ export function validateMarkerEvents(events, baseVersion, targetVersion) {
   const expected = [
     { event: "started", version: baseVersion, detail: null },
     { event: "update-found", version: baseVersion, detail: targetVersion },
-    { event: "installed", version: baseVersion, detail: targetVersion },
+    ...(updaterTarget === "windows-x86_64"
+      ? []
+      : [{ event: "installed", version: baseVersion, detail: targetVersion }]),
     { event: "started", version: targetVersion, detail: null },
     { event: "complete", version: targetVersion, detail: null },
   ]
@@ -125,13 +128,13 @@ async function readMarker(marker) {
   }
 }
 
-async function waitForCompletion(marker, baseVersion, targetVersion, timeoutMs) {
+async function waitForCompletion(marker, baseVersion, targetVersion, platform, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   let lastEvents = []
   while (Date.now() < deadline) {
     lastEvents = await readMarker(marker)
     try {
-      validateMarkerEvents(lastEvents, baseVersion, targetVersion)
+      validateMarkerEvents(lastEvents, baseVersion, targetVersion, platform)
       return lastEvents
     } catch (error) {
       if (lastEvents.some((event) => event?.event === "error")) throw error
@@ -248,7 +251,13 @@ async function main() {
     } else {
       await launchLinuxBase(baseAsset, workingDirectory, marker, targetVersion)
     }
-    const events = await waitForCompletion(marker, baseVersion, targetVersion, DEFAULT_TIMEOUT_MS)
+    const events = await waitForCompletion(
+      marker,
+      baseVersion,
+      targetVersion,
+      process.platform,
+      DEFAULT_TIMEOUT_MS,
+    )
     process.stdout.write(`${JSON.stringify(events)}\n`)
   } finally {
     await new Promise((resolvePromise) => server.close(resolvePromise))
