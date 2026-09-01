@@ -8,6 +8,7 @@ interface UpdateNoticeProps {
   disabled: boolean
   onRemindLater: () => void
   onDismissSession?: () => void
+  onViewChanges?: () => void
   onUpdate: () => void
 }
 
@@ -18,6 +19,7 @@ export function UpdateNotice({
   onRemindLater,
   onDismissSession,
   onUpdate,
+  onViewChanges,
 }: UpdateNoticeProps) {
   return (
     <div className="update-toast" role="status">
@@ -29,6 +31,12 @@ export function UpdateNotice({
             .replace("{current}", info.currentVersion ?? t(language, "notFound"))
             .replace("{latest}", info.latestVersion ?? t(language, "updateAvailable"))}
         </span>
+        {onViewChanges && (
+          <button className="release-notes-link" onClick={onViewChanges} type="button">
+            {t(language, "viewChanges")}
+            <Icon name="external" size={11} />
+          </button>
+        )}
       </div>
       <button className="button primary" disabled={disabled} onClick={onUpdate} type="button">
         {t(language, "updateNow")}

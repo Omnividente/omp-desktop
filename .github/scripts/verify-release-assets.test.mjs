@@ -8,11 +8,17 @@ import { afterEach, describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
   classifyReleaseAsset,
+  releaseAssetContentType,
+  recoverStagedReleaseAssets,
+  rewriteUpdaterManifestUrls,
+  releasePublicationDisposition,
+  replaceReleaseAssetSafely,
   requireCandidatePrerelease,
   requireDraftPrerelease,
   requireDraftRelease,
   requireStableRelease,
   selectDraftRelease,
+  stagedReleaseAssetName,
   waitForDraftRelease,
   verifyReleaseAssets,
   writeReleaseChecksums,
@@ -146,7 +152,7 @@ async function releaseFixture() {
     assets: [
       ...definitions.map(({ key, name, id }) => ({
         name,
-        content_type: "application/octet-stream",
+        content_type: releaseAssetContentType(name),
         url: `${apiBase}/${id}`,
         browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/${assets[key].name}`,
       })),
@@ -231,6 +237,70 @@ async function runVerifierCli(fixture, releaseMetadata, mode) {
   })
 }
 
+function fakeReleaseAssetClient(initialAssets, failures = {}) {
+  let assets = structuredClone(initialAssets)
+  let nextId = Math.max(0, ...assets.map((asset) => asset.id)) + 1
+  const calls = []
+  const release = () => ({ assets: structuredClone(assets) })
+  const consumeFailure = (name) => {
+    if (!failures[name]) return false
+    failures[name] -= 1
+    return true
+  }
+  const client = {
+    loadRelease: async () => release(),
+    uploadAsset: async ({ path, name, contentType, label }) => {
+      assert.equal(
+        assets.some((asset) => asset.name === name),
+        false,
+      )
+      const bytes = await readFile(path)
+      const asset = {
+        id: nextId++,
+        name,
+        label: label || null,
+        content_type: contentType,
+        digest: `sha256:${hash(bytes)}`,
+        state: "uploaded",
+      }
+      assets.push(asset)
+      calls.push(["upload", name])
+      if (consumeFailure("uploadAfterCreate")) throw new Error("upload response lost")
+      return structuredClone(asset)
+    },
+    updateAsset: async (assetId, { name, label }) => {
+      calls.push(["update", assetId, name])
+      if (consumeFailure("updateBeforeChange")) throw new Error("rename failed")
+      const asset = assets.find((candidate) => candidate.id === assetId)
+      assert.ok(asset)
+      assert.equal(
+        assets.some((candidate) => candidate.id !== assetId && candidate.name === name),
+        false,
+      )
+      asset.name = name
+      asset.label = label || null
+      return structuredClone(asset)
+    },
+    deleteAsset: async (assetId) => {
+      calls.push(["delete", assetId])
+      const index = assets.findIndex((asset) => asset.id === assetId)
+      assert.notEqual(index, -1)
+      assets.splice(index, 1)
+      if (consumeFailure("deleteAfterChange")) throw new Error("delete response lost")
+    },
+  }
+  return { client, calls, snapshot: () => structuredClone(assets) }
+}
+
+async function replacementFixture(label) {
+  const directory = await mkdtemp(join(tmpdir(), `omp-release-replacement-${label}-`))
+  directories.push(directory)
+  const path = join(directory, "artifact.bin")
+  const bytes = Buffer.from("replacement bytes")
+  await writeFile(path, bytes)
+  return { path, bytes, digest: `sha256:${hash(bytes)}` }
+}
+
 afterEach(async () => {
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -258,12 +328,24 @@ describe("release asset verification", () => {
   })
   it("rejects a latest.json asset uploaded with the wrong media type", async () => {
     const fixture = await releaseFixture()
-    const updaterAsset = fixture.releaseMetadata.assets.find((asset) => asset.name === "latest.json")
+    const updaterAsset = fixture.releaseMetadata.assets.find(
+      (asset) => asset.name === "latest.json",
+    )
     updaterAsset.content_type = "application/zip"
 
     await assert.rejects(
       () => verifyReleaseAssets(fixture),
       /latest\.json must use Content-Type application\/json, got application\/zip/,
+    )
+  })
+
+  it("rejects installer media types mislabeled as zip archives", async () => {
+    const fixture = await releaseFixture()
+    fixture.releaseMetadata.assets[0].content_type = "application/zip"
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /must use Content-Type application\/octet-stream, got application\/zip/,
     )
   })
   it("accepts a public candidate prerelease state", async () => {
@@ -448,6 +530,173 @@ describe("release asset verification", () => {
     )
   })
 
+  it("distinguishes a retryable draft from an already published candidate", async () => {
+    const fixture = await releaseFixture()
+    assert.equal(
+      releasePublicationDisposition({
+        releaseMetadata: fixture.releaseMetadata,
+        tag: fixture.tag,
+        expectedId: fixture.releaseMetadata.id,
+      }),
+      "draft",
+    )
+    assert.equal(
+      releasePublicationDisposition({
+        releaseMetadata: { ...fixture.releaseMetadata, draft: false, prerelease: true },
+        tag: fixture.tag,
+        expectedId: fixture.releaseMetadata.id,
+      }),
+      "candidate",
+    )
+    assert.throws(
+      () =>
+        releasePublicationDisposition({
+          releaseMetadata: { ...fixture.releaseMetadata, draft: false, prerelease: false },
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id,
+        }),
+      /not in candidate-prerelease state/,
+    )
+    assert.throws(
+      () =>
+        releasePublicationDisposition({
+          releaseMetadata: fixture.releaseMetadata,
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id + 1,
+        }),
+      /Expected release/,
+    )
+  })
+
+  it("preserves the original asset when staging upload acknowledgement fails", async () => {
+    const replacement = await replacementFixture("upload-failure")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { uploadAfterCreate: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /upload response lost/,
+    )
+    assert.deepEqual(fake.snapshot(), [original])
+  })
+
+  it("recovers a durable staged asset after delete succeeds and rename fails", async () => {
+    const replacement = await replacementFixture("rename-failure")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { updateBeforeChange: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /rename failed/,
+    )
+    assert.equal(fake.snapshot()[0].name, stagedReleaseAssetName(original.name))
+
+    assert.deepEqual(await recoverStagedReleaseAssets({ client: fake.client }), {
+      recovered: [original.name],
+      cleaned: [],
+    })
+    assert.deepEqual(fake.snapshot(), [
+      {
+        id: 2,
+        name: original.name,
+        label: null,
+        content_type: "application/octet-stream",
+        digest: replacement.digest,
+        state: "uploaded",
+      },
+    ])
+  })
+
+  it("recovers an ambiguous successful delete without discarding staged bytes", async () => {
+    const replacement = await replacementFixture("delete-response-loss")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { deleteAfterChange: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /delete response lost/,
+    )
+    assert.equal(fake.snapshot()[0].name, stagedReleaseAssetName(original.name))
+    await recoverStagedReleaseAssets({ client: fake.client })
+    assert.equal(fake.snapshot()[0].name, original.name)
+    assert.equal(fake.snapshot()[0].digest, replacement.digest)
+  })
+
+  it("rewrites stale updater asset URLs after release asset replacement", async () => {
+    const fixture = await releaseFixture()
+    const currentMetadata = structuredClone(fixture.releaseMetadata)
+    const currentByName = new Map(currentMetadata.assets.map((asset) => [asset.name, asset]))
+    const signatureToName = new Map(
+      Object.values(fixture.assets).map((asset) => [asset.signature, asset.name]),
+    )
+
+    const apiBase = `https://api.github.com/repos/${fixture.repository}/releases/assets`
+    for (const [index, asset] of currentMetadata.assets.entries()) {
+      asset.id = (asset.id ?? 106) + 1_000 + index
+      asset.url = `${apiBase}/${asset.id}`
+    }
+
+    const summary = await rewriteUpdaterManifestUrls({
+      directory: fixture.directory,
+      tag: fixture.tag,
+      repository: fixture.repository,
+      releaseMetadata: currentMetadata,
+    })
+    assert.equal(summary.rewritten, Object.keys(fixture.updater.platforms).length)
+
+    const rewritten = JSON.parse(await readFile(join(fixture.directory, "latest.json"), "utf8"))
+    for (const entry of Object.values(rewritten.platforms)) {
+      const name = signatureToName.get(entry.signature)
+      assert.ok(name)
+      assert.equal(entry.url, currentByName.get(name).url)
+    }
+    await assert.doesNotReject(() =>
+      verifyReleaseAssets({
+        ...fixture,
+        releaseMetadata: currentMetadata,
+      }),
+    )
+  })
+
   it("selects one draft release from paginated API metadata", async () => {
     const fixture = await releaseFixture()
     const selected = selectDraftRelease({
@@ -564,5 +813,15 @@ describe("release asset verification", () => {
       kind: "updater-manifest",
       platform: "metadata",
     })
+  })
+
+  it("assigns deterministic media types to every release asset class", () => {
+    assert.equal(releaseAssetContentType("latest.json"), "application/json")
+    assert.equal(releaseAssetContentType("release-assets-manifest.json"), "application/json")
+    assert.equal(releaseAssetContentType("SHA256SUMS-linux.txt"), "text/plain")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage.sig"), "text/plain")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage.tar.gz"), "application/gzip")
+    assert.equal(releaseAssetContentType("OMP.Desktop.nsis.zip"), "application/zip")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage"), "application/octet-stream")
   })
 })

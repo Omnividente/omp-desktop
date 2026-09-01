@@ -146,6 +146,229 @@ export function classifyReleaseAsset(name) {
   return { kind, platform }
 }
 
+export function releaseAssetContentType(name) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".json")) return "application/json"
+  if (lower.endsWith(".txt") || lower.endsWith(".sig")) return "text/plain"
+  if (lower.endsWith(".zip")) return "application/zip"
+  if (lower.endsWith(".tar.gz")) return "application/gzip"
+  return "application/octet-stream"
+}
+
+const RELEASE_ASSET_STAGE_PREFIX = "__omp_stage__"
+const RELEASE_ASSET_STAGE_LABEL_PREFIX = "omp-stage-sha256:"
+
+export function stagedReleaseAssetName(name) {
+  requireCondition(typeof name === "string" && name, "Release asset name is required")
+  requireCondition(
+    !name.startsWith(RELEASE_ASSET_STAGE_PREFIX),
+    `Release asset name uses the reserved staging prefix: ${name}`,
+  )
+  return `${RELEASE_ASSET_STAGE_PREFIX}${name}`
+}
+
+function stagedReleaseAssetOriginalName(name) {
+  if (typeof name !== "string" || !name.startsWith(RELEASE_ASSET_STAGE_PREFIX)) return null
+  const originalName = name.slice(RELEASE_ASSET_STAGE_PREFIX.length)
+  requireCondition(originalName, `Staged release asset has no original name: ${name}`)
+  return originalName
+}
+
+function releaseAssets(releaseMetadata) {
+  requireCondition(
+    releaseMetadata && typeof releaseMetadata === "object",
+    "Release metadata is required",
+  )
+  requireCondition(Array.isArray(releaseMetadata.assets), "Release metadata has no assets")
+  return releaseMetadata.assets
+}
+
+function releaseAssetNamed(releaseMetadata, name) {
+  const matches = releaseAssets(releaseMetadata).filter((asset) => asset?.name === name)
+  requireCondition(matches.length <= 1, `Expected at most one release asset named ${name}`)
+  return matches[0] ?? null
+}
+
+function requireReleaseAssetId(asset, label) {
+  requireCondition(
+    Number.isSafeInteger(asset?.id) && asset.id > 0,
+    `${label} has an invalid asset id`,
+  )
+  return asset.id
+}
+
+function requireReleaseAssetMatches(asset, { name, contentType, digest, label }) {
+  requireCondition(asset && typeof asset === "object", `Release asset ${name} is missing`)
+  requireCondition(asset.name === name, `Release asset name ${asset.name} does not match ${name}`)
+  requireCondition(
+    asset.content_type === contentType,
+    `Release asset ${name} must use Content-Type ${contentType}, got ${asset.content_type ?? "missing"}`,
+  )
+  requireCondition(
+    asset.digest === digest,
+    `Release asset ${name} digest ${asset.digest ?? "missing"} does not match ${digest}`,
+  )
+  requireCondition(asset.state === "uploaded", `Release asset ${name} is not durably uploaded`)
+  if (label !== undefined) {
+    requireCondition(asset.label === label, `Release asset ${name} has an unexpected staging label`)
+  }
+  requireReleaseAssetId(asset, `Release asset ${name}`)
+  return asset
+}
+
+function stagedReleaseAssetDigest(asset) {
+  const label = asset?.label
+  requireCondition(
+    typeof label === "string" && label.startsWith(RELEASE_ASSET_STAGE_LABEL_PREFIX),
+    `Staged release asset ${asset?.name ?? "unknown"} has no recovery digest`,
+  )
+  const digest = `sha256:${label.slice(RELEASE_ASSET_STAGE_LABEL_PREFIX.length)}`
+  requireCondition(
+    /^sha256:[0-9a-f]{64}$/.test(digest),
+    `Staged release asset ${asset.name} has an invalid recovery digest`,
+  )
+  return digest
+}
+
+function requireReleaseAssetClient(client) {
+  for (const method of ["loadRelease", "uploadAsset", "updateAsset", "deleteAsset"]) {
+    requireCondition(
+      typeof client?.[method] === "function",
+      `Release asset client.${method} is required`,
+    )
+  }
+}
+
+async function deleteStageOnlyWhileOriginalExists(client, originalName, stageName) {
+  const releaseMetadata = await client.loadRelease()
+  const original = releaseAssetNamed(releaseMetadata, originalName)
+  const staged = releaseAssetNamed(releaseMetadata, stageName)
+  if (original && staged) {
+    await client.deleteAsset(requireReleaseAssetId(staged, `Staged release asset ${stageName}`))
+  }
+}
+
+export async function recoverStagedReleaseAssets({ client }) {
+  requireReleaseAssetClient(client)
+  const snapshot = await client.loadRelease()
+  const stageNames = releaseAssets(snapshot)
+    .map((asset) => asset?.name)
+    .filter((name) => stagedReleaseAssetOriginalName(name) !== null)
+  const recovered = []
+  const cleaned = []
+
+  for (const stageName of stageNames) {
+    const originalName = stagedReleaseAssetOriginalName(stageName)
+    const releaseMetadata = await client.loadRelease()
+    const staged = releaseAssetNamed(releaseMetadata, stageName)
+    if (!staged) continue
+    const original = releaseAssetNamed(releaseMetadata, originalName)
+    if (original) {
+      await client.deleteAsset(requireReleaseAssetId(staged, `Staged release asset ${stageName}`))
+      cleaned.push(originalName)
+      continue
+    }
+
+    const digest = stagedReleaseAssetDigest(staged)
+    const contentType = releaseAssetContentType(originalName)
+    requireReleaseAssetMatches(staged, {
+      name: stageName,
+      contentType,
+      digest,
+      label: staged.label,
+    })
+    const promoted = await client.updateAsset(requireReleaseAssetId(staged, stageName), {
+      name: originalName,
+      label: "",
+    })
+    requireReleaseAssetMatches(promoted, { name: originalName, contentType, digest })
+    recovered.push(originalName)
+  }
+
+  return { recovered, cleaned }
+}
+
+export async function replaceReleaseAssetSafely({ client, path, name, contentType }) {
+  requireReleaseAssetClient(client)
+  requireCondition(typeof path === "string" && path, "Release asset path is required")
+  requireCondition(
+    typeof contentType === "string" && contentType,
+    "Release asset Content-Type is required",
+  )
+  const digestHex = await sha256(path)
+  const digest = `sha256:${digestHex}`
+  const stageName = stagedReleaseAssetName(name)
+  const stageLabel = `${RELEASE_ASSET_STAGE_LABEL_PREFIX}${digestHex}`
+
+  await recoverStagedReleaseAssets({ client })
+  let releaseMetadata = await client.loadRelease()
+  let original = releaseAssetNamed(releaseMetadata, name)
+  if (
+    original &&
+    original.content_type === contentType &&
+    original.digest === digest &&
+    original.state === "uploaded"
+  ) {
+    return { status: "unchanged", assetId: requireReleaseAssetId(original, name) }
+  }
+
+  if (!original) {
+    const created = await client.uploadAsset({ path, name, contentType, label: "" })
+    requireReleaseAssetMatches(created, { name, contentType, digest })
+    return { status: "created", assetId: created.id }
+  }
+
+  let staged
+  try {
+    staged = await client.uploadAsset({
+      path,
+      name: stageName,
+      contentType,
+      label: stageLabel,
+    })
+    requireReleaseAssetMatches(staged, {
+      name: stageName,
+      contentType,
+      digest,
+      label: stageLabel,
+    })
+  } catch (error) {
+    try {
+      await deleteStageOnlyWhileOriginalExists(client, name, stageName)
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `Failed to stage ${name} and clean up its temporary asset`,
+      )
+    }
+    throw error
+  }
+
+  let originalDeleted = false
+  try {
+    await client.deleteAsset(requireReleaseAssetId(original, `Release asset ${name}`))
+    originalDeleted = true
+    const promoted = await client.updateAsset(requireReleaseAssetId(staged, stageName), {
+      name,
+      label: "",
+    })
+    requireReleaseAssetMatches(promoted, { name, contentType, digest })
+    return { status: "replaced", assetId: promoted.id }
+  } catch (error) {
+    if (!originalDeleted) {
+      try {
+        await deleteStageOnlyWhileOriginalExists(client, name, stageName)
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Failed to preserve ${name} after an interrupted replacement`,
+        )
+      }
+    }
+    throw error
+  }
+}
+
 function classifyInstallers(names) {
   return {
     linuxInstallers: names.filter((name) => /\.(?:appimage|deb|rpm)$/i.test(name)),
@@ -286,6 +509,23 @@ export function requireStableRelease({ releaseMetadata, tag }) {
   requireReleaseState({ releaseMetadata, tag, state: "stable" })
 }
 
+export function releasePublicationDisposition({ releaseMetadata, tag, expectedId }) {
+  requireCondition(
+    Number.isSafeInteger(expectedId) && expectedId > 0,
+    `Expected release id is invalid: ${expectedId}`,
+  )
+  requireCondition(
+    releaseMetadata?.id === expectedId,
+    `Expected release ${expectedId} but resolved ${releaseMetadata?.id ?? "missing"}`,
+  )
+  if (releaseMetadata.draft === true) {
+    requireDraftPrerelease({ releaseMetadata, tag })
+    return "draft"
+  }
+  requireCandidatePrerelease({ releaseMetadata, tag })
+  return "candidate"
+}
+
 export function selectDraftRelease({ releasePages, tag, allowMissing = false }) {
   requireCondition(Array.isArray(releasePages), "Paginated release metadata is required")
   const releases = releasePages.flatMap((page) => {
@@ -386,10 +626,13 @@ function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
     updaterManifests.length === 1,
     `Release ${tag} must contain exactly one latest.json asset`,
   )
-  requireCondition(
-    updaterManifests[0].content_type === "application/json",
-    `Release asset latest.json must use Content-Type application/json, got ${updaterManifests[0].content_type ?? "missing"}`,
-  )
+  for (const asset of releaseMetadata.assets) {
+    const expectedContentType = releaseAssetContentType(asset?.name ?? "")
+    requireCondition(
+      asset?.content_type === expectedContentType,
+      `Release asset ${asset?.name ?? "unknown"} must use Content-Type ${expectedContentType}, got ${asset?.content_type ?? "missing"}`,
+    )
+  }
 
   const apiPath = `/repos/${repository}/releases/assets/`
   const downloadPath = `/${repository}/releases/download/`
@@ -419,6 +662,87 @@ function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
     }
   }
   return urls
+}
+
+export async function rewriteUpdaterManifestUrls({
+  directory,
+  tag,
+  repository,
+  releaseMetadata,
+  releaseState = "draft-prerelease",
+}) {
+  requireCondition(directory, "Release asset directory is required")
+  requireCondition(tag, "Release tag is required")
+  requireCondition(repository, "Release repository is required")
+
+  const assetUrls = releaseAssetUrls(releaseMetadata, tag, repository, releaseState)
+  const remoteAssets = releaseAssets(releaseMetadata)
+  const assetsByName = new Map(remoteAssets.map((asset) => [asset?.name, asset]))
+  const manifestPath = join(directory, "latest.json")
+  const updater = JSON.parse(await readFile(manifestPath, "utf8"))
+  requireCondition(
+    updater && typeof updater === "object" && !Array.isArray(updater),
+    "latest.json must contain an object",
+  )
+  requireCondition(
+    updater.platforms && typeof updater.platforms === "object" && !Array.isArray(updater.platforms),
+    "latest.json has no platforms",
+  )
+
+  const names = await fileNames(directory)
+  const { linuxInstallers, windowsInstallers } = classifyInstallers(names)
+  const installers = [...linuxInstallers, ...windowsInstallers]
+  const signatureToInstaller = new Map()
+  for (const name of installers) {
+    const signaturePath = join(directory, `${name}.sig`)
+    requireCondition(names.includes(`${name}.sig`), `Updater signature is missing: ${name}.sig`)
+    const signature = (await readFile(signaturePath, "utf8")).trim()
+    requireCondition(signature, `Updater signature is empty: ${name}.sig`)
+    const previousName = signatureToInstaller.get(signature)
+    requireCondition(
+      previousName === undefined,
+      `Updater signature maps multiple installers: ${previousName}, ${name}`,
+    )
+    signatureToInstaller.set(signature, name)
+  }
+
+  let rewritten = 0
+  for (const [platform, entry] of Object.entries(updater.platforms)) {
+    requireCondition(
+      entry && typeof entry === "object" && !Array.isArray(entry),
+      `Invalid updater entry for ${platform}`,
+    )
+    const signature = typeof entry.signature === "string" ? entry.signature.trim() : ""
+    requireCondition(signature, `Missing updater signature for ${platform}`)
+
+    let assetName = null
+    if (typeof entry.url === "string" && entry.url) {
+      try {
+        const mappedName = assetUrls.get(normalizedUrl(entry.url, `Updater URL for ${platform}`))
+        if (mappedName && installers.includes(mappedName)) assetName = mappedName
+      } catch {
+        // A stale or malformed URL can still be repaired from the signed asset.
+      }
+    }
+    assetName ??= signatureToInstaller.get(signature)
+    requireCondition(
+      assetName,
+      `Updater target for ${platform} cannot be mapped to a current installer asset`,
+    )
+
+    const asset = assetsByName.get(assetName)
+    requireCondition(asset, `Current release metadata has no installer ${assetName}`)
+    const currentUrl = asset.url ?? asset.browser_download_url
+    requireCondition(
+      typeof currentUrl === "string" && currentUrl,
+      `Current release installer ${assetName} has no download URL`,
+    )
+    entry.url = currentUrl
+    rewritten += 1
+  }
+
+  await writeFile(manifestPath, `${JSON.stringify(updater, null, 2)}\n`)
+  return { rewritten }
 }
 
 function updaterAssetName(url, assetUrls, tag) {
@@ -553,11 +877,130 @@ async function verifyCliReleaseAssets({ directory, releaseState }) {
   console.log(`Verified ${releaseState} release assets: ${JSON.stringify(summary)}`)
 }
 
+function parseGhJson(stdout, label) {
+  try {
+    return JSON.parse(stdout)
+  } catch {
+    throw new Error(`${label} returned invalid JSON`)
+  }
+}
+
+function releaseIdFromEnvironment() {
+  const text = process.env.RELEASE_ID?.trim() ?? ""
+  const releaseId = Number(text)
+  requireCondition(
+    Number.isSafeInteger(releaseId) && releaseId > 0 && String(releaseId) === text,
+    `Release id is invalid: ${text}`,
+  )
+  return releaseId
+}
+
+function githubReleaseAssetClient({ repository, releaseId }) {
+  requireCondition(typeof repository === "string" && repository, "GitHub repository is required")
+  const releasePath = `repos/${repository}/releases/${releaseId}`
+  const assetPath = (assetId) => `repos/${repository}/releases/assets/${assetId}`
+  const ghJson = async (args, label, timeout = 60_000) => {
+    const { stdout } = await execFileAsync("gh", args, {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      timeout,
+    })
+    return parseGhJson(stdout, label)
+  }
+  return {
+    loadRelease: () => ghJson(["api", releasePath], "Release metadata request"),
+    uploadAsset: async ({ path, name, contentType, label }) => {
+      const releaseMetadata = await ghJson(["api", releasePath], "Release metadata request")
+      const uploadBase = releaseMetadata.upload_url?.split("{")[0]
+      requireCondition(uploadBase, "Release metadata has no upload URL")
+      const query = new URLSearchParams({ name })
+      if (label) query.set("label", label)
+      return ghJson(
+        [
+          "api",
+          "--method",
+          "POST",
+          "--header",
+          `Content-Type: ${contentType}`,
+          "--input",
+          path,
+          `${uploadBase}?${query}`,
+        ],
+        `Release asset upload ${name}`,
+        10 * 60_000,
+      )
+    },
+    updateAsset: (assetId, { name, label }) =>
+      ghJson(
+        [
+          "api",
+          "--method",
+          "PATCH",
+          assetPath(assetId),
+          "--raw-field",
+          `name=${name}`,
+          "--raw-field",
+          `label=${label ?? ""}`,
+        ],
+        `Release asset update ${name}`,
+      ),
+    deleteAsset: async (assetId) => {
+      await execFileAsync("gh", ["api", "--method", "DELETE", assetPath(assetId), "--silent"], {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: 60_000,
+      })
+    },
+  }
+}
+
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null
 if (invokedPath === import.meta.url) {
   try {
     const mode = process.argv[2]
-    if (mode === "--select-draft") {
+    if (mode === "--content-type") {
+      const name = process.argv[3]
+      requireCondition(name, "Release asset name is required")
+      console.log(releaseAssetContentType(name))
+    } else if (mode === "--publication-state") {
+      requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+      const expectedId = releaseIdFromEnvironment()
+      console.log(
+        releasePublicationDisposition({
+          releaseMetadata,
+          tag: process.env.RELEASE_TAG,
+          expectedId,
+        }),
+      )
+    } else if (mode === "--rewrite-updater-urls") {
+      requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const directory = process.argv[3] ?? process.env.RELEASE_DIR
+      const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+      const summary = await rewriteUpdaterManifestUrls({
+        directory,
+        tag: process.env.RELEASE_TAG,
+        repository: process.env.RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
+        releaseMetadata,
+      })
+      console.log(`Rewrote updater asset URLs: ${JSON.stringify(summary)}`)
+    } else if (mode === "--recover-staged-assets" || mode === "--replace-asset") {
+      const releaseId = releaseIdFromEnvironment()
+      const client = githubReleaseAssetClient({
+        repository: process.env.GITHUB_REPOSITORY,
+        releaseId,
+      })
+      if (mode === "--recover-staged-assets") {
+        const summary = await recoverStagedReleaseAssets({ client })
+        console.log(`Recovered staged release assets: ${JSON.stringify(summary)}`)
+      } else {
+        const [path, name, contentType] = process.argv.slice(3)
+        const summary = await replaceReleaseAssetSafely({ client, path, name, contentType })
+        console.log(`Replaced release asset safely: ${JSON.stringify({ name, ...summary })}`)
+      }
+    } else if (mode === "--select-draft") {
       requireCondition(process.env.RELEASE_LIST, "Paginated release metadata path is required")
       requireCondition(process.env.RELEASE_TAG, "Release tag is required")
       const releasePages = JSON.parse(await readFile(process.env.RELEASE_LIST, "utf8"))

@@ -3848,6 +3848,24 @@ button:disabled {
   white-space: nowrap;
 }
 
+.release-notes-link {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  color: #a8cf7f;
+  background: transparent;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.release-notes-link:hover {
+  color: #c9f39d;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .update-toast .button {
   height: 30px;
   padding: 0 10px;

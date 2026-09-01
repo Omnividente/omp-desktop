@@ -1150,6 +1150,58 @@ mod tests {
     }
 
     #[test]
+    fn proxy_and_primary_pin_overlays_compose_without_losing_settings() {
+        fn merge(target: &mut serde_json::Value, overlay: serde_json::Value) {
+            match (target, overlay) {
+                (serde_json::Value::Object(target), serde_json::Value::Object(overlay)) => {
+                    for (key, value) in overlay {
+                        merge(target.entry(key).or_insert(serde_json::Value::Null), value);
+                    }
+                }
+                (target, overlay) => *target = overlay,
+            }
+        }
+
+        let providers = BTreeSet::from(["codex-lb".to_owned()]);
+        let proxy = serde_saphyr::from_str::<serde_json::Value>(
+            std::str::from_utf8(&proxy_provider_overlay_for_test(&providers))
+                .expect("proxy overlay should be UTF-8"),
+        )
+        .expect("proxy overlay should be valid YAML");
+        let pin = serde_saphyr::from_str::<serde_json::Value>(primary_provider_pin_overlay())
+            .expect("pin overlay should be valid YAML");
+        let mut combined = serde_json::json!({});
+        merge(&mut combined, proxy);
+        merge(&mut combined, pin);
+
+        assert_eq!(
+            combined
+                .pointer("/retry/fallbackChains/codex-lb~1*")
+                .and_then(|value| value.get(0))
+                .and_then(serde_json::Value::as_str),
+            Some("codex-lb/*")
+        );
+        assert_eq!(
+            combined
+                .pointer("/providers/openaiWebsockets")
+                .and_then(serde_json::Value::as_str),
+            Some("off")
+        );
+        assert_eq!(
+            combined
+                .pointer("/retry/modelFallback")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            combined
+                .pointer("/providers/anthropic/serverSideFallback")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn persisted_proxy_provider_ids_are_trimmed_and_invalid_values_removed() {
         let mut settings = AppSettings {
             proxy_providers: BTreeSet::from([
