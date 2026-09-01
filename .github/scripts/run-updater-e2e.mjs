@@ -1,13 +1,6 @@
 import { spawn } from "node:child_process"
 import { createReadStream } from "node:fs"
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-} from "node:fs/promises"
+import { chmod, copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createServer } from "node:http"
 import { basename, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -22,6 +15,26 @@ function updaterPlatform(platform) {
   throw new Error(`Updater E2E does not support ${platform}`)
 }
 
+const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+
+export function compareStableVersions(left, right) {
+  const parse = (value) => {
+    const match = STABLE_VERSION_PATTERN.exec(value)
+    if (!match) throw new Error(`Expected a stable semantic version, got ${value}`)
+    return match.slice(1).map(Number)
+  }
+  const leftParts = parse(left)
+  const rightParts = parse(right)
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index]
+  }
+  return 0
+}
+
+export function parseWindowsExecutableVersion(output) {
+  const match = /(?:^|\D)(\d+)\.(\d+)\.(\d+)(?:\.\d+)?(?:\D|$)/.exec(output.trim())
+  return match ? `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}` : null
+}
 export function buildUpdaterManifest({ platform, signature, targetVersion, assetUrl }) {
   if (!targetVersion?.trim()) throw new Error("Updater E2E target version is required")
   if (!signature?.trim()) throw new Error("Updater E2E signature is required")
@@ -55,22 +68,29 @@ export function validateMarkerEvents(events, baseVersion, targetVersion, platfor
     { event: "started", version: targetVersion, detail: null },
     { event: "complete", version: targetVersion, detail: null },
   ]
-  let cursor = 0
-  for (const event of events) {
-    const wanted = expected[cursor]
-    if (!wanted) break
+  const sharedLength = Math.min(events.length, expected.length)
+  for (let index = 0; index < sharedLength; index += 1) {
+    const wanted = expected[index]
+    const observed = events[index]
     if (
-      event?.event === wanted.event &&
-      event?.version === wanted.version &&
-      (event?.detail ?? null) === wanted.detail
+      observed?.event !== wanted.event ||
+      observed?.version !== wanted.version ||
+      (observed?.detail ?? null) !== wanted.detail
     ) {
-      cursor += 1
+      throw new Error(
+        `Updater E2E marker mismatch at index ${index}: expected ${wanted.event} ${wanted.version}, observed ${JSON.stringify(observed)}`,
+      )
     }
   }
-  if (cursor !== expected.length) {
-    const wanted = expected[cursor]
+  if (events.length < expected.length) {
+    const wanted = expected[events.length]
     throw new Error(
       `Updater E2E marker is incomplete: expected ${wanted.event} ${wanted.version}, observed ${JSON.stringify(events)}`,
+    )
+  }
+  if (events.length > expected.length) {
+    throw new Error(
+      `Updater E2E marker count mismatch: expected ${expected.length}, observed ${events.length}: ${JSON.stringify(events)}`,
     )
   }
 }
@@ -110,9 +130,40 @@ function runProcess(command, args, options = {}) {
     child.once("error", reject)
     child.once("exit", (code, signal) => {
       if (code === 0) resolvePromise({ child, output })
-      else reject(new Error(`${command} exited with code ${code} signal ${signal ?? "none"}: ${output}`))
+      else
+        reject(
+          new Error(`${command} exited with code ${code} signal ${signal ?? "none"}: ${output}`),
+        )
     })
   })
+}
+
+async function verifyWindowsInstalledVersion(installDirectory, targetVersion) {
+  const installedFiles = await filesRecursively(installDirectory)
+  const executable = singleFile(
+    installedFiles,
+    (path) => basename(path).toLowerCase() === "omp-desktop-updater-e2e.exe",
+    "installed updater E2E executable",
+  )
+  const { output } = await runProcess(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$item = Get-Item -LiteralPath $env:OMP_E2E_EXECUTABLE; $version = $item.VersionInfo.ProductVersion; if (-not $version) { $version = $item.VersionInfo.FileVersion }; [Console]::Out.Write($version)",
+    ],
+    { env: { ...process.env, OMP_E2E_EXECUTABLE: executable } },
+  )
+  const installedVersion = parseWindowsExecutableVersion(output)
+  if (!installedVersion) {
+    throw new Error(`Could not read installed Windows executable version from: ${output}`)
+  }
+  if (compareStableVersions(installedVersion, targetVersion) !== 0) {
+    throw new Error(
+      `Windows updater did not replace the install-directory binary: expected ${targetVersion}, found ${installedVersion} at ${executable}`,
+    )
+  }
 }
 
 async function readMarker(marker) {
@@ -203,7 +254,6 @@ async function launchLinuxBase(baseAppImage, workingRoot, marker, targetVersion)
   child.unref()
 }
 
-
 async function main() {
   const baseDirectory = process.env.E2E_BASE_DIR
   const targetDirectory = process.env.E2E_TARGET_DIR
@@ -221,7 +271,11 @@ async function main() {
   const isWindows = process.platform === "win32"
   const assetPattern = isWindows ? /-setup\.exe$/i : /\.AppImage$/
   const baseAsset = singleFile(baseFiles, (path) => assetPattern.test(path), "base updater asset")
-  const targetAsset = singleFile(targetFiles, (path) => assetPattern.test(path), "target updater asset")
+  const targetAsset = singleFile(
+    targetFiles,
+    (path) => assetPattern.test(path),
+    "target updater asset",
+  )
   const targetSignature = singleFile(
     targetFiles,
     (path) => path === `${targetAsset}.sig`,
@@ -242,12 +296,7 @@ async function main() {
   let installDirectory
   try {
     if (isWindows) {
-      installDirectory = await launchWindowsBase(
-        baseAsset,
-        workingDirectory,
-        marker,
-        targetVersion,
-      )
+      installDirectory = await launchWindowsBase(baseAsset, workingDirectory, marker, targetVersion)
     } else {
       await launchLinuxBase(baseAsset, workingDirectory, marker, targetVersion)
     }
@@ -258,6 +307,10 @@ async function main() {
       process.platform,
       DEFAULT_TIMEOUT_MS,
     )
+    if (isWindows) {
+      if (!installDirectory) throw new Error("Windows updater E2E install directory is missing")
+      await verifyWindowsInstalledVersion(installDirectory, targetVersion)
+    }
     process.stdout.write(`${JSON.stringify(events)}\n`)
   } finally {
     await new Promise((resolvePromise) => server.close(resolvePromise))

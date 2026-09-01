@@ -59,22 +59,12 @@ jobs:
           git fetch --no-tags origin "refs/tags/$base_tag:refs/tags/$base_tag"
           git show "$base_tag:package.json" > "$RUNNER_TEMP/updater-base-package.json"
           BASE_TAG="$base_tag" node --input-type=module <<'EOF'
+          import { compareStableVersions } from "./.github/scripts/run-updater-e2e.mjs";
           import { appendFileSync, readFileSync } from "node:fs";
 
           const baseVersion = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/updater-base-package.json`, "utf8")).version;
           const targetVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
-          const parseVersion = (value, label) => {
-            const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);
-            if (!match) throw new Error(`${label} must be a stable semantic version, got ${value}`);
-            return match.slice(1).map(Number);
-          };
-          const baseParts = parseVersion(baseVersion, "Base version");
-          const targetParts = parseVersion(targetVersion, "Target version");
-          const targetIsNewer = targetParts.some((part, index) =>
-            part !== baseParts[index] ? part > baseParts[index] : false,
-          );
-          const firstDifference = targetParts.findIndex((part, index) => part !== baseParts[index]);
-          if (firstDifference < 0 || !targetIsNewer || targetParts[firstDifference] < baseParts[firstDifference]) {
+          if (compareStableVersions(targetVersion, baseVersion) <= 0) {
             throw new Error(`Target version ${targetVersion} must be newer than base ${baseVersion}`);
           }
           const platforms = [

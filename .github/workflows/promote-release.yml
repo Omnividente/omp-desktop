@@ -133,6 +133,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
+          set -euo pipefail
           metadata="$RUNNER_TEMP/release-metadata.json"
           expected_release_id=$(cat "$RUNNER_TEMP/release-id")
           expected_tag_sha=$(cat "$RUNNER_TEMP/release-tag-sha")
