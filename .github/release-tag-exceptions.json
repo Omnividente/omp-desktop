@@ -1,10 +1,17 @@
 [
   {
     "tag": "v0.4.3",
+    "kind": "orphan-tag",
     "reason": "Historical immutable tag retained without a current GitHub Release; v0.4.4 supersedes it."
   },
   {
     "tag": "v0.7.0",
+    "kind": "orphan-tag",
     "reason": "Release publication failed; v0.7.1 supersedes the immutable tag."
+  },
+  {
+    "tag": "v0.7.2",
+    "kind": "superseded-candidate",
+    "reason": "The Windows updater E2E failed closed; v0.7.3 supersedes this unpromoted candidate without moving its immutable tag."
   }
 ]

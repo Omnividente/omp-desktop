@@ -16,7 +16,13 @@ describe("release tag health", () => {
       checkReleaseTagHealth({
         tagRefs: [[ref("v0.7.0")], [ref("v0.7.1")]],
         releases: [[release("v0.7.1")]],
-        exceptions: [{ tag: "v0.7.0", reason: "Superseded after failed publication" }],
+        exceptions: [
+          {
+            tag: "v0.7.0",
+            kind: "orphan-tag",
+            reason: "Superseded after failed publication",
+          },
+        ],
         now: "2026-09-01T12:00:00Z",
       }),
       {
@@ -46,9 +52,9 @@ describe("release tag health", () => {
         checkReleaseTagHealth({
           tagRefs: [ref("v0.7.0")],
           releases: [release("v0.7.0")],
-          exceptions: [{ tag: "v0.7.0", reason: "Temporary exception" }],
+          exceptions: [{ tag: "v0.7.0", kind: "orphan-tag", reason: "Temporary exception" }],
         }),
-      /exception v0\.7\.0 is stale/,
+      /Orphan tag exception v0\.7\.0 is stale/,
     )
   })
 
@@ -91,6 +97,48 @@ describe("release tag health", () => {
           now: "2026-09-01T12:00:00Z",
         }),
       /Candidate prereleases older than 24 hours were not promoted: v0\.8\.0/,
+    )
+  })
+
+  it("accepts an explicitly documented candidate superseded by a newer stable release", () => {
+    assert.deepEqual(
+      checkReleaseTagHealth({
+        tagRefs: [ref("v0.7.2"), ref("v0.7.3")],
+        releases: [release("v0.7.2", false, true, "2026-08-30T11:00:00Z"), release("v0.7.3")],
+        exceptions: [
+          {
+            tag: "v0.7.2",
+            kind: "superseded-candidate",
+            reason: "Updater E2E failed; v0.7.3 replaced this candidate",
+          },
+        ],
+        now: "2026-09-01T12:00:00Z",
+      }),
+      {
+        versionTags: 2,
+        publishedReleases: 2,
+        candidatePrereleases: 1,
+        documentedExceptions: 1,
+      },
+    )
+  })
+
+  it("rejects a candidate exception until a newer stable release exists", () => {
+    assert.throws(
+      () =>
+        checkReleaseTagHealth({
+          tagRefs: [ref("v0.8.0")],
+          releases: [release("v0.8.0", false, true, "2026-08-30T11:00:00Z")],
+          exceptions: [
+            {
+              tag: "v0.8.0",
+              kind: "superseded-candidate",
+              reason: "Not actually superseded",
+            },
+          ],
+          now: "2026-09-01T12:00:00Z",
+        }),
+      /requires a newer stable release/,
     )
   })
 })

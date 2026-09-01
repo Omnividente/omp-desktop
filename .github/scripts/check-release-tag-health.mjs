@@ -27,6 +27,23 @@ function tagFromRef(entry) {
   return SEMVER_TAG.test(tag) ? tag : null
 }
 
+function stableTagParts(tag) {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag)
+  return match ? match.slice(1).map(Number) : null
+}
+
+function stableTagIsNewer(candidate, reference) {
+  const candidateParts = stableTagParts(candidate)
+  const referenceParts = stableTagParts(reference)
+  if (!candidateParts || !referenceParts) return false
+  for (let index = 0; index < candidateParts.length; index += 1) {
+    if (candidateParts[index] !== referenceParts[index]) {
+      return candidateParts[index] > referenceParts[index]
+    }
+  }
+  return false
+}
+
 export function checkReleaseTagHealth({
   tagRefs,
   releases,
@@ -42,9 +59,61 @@ export function checkReleaseTagHealth({
   const publishedReleases = apiEntries(releases, "Release metadata").filter(
     (release) => release && release.draft === false && SEMVER_TAG.test(release.tag_name),
   )
-  const publishedTags = new Set(publishedReleases.map((release) => release.tag_name))
+  const releasesByTag = new Map()
+  for (const release of publishedReleases) {
+    if (releasesByTag.has(release.tag_name)) {
+      throw new Error(`Multiple published releases use tag ${release.tag_name}`)
+    }
+    releasesByTag.set(release.tag_name, release)
+  }
+  const publishedTags = new Set(releasesByTag.keys())
+  const stableReleaseTags = publishedReleases
+    .filter((release) => release.prerelease === false && stableTagParts(release.tag_name))
+    .map((release) => release.tag_name)
+
+  const exceptionTags = new Set()
+  const orphanExceptionTags = new Set()
+  const candidateExceptionTags = new Set()
+  for (const exception of requireArray(exceptions, "Release tag exceptions")) {
+    const tag = exception?.tag
+    const kind = exception?.kind
+    const reason = exception?.reason
+    if (
+      !SEMVER_TAG.test(tag ?? "") ||
+      !["orphan-tag", "superseded-candidate"].includes(kind) ||
+      typeof reason !== "string" ||
+      !reason.trim()
+    ) {
+      throw new Error(
+        "Every release tag exception requires a semantic tag, supported kind, and non-empty reason",
+      )
+    }
+    if (exceptionTags.has(tag)) throw new Error(`Duplicate release tag exception: ${tag}`)
+    if (!tags.has(tag)) throw new Error(`Release tag exception ${tag} has no matching tag`)
+    const release = releasesByTag.get(tag)
+    if (kind === "orphan-tag") {
+      if (release) {
+        throw new Error(`Orphan tag exception ${tag} is stale because a published release exists`)
+      }
+      orphanExceptionTags.add(tag)
+    } else {
+      if (!release || release.prerelease !== true) {
+        throw new Error(
+          `Superseded candidate exception ${tag} requires a published candidate prerelease`,
+        )
+      }
+      if (!stableReleaseTags.some((stableTag) => stableTagIsNewer(stableTag, tag))) {
+        throw new Error(`Superseded candidate exception ${tag} requires a newer stable release`)
+      }
+      candidateExceptionTags.add(tag)
+    }
+    exceptionTags.add(tag)
+  }
+
   const staleCandidates = publishedReleases
-    .filter((release) => release.prerelease === true)
+    .filter(
+      (release) => release.prerelease === true && !candidateExceptionTags.has(release.tag_name),
+    )
     .filter((release) => {
       const publishedAt = timestamp(
         release.published_at,
@@ -61,23 +130,8 @@ export function checkReleaseTagHealth({
     )
   }
 
-  const exceptionTags = new Set()
-  for (const exception of requireArray(exceptions, "Release tag exceptions")) {
-    const tag = exception?.tag
-    const reason = exception?.reason
-    if (!SEMVER_TAG.test(tag ?? "") || typeof reason !== "string" || !reason.trim()) {
-      throw new Error("Every release tag exception requires a semantic tag and non-empty reason")
-    }
-    if (exceptionTags.has(tag)) throw new Error(`Duplicate release tag exception: ${tag}`)
-    if (!tags.has(tag)) throw new Error(`Release tag exception ${tag} has no matching tag`)
-    if (publishedTags.has(tag)) {
-      throw new Error(`Release tag exception ${tag} is stale because a published release exists`)
-    }
-    exceptionTags.add(tag)
-  }
-
   const orphanTags = [...tags]
-    .filter((tag) => !publishedTags.has(tag) && !exceptionTags.has(tag))
+    .filter((tag) => !publishedTags.has(tag) && !orphanExceptionTags.has(tag))
     .sort()
   if (orphanTags.length > 0) {
     throw new Error(`Immutable version tags without published releases: ${orphanTags.join(", ")}`)
