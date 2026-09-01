@@ -2,6 +2,13 @@ import { readFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 
 const SEMVER_TAG = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
+const DEFAULT_MAX_CANDIDATE_AGE_MS = 24 * 60 * 60 * 1_000
+
+function timestamp(value, label) {
+  const parsed = typeof value === "number" ? value : Date.parse(value)
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be a valid timestamp`)
+  return parsed
+}
 
 function requireArray(value, label) {
   if (!Array.isArray(value)) throw new Error(`${label} must be a JSON array`)
@@ -20,13 +27,40 @@ function tagFromRef(entry) {
   return SEMVER_TAG.test(tag) ? tag : null
 }
 
-export function checkReleaseTagHealth({ tagRefs, releases, exceptions }) {
+export function checkReleaseTagHealth({
+  tagRefs,
+  releases,
+  exceptions,
+  now = Date.now(),
+  maxCandidateAgeMs = DEFAULT_MAX_CANDIDATE_AGE_MS,
+}) {
+  const nowMs = timestamp(now, "Current time")
+  if (!Number.isFinite(maxCandidateAgeMs) || maxCandidateAgeMs <= 0) {
+    throw new Error("Maximum candidate age must be a positive number of milliseconds")
+  }
   const tags = new Set(apiEntries(tagRefs, "Tag refs").map(tagFromRef).filter(Boolean))
-  const publishedTags = new Set(
-    apiEntries(releases, "Release metadata")
-      .filter((release) => release && release.draft === false && SEMVER_TAG.test(release.tag_name))
-      .map((release) => release.tag_name),
+  const publishedReleases = apiEntries(releases, "Release metadata").filter(
+    (release) => release && release.draft === false && SEMVER_TAG.test(release.tag_name),
   )
+  const publishedTags = new Set(publishedReleases.map((release) => release.tag_name))
+  const staleCandidates = publishedReleases
+    .filter((release) => release.prerelease === true)
+    .filter((release) => {
+      const publishedAt = timestamp(
+        release.published_at,
+        `Candidate ${release.tag_name} published_at`,
+      )
+      return nowMs - publishedAt > maxCandidateAgeMs
+    })
+    .map((release) => release.tag_name)
+    .sort()
+  if (staleCandidates.length > 0) {
+    const maxHours = maxCandidateAgeMs / (60 * 60 * 1_000)
+    throw new Error(
+      `Candidate prereleases older than ${maxHours} hours were not promoted: ${staleCandidates.join(", ")}`,
+    )
+  }
+
   const exceptionTags = new Set()
   for (const exception of requireArray(exceptions, "Release tag exceptions")) {
     const tag = exception?.tag
@@ -52,6 +86,7 @@ export function checkReleaseTagHealth({ tagRefs, releases, exceptions }) {
   return {
     versionTags: tags.size,
     publishedReleases: [...tags].filter((tag) => publishedTags.has(tag)).length,
+    candidatePrereleases: publishedReleases.filter((release) => release.prerelease === true).length,
     documentedExceptions: exceptionTags.size,
   }
 }
@@ -68,7 +103,16 @@ async function main() {
       JSON.parse(await readFile(path, "utf8")),
     ),
   )
-  const result = checkReleaseTagHealth({ tagRefs, releases, exceptions })
+  const maxCandidateAgeHours = Number(process.env.MAX_CANDIDATE_AGE_HOURS ?? "24")
+  if (!Number.isFinite(maxCandidateAgeHours) || maxCandidateAgeHours <= 0) {
+    throw new Error("MAX_CANDIDATE_AGE_HOURS must be a positive number")
+  }
+  const result = checkReleaseTagHealth({
+    tagRefs,
+    releases,
+    exceptions,
+    maxCandidateAgeMs: maxCandidateAgeHours * 60 * 60 * 1_000,
+  })
   process.stdout.write(`Verified release tag health: ${JSON.stringify(result)}\n`)
 }
 

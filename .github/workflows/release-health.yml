@@ -37,7 +37,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --paginate --slurp > "$RUNNER_TEMP/releases.json"
 
-      - name: Verify release tag health
+      - name: Verify release tag and candidate health
+        env:
+          MAX_CANDIDATE_AGE_HOURS: "24"
         run: >-
           node .github/scripts/check-release-tag-health.mjs
           "$RUNNER_TEMP/version-tag-refs.json"
