@@ -10,6 +10,7 @@ import {
   classifyReleaseAsset,
   releaseAssetContentType,
   recoverStagedReleaseAssets,
+  rewriteUpdaterManifestUrls,
   releasePublicationDisposition,
   replaceReleaseAssetSafely,
   requireCandidatePrerelease,
@@ -658,6 +659,42 @@ describe("release asset verification", () => {
     await recoverStagedReleaseAssets({ client: fake.client })
     assert.equal(fake.snapshot()[0].name, original.name)
     assert.equal(fake.snapshot()[0].digest, replacement.digest)
+  })
+
+  it("rewrites stale updater asset URLs after release asset replacement", async () => {
+    const fixture = await releaseFixture()
+    const currentMetadata = structuredClone(fixture.releaseMetadata)
+    const currentByName = new Map(currentMetadata.assets.map((asset) => [asset.name, asset]))
+    const signatureToName = new Map(
+      Object.values(fixture.assets).map((asset) => [asset.signature, asset.name]),
+    )
+
+    const apiBase = `https://api.github.com/repos/${fixture.repository}/releases/assets`
+    for (const [index, asset] of currentMetadata.assets.entries()) {
+      asset.id = (asset.id ?? 106) + 1_000 + index
+      asset.url = `${apiBase}/${asset.id}`
+    }
+
+    const summary = await rewriteUpdaterManifestUrls({
+      directory: fixture.directory,
+      tag: fixture.tag,
+      repository: fixture.repository,
+      releaseMetadata: currentMetadata,
+    })
+    assert.equal(summary.rewritten, Object.keys(fixture.updater.platforms).length)
+
+    const rewritten = JSON.parse(await readFile(join(fixture.directory, "latest.json"), "utf8"))
+    for (const entry of Object.values(rewritten.platforms)) {
+      const name = signatureToName.get(entry.signature)
+      assert.ok(name)
+      assert.equal(entry.url, currentByName.get(name).url)
+    }
+    await assert.doesNotReject(() =>
+      verifyReleaseAssets({
+        ...fixture,
+        releaseMetadata: currentMetadata,
+      }),
+    )
   })
 
   it("selects one draft release from paginated API metadata", async () => {

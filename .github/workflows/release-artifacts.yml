@@ -425,6 +425,21 @@ jobs:
             }
 
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$tag" \
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
+          RELEASE_METADATA="$metadata" \
+            RELEASE_TAG="$tag" \
+            RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+            node .github/scripts/verify-release-assets.mjs --rewrite-updater-urls release-assets
+          RELEASE_ID="$release_id" \
+            node .github/scripts/verify-release-assets.mjs \
+              --replace-asset \
+              release-assets/latest.json \
+              latest.json \
+              application/json
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" RELEASE_TAG="$tag" \
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" RELEASE_METADATA="$metadata" node .github/scripts/verify-release-assets.mjs release-assets
           RELEASE_VERSION="$version" RELEASE_TAG="$tag" RELEASE_DIR="$PWD/release-assets" RELEASE_REPOSITORY="$GITHUB_REPOSITORY" node --input-type=module <<'EOF'
           import { createHash } from "node:crypto";

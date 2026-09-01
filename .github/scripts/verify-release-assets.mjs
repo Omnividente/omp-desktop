@@ -664,6 +664,87 @@ function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
   return urls
 }
 
+export async function rewriteUpdaterManifestUrls({
+  directory,
+  tag,
+  repository,
+  releaseMetadata,
+  releaseState = "draft-prerelease",
+}) {
+  requireCondition(directory, "Release asset directory is required")
+  requireCondition(tag, "Release tag is required")
+  requireCondition(repository, "Release repository is required")
+
+  const assetUrls = releaseAssetUrls(releaseMetadata, tag, repository, releaseState)
+  const remoteAssets = releaseAssets(releaseMetadata)
+  const assetsByName = new Map(remoteAssets.map((asset) => [asset?.name, asset]))
+  const manifestPath = join(directory, "latest.json")
+  const updater = JSON.parse(await readFile(manifestPath, "utf8"))
+  requireCondition(
+    updater && typeof updater === "object" && !Array.isArray(updater),
+    "latest.json must contain an object",
+  )
+  requireCondition(
+    updater.platforms && typeof updater.platforms === "object" && !Array.isArray(updater.platforms),
+    "latest.json has no platforms",
+  )
+
+  const names = await fileNames(directory)
+  const { linuxInstallers, windowsInstallers } = classifyInstallers(names)
+  const installers = [...linuxInstallers, ...windowsInstallers]
+  const signatureToInstaller = new Map()
+  for (const name of installers) {
+    const signaturePath = join(directory, `${name}.sig`)
+    requireCondition(names.includes(`${name}.sig`), `Updater signature is missing: ${name}.sig`)
+    const signature = (await readFile(signaturePath, "utf8")).trim()
+    requireCondition(signature, `Updater signature is empty: ${name}.sig`)
+    const previousName = signatureToInstaller.get(signature)
+    requireCondition(
+      previousName === undefined,
+      `Updater signature maps multiple installers: ${previousName}, ${name}`,
+    )
+    signatureToInstaller.set(signature, name)
+  }
+
+  let rewritten = 0
+  for (const [platform, entry] of Object.entries(updater.platforms)) {
+    requireCondition(
+      entry && typeof entry === "object" && !Array.isArray(entry),
+      `Invalid updater entry for ${platform}`,
+    )
+    const signature = typeof entry.signature === "string" ? entry.signature.trim() : ""
+    requireCondition(signature, `Missing updater signature for ${platform}`)
+
+    let assetName = null
+    if (typeof entry.url === "string" && entry.url) {
+      try {
+        const mappedName = assetUrls.get(normalizedUrl(entry.url, `Updater URL for ${platform}`))
+        if (mappedName && installers.includes(mappedName)) assetName = mappedName
+      } catch {
+        // A stale or malformed URL can still be repaired from the signed asset.
+      }
+    }
+    assetName ??= signatureToInstaller.get(signature)
+    requireCondition(
+      assetName,
+      `Updater target for ${platform} cannot be mapped to a current installer asset`,
+    )
+
+    const asset = assetsByName.get(assetName)
+    requireCondition(asset, `Current release metadata has no installer ${assetName}`)
+    const currentUrl = asset.url ?? asset.browser_download_url
+    requireCondition(
+      typeof currentUrl === "string" && currentUrl,
+      `Current release installer ${assetName} has no download URL`,
+    )
+    entry.url = currentUrl
+    rewritten += 1
+  }
+
+  await writeFile(manifestPath, `${JSON.stringify(updater, null, 2)}\n`)
+  return { rewritten }
+}
+
 function updaterAssetName(url, assetUrls, tag) {
   requireCondition(typeof url === "string" && url, "Updater URL is missing")
   const assetName = assetUrls.get(normalizedUrl(url, "Updater URL"))
@@ -893,6 +974,18 @@ if (invokedPath === import.meta.url) {
           expectedId,
         }),
       )
+    } else if (mode === "--rewrite-updater-urls") {
+      requireCondition(process.env.RELEASE_METADATA, "Release metadata path is required")
+      requireCondition(process.env.RELEASE_TAG, "Release tag is required")
+      const directory = process.argv[3] ?? process.env.RELEASE_DIR
+      const releaseMetadata = JSON.parse(await readFile(process.env.RELEASE_METADATA, "utf8"))
+      const summary = await rewriteUpdaterManifestUrls({
+        directory,
+        tag: process.env.RELEASE_TAG,
+        repository: process.env.RELEASE_REPOSITORY ?? process.env.GITHUB_REPOSITORY,
+        releaseMetadata,
+      })
+      console.log(`Rewrote updater asset URLs: ${JSON.stringify(summary)}`)
     } else if (mode === "--recover-staged-assets" || mode === "--replace-asset") {
       const releaseId = releaseIdFromEnvironment()
       const client = githubReleaseAssetClient({
