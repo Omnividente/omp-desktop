@@ -9,7 +9,8 @@ interface ClientUpdateNoticeProps {
   info: ClientUpdateInfo
   installing: boolean
   onInstall: () => void
-  onClose: () => void
+  onRemindLater: () => void
+  onViewChanges: () => void
 }
 
 export function ClientUpdateNotice({
@@ -17,7 +18,8 @@ export function ClientUpdateNotice({
   info,
   installing,
   onInstall,
-  onClose,
+  onRemindLater,
+  onViewChanges,
 }: ClientUpdateNoticeProps) {
   return (
     <aside className="client-update-notice" role="status">
@@ -25,6 +27,10 @@ export function ClientUpdateNotice({
         <strong>{t(language, "desktopUpdateAvailable")}</strong>
         <span>{t(language, "desktopUpdateVersion").replace("{version}", info.version)}</span>
         {info.body ? <small>{info.body}</small> : null}
+        <button className="release-notes-link" onClick={onViewChanges} type="button">
+          {t(language, "viewChanges")}
+          <Icon name="external" size={11} />
+        </button>
       </div>
       <div className="client-update-actions">
         <button className="button primary" disabled={installing} onClick={onInstall} type="button">
@@ -33,10 +39,18 @@ export function ClientUpdateNotice({
             : t(language, "desktopUpdateInstall")}
         </button>
         <button
+          className="button secondary"
+          disabled={installing}
+          onClick={onRemindLater}
+          type="button"
+        >
+          {t(language, "updateRemindLater")}
+        </button>
+        <button
           aria-label={t(language, "close")}
           className="icon-button compact"
           disabled={installing}
-          onClick={onClose}
+          onClick={onRemindLater}
           title={t(language, "close")}
           type="button"
         >

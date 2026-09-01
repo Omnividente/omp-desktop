@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
+import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import {
   isPermissionGranted,
   requestPermission,
@@ -114,6 +114,9 @@ import { useWindowActivity } from "./useWindowActivity"
 import { useTranscript } from "./useTranscript"
 import packageMetadata from "../package.json"
 import "./App.css"
+
+const OMP_RELEASE_NOTES_URL = "https://github.com/can1357/oh-my-pi/releases/tag/"
+const DESKTOP_RELEASE_NOTES_URL = "https://github.com/Omnividente/omp-desktop/releases/tag/"
 
 type PendingUpdateRestart = {
   updateTerminalId: string
@@ -333,6 +336,18 @@ function App() {
     [pushToast],
   )
 
+  const openReleaseNotes = useCallback(
+    (baseUrl: string, version: string) => {
+      const normalizedVersion = version.trim()
+      if (!normalizedVersion) return
+      const tag = normalizedVersion.startsWith("v") ? normalizedVersion : `v${normalizedVersion}`
+      void openUrl(`${baseUrl}${encodeURIComponent(tag)}`).catch((error) =>
+        showError(errorMessage(error, lang)),
+      )
+    },
+    [lang, showError],
+  )
+
   const showNotice = useCallback(
     (message: string) => pushToast({ kind: "notice", message }),
     [pushToast],
@@ -414,7 +429,7 @@ function App() {
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
-    dismiss: dismissClientUpdate,
+    remindLater: remindClientUpdateLater,
     install: installAvailableClientUpdate,
   } = useClientUpdater(lang, showError)
   const sendPendingInitialInput = useCallback(
@@ -2122,6 +2137,11 @@ function App() {
           language={lang}
           onDismissSession={updateSourceTerminalId ? dismissUpdateForSession : undefined}
           onRemindLater={remindUpdateLater}
+          onViewChanges={
+            updateInfo.latestVersion
+              ? () => openReleaseNotes(OMP_RELEASE_NOTES_URL, updateInfo.latestVersion ?? "")
+              : undefined
+          }
           onUpdate={() => void launchUpdate()}
         />
       )}
@@ -2131,8 +2151,9 @@ function App() {
           info={clientUpdate}
           installing={installingClientUpdate}
           language={lang}
-          onClose={dismissClientUpdate}
+          onRemindLater={remindClientUpdateLater}
           onInstall={() => void installAvailableClientUpdate()}
+          onViewChanges={() => openReleaseNotes(DESKTOP_RELEASE_NOTES_URL, clientUpdate.version)}
         />
       )}
 

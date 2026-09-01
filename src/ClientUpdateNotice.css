@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   gap: 18px;
-  max-width: min(620px, calc(100vw - 44px));
+  max-width: min(780px, calc(100vw - 44px));
   padding: 16px 18px;
   border: 1px solid rgba(129, 201, 149, 0.42);
   border-radius: 14px;
@@ -41,6 +41,6 @@
   margin-left: auto;
 }
 
-.client-update-actions .button.primary {
+.client-update-actions .button {
   white-space: nowrap;
 }
