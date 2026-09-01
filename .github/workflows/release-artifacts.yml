@@ -298,6 +298,62 @@ jobs:
 
           release_pages="$RUNNER_TEMP/release-pages.json"
           metadata="$RUNNER_TEMP/release-metadata.json"
+
+          upload_release_asset() {
+            local path="$1"
+            local name="$2"
+            local content_type="$3"
+            local output="$RUNNER_TEMP/release-asset-upload.json"
+            local encoded_name
+            local uploaded=false
+            [[ -f "$path" ]] || {
+              echo "Release asset file is missing: $path" >&2
+              return 1
+            }
+            encoded_name=$(jq -rn --arg name "$name" '$name | @uri')
+            for attempt in 1 2 3; do
+              if gh api --method POST \
+                --header "Authorization: Bearer $GH_TOKEN" \
+                --header "Content-Type: $content_type" \
+                --input "$path" \
+                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$encoded_name" \
+                > "$output"; then
+                uploaded=true
+                break
+              fi
+              sleep "$attempt"
+            done
+            if [[ "$uploaded" != true ]]; then
+              echo "Failed to upload $name with Content-Type $content_type." >&2
+              return 1
+            fi
+            jq -e --arg name "$name" --arg content_type "$content_type" \
+              '.name == $name and .content_type == $content_type' "$output" > /dev/null || {
+                echo "GitHub reported unexpected metadata after uploading $name." >&2
+                return 1
+              }
+          }
+
+          replace_release_asset() {
+            local path="$1"
+            local name="$2"
+            local content_type="$3"
+            local metadata_path="$4"
+            local asset_id
+            asset_id=$(jq -r --arg name "$name" '
+              [.assets[] | select(.name == $name)] |
+              if length == 0 then ""
+              elif length == 1 then (.[0].id | tostring)
+              else error("duplicate release asset")
+              end
+            ' "$metadata_path")
+            if [[ -n "$asset_id" ]]; then
+              gh api --method DELETE \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+                --silent
+            fi
+            upload_release_asset "$path" "$name" "$content_type"
+          }
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --paginate --slurp > "$release_pages"
           release_id=$(RELEASE_LIST="$release_pages" \
@@ -314,36 +370,24 @@ jobs:
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
-          latest_asset_id=$(jq -er '
-            [.assets[] | select(.name == "latest.json")] |
-            if length == 1 then .[0].id else error("expected exactly one latest.json asset") end
-          ' "$metadata")
-          gh api --method DELETE \
-            "repos/$GITHUB_REPOSITORY/releases/assets/$latest_asset_id" \
-            --silent
-          latest_upload="$RUNNER_TEMP/latest-json-upload.json"
-          uploaded=false
-          for attempt in 1 2 3; do
-            if gh api --method POST \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              --header "Content-Type: application/json" \
-              --input release-assets/latest.json \
-              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=latest.json" \
-              > "$latest_upload"; then
-              uploaded=true
-              break
+          while IFS= read -r asset; do
+            asset_id=$(jq -er '.id' <<< "$asset")
+            name=$(jq -er '.name' <<< "$asset")
+            current_content_type=$(jq -r '.content_type // ""' <<< "$asset")
+            expected_content_type=$(
+              node .github/scripts/verify-release-assets.mjs --content-type "$name"
+            )
+            if [[ "$current_content_type" == "$expected_content_type" ]]; then
+              continue
             fi
-            sleep "$attempt"
-          done
-          if [[ "$uploaded" != true ]]; then
-            echo "Failed to restore latest.json with Content-Type application/json." >&2
-            exit 1
-          fi
-          latest_content_type=$(jq -er '.content_type' "$latest_upload")
-          if [[ "$latest_content_type" != "application/json" ]]; then
-            echo "Uploaded latest.json has unexpected Content-Type: $latest_content_type" >&2
-            exit 1
-          fi
+            gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+              --silent
+            upload_release_asset \
+              "release-assets/$name" \
+              "$name" \
+              "$expected_content_type"
+          done < <(jq -c '.assets[]' "$metadata")
           rm -f release-assets/release-assets-manifest.json
           node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
           cp release-assets/SHA256SUMS-linux.txt "$RUNNER_TEMP/generated-SHA256SUMS-linux.txt"
@@ -361,11 +405,16 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
             node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
-          gh release upload "$tag" \
+          replace_release_asset \
             release-assets/SHA256SUMS-linux.txt \
+            SHA256SUMS-linux.txt \
+            text/plain \
+            "$metadata"
+          replace_release_asset \
             release-assets/SHA256SUMS-windows.txt \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+            SHA256SUMS-windows.txt \
+            text/plain \
+            "$metadata"
           rm -f release-assets/SHA256SUMS-linux.txt release-assets/SHA256SUMS-windows.txt
           gh release download "$tag" \
             --pattern "SHA256SUMS-*.txt" \
@@ -431,7 +480,11 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
             node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
-          gh release upload "$tag" release-assets-manifest.json --repo "$GITHUB_REPOSITORY" --clobber
+          replace_release_asset \
+            release-assets-manifest.json \
+            release-assets-manifest.json \
+            application/json \
+            "$metadata"
 
       - name: Publish release after all platform uploads
         env:

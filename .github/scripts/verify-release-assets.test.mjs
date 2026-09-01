@@ -8,6 +8,7 @@ import { afterEach, describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
   classifyReleaseAsset,
+  releaseAssetContentType,
   requireCandidatePrerelease,
   requireDraftPrerelease,
   requireDraftRelease,
@@ -146,7 +147,7 @@ async function releaseFixture() {
     assets: [
       ...definitions.map(({ key, name, id }) => ({
         name,
-        content_type: "application/octet-stream",
+        content_type: releaseAssetContentType(name),
         url: `${apiBase}/${id}`,
         browser_download_url: `https://github.com/${repository}/releases/download/untagged-fixture/${assets[key].name}`,
       })),
@@ -258,12 +259,24 @@ describe("release asset verification", () => {
   })
   it("rejects a latest.json asset uploaded with the wrong media type", async () => {
     const fixture = await releaseFixture()
-    const updaterAsset = fixture.releaseMetadata.assets.find((asset) => asset.name === "latest.json")
+    const updaterAsset = fixture.releaseMetadata.assets.find(
+      (asset) => asset.name === "latest.json",
+    )
     updaterAsset.content_type = "application/zip"
 
     await assert.rejects(
       () => verifyReleaseAssets(fixture),
       /latest\.json must use Content-Type application\/json, got application\/zip/,
+    )
+  })
+
+  it("rejects installer media types mislabeled as zip archives", async () => {
+    const fixture = await releaseFixture()
+    fixture.releaseMetadata.assets[0].content_type = "application/zip"
+
+    await assert.rejects(
+      () => verifyReleaseAssets(fixture),
+      /must use Content-Type application\/octet-stream, got application\/zip/,
     )
   })
   it("accepts a public candidate prerelease state", async () => {
@@ -564,5 +577,15 @@ describe("release asset verification", () => {
       kind: "updater-manifest",
       platform: "metadata",
     })
+  })
+
+  it("assigns deterministic media types to every release asset class", () => {
+    assert.equal(releaseAssetContentType("latest.json"), "application/json")
+    assert.equal(releaseAssetContentType("release-assets-manifest.json"), "application/json")
+    assert.equal(releaseAssetContentType("SHA256SUMS-linux.txt"), "text/plain")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage.sig"), "text/plain")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage.tar.gz"), "application/gzip")
+    assert.equal(releaseAssetContentType("OMP.Desktop.nsis.zip"), "application/zip")
+    assert.equal(releaseAssetContentType("OMP.Desktop.AppImage"), "application/octet-stream")
   })
 })

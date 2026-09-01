@@ -146,6 +146,15 @@ export function classifyReleaseAsset(name) {
   return { kind, platform }
 }
 
+export function releaseAssetContentType(name) {
+  const lower = name.toLowerCase()
+  if (lower.endsWith(".json")) return "application/json"
+  if (lower.endsWith(".txt") || lower.endsWith(".sig")) return "text/plain"
+  if (lower.endsWith(".zip")) return "application/zip"
+  if (lower.endsWith(".tar.gz")) return "application/gzip"
+  return "application/octet-stream"
+}
+
 function classifyInstallers(names) {
   return {
     linuxInstallers: names.filter((name) => /\.(?:appimage|deb|rpm)$/i.test(name)),
@@ -386,10 +395,13 @@ function releaseAssetUrls(releaseMetadata, tag, repository, state = "draft") {
     updaterManifests.length === 1,
     `Release ${tag} must contain exactly one latest.json asset`,
   )
-  requireCondition(
-    updaterManifests[0].content_type === "application/json",
-    `Release asset latest.json must use Content-Type application/json, got ${updaterManifests[0].content_type ?? "missing"}`,
-  )
+  for (const asset of releaseMetadata.assets) {
+    const expectedContentType = releaseAssetContentType(asset?.name ?? "")
+    requireCondition(
+      asset?.content_type === expectedContentType,
+      `Release asset ${asset?.name ?? "unknown"} must use Content-Type ${expectedContentType}, got ${asset?.content_type ?? "missing"}`,
+    )
+  }
 
   const apiPath = `/repos/${repository}/releases/assets/`
   const downloadPath = `/${repository}/releases/download/`
@@ -557,7 +569,11 @@ const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).hr
 if (invokedPath === import.meta.url) {
   try {
     const mode = process.argv[2]
-    if (mode === "--select-draft") {
+    if (mode === "--content-type") {
+      const name = process.argv[3]
+      requireCondition(name, "Release asset name is required")
+      console.log(releaseAssetContentType(name))
+    } else if (mode === "--select-draft") {
       requireCondition(process.env.RELEASE_LIST, "Paginated release metadata path is required")
       requireCondition(process.env.RELEASE_TAG, "Release tag is required")
       const releasePages = JSON.parse(await readFile(process.env.RELEASE_LIST, "utf8"))
