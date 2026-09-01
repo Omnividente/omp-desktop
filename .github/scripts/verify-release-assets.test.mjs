@@ -9,11 +9,15 @@ import assert from "node:assert/strict"
 import {
   classifyReleaseAsset,
   releaseAssetContentType,
+  recoverStagedReleaseAssets,
+  releasePublicationDisposition,
+  replaceReleaseAssetSafely,
   requireCandidatePrerelease,
   requireDraftPrerelease,
   requireDraftRelease,
   requireStableRelease,
   selectDraftRelease,
+  stagedReleaseAssetName,
   waitForDraftRelease,
   verifyReleaseAssets,
   writeReleaseChecksums,
@@ -230,6 +234,70 @@ async function runVerifierCli(fixture, releaseMetadata, mode) {
       (error, stdout, stderr) => resolve({ error, stdout, stderr }),
     )
   })
+}
+
+function fakeReleaseAssetClient(initialAssets, failures = {}) {
+  let assets = structuredClone(initialAssets)
+  let nextId = Math.max(0, ...assets.map((asset) => asset.id)) + 1
+  const calls = []
+  const release = () => ({ assets: structuredClone(assets) })
+  const consumeFailure = (name) => {
+    if (!failures[name]) return false
+    failures[name] -= 1
+    return true
+  }
+  const client = {
+    loadRelease: async () => release(),
+    uploadAsset: async ({ path, name, contentType, label }) => {
+      assert.equal(
+        assets.some((asset) => asset.name === name),
+        false,
+      )
+      const bytes = await readFile(path)
+      const asset = {
+        id: nextId++,
+        name,
+        label: label || null,
+        content_type: contentType,
+        digest: `sha256:${hash(bytes)}`,
+        state: "uploaded",
+      }
+      assets.push(asset)
+      calls.push(["upload", name])
+      if (consumeFailure("uploadAfterCreate")) throw new Error("upload response lost")
+      return structuredClone(asset)
+    },
+    updateAsset: async (assetId, { name, label }) => {
+      calls.push(["update", assetId, name])
+      if (consumeFailure("updateBeforeChange")) throw new Error("rename failed")
+      const asset = assets.find((candidate) => candidate.id === assetId)
+      assert.ok(asset)
+      assert.equal(
+        assets.some((candidate) => candidate.id !== assetId && candidate.name === name),
+        false,
+      )
+      asset.name = name
+      asset.label = label || null
+      return structuredClone(asset)
+    },
+    deleteAsset: async (assetId) => {
+      calls.push(["delete", assetId])
+      const index = assets.findIndex((asset) => asset.id === assetId)
+      assert.notEqual(index, -1)
+      assets.splice(index, 1)
+      if (consumeFailure("deleteAfterChange")) throw new Error("delete response lost")
+    },
+  }
+  return { client, calls, snapshot: () => structuredClone(assets) }
+}
+
+async function replacementFixture(label) {
+  const directory = await mkdtemp(join(tmpdir(), `omp-release-replacement-${label}-`))
+  directories.push(directory)
+  const path = join(directory, "artifact.bin")
+  const bytes = Buffer.from("replacement bytes")
+  await writeFile(path, bytes)
+  return { path, bytes, digest: `sha256:${hash(bytes)}` }
 }
 
 afterEach(async () => {
@@ -459,6 +527,137 @@ describe("release asset verification", () => {
       () => requireDraftRelease({ releaseMetadata: stable, tag: fixture.tag }),
       /is already published/,
     )
+  })
+
+  it("distinguishes a retryable draft from an already published candidate", async () => {
+    const fixture = await releaseFixture()
+    assert.equal(
+      releasePublicationDisposition({
+        releaseMetadata: fixture.releaseMetadata,
+        tag: fixture.tag,
+        expectedId: fixture.releaseMetadata.id,
+      }),
+      "draft",
+    )
+    assert.equal(
+      releasePublicationDisposition({
+        releaseMetadata: { ...fixture.releaseMetadata, draft: false, prerelease: true },
+        tag: fixture.tag,
+        expectedId: fixture.releaseMetadata.id,
+      }),
+      "candidate",
+    )
+    assert.throws(
+      () =>
+        releasePublicationDisposition({
+          releaseMetadata: { ...fixture.releaseMetadata, draft: false, prerelease: false },
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id,
+        }),
+      /not in candidate-prerelease state/,
+    )
+    assert.throws(
+      () =>
+        releasePublicationDisposition({
+          releaseMetadata: fixture.releaseMetadata,
+          tag: fixture.tag,
+          expectedId: fixture.releaseMetadata.id + 1,
+        }),
+      /Expected release/,
+    )
+  })
+
+  it("preserves the original asset when staging upload acknowledgement fails", async () => {
+    const replacement = await replacementFixture("upload-failure")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { uploadAfterCreate: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /upload response lost/,
+    )
+    assert.deepEqual(fake.snapshot(), [original])
+  })
+
+  it("recovers a durable staged asset after delete succeeds and rename fails", async () => {
+    const replacement = await replacementFixture("rename-failure")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { updateBeforeChange: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /rename failed/,
+    )
+    assert.equal(fake.snapshot()[0].name, stagedReleaseAssetName(original.name))
+
+    assert.deepEqual(await recoverStagedReleaseAssets({ client: fake.client }), {
+      recovered: [original.name],
+      cleaned: [],
+    })
+    assert.deepEqual(fake.snapshot(), [
+      {
+        id: 2,
+        name: original.name,
+        label: null,
+        content_type: "application/octet-stream",
+        digest: replacement.digest,
+        state: "uploaded",
+      },
+    ])
+  })
+
+  it("recovers an ambiguous successful delete without discarding staged bytes", async () => {
+    const replacement = await replacementFixture("delete-response-loss")
+    const original = {
+      id: 1,
+      name: "artifact.bin",
+      label: null,
+      content_type: "application/zip",
+      digest: `sha256:${hash("original bytes")}`,
+      state: "uploaded",
+    }
+    const fake = fakeReleaseAssetClient([original], { deleteAfterChange: 1 })
+
+    await assert.rejects(
+      () =>
+        replaceReleaseAssetSafely({
+          client: fake.client,
+          path: replacement.path,
+          name: original.name,
+          contentType: "application/octet-stream",
+        }),
+      /delete response lost/,
+    )
+    assert.equal(fake.snapshot()[0].name, stagedReleaseAssetName(original.name))
+    await recoverStagedReleaseAssets({ client: fake.client })
+    assert.equal(fake.snapshot()[0].name, original.name)
+    assert.equal(fake.snapshot()[0].digest, replacement.digest)
   })
 
   it("selects one draft release from paginated API metadata", async () => {

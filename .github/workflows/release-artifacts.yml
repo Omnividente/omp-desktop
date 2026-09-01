@@ -282,9 +282,11 @@ jobs:
           persist-credentials: false
 
       - name: Verify release assets and upload manifest
+        id: release-assets
         env:
           EXPECTED_RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ github.sha }}
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
@@ -298,62 +300,45 @@ jobs:
 
           release_pages="$RUNNER_TEMP/release-pages.json"
           metadata="$RUNNER_TEMP/release-metadata.json"
-
-          upload_release_asset() {
-            local path="$1"
-            local name="$2"
-            local content_type="$3"
-            local output="$RUNNER_TEMP/release-asset-upload.json"
-            local encoded_name
-            local uploaded=false
-            [[ -f "$path" ]] || {
-              echo "Release asset file is missing: $path" >&2
-              return 1
-            }
-            encoded_name=$(jq -rn --arg name "$name" '$name | @uri')
-            for attempt in 1 2 3; do
-              if gh api --method POST \
-                --header "Authorization: Bearer $GH_TOKEN" \
-                --header "Content-Type: $content_type" \
-                --input "$path" \
-                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$encoded_name" \
-                > "$output"; then
-                uploaded=true
-                break
-              fi
-              sleep "$attempt"
-            done
-            if [[ "$uploaded" != true ]]; then
-              echo "Failed to upload $name with Content-Type $content_type." >&2
-              return 1
+          release_id="$EXPECTED_RELEASE_ID"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          publication_state=$(RELEASE_METADATA="$metadata" \
+            RELEASE_ID="$release_id" \
+            RELEASE_TAG="$tag" \
+            node .github/scripts/verify-release-assets.mjs --publication-state)
+          if [[ "$publication_state" == "candidate" ]]; then
+            remote_refs=$(git ls-remote --exit-code origin \
+              "refs/tags/${tag}" \
+              "refs/tags/${tag}^{}")
+            direct_sha=""
+            peeled_sha=""
+            while read -r sha ref; do
+              case "$ref" in
+                "refs/tags/${tag}") direct_sha="$sha" ;;
+                "refs/tags/${tag}^{}") peeled_sha="$sha" ;;
+              esac
+            done <<< "$remote_refs"
+            remote_sha="${peeled_sha:-$direct_sha}"
+            if [[ "$remote_sha" != "$RELEASE_SHA" ]]; then
+              echo "Release tag $tag moved from $RELEASE_SHA to ${remote_sha:-missing}." >&2
+              exit 1
             fi
-            jq -e --arg name "$name" --arg content_type "$content_type" \
-              '.name == $name and .content_type == $content_type' "$output" > /dev/null || {
-                echo "GitHub reported unexpected metadata after uploading $name." >&2
-                return 1
-              }
-          }
+            rm -rf release-assets
+            mkdir -p release-assets
+            gh release download "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir release-assets \
+              --clobber
+            RELEASE_VERSION="$version" \
+              RELEASE_TAG="$tag" \
+              RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+              RELEASE_METADATA="$metadata" \
+              node .github/scripts/verify-release-assets.mjs \
+                --verify-candidate-prerelease release-assets
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          replace_release_asset() {
-            local path="$1"
-            local name="$2"
-            local content_type="$3"
-            local metadata_path="$4"
-            local asset_id
-            asset_id=$(jq -r --arg name "$name" '
-              [.assets[] | select(.name == $name)] |
-              if length == 0 then ""
-              elif length == 1 then (.[0].id | tostring)
-              else error("duplicate release asset")
-              end
-            ' "$metadata_path")
-            if [[ -n "$asset_id" ]]; then
-              gh api --method DELETE \
-                "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
-                --silent
-            fi
-            upload_release_asset "$path" "$name" "$content_type"
-          }
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --paginate --slurp > "$release_pages"
           release_id=$(RELEASE_LIST="$release_pages" \
@@ -366,12 +351,16 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
             node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
+          RELEASE_ID="$release_id" \
+            node .github/scripts/verify-release-assets.mjs --recover-staged-assets
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
+          RELEASE_METADATA="$metadata" \
+            node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
 
           rm -rf release-assets
           mkdir -p release-assets
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets --clobber
           while IFS= read -r asset; do
-            asset_id=$(jq -er '.id' <<< "$asset")
             name=$(jq -er '.name' <<< "$asset")
             current_content_type=$(jq -r '.content_type // ""' <<< "$asset")
             expected_content_type=$(
@@ -380,13 +369,12 @@ jobs:
             if [[ "$current_content_type" == "$expected_content_type" ]]; then
               continue
             fi
-            gh api --method DELETE \
-              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
-              --silent
-            upload_release_asset \
-              "release-assets/$name" \
-              "$name" \
-              "$expected_content_type"
+            RELEASE_ID="$release_id" \
+              node .github/scripts/verify-release-assets.mjs \
+                --replace-asset \
+                "release-assets/$name" \
+                "$name" \
+                "$expected_content_type"
           done < <(jq -c '.assets[]' "$metadata")
           rm -f release-assets/release-assets-manifest.json
           node .github/scripts/verify-release-assets.mjs --write-checksums release-assets
@@ -405,16 +393,18 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
             node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
-          replace_release_asset \
-            release-assets/SHA256SUMS-linux.txt \
-            SHA256SUMS-linux.txt \
-            text/plain \
-            "$metadata"
-          replace_release_asset \
-            release-assets/SHA256SUMS-windows.txt \
-            SHA256SUMS-windows.txt \
-            text/plain \
-            "$metadata"
+          RELEASE_ID="$release_id" \
+            node .github/scripts/verify-release-assets.mjs \
+              --replace-asset \
+              release-assets/SHA256SUMS-linux.txt \
+              SHA256SUMS-linux.txt \
+              text/plain
+          RELEASE_ID="$release_id" \
+            node .github/scripts/verify-release-assets.mjs \
+              --replace-asset \
+              release-assets/SHA256SUMS-windows.txt \
+              SHA256SUMS-windows.txt \
+              text/plain
           rm -f release-assets/SHA256SUMS-linux.txt release-assets/SHA256SUMS-windows.txt
           gh release download "$tag" \
             --pattern "SHA256SUMS-*.txt" \
@@ -480,13 +470,16 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > "$metadata"
           RELEASE_METADATA="$metadata" \
             node .github/scripts/verify-release-assets.mjs --require-draft-prerelease
-          replace_release_asset \
-            release-assets-manifest.json \
-            release-assets-manifest.json \
-            application/json \
-            "$metadata"
+          RELEASE_ID="$release_id" \
+            node .github/scripts/verify-release-assets.mjs \
+              --replace-asset \
+              release-assets-manifest.json \
+              release-assets-manifest.json \
+              application/json
+          echo "already_published=false" >> "$GITHUB_OUTPUT"
 
       - name: Publish release after all platform uploads
+        if: steps.release-assets.outputs.already_published != 'true'
         env:
           EXPECTED_RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
