@@ -4276,22 +4276,31 @@ impl UpdateDetector {
 }
 
 const MAX_TRANSIENT_BACKEND_PATTERN_SPAN: usize = 64;
-const TRANSIENT_BACKEND_PATTERNS: [(&[u8], u8, &str); 6] = [
-    (
-        b"previous response owner account is unavailable",
-        0b0001,
-        "stale_response_owner",
-    ),
-    (
-        b"1012 (service restart)",
-        0b0010,
-        "websocket_service_restart",
-    ),
-    (b"overloaded_error", 0b0100, "provider_overloaded"),
-    (b"ENETUNREACH", 0b1000, "network_unavailable"),
-    (b"EHOSTUNREACH", 0b1000, "network_unavailable"),
-    (b"EAI_AGAIN", 0b1000, "network_unavailable"),
+const TRANSIENT_BACKEND_CATEGORIES: [&str; 4] = [
+    "stale_response_owner",
+    "websocket_service_restart",
+    "provider_overloaded",
+    "network_unavailable",
 ];
+const TRANSIENT_BACKEND_PATTERNS: [(&[u8], usize); 6] = [
+    (b"previous response owner account is unavailable", 0),
+    (b"1012 (service restart)", 1),
+    (b"overloaded_error", 2),
+    (b"ENETUNREACH", 3),
+    (b"EHOSTUNREACH", 3),
+    (b"EAI_AGAIN", 3),
+];
+const _: () = {
+    assert!(TRANSIENT_BACKEND_CATEGORIES.len() <= u8::BITS as usize);
+    let mut index = 0;
+    while index < TRANSIENT_BACKEND_PATTERNS.len() {
+        let (pattern, category) = TRANSIENT_BACKEND_PATTERNS[index];
+        assert!(!pattern.is_empty());
+        assert!(pattern.len() <= MAX_TRANSIENT_BACKEND_PATTERN_SPAN);
+        assert!(category < TRANSIENT_BACKEND_CATEGORIES.len());
+        index += 1;
+    }
+};
 
 #[derive(Default)]
 struct TransientBackendErrorDetector {
@@ -4300,9 +4309,13 @@ struct TransientBackendErrorDetector {
 }
 
 impl TransientBackendErrorDetector {
-    fn observe(&mut self, data: &[u8]) -> [Option<&'static str>; TRANSIENT_BACKEND_PATTERNS.len()] {
-        let mut events = [None; TRANSIENT_BACKEND_PATTERNS.len()];
-        for (index, (pattern, bit, category)) in TRANSIENT_BACKEND_PATTERNS.iter().enumerate() {
+    fn observe(
+        &mut self,
+        data: &[u8],
+    ) -> [Option<&'static str>; TRANSIENT_BACKEND_CATEGORIES.len()] {
+        let mut events = [None; TRANSIENT_BACKEND_CATEGORIES.len()];
+        for (pattern, category) in TRANSIENT_BACKEND_PATTERNS {
+            let bit = 1 << category;
             if self.notified & bit != 0 {
                 continue;
             }
@@ -4310,7 +4323,7 @@ impl TransientBackendErrorDetector {
                 || pattern_crosses_output_boundary(&self.tail, data, pattern)
             {
                 self.notified |= bit;
-                events[index] = Some(*category);
+                events[category] = Some(TRANSIENT_BACKEND_CATEGORIES[category]);
             }
         }
         append_transient_backend_tail(&mut self.tail, data);
