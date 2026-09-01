@@ -20,6 +20,7 @@
 - Поиск, открытие и возобновление существующих сессий.
 - Handoff-переходы отслеживаются без перезапуска: текущая сессия остаётся в корне раскрываемой группы, архивные предшественники вложены под ней, а поиск сохраняет полную цепочку.
 - Фиксация основного провайдера хранится для конкретной сессии: переключение в состоянии idle перезапускает её через точный `--resume` с локальным overlay без model/usage fallback и переносится на активное продолжение после handoff.
+- Desktop Proxy Mode включается отдельно для каждого провайдера в настройках: новые и перезапущенные сессии получают локальный overlay, который удерживает fallback внутри выбранного провайдера и отключает OpenAI WebSocket transport. Уже работающие сессии не изменяются до перезапуска.
 - Идемпотентный импорт OMP и Codex JSONL с режимами «пропустить», «обновить» и «создать копию»: JSONL ограничен 256 MiB, связанные артефакты копируются транзакционно без ссылок и ограничены 512 MiB, 10 000 записей и глубиной 16 каталогов.
 - Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину.
 - Несколько одновременно работающих терминальных вкладок.
@@ -72,6 +73,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Search, open, and resume existing sessions.
 - Handoff transitions are tracked without restarting: the current session stays at the root of an expandable group, archived predecessors are nested below it, and search preserves the full lineage.
 - Primary-provider pinning is stored per session: toggling it while idle restarts the exact `--resume` target with a local no-model/usage-fallback overlay and transfers the pin to the active continuation after handoff.
+- Desktop Proxy Mode is enabled per provider in Settings: new and restarted sessions receive a local overlay that keeps fallback within the selected provider and disables the OpenAI WebSocket transport. Already-running sessions are unchanged until restart.
 - Idempotent OMP and Codex JSONL import with skip, update, and copy modes: JSONL is capped at 256 MiB; related artifacts are copied transactionally without links and capped at 512 MiB, 10,000 entries, and 16 directory levels.
 - Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle.
 - Multiple concurrent terminal tabs.
@@ -133,9 +135,13 @@ The manually dispatchable `Quality Gate` runs the same Windows and Linux checks 
 
 The tagged workflow publishes only a candidate prerelease. Its completion automatically triggers `Verify Updater Upgrade E2E`, which rebuilds the latest stable version and the candidate with isolated test keys, exercises signed update and restart on Linux and Windows, and records the `Updater Upgrade E2E` commit status. `Promote Release to Stable` refuses promotion without that successful status and re-verifies the signed tag and candidate assets immediately before publication.
 
-`Release Tag Health` reports immutable semantic tags that have no published release unless the exception is explicitly documented. CodeQL scans JavaScript/TypeScript and Rust changes, while Dependabot groups weekly npm, Cargo, and GitHub Actions updates.
+`Release Tag Health` reports immutable semantic tags without published releases and candidate prereleases left unpromoted for more than 24 hours. CodeQL scans JavaScript/TypeScript and Rust changes, while Dependabot groups weekly npm, Cargo, and GitHub Actions updates; each ecosystem is limited to five open version-update PRs, and unsupported TypeScript major upgrades are ignored.
 
 Repository maintainers must not manually publish the draft, promote the candidate, or edit its assets while the tagged and updater E2E workflows are running; GitHub does not provide an atomic workflow lock against an out-of-band actor who already has release-write permission.
+
+### External pre-release audit
+
+Use one `release/vX.Y.Z` branch and one draft pull request for the complete release scope. Keep independent changes as reviewable commits on that branch instead of creating a branch per finding. Before requesting the external audit, push every intended commit and record the exact head SHA in the pull request. Any code change after approval invalidates that approval: push the follow-up commit, update the recorded SHA, and request re-review. Create the version tag only from the reviewed head after required checks pass.
 
 Create native packages:
 
