@@ -561,6 +561,21 @@ async fn load_omp_config(app: AppHandle) -> Result<OmpConfigSnapshot, AppError> 
 }
 
 #[tauri::command]
+async fn refresh_omp_config(app: AppHandle) -> Result<OmpConfigSnapshot, AppError> {
+    run_blocking(
+        "принудительного обновления статуса OMP",
+        "omp_config_refresh_failed",
+        "Не удалось обновить статус OMP",
+        move || {
+            let settings = app.state::<SettingsState>();
+            let snapshot = settings_snapshot(&app, &settings)?;
+            omp_bridge::refresh_config_snapshot(&app, &snapshot)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 async fn check_omp_update(app: AppHandle) -> Result<OmpUpdateInfo, AppError> {
     run_blocking(
         "проверки обновлений OMP",
@@ -640,6 +655,7 @@ pub fn run() {
             list_codex_sessions,
             read_session_transcript,
             load_omp_config,
+            refresh_omp_config,
             check_omp_update,
             sample_resource_health,
             terminal::start_terminal,

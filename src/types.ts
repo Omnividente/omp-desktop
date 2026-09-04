@@ -189,11 +189,43 @@ export interface OmpRoleInfo {
   detail: string | null
 }
 
+export interface OmpAccountLimitInfo {
+  id: string
+  label: string
+  status: string
+  usedPercent: number | null
+  windowLabel: string | null
+  resetsAt: number | null
+}
+
+export interface OmpAccountRouteInfo {
+  id: string
+  label: string
+  status: "ready" | "limited" | "exhausted" | "unknown"
+  routingEligible: boolean
+}
+
+export interface OmpAccountUsageInfo {
+  id: string
+  provider: string
+  configured: boolean
+  reporting: boolean
+  statusReason: string | null
+  routes: OmpAccountRouteInfo[]
+  credentialType: "api_key" | "oauth" | "unknown"
+  label: string
+  status: "ready" | "limited" | "exhausted" | "unknown" | "disabled"
+  routingEligible: boolean
+  routingEvidence: "reported" | "usage" | "unknown"
+  limits: OmpAccountLimitInfo[]
+  fetchedAt: number | null
+}
+
 export interface OmpCredentialInfo {
   provider: string
   keyName: string | null
   source: "desktop" | "environment" | "command" | "models" | "omp"
-  status: "ready" | "configured" | "ok" | "limited" | "exhausted" | "missing"
+  status: "ready" | "configured" | "ok" | "limited" | "exhausted" | "auth-error" | "missing"
   available: boolean
   modelCount: number
 }
@@ -207,6 +239,7 @@ export interface OmpConfigWarning {
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[]
   models: OmpModelInfo[]
+  accounts: OmpAccountUsageInfo[]
   advisorEnabled: boolean
   autoResume: boolean
   defaultThinkingLevel: string | null
@@ -214,6 +247,7 @@ export interface OmpConfigSnapshot {
   fallbackChains: Record<string, string[]>
   proxyProviders: string[]
   providerEnvKeys: string[]
+  usageObservedAt: number | null
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
 }
