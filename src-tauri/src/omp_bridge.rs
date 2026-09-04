@@ -2606,7 +2606,10 @@ providers:
             "alpha-project",
             "secret upstream response",
         ] {
-            assert!(!serialized.contains(secret), "leaked {secret}");
+            assert!(
+                !serialized.contains(secret),
+                "sensitive value leaked into account snapshot"
+            );
         }
 
         let repeated = parse_usage_snapshot(&value);
@@ -2656,7 +2659,10 @@ providers:
             "org-a",
             "org-b",
         ] {
-            assert!(!serialized.contains(identity), "leaked {identity}");
+            assert!(
+                !serialized.contains(identity),
+                "raw identity leaked into account snapshot"
+            );
         }
     }
 }
