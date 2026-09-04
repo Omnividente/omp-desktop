@@ -476,9 +476,49 @@ pub struct OmpConfigWarning {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OmpAccountLimitInfo {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub used_percent: Option<f64>,
+    pub window_label: Option<String>,
+    pub resets_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpAccountRouteInfo {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub routing_eligible: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpAccountUsageInfo {
+    pub id: String,
+    pub provider: String,
+    pub credential_type: String,
+    pub label: String,
+    pub status: String,
+    pub configured: bool,
+    pub reporting: bool,
+    pub status_reason: Option<String>,
+    pub routing_eligible: bool,
+    pub routing_evidence: String,
+    pub routes: Vec<OmpAccountRouteInfo>,
+    pub limits: Vec<OmpAccountLimitInfo>,
+    pub fetched_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
+    pub accounts: Vec<OmpAccountUsageInfo>,
+    pub usage_observed_at: Option<u64>,
     pub advisor_enabled: bool,
     pub auto_resume: bool,
     pub default_thinking_level: Option<String>,

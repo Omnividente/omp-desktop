@@ -1,7 +1,8 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, BootstrapPayload, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning,
+        AppSettings, BootstrapPayload, OmpAccountLimitInfo, OmpAccountRouteInfo,
+        OmpAccountUsageInfo, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning,
         OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
@@ -62,19 +63,43 @@ pub fn load_config_snapshot(
     let mut models =
         snapshot_value_or_warning(models_result, "models", "omp_models_failed", &mut warnings);
     let usage = snapshot_value_or_warning(usage_result, "usage", "omp_usage_failed", &mut warnings);
-    apply_usage_to_models(&mut models, &usage);
+    apply_usage_to_models(&mut models, &usage.providers);
     let roles_map = extract_roles(&raw);
+    let fallback_chains = extract_string_lists(&raw, "retry.fallbackChains");
     let roles = build_roles(&roles_map, &models);
-    let credentials = build_credentials(app, app_settings, &models, &usage);
+    warnings.extend(build_model_config_warnings(
+        &roles_map,
+        &fallback_chains,
+        &models,
+    ));
+    for role in roles
+        .iter()
+        .filter(|role| !role.selector.trim().is_empty() && role.status != "ok")
+    {
+        warnings.push(OmpConfigWarning {
+            source: "model-role".to_owned(),
+            code: format!("{}_{}", role.role, role.status),
+            message: format!(
+                "Роль {}: {}",
+                role.role,
+                role.detail
+                    .as_deref()
+                    .unwrap_or("нет доступного маршрута к выбранной модели")
+            ),
+        });
+    }
+    let credentials = build_credentials(app, app_settings, &models, &usage.providers);
 
     Ok(OmpConfigSnapshot {
         roles,
+        usage_observed_at: usage.observed_at,
         models,
+        accounts: usage.accounts,
         advisor_enabled: extract_bool(&raw, "advisor.enabled").unwrap_or(false),
         auto_resume: extract_bool(&raw, "autoResume").unwrap_or(false),
         default_thinking_level: extract_string(&raw, "defaultThinkingLevel"),
         model_fallback_enabled: extract_bool(&raw, "retry.modelFallback").unwrap_or(true),
-        fallback_chains: extract_string_lists(&raw, "retry.fallbackChains"),
+        fallback_chains,
         proxy_providers: app_settings.proxy_providers.iter().cloned().collect(),
         provider_env_keys: PROVIDER_ENV_KEYS
             .iter()
@@ -83,6 +108,24 @@ pub fn load_config_snapshot(
         credentials,
         warnings,
     })
+}
+
+pub fn refresh_config_snapshot(
+    app: &AppHandle,
+    app_settings: &AppSettings,
+) -> Result<OmpConfigSnapshot, String> {
+    let omp = resolve_omp(app, app_settings);
+    if omp.version.is_none() {
+        return Err(format!("OMP не найден: {}", omp.executable));
+    }
+    run_omp_text(
+        &omp.executable,
+        &["usage", "invalidate"],
+        &app_settings.provider_env,
+        OmpOperation::Usage,
+    )
+    .map_err(|error| format!("Не удалось принудительно обновить usage OMP: {error}"))?;
+    load_config_snapshot(app, app_settings)
 }
 
 fn snapshot_value_or_warning<T: Default>(
@@ -624,14 +667,24 @@ fn load_models(
         .collect())
 }
 
-fn load_usage(executable: &str, env_map: &HashMap<String, String>) -> Result<UsageMap, String> {
+fn load_usage(
+    executable: &str,
+    env_map: &HashMap<String, String>,
+) -> Result<UsageSnapshot, String> {
     let value = run_omp_json(
         executable,
         &["usage", "--json"],
         env_map,
         OmpOperation::Usage,
     )?;
-    Ok(parse_usage_reports(&value))
+    Ok(parse_usage_snapshot(&value))
+}
+
+#[derive(Default)]
+struct UsageSnapshot {
+    providers: UsageMap,
+    accounts: Vec<OmpAccountUsageInfo>,
+    observed_at: Option<u64>,
 }
 
 type UsageMap = HashMap<String, ProviderUsage>;
@@ -640,18 +693,548 @@ type UsageMap = HashMap<String, ProviderUsage>;
 enum ModelFamily {
     Google,
     Anthropic,
+    AnthropicOpus,
+    AnthropicSonnet,
+    AnthropicFable,
+    AnthropicMythos,
     OpenAi,
+    OpenAiSpark,
     General,
 }
 
+fn parse_usage_snapshot(value: &Value) -> UsageSnapshot {
+    let mut providers = parse_usage_reports(value);
+    let accounts = parse_usage_accounts(value);
+    apply_account_routing_to_usage(&mut providers, &accounts);
+    UsageSnapshot {
+        providers,
+        accounts,
+        observed_at: value.get("generatedAt").and_then(Value::as_u64),
+    }
+}
+
+fn parse_account_limits(report: &Value) -> Vec<OmpAccountLimitInfo> {
+    report
+        .get("limits")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|limit| {
+            let id = limit.get("id")?.as_str()?.to_owned();
+            let label = limit
+                .get("label")
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_owned();
+            let used_fraction = limit_used_fraction(limit);
+            let status = limit
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    if used_fraction.is_some_and(|used| used >= 0.999) {
+                        "exhausted".to_owned()
+                    } else if used_fraction.is_some_and(|used| used >= 0.8) {
+                        "warning".to_owned()
+                    } else {
+                        "ok".to_owned()
+                    }
+                });
+            Some(OmpAccountLimitInfo {
+                id,
+                label,
+                status,
+                used_percent: used_fraction.map(|used| used.clamp(0.0, 1.0) * 100.0),
+                window_label: limit
+                    .pointer("/window/label")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                resets_at: limit.pointer("/window/resetsAt").and_then(Value::as_u64),
+            })
+        })
+        .collect()
+}
+
+fn parse_usage_accounts(value: &Value) -> Vec<OmpAccountUsageInfo> {
+    let mut accounts = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    if let Some(reports) = value.get("reports").and_then(Value::as_array) {
+        for (index, report) in reports.iter().enumerate() {
+            if let Some(account) = parse_usage_report_account(report, index) {
+                if seen.insert(account.id.clone()) {
+                    accounts.push(account);
+                }
+            }
+        }
+    }
+    if let Some(missing) = value.get("accountsWithoutUsage").and_then(Value::as_array) {
+        for (index, account) in missing.iter().enumerate() {
+            if let Some(account) = parse_unreported_account(account, index) {
+                if seen.insert(account.id.clone()) {
+                    accounts.push(account);
+                }
+            }
+        }
+    }
+    if let Some(disabled) = value.get("disabledCredentials").and_then(Value::as_array) {
+        for (index, credential) in disabled.iter().enumerate() {
+            if let Some(account) = parse_disabled_account(credential, index) {
+                if seen.insert(account.id.clone()) {
+                    accounts.push(account);
+                }
+            }
+        }
+    }
+
+    accounts.sort_by(|left, right| {
+        left.provider
+            .cmp(&right.provider)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    accounts
+}
+
+fn parse_usage_report_account(value: &Value, index: usize) -> Option<OmpAccountUsageInfo> {
+    let provider = value.get("provider")?.as_str()?.trim().to_owned();
+    if provider.is_empty() {
+        return None;
+    }
+    let identity = usage_account_identity(value, index);
+    let id = usage_account_id(&provider, &identity);
+    let limits = parse_account_limits(value);
+    let routes = routes_from_usage_report(&provider, value);
+    let has_limits = !limits.is_empty();
+    let routing_eligible = has_limits && routes.iter().any(|route| route.routing_eligible);
+    let status = if !has_limits {
+        "unknown"
+    } else if !routing_eligible {
+        "exhausted"
+    } else if routes
+        .iter()
+        .any(|route| route.status != "ready" || !route.routing_eligible)
+    {
+        "limited"
+    } else {
+        "ready"
+    };
+
+    Some(OmpAccountUsageInfo {
+        id: id.clone(),
+        provider,
+        credential_type: usage_credential_type(value),
+        label: usage_account_label(value, &id),
+        status: status.to_owned(),
+        configured: true,
+        reporting: has_limits,
+        status_reason: (!has_limits).then(|| "usage limits were not reported".to_owned()),
+        routing_eligible,
+        routing_evidence: if has_limits { "usage" } else { "unknown" }.to_owned(),
+        routes,
+        limits,
+        fetched_at: value.get("fetchedAt").and_then(Value::as_u64),
+    })
+}
+
+fn parse_unreported_account(value: &Value, index: usize) -> Option<OmpAccountUsageInfo> {
+    let provider = value.get("provider")?.as_str()?.trim().to_owned();
+    if provider.is_empty() {
+        return None;
+    }
+    let identity = usage_account_identity(value, index);
+    let id = usage_account_id(&provider, &identity);
+    Some(OmpAccountUsageInfo {
+        id: id.clone(),
+        provider,
+        credential_type: usage_credential_type(value),
+        label: usage_account_label(value, &id),
+        status: "unknown".to_owned(),
+        configured: true,
+        reporting: false,
+        status_reason: Some("usage limits were not reported".to_owned()),
+        routing_eligible: false,
+        routing_evidence: "unknown".to_owned(),
+        routes: Vec::new(),
+        limits: Vec::new(),
+        fetched_at: None,
+    })
+}
+
+fn parse_disabled_account(value: &Value, index: usize) -> Option<OmpAccountUsageInfo> {
+    let provider = value.get("provider")?.as_str()?.trim().to_owned();
+    if provider.is_empty() || provider.starts_with("mcp_oauth:") {
+        return None;
+    }
+    let identity = usage_account_identity(value, index);
+    let id = usage_account_id(&provider, &identity);
+    Some(OmpAccountUsageInfo {
+        id: id.clone(),
+        provider,
+        credential_type: usage_credential_type(value),
+        label: usage_account_label(value, &id),
+        status: "disabled".to_owned(),
+        configured: false,
+        reporting: false,
+        status_reason: Some("credential disabled; sign in again".to_owned()),
+        routing_eligible: false,
+        routing_evidence: "reported".to_owned(),
+        routes: Vec::new(),
+        limits: Vec::new(),
+        fetched_at: None,
+    })
+}
+
+fn routes_from_usage_report(provider: &str, report: &Value) -> Vec<OmpAccountRouteInfo> {
+    let mut families = HashMap::<ModelFamily, UsageStatus>::new();
+    if let Some(limits) = report.get("limits").and_then(Value::as_array) {
+        for limit in limits {
+            let family = usage_family(provider, limit);
+            let candidate = usage_status_from_limit(limit);
+            families
+                .entry(family)
+                .and_modify(|current| {
+                    if usage_severity(&candidate) > usage_severity(current) {
+                        *current = candidate.clone();
+                    }
+                })
+                .or_insert(candidate);
+        }
+    }
+    if families.is_empty() {
+        return Vec::new();
+    }
+
+    let mut routes = families
+        .into_iter()
+        .map(|(family, status)| OmpAccountRouteInfo {
+            id: usage_route_id(family).to_owned(),
+            label: family.label().to_owned(),
+            status: match status.status.as_str() {
+                "ok" => "ready".to_owned(),
+                "limited" => "limited".to_owned(),
+                _ => "exhausted".to_owned(),
+            },
+            routing_eligible: status.available,
+        })
+        .collect::<Vec<_>>();
+    routes.sort_by(|left, right| left.id.cmp(&right.id));
+    routes
+}
+
+fn usage_route_id(family: ModelFamily) -> &'static str {
+    match family {
+        ModelFamily::Google => "counter:google",
+        ModelFamily::Anthropic => "counter:anthropic",
+        ModelFamily::AnthropicOpus => "counter:anthropic-opus",
+        ModelFamily::AnthropicSonnet => "counter:anthropic-sonnet",
+        ModelFamily::AnthropicFable => "counter:anthropic-fable",
+        ModelFamily::AnthropicMythos => "counter:anthropic-mythos",
+        ModelFamily::OpenAi => "counter:openai",
+        ModelFamily::OpenAiSpark => "counter:openai-spark",
+        ModelFamily::General => "general",
+    }
+}
+
+fn identity_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .or_else(|| value.get("metadata").and_then(|metadata| metadata.get(key)))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|identity| !identity.is_empty())
+}
+
+fn usage_account_identity(value: &Value, index: usize) -> String {
+    let mut identity = [
+        "accountKey",
+        "accountId",
+        "projectId",
+        "email",
+        "enterpriseUrl",
+    ]
+    .into_iter()
+    .find_map(|key| identity_string(value, key).map(|value| format!("{key}:{value}")));
+    if identity.is_none() {
+        if let Some(limits) = value.get("limits").and_then(Value::as_array) {
+            'limits: for limit in limits {
+                for key in ["accountId", "projectId"] {
+                    if let Some(scoped) = limit
+                        .get("scope")
+                        .and_then(|scope| scope.get(key))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|scoped| !scoped.is_empty())
+                    {
+                        identity = Some(format!("{key}:{scoped}"));
+                        break 'limits;
+                    }
+                }
+            }
+        }
+    }
+    let organization =
+        identity_string(value, "orgId").or_else(|| identity_string(value, "orgName"));
+    if let Some(organization) = organization {
+        let identity = identity.get_or_insert_with(String::new);
+        if !identity.is_empty() {
+            identity.push('|');
+        }
+        identity.push_str("org:");
+        identity.push_str(organization);
+    }
+    if let Some(identity) = identity.filter(|identity| !identity.is_empty()) {
+        return identity;
+    }
+    if let Some(id) = value.get("id") {
+        if let Some(id) = id.as_str() {
+            return format!("id:{id}");
+        }
+        if let Some(id) = id.as_u64() {
+            return format!("id:{id}");
+        }
+    }
+    format!("row:{index}")
+}
+
+fn usage_account_id(provider: &str, identity: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in provider
+        .bytes()
+        .chain(std::iter::once(0))
+        .chain(identity.bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("usage-{hash:016x}")
+}
+
+fn usage_account_label(value: &Value, id: &str) -> String {
+    let email = identity_string(value, "email");
+    let primary = email
+        .or_else(|| identity_string(value, "accountId"))
+        .or_else(|| identity_string(value, "projectId"))
+        .or_else(|| identity_string(value, "enterpriseUrl"));
+    let organization =
+        identity_string(value, "orgName").or_else(|| identity_string(value, "orgId"));
+    let suffix = id.strip_prefix("usage-").unwrap_or(id);
+    let suffix = suffix.get(..8).unwrap_or(suffix);
+    let masked = email
+        .map(mask_email)
+        .or_else(|| primary.map(mask_identifier))
+        .or_else(|| {
+            value
+                .get("provider")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "account".to_owned());
+    let mut parts = vec![masked];
+    if let Some(organization) = organization.filter(|organization| Some(*organization) != primary) {
+        parts.push(mask_identifier(organization));
+    }
+    parts.push(suffix.to_owned());
+    parts.join(" · ")
+}
+
+fn mask_email(email: &str) -> String {
+    let Some((local, domain)) = email.split_once('@') else {
+        return mask_identifier(email);
+    };
+    let prefix = local.chars().take(3).collect::<String>();
+    format!("{prefix}***@{domain}")
+}
+
+fn mask_identifier(value: &str) -> String {
+    let prefix = value.chars().take(2).collect::<String>();
+    format!("{prefix}*")
+}
+
+fn usage_credential_type(value: &Value) -> String {
+    match value
+        .get("credentialType")
+        .or_else(|| value.get("type"))
+        .and_then(Value::as_str)
+    {
+        Some("api_key" | "api-key") => "api_key".to_owned(),
+        Some("oauth") => "oauth".to_owned(),
+        _ => "unknown".to_owned(),
+    }
+}
+
+fn route_family(provider: &str, route: &OmpAccountRouteInfo) -> Option<ModelFamily> {
+    let value = format!("{} {}", route.id, route.label).to_ascii_lowercase();
+    if value.contains("model-policy:") {
+        return None;
+    }
+    if provider == "anthropic" {
+        if let Some(family) = anthropic_tier_family(&value) {
+            return Some(family);
+        }
+    }
+    if value.contains("spark") {
+        Some(ModelFamily::OpenAiSpark)
+    } else if value.contains("anthropic") || value.contains("claude") {
+        Some(ModelFamily::Anthropic)
+    } else if value.contains("openai") || value.contains("chat") || value.contains("gpt") {
+        Some(ModelFamily::OpenAi)
+    } else if value.contains("google") || value.contains("gemini") {
+        Some(ModelFamily::Google)
+    } else {
+        Some(ModelFamily::General)
+    }
+}
+
+fn usage_status_from_route(route: &OmpAccountRouteInfo) -> UsageStatus {
+    let status = match route.status.as_str() {
+        "ready" => "ok",
+        "limited" => "limited",
+        "auth-error" => "auth-error",
+        "blocked" | "exhausted" => "exhausted",
+        _ if route.routing_eligible => "limited",
+        _ => "exhausted",
+    };
+    UsageStatus {
+        available: route.routing_eligible,
+        status: status.to_owned(),
+        detail: Some(route.label.clone()),
+    }
+}
+
+fn usage_status_from_account(account: &OmpAccountUsageInfo) -> UsageStatus {
+    let status = if account.status == "auth-error" || account.status == "disabled" {
+        "auth-error"
+    } else if account.routing_eligible {
+        "ok"
+    } else {
+        "exhausted"
+    };
+    UsageStatus {
+        available: account.routing_eligible,
+        status: status.to_owned(),
+        detail: None,
+    }
+}
+
+fn account_route_status_for_family(
+    routes: &HashMap<ModelFamily, UsageStatus>,
+    family: ModelFamily,
+) -> Option<UsageStatus> {
+    account_status_for_family(routes, family).or_else(|| routes.get(&ModelFamily::General).cloned())
+}
+
+fn apply_account_routing_to_usage(usage: &mut UsageMap, accounts: &[OmpAccountUsageInfo]) {
+    let mut by_provider = HashMap::<String, Vec<&OmpAccountUsageInfo>>::new();
+    for account in accounts {
+        if account.routing_evidence == "unknown" {
+            continue;
+        }
+        by_provider
+            .entry(account.provider.clone())
+            .or_default()
+            .push(account);
+    }
+
+    for (provider, provider_accounts) in by_provider {
+        let account_routes = provider_accounts
+            .iter()
+            .map(|account| {
+                let mut routes = HashMap::<ModelFamily, UsageStatus>::new();
+                for route in &account.routes {
+                    let Some(family) = route_family(&provider, route) else {
+                        continue;
+                    };
+                    let candidate = usage_status_from_route(route);
+                    routes
+                        .entry(family)
+                        .and_modify(|current| {
+                            if usage_severity(&candidate) > usage_severity(current) {
+                                *current = candidate.clone();
+                            }
+                        })
+                        .or_insert(candidate);
+                }
+                if routes.is_empty() {
+                    routes.insert(ModelFamily::General, usage_status_from_account(account));
+                }
+                routes
+            })
+            .collect::<Vec<_>>();
+
+        let provider_usage = usage.entry(provider).or_default();
+        let mut family_keys = provider_usage.families.keys().copied().collect::<Vec<_>>();
+        for routes in &account_routes {
+            for family in routes.keys().copied() {
+                if !family_keys.contains(&family) {
+                    family_keys.push(family);
+                }
+            }
+        }
+        if family_keys
+            .iter()
+            .any(|family| *family != ModelFamily::General)
+        {
+            family_keys.retain(|family| *family != ModelFamily::General);
+        }
+
+        for family in family_keys {
+            let statuses = account_routes
+                .iter()
+                .filter_map(|routes| account_route_status_for_family(routes, family))
+                .collect::<Vec<_>>();
+            if !statuses.is_empty() {
+                provider_usage
+                    .families
+                    .insert(family, aggregate_account_statuses(family, &statuses));
+            }
+        }
+    }
+}
+
+fn limit_used_fraction(limit: &Value) -> Option<f64> {
+    if let Some(used) = limit
+        .pointer("/amount/usedFraction")
+        .and_then(Value::as_f64)
+    {
+        return Some(used);
+    }
+    let amount = limit.get("amount")?;
+    let used = amount.get("used").and_then(Value::as_f64);
+    let limit_value = amount.get("limit").and_then(Value::as_f64);
+    if let (Some(used), Some(limit_value)) = (used, limit_value) {
+        if limit_value > 0.0 {
+            return Some(used / limit_value);
+        }
+    }
+    amount
+        .get("remainingFraction")
+        .and_then(Value::as_f64)
+        .map(|remaining| 1.0 - remaining)
+}
 impl ModelFamily {
     fn label(self) -> &'static str {
         match self {
             Self::Google => "Google",
             Self::Anthropic => "Anthropic",
+            Self::AnthropicOpus => "Anthropic Opus",
+            Self::AnthropicSonnet => "Anthropic Sonnet",
+            Self::AnthropicFable => "Anthropic Fable",
+            Self::AnthropicMythos => "Anthropic Mythos",
             Self::OpenAi => "OpenAI",
+            Self::OpenAiSpark => "OpenAI Spark",
             Self::General => "Provider",
         }
+    }
+
+    fn anthropic_base(self) -> Option<Self> {
+        matches!(
+            self,
+            Self::AnthropicOpus
+                | Self::AnthropicSonnet
+                | Self::AnthropicFable
+                | Self::AnthropicMythos
+        )
+        .then_some(Self::Anthropic)
     }
 }
 
@@ -668,7 +1251,7 @@ struct UsageStatus {
 }
 
 fn parse_usage_reports(value: &Value) -> UsageMap {
-    let mut accounts = HashMap::<String, HashMap<ModelFamily, Vec<UsageStatus>>>::new();
+    let mut reports_by_provider = HashMap::<String, Vec<HashMap<ModelFamily, UsageStatus>>>::new();
     let reports = value
         .get("reports")
         .and_then(Value::as_array)
@@ -688,7 +1271,7 @@ fn parse_usage_reports(value: &Value) -> UsageMap {
         let mut account = HashMap::<ModelFamily, UsageStatus>::new();
         if let Some(limits) = report.get("limits").and_then(Value::as_array) {
             for limit in limits {
-                let family = usage_family(limit);
+                let family = usage_family(provider, limit);
                 let candidate = usage_status_from_limit(limit);
                 account
                     .entry(family)
@@ -700,37 +1283,102 @@ fn parse_usage_reports(value: &Value) -> UsageMap {
                     .or_insert(candidate);
             }
         }
-
-        let provider_accounts = accounts.entry(provider.to_owned()).or_default();
-        for (family, status) in account {
-            provider_accounts.entry(family).or_default().push(status);
-        }
+        reports_by_provider
+            .entry(provider.to_owned())
+            .or_default()
+            .push(account);
     }
 
-    accounts
+    reports_by_provider
         .into_iter()
-        .map(|(provider, families)| {
-            let families = families
+        .map(|(provider, account_reports)| {
+            let mut family_keys = Vec::<ModelFamily>::new();
+            for account in &account_reports {
+                for family in account.keys().copied() {
+                    if !family_keys.contains(&family) {
+                        family_keys.push(family);
+                    }
+                }
+            }
+            let families = family_keys
                 .into_iter()
-                .map(|(family, statuses)| (family, aggregate_account_statuses(family, &statuses)))
+                .filter_map(|family| {
+                    let statuses = account_reports
+                        .iter()
+                        .filter_map(|account| account_status_for_family(account, family))
+                        .collect::<Vec<_>>();
+                    (!statuses.is_empty())
+                        .then(|| (family, aggregate_account_statuses(family, &statuses)))
+                })
                 .collect();
             (provider, ProviderUsage { families })
         })
         .collect()
 }
 
-fn usage_family(limit: &Value) -> ModelFamily {
+fn account_status_for_family(
+    account: &HashMap<ModelFamily, UsageStatus>,
+    family: ModelFamily,
+) -> Option<UsageStatus> {
+    let exact = account.get(&family).cloned();
+    let base = family
+        .anthropic_base()
+        .and_then(|base_family| account.get(&base_family).cloned());
+    match (exact, base) {
+        (Some(exact), Some(base)) => {
+            if usage_severity(&base) > usage_severity(&exact) {
+                Some(base)
+            } else {
+                Some(exact)
+            }
+        }
+        (Some(exact), None) => Some(exact),
+        (None, Some(base)) => Some(base),
+        (None, None) => None,
+    }
+}
+
+fn anthropic_tier_family(value: &str) -> Option<ModelFamily> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.contains("opus") {
+        Some(ModelFamily::AnthropicOpus)
+    } else if normalized.contains("sonnet") {
+        Some(ModelFamily::AnthropicSonnet)
+    } else if normalized.contains("fable") {
+        Some(ModelFamily::AnthropicFable)
+    } else if normalized.contains("mythos") {
+        Some(ModelFamily::AnthropicMythos)
+    } else {
+        None
+    }
+}
+
+fn usage_family(provider: &str, limit: &Value) -> ModelFamily {
+    if provider == "anthropic" {
+        if let Some(tier) = limit.pointer("/scope/tier").and_then(Value::as_str) {
+            if let Some(family) = anthropic_tier_family(tier) {
+                return family;
+            }
+        }
+    }
     let label = limit
         .get("label")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let id = limit.get("id").and_then(Value::as_str).unwrap_or_default();
     let value = format!("{label} {id}").to_ascii_lowercase();
-    if value.contains("anthropic") || value.contains("claude") {
+    if provider == "anthropic" {
+        if let Some(family) = anthropic_tier_family(&value) {
+            return family;
+        }
+    }
+    if value.contains("spark") {
+        ModelFamily::OpenAiSpark
+    } else if value.contains("anthropic") || value.contains("claude") || provider == "anthropic" {
         ModelFamily::Anthropic
-    } else if value.contains("openai") || value.contains("gpt") {
+    } else if value.contains("openai") || value.contains("gpt") || provider == "openai-codex" {
         ModelFamily::OpenAi
-    } else if value.contains("google") || value.contains("gemini") {
+    } else if value.contains("google") || value.contains("gemini") || provider.contains("gemini") {
         ModelFamily::Google
     } else {
         ModelFamily::General
@@ -743,11 +1391,7 @@ fn usage_status_from_limit(limit: &Value) -> UsageStatus {
         .get("label")
         .and_then(Value::as_str)
         .unwrap_or("Usage");
-    let used = limit
-        .pointer("/amount/usedFraction")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        .clamp(0.0, 1.0);
+    let used = limit_used_fraction(limit).unwrap_or(0.0).clamp(0.0, 1.0);
     if raw_status.eq_ignore_ascii_case("exhausted") || used >= 0.999 {
         UsageStatus {
             available: false,
@@ -782,9 +1426,14 @@ fn usage_severity(status: &UsageStatus) -> u8 {
 fn aggregate_account_statuses(family: ModelFamily, statuses: &[UsageStatus]) -> UsageStatus {
     let available = statuses.iter().filter(|status| status.available).count();
     if available == 0 {
+        let status = if statuses.iter().any(|status| status.status == "auth-error") {
+            "auth-error"
+        } else {
+            "exhausted"
+        };
         return UsageStatus {
             available: false,
-            status: "exhausted".to_owned(),
+            status: status.to_owned(),
             detail: Some(format!("{}: 0/{}", family.label(), statuses.len())),
         };
     }
@@ -830,9 +1479,18 @@ fn summarize_provider_usage(usage: &ProviderUsage) -> UsageStatus {
         };
     }
     if available == 0 {
+        let status = if usage
+            .families
+            .values()
+            .any(|status| status.status == "auth-error")
+        {
+            "auth-error"
+        } else {
+            "exhausted"
+        };
         return UsageStatus {
             available: false,
-            status: "exhausted".to_owned(),
+            status: status.to_owned(),
             detail: Some(format!("families: 0/{total}")),
         };
     }
@@ -849,7 +1507,17 @@ fn summarize_provider_usage(usage: &ProviderUsage) -> UsageStatus {
 
 fn model_family(model: &OmpModelInfo) -> ModelFamily {
     let id = model.id.to_ascii_lowercase();
-    if id.starts_with("claude-") {
+    if id.contains("spark") {
+        ModelFamily::OpenAiSpark
+    } else if id.contains("fable") {
+        ModelFamily::AnthropicFable
+    } else if id.contains("mythos") {
+        ModelFamily::AnthropicMythos
+    } else if id.contains("opus") {
+        ModelFamily::AnthropicOpus
+    } else if id.contains("sonnet") {
+        ModelFamily::AnthropicSonnet
+    } else if id.starts_with("claude-") {
         ModelFamily::Anthropic
     } else if id.starts_with("gemini-") || id.starts_with("tab_") {
         ModelFamily::Google
@@ -862,12 +1530,18 @@ fn model_family(model: &OmpModelInfo) -> ModelFamily {
 
 fn usage_for_model(model: &OmpModelInfo, usage: &UsageMap) -> Option<UsageStatus> {
     let provider = usage.get(&model.provider)?;
+    let family = model_family(model);
     provider
         .families
-        .get(&model_family(model))
+        .get(&family)
+        .or_else(|| {
+            family
+                .anthropic_base()
+                .and_then(|base_family| provider.families.get(&base_family))
+        })
         .or_else(|| provider.families.get(&ModelFamily::General))
         .cloned()
-        .or_else(|| Some(summarize_provider_usage(provider)))
+        .or_else(|| (family == ModelFamily::General).then(|| summarize_provider_usage(provider)))
 }
 
 fn apply_usage_to_models(models: &mut [OmpModelInfo], usage: &UsageMap) {
@@ -1000,6 +1674,172 @@ fn normalize_proxy_providers(providers: Vec<String>) -> Result<Vec<String>, Stri
         normalized.insert(provider.to_owned());
     }
     Ok(normalized.into_iter().collect())
+}
+
+fn selector_identity(selector: &str) -> String {
+    strip_thinking(selector.trim()).to_ascii_lowercase()
+}
+
+fn selector_thinking_rank(selector: &str) -> u8 {
+    match selector.rsplit_once(':').map(|(_, level)| level) {
+        Some("off") => 0,
+        Some("minimal") => 1,
+        Some("low") => 2,
+        Some("medium") => 3,
+        Some("high") => 4,
+        Some("xhigh") => 5,
+        Some("max") => 6,
+        _ => 0,
+    }
+}
+
+fn selector_exists(
+    selector: &str,
+    roles: &BTreeMap<String, String>,
+    models: &[OmpModelInfo],
+) -> bool {
+    let base = selector_identity(selector);
+    if base == "*" {
+        return true;
+    }
+    if let Some(role) = base.strip_prefix('@') {
+        return roles.contains_key(role) || KNOWN_ROLES.contains(&role);
+    }
+    if roles.contains_key(&base) || KNOWN_ROLES.contains(&base.as_str()) {
+        return true;
+    }
+    if let Some(provider) = base.strip_suffix("/*") {
+        return models
+            .iter()
+            .any(|model| model.provider.eq_ignore_ascii_case(provider));
+    }
+    models.iter().any(|model| {
+        model.selector.eq_ignore_ascii_case(&base) || model.id.eq_ignore_ascii_case(&base)
+    })
+}
+
+fn fallback_target(
+    selector: &str,
+    roles: &BTreeMap<String, String>,
+    chains: &BTreeMap<String, Vec<String>>,
+) -> Option<String> {
+    let base = selector_identity(selector);
+    let direct = base.strip_prefix('@').unwrap_or(&base);
+    if chains.contains_key(direct) {
+        return Some(direct.to_owned());
+    }
+    roles.iter().find_map(|(role, primary)| {
+        (chains.contains_key(role) && selector_identity(primary) == base).then(|| role.clone())
+    })
+}
+
+fn fallback_graph_has_cycle(
+    node: &str,
+    graph: &BTreeMap<String, Vec<String>>,
+    visiting: &mut BTreeSet<String>,
+    visited: &mut BTreeSet<String>,
+) -> bool {
+    if visiting.contains(node) {
+        return true;
+    }
+    if visited.contains(node) {
+        return false;
+    }
+    visiting.insert(node.to_owned());
+    let cycle = graph
+        .get(node)
+        .into_iter()
+        .flatten()
+        .any(|target| fallback_graph_has_cycle(target, graph, visiting, visited));
+    visiting.remove(node);
+    visited.insert(node.to_owned());
+    cycle
+}
+
+fn build_model_config_warnings(
+    roles: &BTreeMap<String, String>,
+    chains: &BTreeMap<String, Vec<String>>,
+    models: &[OmpModelInfo],
+) -> Vec<OmpConfigWarning> {
+    let mut warnings = Vec::new();
+    let mut push = |code: &str, message: String| {
+        warnings.push(OmpConfigWarning {
+            source: "model-config".to_owned(),
+            code: code.to_owned(),
+            message,
+        });
+    };
+
+    if let (Some(default), Some(slow)) = (roles.get("default"), roles.get("slow")) {
+        if selector_identity(default) == selector_identity(slow)
+            && selector_thinking_rank(default) == selector_thinking_rank(slow)
+        {
+            push(
+                "default_equals_slow",
+                "Роли default и slow используют один selector и не различаются по глубине"
+                    .to_owned(),
+            );
+        }
+    }
+    if let Some(default) = roles.get("default") {
+        for role in ["smol", "tiny"] {
+            let Some(selector) = roles.get(role) else {
+                continue;
+            };
+            if selector_identity(selector) == selector_identity(default)
+                && selector_thinking_rank(selector) >= selector_thinking_rank(default)
+            {
+                push(
+                    "light_role_not_lighter",
+                    format!("Роль {role} не легче default: {selector}"),
+                );
+            }
+        }
+    }
+
+    let mut graph = BTreeMap::<String, Vec<String>>::new();
+    for (key, selectors) in chains {
+        let mut seen = BTreeSet::new();
+        let primary = roles.get(key).map(|selector| selector_identity(selector));
+        let mut targets = Vec::new();
+        for selector in selectors {
+            let identity = selector_identity(selector);
+            if !seen.insert(identity.clone()) {
+                push(
+                    "fallback_duplicate",
+                    format!("Fallback-цепочка {key} повторяет selector {selector}"),
+                );
+            }
+            if primary.as_deref() == Some(identity.as_str()) {
+                push(
+                    "fallback_repeats_primary",
+                    format!("Fallback-цепочка {key} повторяет primary selector {selector}"),
+                );
+            }
+            if !selector_exists(selector, roles, models) {
+                push(
+                    "fallback_missing_model",
+                    format!("Fallback-цепочка {key} ссылается на отсутствующую модель {selector}"),
+                );
+            }
+            if let Some(target) = fallback_target(selector, roles, chains) {
+                targets.push(target);
+            }
+        }
+        graph.insert(key.to_ascii_lowercase(), targets);
+    }
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    if graph
+        .keys()
+        .any(|node| fallback_graph_has_cycle(node, &graph, &mut visiting, &mut visited))
+    {
+        push(
+            "fallback_cycle",
+            "Fallback-цепочки образуют цикл между ролями или primary selectors".to_owned(),
+        );
+    }
+    warnings
 }
 
 fn validate_proxy_provider_membership(
@@ -1460,6 +2300,51 @@ providers:
     }
 
     #[test]
+    fn model_config_warnings_detect_weight_missing_duplicates_and_cycles() {
+        let roles = BTreeMap::from([
+            ("default".to_owned(), "codex-lb/gpt-5.6-sol:max".to_owned()),
+            ("slow".to_owned(), "codex-lb/gpt-5.6-sol:max".to_owned()),
+            ("smol".to_owned(), "codex-lb/gpt-5.6-sol:max".to_owned()),
+            (
+                "advisor".to_owned(),
+                "google-antigravity/gemini-3.8-flash:high".to_owned(),
+            ),
+        ]);
+        let chains = BTreeMap::from([
+            ("default".to_owned(), vec!["@advisor".to_owned()]),
+            (
+                "advisor".to_owned(),
+                vec![
+                    "google-antigravity/gemini-3.8-flash:high".to_owned(),
+                    "retired/model:high".to_owned(),
+                    "retired/model:low".to_owned(),
+                    "@default".to_owned(),
+                ],
+            ),
+        ]);
+        let models = vec![
+            model("codex-lb", "gpt-5.6-sol"),
+            model("google-antigravity", "gemini-3.8-flash"),
+        ];
+
+        let codes = build_model_config_warnings(&roles, &chains, &models)
+            .into_iter()
+            .map(|warning| warning.code)
+            .collect::<BTreeSet<_>>();
+
+        for expected in [
+            "default_equals_slow",
+            "light_role_not_lighter",
+            "fallback_repeats_primary",
+            "fallback_missing_model",
+            "fallback_duplicate",
+            "fallback_cycle",
+        ] {
+            assert!(codes.contains(expected), "missing warning {expected}");
+        }
+    }
+
+    #[test]
     fn antigravity_usage_is_applied_per_model_family_across_accounts() {
         let usage = parse_usage_reports(&serde_json::json!({
             "reports": [
@@ -1519,5 +2404,259 @@ providers:
         assert!(models[0].available);
         assert_eq!(models[0].status, "ok");
         assert_eq!(models[0].detail.as_deref(), Some("Google: 1/2"));
+    }
+
+    #[test]
+    fn anthropic_shared_and_tier_limits_stay_correlated_per_account() {
+        let usage = parse_usage_reports(&serde_json::json!({
+            "reports": [
+                {"provider": "anthropic", "limits": [
+                    {"id": "anthropic:5h", "label": "Claude 5 Hour", "scope": {"shared": true}, "amount": {"usedFraction": 1.0}, "status": "exhausted"},
+                    {"id": "anthropic:7d:fable", "label": "Claude 7 Day (Fable)", "scope": {"tier": "fable"}, "amount": {"usedFraction": 0.2}, "status": "ok"}
+                ]},
+                {"provider": "anthropic", "limits": [
+                    {"id": "anthropic:5h", "label": "Claude 5 Hour", "scope": {"shared": true}, "amount": {"usedFraction": 0.2}, "status": "ok"},
+                    {"id": "anthropic:7d:fable", "label": "Claude 7 Day (Fable)", "scope": {"tier": "fable"}, "amount": {"usedFraction": 1.0}, "status": "exhausted"}
+                ]}
+            ]
+        }));
+        let mut models = vec![
+            model("anthropic", "claude-fable-4-5"),
+            model("anthropic", "claude-opus-4-6"),
+        ];
+
+        apply_usage_to_models(&mut models, &usage);
+
+        assert!(!models[0].available);
+        assert_eq!(models[0].status, "exhausted");
+        assert!(models[1].available);
+        assert_eq!(models[1].status, "ok");
+    }
+
+    #[test]
+    fn account_snapshot_keeps_chat_and_spark_health_separate() {
+        let snapshot = parse_usage_snapshot(&serde_json::json!({
+            "generatedAt": 1_900_000_000_000_u64,
+            "reports": [{
+                "provider": "openai-codex",
+                "fetchedAt": 1_899_999_900_000_u64,
+                "metadata": {"email": "account@example.test"},
+                "limits": [
+                    {
+                        "id": "openai-codex:chat:5h",
+                        "label": "ChatGPT",
+                        "status": "exhausted",
+                        "amount": {"usedFraction": 1.0}
+                    },
+                    {
+                        "id": "openai-codex:spark:5h",
+                        "label": "Spark",
+                        "status": "ok",
+                        "amount": {"usedFraction": 0.42},
+                        "window": {"label": "5h", "resetsAt": 2_000_000_000_000_u64}
+                    }
+                ]
+            }]
+        }));
+
+        assert_eq!(snapshot.accounts.len(), 1);
+        assert_eq!(snapshot.observed_at, Some(1_900_000_000_000));
+        let account = &snapshot.accounts[0];
+        assert!(account.id.starts_with("usage-"));
+        assert!(account.label.starts_with("acc***@example.test · "));
+        assert_eq!(account.status, "limited");
+        assert_eq!(account.routing_evidence, "usage");
+        assert_eq!(account.credential_type, "unknown");
+        assert_eq!(account.fetched_at, Some(1_899_999_900_000));
+        assert_eq!(account.limits.len(), 2);
+        assert_eq!(account.limits[1].used_percent, Some(42.0));
+        assert_eq!(account.limits[1].resets_at, Some(2_000_000_000_000));
+        assert_eq!(account.routes.len(), 2);
+        assert!(!account.routes[0].routing_eligible);
+        assert!(account.routes[1].routing_eligible);
+
+        let mut models = vec![
+            model("openai-codex", "gpt-5.3-codex"),
+            model("openai-codex", "gpt-5.3-codex-spark"),
+        ];
+        apply_usage_to_models(&mut models, &snapshot.providers);
+        assert!(!models[0].available);
+        assert_eq!(models[0].status, "exhausted");
+        assert!(models[1].available);
+        assert_eq!(models[1].status, "ok");
+    }
+
+    #[test]
+    fn usage_contract_synthesizes_safe_account_cards() {
+        let value = serde_json::json!({
+            "generatedAt": 1_900_000_000_000_u64,
+            "reports": [{
+                "provider": "google-antigravity",
+                "fetchedAt": 1_899_999_900_000_u64,
+                "metadata": {
+                    "email": "worker@example.test",
+                    "projectId": "alpha-project"
+                },
+                "limits": [
+                    {
+                        "id": "google-antigravity:google:default:weekly",
+                        "label": "Usage (Google)",
+                        "status": "exhausted",
+                        "amount": {"usedFraction": 1.0},
+                        "window": {"label": "Weekly", "resetsAt": 2_000_000_000_000_u64}
+                    },
+                    {
+                        "id": "google-antigravity:google:default:daily",
+                        "label": "Usage (Google)",
+                        "status": "ok",
+                        "amount": {"usedFraction": 0.0},
+                        "window": {"label": "Daily"}
+                    },
+                    {
+                        "id": "google-antigravity:openai:default:weekly",
+                        "label": "Usage (OpenAI)",
+                        "status": "warning",
+                        "amount": {"usedFraction": 0.96},
+                        "window": {"label": "Weekly"}
+                    },
+                    {
+                        "id": "google-antigravity:anthropic:default:daily",
+                        "label": "Usage (Anthropic)",
+                        "status": "ok",
+                        "amount": {"usedFraction": 0.2},
+                        "window": {"label": "Daily"}
+                    }
+                ]
+            }],
+            "accountsWithoutUsage": [{
+                "provider": "anthropic",
+                "type": "oauth",
+                "email": "idle@example.test"
+            }],
+            "disabledCredentials": [
+                {
+                    "id": 4,
+                    "provider": "google-gemini-cli",
+                    "type": "oauth",
+                    "email": "gone@example.test",
+                    "cause": "oauth refresh failed: secret upstream response",
+                    "disabledAtMs": 1_899_000_000_000_u64
+                },
+                {
+                    "id": 9,
+                    "provider": "mcp_oauth:profile:default:https://example.test/mcp",
+                    "type": "oauth",
+                    "cause": "revoked"
+                }
+            ]
+        });
+
+        let snapshot = parse_usage_snapshot(&value);
+        assert_eq!(snapshot.observed_at, Some(1_900_000_000_000));
+        assert_eq!(snapshot.accounts.len(), 3);
+
+        let active = snapshot
+            .accounts
+            .iter()
+            .find(|account| account.provider == "google-antigravity")
+            .expect("active account");
+        assert!(active.label.starts_with("wor***@example.test · "));
+        assert_eq!(active.routing_evidence, "usage");
+        assert_eq!(active.status, "limited");
+        assert!(active.routing_eligible);
+        assert_eq!(active.limits.len(), 4);
+        let google = active
+            .routes
+            .iter()
+            .find(|route| route.id == "counter:google")
+            .expect("Google route");
+        assert_eq!(google.status, "exhausted");
+        assert!(!google.routing_eligible);
+        let openai = active
+            .routes
+            .iter()
+            .find(|route| route.id == "counter:openai")
+            .expect("OpenAI route");
+        assert_eq!(openai.status, "limited");
+        assert!(openai.routing_eligible);
+
+        let unreported = snapshot
+            .accounts
+            .iter()
+            .find(|account| account.provider == "anthropic")
+            .expect("unreported account");
+        assert_eq!(unreported.routing_evidence, "unknown");
+        assert!(!unreported.routing_eligible);
+        assert!(!unreported.reporting);
+
+        let disabled = snapshot
+            .accounts
+            .iter()
+            .find(|account| account.provider == "google-gemini-cli")
+            .expect("disabled account");
+        assert_eq!(disabled.status, "disabled");
+        assert_eq!(disabled.routing_evidence, "reported");
+        assert!(!disabled.configured);
+
+        let serialized = serde_json::to_string(&snapshot.accounts).expect("serialize accounts");
+        for secret in [
+            "worker@example.test",
+            "idle@example.test",
+            "gone@example.test",
+            "alpha-project",
+            "secret upstream response",
+        ] {
+            assert!(!serialized.contains(secret), "leaked {secret}");
+        }
+
+        let repeated = parse_usage_snapshot(&value);
+        assert_eq!(snapshot.accounts[0].id, repeated.accounts[0].id);
+    }
+
+    #[test]
+    fn usage_identity_keeps_projects_and_organizations_distinct() {
+        let limit = serde_json::json!({
+            "id": "google-antigravity:google:default:daily",
+            "label": "Usage (Google)",
+            "status": "ok",
+            "amount": {"usedFraction": 0.1}
+        });
+        let snapshot = parse_usage_snapshot(&serde_json::json!({
+            "reports": [
+                {
+                    "provider": "google-antigravity",
+                    "metadata": {"email": "same@example.test", "projectId": "project-a", "orgId": "org-a"},
+                    "limits": [limit.clone()]
+                },
+                {
+                    "provider": "google-antigravity",
+                    "metadata": {"email": "same@example.test", "projectId": "project-b", "orgId": "org-a"},
+                    "limits": [limit.clone()]
+                },
+                {
+                    "provider": "google-antigravity",
+                    "metadata": {"email": "same@example.test", "projectId": "project-a", "orgId": "org-b"},
+                    "limits": [limit]
+                }
+            ]
+        }));
+
+        assert_eq!(snapshot.accounts.len(), 3);
+        let ids = snapshot
+            .accounts
+            .iter()
+            .map(|account| account.id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), 3);
+        let serialized = serde_json::to_string(&snapshot.accounts).expect("serialize accounts");
+        for identity in [
+            "same@example.test",
+            "project-a",
+            "project-b",
+            "org-a",
+            "org-b",
+        ] {
+            assert!(!serialized.contains(identity), "leaked {identity}");
+        }
     }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
-import { errorMessage, loadOmpConfig, saveSettingsBundle } from "./api"
+import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
 import {
   roleDescription,
@@ -16,6 +16,7 @@ import type {
   AppSettings,
   BootstrapPayload,
   OmpConfigSnapshot,
+  OmpAccountUsageInfo,
   OmpCredentialInfo,
   RuntimeInfo,
 } from "./types"
@@ -29,6 +30,8 @@ interface SettingsPanelProps {
   onError: (message: string) => void
 }
 
+const USAGE_STALE_MS = 10 * 60_000
+const USAGE_REFRESH_COOLDOWN_MS = 30_000
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
 
 type SettingsSection = "general" | "behavior" | "models" | "providers"
@@ -107,6 +110,88 @@ function credentialStatusLabel(language: Lang, credential: OmpCredentialInfo): s
   )
 }
 
+function accountStatusLabel(language: Lang, status: OmpAccountUsageInfo["status"]): string {
+  const key = {
+    ready: "accountStatusReady",
+    limited: "accountStatusLimited",
+    exhausted: "accountStatusExhausted",
+    unknown: "accountStatusUnknown",
+    disabled: "accountStatusDisabled",
+  }[status] as
+    | "accountStatusReady"
+    | "accountStatusLimited"
+    | "accountStatusExhausted"
+    | "accountStatusUnknown"
+    | "accountStatusDisabled"
+  return t(language, key)
+}
+
+function accountCredentialTypeLabel(
+  language: Lang,
+  type: OmpAccountUsageInfo["credentialType"],
+): string {
+  if (type === "oauth") return t(language, "accountCredentialOauth")
+  if (type === "api_key") return t(language, "accountCredentialApiKey")
+  return t(language, "accountCredentialUnknown")
+}
+
+function accountRoutingLabel(language: Lang, account: OmpAccountUsageInfo): string {
+  if (account.routingEvidence === "usage") {
+    return t(
+      language,
+      account.routingEligible ? "accountRoutingAllowedByLimits" : "accountRoutingBlockedByLimits",
+    )
+  }
+  if (account.routingEvidence === "unknown") return t(language, "accountRoutingUnknown")
+  return t(
+    language,
+    account.routingEligible ? "accountRoutingEligible" : "accountRoutingIneligible",
+  )
+}
+
+function accountRouteStatusLabel(
+  language: Lang,
+  status: OmpAccountUsageInfo["routes"][number]["status"],
+): string {
+  if (status === "ready") return t(language, "accountStatusReady")
+  if (status === "limited") return t(language, "accountStatusLimited")
+  if (status === "exhausted") return t(language, "accountStatusExhausted")
+  return t(language, "accountStatusUnknown")
+}
+
+function formatAccountCountdown(language: Lang, target: number, now: number): string {
+  const remainingSeconds = Math.max(0, Math.ceil((target - now) / 1_000))
+  if (remainingSeconds === 0) return t(language, "accountCountdownNow")
+  const days = Math.floor(remainingSeconds / 86_400)
+  const hours = Math.floor((remainingSeconds % 86_400) / 3_600)
+  const minutes = Math.floor((remainingSeconds % 3_600) / 60)
+  const seconds = remainingSeconds % 60
+  const units = language === "en" ? ["d", "h", "m", "s"] : ["д", "ч", "м", "с"]
+  if (days > 0) return `${days}${units[0]} ${hours}${units[1]}`
+  if (hours > 0) return `${hours}${units[1]} ${minutes}${units[2]}`
+  if (minutes > 0) return `${minutes}${units[2]} ${seconds}${units[3]}`
+  return `${seconds}${units[3]}`
+}
+
+function formatAccountTimestamp(language: Lang, timestamp: number): string {
+  return new Intl.DateTimeFormat(language === "en" ? "en" : "ru", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(timestamp)
+}
+
+function formatAccountPercent(language: Lang, percent: number): string {
+  return new Intl.NumberFormat(language === "en" ? "en" : "ru", {
+    maximumFractionDigits: 2,
+  }).format(Math.min(100, Math.max(0, percent)))
+}
+
+function accountReasonLabel(language: Lang, reason: string): string {
+  if (reason === "usage limits were not reported") return t(language, "accountReasonNotReported")
+  if (reason === "credential disabled; sign in again") return t(language, "accountReasonDisabled")
+  return reason
+}
+
 export function SettingsPanel({
   settings,
   runtime,
@@ -124,6 +209,8 @@ export function SettingsPanel({
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [clockNow, setClockNow] = useState(() => Date.now())
+  const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
   const [openRole, setOpenRole] = useState<string | null>(null)
   const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>({})
   const [advisorEnabled, setAdvisorEnabled] = useState(false)
@@ -153,14 +240,20 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const refreshConfig = async () => {
+  const refreshConfig = async (forceUsage = false) => {
     if (!runtime.ompAvailable) {
       return
     }
     setLoadingConfig(true)
     setConfigError(null)
+    if (forceUsage) {
+      const requestedAt = Date.now()
+      setClockNow(requestedAt)
+      setRefreshCooldownUntil(requestedAt + USAGE_REFRESH_COOLDOWN_MS)
+    }
     try {
-      const snapshot = await loadOmpConfig()
+      const snapshot = forceUsage ? await refreshOmpConfig() : await loadOmpConfig()
+      const loadedAt = Date.now()
       setOmpConfig(snapshot)
       const drafts: Record<string, string> = {}
       for (const role of snapshot.roles) {
@@ -173,6 +266,7 @@ export function SettingsPanel({
       setModelFallbackEnabled(snapshot.modelFallbackEnabled)
       setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
       setProxyProviders(snapshot.proxyProviders)
+      setClockNow(loadedAt)
     } catch (error) {
       const message = errorMessage(error, language)
       setConfigError(message)
@@ -202,8 +296,32 @@ export function SettingsPanel({
     return () => window.clearTimeout(timeout)
   }, [loadingConfig])
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 1_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
   const orderedRoles = ompConfig?.roles ?? []
   const credentials = ompConfig?.credentials ?? []
+  const accounts = useMemo(() => ompConfig?.accounts ?? [], [ompConfig?.accounts])
+  const accountGroups = useMemo(() => {
+    const grouped = new Map<string, OmpAccountUsageInfo[]>()
+    for (const account of accounts ?? []) {
+      const providerAccounts = grouped.get(account.provider) ?? []
+      providerAccounts.push(account)
+      grouped.set(account.provider, providerAccounts)
+    }
+    return [...grouped.entries()].map(([provider, providerAccounts]) => ({
+      provider,
+      accounts: providerAccounts,
+    }))
+  }, [accounts])
+  const usageAgeMs =
+    ompConfig?.usageObservedAt === null || ompConfig?.usageObservedAt === undefined
+      ? null
+      : Math.max(0, clockNow - ompConfig.usageObservedAt)
+  const usageIsStale = usageAgeMs !== null && usageAgeMs > USAGE_STALE_MS
+  const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
 
   const updateFallbackChain = (
     chainId: string,
@@ -432,8 +550,8 @@ export function SettingsPanel({
           {runtime.ompAvailable && (
             <button
               className="button secondary"
-              disabled={loadingConfig}
-              onClick={() => void refreshConfig()}
+              onClick={() => void refreshConfig(true)}
+              disabled={loadingConfig || refreshCooldownSeconds > 0}
               type="button"
             >
               {loadingConfig ? (
@@ -441,6 +559,8 @@ export function SettingsPanel({
                   <span aria-hidden="true" className="mini-loader" />
                   {t(language, "refreshingModels")}
                 </>
+              ) : refreshCooldownSeconds > 0 ? (
+                `${t(language, "refreshModels")} · ${refreshCooldownSeconds}s`
               ) : (
                 t(language, "refreshModels")
               )}
@@ -996,6 +1116,203 @@ export function SettingsPanel({
                       </span>
                     </div>
                   )}
+                  <section className="settings-section settings-accounts-section">
+                    <div className="settings-section-heading">
+                      <div>
+                        <span className="eyebrow">{t(language, "connectedAccounts")}</span>
+                        <p>{t(language, "connectedAccountsHelp")}</p>
+                      </div>
+                      {ompConfig && (
+                        <span className="settings-count">
+                          {accounts.length} {t(language, "accountsCount")}
+                        </span>
+                      )}
+                    </div>
+                    {ompConfig && (
+                      <div
+                        className={`provider-account-freshness${usageIsStale ? " is-stale" : ""}`}
+                      >
+                        <span>
+                          {ompConfig.usageObservedAt === null
+                            ? t(language, "accountUsageUnknown")
+                            : t(language, usageIsStale ? "accountUsageStale" : "accountUsageFresh")}
+                        </span>
+                        {ompConfig.usageObservedAt !== null && (
+                          <time dateTime={new Date(ompConfig.usageObservedAt).toISOString()}>
+                            {formatAccountTimestamp(language, ompConfig.usageObservedAt)}
+                          </time>
+                        )}
+                      </div>
+                    )}
+                    {loadingConfig && !ompConfig && (
+                      <div aria-hidden="true" className="settings-role-skeletons is-compact">
+                        {Array.from({ length: 2 }, (_, index) => (
+                          <span className="settings-role-skeleton" key={index}>
+                            <i />
+                            <b />
+                            <em />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {ompConfig && accounts.length === 0 && (
+                      <div className="settings-state">
+                        <Icon name="terminal" size={16} />
+                        <span>{t(language, "noConnectedAccounts")}</span>
+                      </div>
+                    )}
+                    {ompConfig && accounts.length > 0 && (
+                      <div className="provider-account-groups">
+                        {accountGroups.map((group) => {
+                          const configured = group.accounts.filter(
+                            (account) => account.configured,
+                          ).length
+                          const reporting = group.accounts.filter(
+                            (account) => account.reporting,
+                          ).length
+                          const routingKnown = group.accounts.filter(
+                            (account) => account.routingEvidence !== "unknown",
+                          ).length
+                          const routable = group.accounts.filter(
+                            (account) =>
+                              account.routingEvidence !== "unknown" && account.routingEligible,
+                          ).length
+                          return (
+                            <section className="provider-account-group" key={group.provider}>
+                              <header className="provider-account-group-header">
+                                <strong>{group.provider}</strong>
+                                <span>
+                                  {configured}/{group.accounts.length}{" "}
+                                  {t(language, "accountsConfigured")} · {reporting}/
+                                  {group.accounts.length} {t(language, "accountsReporting")} ·{" "}
+                                  {routable}/{routingKnown} {t(language, "accountsRoutable")}
+                                </span>
+                              </header>
+                              <div className="provider-account-list">
+                                {group.accounts.map((account) => (
+                                  <details
+                                    className={`provider-account is-${account.status}`}
+                                    data-testid={`provider-account-${account.id}`}
+                                    key={account.id}
+                                  >
+                                    <summary className="provider-account-header">
+                                      <div>
+                                        <strong>{account.label}</strong>
+                                        <span>
+                                          {accountCredentialTypeLabel(
+                                            language,
+                                            account.credentialType,
+                                          )}
+                                        </span>
+                                      </div>
+                                      <span className={`credential-status is-${account.status}`}>
+                                        {accountStatusLabel(language, account.status)}
+                                      </span>
+                                    </summary>
+                                    <div className="provider-account-health">
+                                      <span>
+                                        {t(
+                                          language,
+                                          account.reporting
+                                            ? "accountReportingYes"
+                                            : "accountReportingNo",
+                                        )}
+                                      </span>
+                                      <span
+                                        className={
+                                          account.routingEligible ? "is-eligible" : "is-ineligible"
+                                        }
+                                      >
+                                        {accountRoutingLabel(language, account)}
+                                      </span>
+                                    </div>
+                                    {account.statusReason && (
+                                      <small className="provider-account-status-reason">
+                                        {accountReasonLabel(language, account.statusReason)}
+                                      </small>
+                                    )}
+                                    {account.fetchedAt !== null && (
+                                      <small className="provider-account-fetched-at">
+                                        {t(language, "accountObservedAt")}:{" "}
+                                        {formatAccountTimestamp(language, account.fetchedAt)}
+                                      </small>
+                                    )}
+                                    {account.routes.length > 0 && (
+                                      <div className="provider-account-routes">
+                                        {account.routes.map((route) => (
+                                          <span
+                                            className={`provider-account-route is-${route.status}`}
+                                            key={route.id}
+                                          >
+                                            {route.label}:{" "}
+                                            {accountRouteStatusLabel(language, route.status)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {account.limits.length > 0 ? (
+                                      <div className="provider-account-limits">
+                                        {account.limits.map((limit) => {
+                                          const usedPercent = limit.usedPercent
+                                          return (
+                                            <div className="provider-account-limit" key={limit.id}>
+                                              <div>
+                                                <span>
+                                                  {limit.label}
+                                                  {limit.windowLabel
+                                                    ? ` · ${limit.windowLabel}`
+                                                    : ""}
+                                                </span>
+                                                <strong>
+                                                  {usedPercent === null
+                                                    ? "—"
+                                                    : `${formatAccountPercent(language, usedPercent)}% · ${formatAccountPercent(language, 100 - usedPercent)}% ${t(language, "accountRemaining")}`}
+                                                </strong>
+                                              </div>
+                                              <span
+                                                aria-label={
+                                                  usedPercent === null
+                                                    ? undefined
+                                                    : `${formatAccountPercent(language, usedPercent)}%`
+                                                }
+                                                aria-valuemax={
+                                                  usedPercent === null ? undefined : 100
+                                                }
+                                                aria-valuemin={usedPercent === null ? undefined : 0}
+                                                aria-valuenow={usedPercent ?? undefined}
+                                                className={`provider-account-meter is-${limit.status}`}
+                                                role={usedPercent === null ? undefined : "meter"}
+                                              >
+                                                <i
+                                                  style={{
+                                                    width: `${Math.min(100, Math.max(0, limit.usedPercent ?? 0))}%`,
+                                                  }}
+                                                />
+                                              </span>
+                                              <small>
+                                                {limit.resetsAt === null
+                                                  ? t(language, "accountResetUnknown")
+                                                  : `${t(language, "accountResetsAt")}: ${formatAccountTimestamp(language, limit.resetsAt)} · ${t(language, "accountResetIn")} ${formatAccountCountdown(language, limit.resetsAt, clockNow)}`}
+                                              </small>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <small className="provider-account-empty">
+                                        {t(language, "accountNoLimits")}
+                                      </small>
+                                    )}
+                                  </details>
+                                ))}
+                              </div>
+                            </section>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+
                   <section className="settings-section">
                     <div className="settings-section-heading">
                       <div>

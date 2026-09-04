@@ -184,6 +184,10 @@ export function loadOmpConfig(): Promise<OmpConfigSnapshot> {
   return invoke("load_omp_config")
 }
 
+export function refreshOmpConfig(): Promise<OmpConfigSnapshot> {
+  return invoke("refresh_omp_config")
+}
+
 export function checkOmpUpdate(): Promise<OmpUpdateInfo> {
   return invoke("check_omp_update")
 }
