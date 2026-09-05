@@ -1854,6 +1854,7 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return
       if (event.key === "Escape" && transcriptSession) {
         event.preventDefault()
         closeTranscript()
@@ -1869,7 +1870,7 @@ function App() {
         return
       const target = event.target as HTMLElement | null
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return
-      const modifier = event.ctrlKey || event.metaKey
+      const modifier = (event.ctrlKey || event.metaKey) && !event.altKey
       if (modifier && event.shiftKey && event.code === "KeyO") {
         event.preventDefault()
         void openFolder()
@@ -2096,6 +2097,7 @@ function App() {
           launching={launching}
           onClearSearch={() => setTranscriptSearch("")}
           onClose={closeTranscript}
+          onError={showError}
           onModeChange={setTranscriptMode}
           onRefresh={() => void loadTranscript(transcriptSession)}
           onReread={() => void openAndRereadSession(transcriptSession)}

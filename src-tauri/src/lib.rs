@@ -1,6 +1,7 @@
 // AppError intentionally carries bounded recovery metadata in the serialized IPC contract.
 #![allow(clippy::result_large_err)]
 
+mod content_links;
 mod diagnostics;
 mod models;
 mod omp_bridge;
@@ -659,6 +660,7 @@ pub fn run() {
             import_sessions,
             list_codex_sessions,
             read_session_transcript,
+            content_links::open_content_link,
             load_omp_config,
             refresh_omp_config,
             check_omp_update,

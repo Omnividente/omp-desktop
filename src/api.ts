@@ -172,6 +172,10 @@ export function readSessionTranscript(path: string): Promise<SessionTranscript> 
   return invoke("read_session_transcript", { path })
 }
 
+export function openContentLink(uri: string, sessionPath: string | null): Promise<void> {
+  return invoke("open_content_link", { request: { uri, sessionPath } })
+}
+
 export function importSessions(requests: ImportSessionRequest[]): Promise<ImportBatchPayload> {
   return invoke("import_sessions", { requests })
 }
@@ -236,6 +240,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
     en: "Failed to remove the project from the list",
   },
   settings_save_failed: { ru: "Не удалось сохранить настройки", en: "Failed to save settings" },
+  content_link_failed: {
+    ru: "Не удалось открыть ссылку",
+    en: "Failed to open link",
+  },
   resource_health_failed: {
     ru: "Не удалось проверить системные ресурсы",
     en: "Failed to check system resources",

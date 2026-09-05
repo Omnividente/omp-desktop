@@ -1,9 +1,11 @@
-import { useMemo, useRef } from "react"
+import { useCallback, useMemo, useRef } from "react"
 import type { SessionSummary, SessionTranscript } from "./types"
 import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { useVirtualList } from "./useVirtualList"
+import { LinkedText } from "./LinkedText"
+import { errorMessage, openContentLink } from "./api"
 
 interface TranscriptModalProps {
   lang: Lang
@@ -18,6 +20,7 @@ interface TranscriptModalProps {
   visibleEntries: Array<SessionTranscript["entries"][number]>
   onClose: () => void
   onRefresh: () => void
+  onError: (message: string) => void
   onReread: () => void
   onSearchChange: (value: string) => void
   onClearSearch: () => void
@@ -39,12 +42,22 @@ export function TranscriptModal({
   visibleEntries,
   onClose,
   onRefresh,
+  onError,
   onReread,
   onSearchChange,
   onClearSearch,
   onModeChange,
 }: TranscriptModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sessionPath = transcript?.session.filePath ?? transcriptSession.filePath
+  const openLink = useCallback(
+    (uri: string) => {
+      void openContentLink(uri, sessionPath).catch((error) => {
+        onError(errorMessage(error, lang, { includeDetails: true }))
+      })
+    },
+    [sessionPath, onError, lang],
+  )
 
   const virtualLayoutKey = useMemo(
     () => ({ lang, transcript, transcriptMode }),
@@ -224,7 +237,10 @@ export function TranscriptModal({
                         </time>
                       </span>
                     </header>
-                    <pre>{transcriptMode === "dialogue" ? entry.dialogueText : entry.text}</pre>
+                    <LinkedText
+                      onOpen={openLink}
+                      text={(transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? ""}
+                    />
                   </article>
                 )
               })}
