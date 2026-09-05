@@ -3,12 +3,14 @@ import { listen } from "@tauri-apps/api/event"
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { FitAddon } from "@xterm/addon-fit"
+import { WebLinksAddon } from "@xterm/addon-web-links"
 import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import {
   attachTerminal,
   detachTerminal,
   errorMessage,
+  openContentLink,
   resizeTerminal,
   writeTerminal,
   writeTerminalBinary,
@@ -33,6 +35,11 @@ import {
 import { formatTerminalExitLine } from "./uiUtils"
 import type { PtyExitEvent, PtyOutputEvent, RuntimeInfo, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
+import { CONTENT_URL_PATTERN, isContentLink } from "./contentLinks"
+import { terminalShortcutInput } from "./terminalShortcuts"
+
+// The xterm addon adds its own global flag when scanning wrapped lines.
+const TERMINAL_URL_PATTERN = new RegExp(CONTENT_URL_PATTERN.source, "i")
 
 interface TerminalViewProps {
   tab: TerminalTab
@@ -78,6 +85,7 @@ export function TerminalView({
   const [inputSelectionArmed, setInputSelectionArmed] = useState(false)
   const [inputHelpOpen, setInputHelpOpen] = useState(false)
   const [selectionReply, setSelectionReply] = useState<SelectionReplyAction | null>(null)
+  const [linkPreview, setLinkPreview] = useState<string | null>(null)
   const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -89,6 +97,7 @@ export function TerminalView({
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
   const inputBlockedRef = useRef(terminalInputBlocked(tab))
+  const sessionPathRef = useRef(tab.sessionPath)
 
   activeRef.current = active
   languageRef.current = language
@@ -98,6 +107,7 @@ export function TerminalView({
   onErrorRef.current = onError
   onReadyRef.current = onReady
   inputBlockedRef.current = terminalInputBlocked(tab)
+  sessionPathRef.current = tab.sessionPath
 
   const replyToSelection = () => {
     const terminal = terminalRef.current
@@ -121,6 +131,27 @@ export function TerminalView({
     }
 
     const isLinuxRuntime = platform === "linux"
+    let hoveredLink: string | null = null
+    const leaveLink = () => {
+      hoveredLink = null
+      setLinkPreview(null)
+    }
+    const hoverLink = (_event: MouseEvent, uri: string) => {
+      hoveredLink = uri
+      setLinkPreview(uri)
+    }
+    const activateLink = (event: MouseEvent, uri: string) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (terminal.hasSelection() || (event.button !== 0 && event.button !== 1)) return
+      if (!isContentLink(uri)) {
+        onErrorRef.current(t(languageRef.current, "contentLinkUnsupported"))
+        return
+      }
+      void openContentLink(uri, sessionPathRef.current).catch((error) => {
+        onErrorRef.current(errorMessage(error, languageRef.current, { includeDetails: true }))
+      })
+    }
     const terminal = new Terminal({
       cursorBlink: !isLinuxRuntime,
       cursorStyle: "bar",
@@ -133,6 +164,12 @@ export function TerminalView({
       lineHeight: 1.18,
       scrollback: 12_000,
       smoothScrollDuration: isLinuxRuntime ? 0 : 90,
+      linkHandler: {
+        activate: activateLink,
+        hover: hoverLink,
+        leave: leaveLink,
+        allowNonHttpProtocols: true,
+      },
       theme: {
         background: "#101312",
         foreground: "#d9dedb",
@@ -161,6 +198,13 @@ export function TerminalView({
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+    terminal.loadAddon(
+      new WebLinksAddon(activateLink, {
+        urlRegex: TERMINAL_URL_PATTERN,
+        hover: hoverLink,
+        leave: leaveLink,
+      }),
+    )
     terminal.open(container)
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
@@ -204,17 +248,39 @@ export function TerminalView({
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown") return true
-      const modifier = event.ctrlKey || event.metaKey
-      const copyShortcut = modifier && event.code === "KeyC"
+      if (event.type !== "keydown" || event.isComposing) return true
+      const modifier = (event.ctrlKey || event.metaKey) && !event.altKey
+      const consume = () => {
+        event.preventDefault()
+        event.stopPropagation()
+        return false
+      }
+      const copyShortcut = modifier && (event.code === "KeyC" || event.code === "Insert")
       if (copyShortcut && terminal.hasSelection()) {
         const selection = terminal.getSelection()
         if (selection) {
           void writeText(selection).catch((error) => {
             onErrorRef.current(errorMessage(error, languageRef.current))
           })
-          return false
+          return consume()
         }
+      }
+
+      if (
+        tab.kind === "agent" &&
+        ((modifier && event.code === "KeyV") ||
+          (event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey &&
+            event.code === "Insert"))
+      ) {
+        // Let OMP read the clipboard, including images. Suppress the WebView's
+        // paste event so it cannot also insert a second copy of the same text.
+        clearArmedSelection()
+        terminal.clearSelection()
+        sendInput(event.shiftKey && modifier ? "\x1b[118;6u" : "\x16")
+        return consume()
       }
 
       if (
@@ -229,7 +295,7 @@ export function TerminalView({
         mouseSelection = null
         setSelectionReply(null)
         terminal.clearSelection()
-        return false
+        return consume()
       }
 
       const deleteSelection = event.code === "Backspace" || event.code === "Delete"
@@ -243,12 +309,17 @@ export function TerminalView({
           clearArmedSelection()
           terminal.clearSelection()
           sendInput(input)
-          return false
+          return consume()
         }
       }
 
       if (selectAllArmedRef.current) clearArmedSelection()
       if (!terminal.hasSelection()) mouseSelection = null
+      const shortcut = terminalShortcutInput(event, tab.kind === "agent")
+      if (shortcut !== null) {
+        sendInput(shortcut)
+        return consume()
+      }
       return true
     })
 
@@ -259,12 +330,20 @@ export function TerminalView({
       terminal.focus()
       clearArmedSelection()
       setSelectionReply(null)
+      if (hoveredLink !== null) {
+        pointerDownCell = null
+        return
+      }
       pointerDownCell =
         event.button === 0 && terminal.modes.mouseTrackingMode === "none"
           ? bufferCellFromMouseEvent(terminal, container, event)
           : null
     }
     const handleMouseUp = (event: MouseEvent) => {
+      if (hoveredLink !== null) {
+        pointerDownCell = null
+        return
+      }
       const releaseCell =
         event.button === 0 && terminal.modes.mouseTrackingMode === "none"
           ? bufferCellFromMouseEvent(terminal, container, event)
@@ -302,7 +381,10 @@ export function TerminalView({
     const selectionSubscription = terminal.onSelectionChange(() => {
       if (!terminal.hasSelection()) setSelectionReply(null)
     })
-    const scrollSubscription = terminal.onScroll(() => setSelectionReply(null))
+    const scrollSubscription = terminal.onScroll(() => {
+      setSelectionReply(null)
+      leaveLink()
+    })
 
     let disposed = false
     let lastCols = 0
@@ -514,6 +596,7 @@ export function TerminalView({
     setInputHelpOpen(false)
     setInputSelectionArmed(false)
     setSelectionReply(null)
+    setLinkPreview(null)
   }, [active])
 
   return (
@@ -522,6 +605,11 @@ export function TerminalView({
       onMouseDown={() => terminalRef.current?.focus()}
     >
       <div className="terminal-host" ref={containerRef} />
+      {linkPreview && (
+        <div className="terminal-link-preview" role="status">
+          {linkPreview}
+        </div>
+      )}
       {tab.kind === "agent" && selectionReply && (
         <button
           aria-label={t(language, "terminalReplyToSelection")}

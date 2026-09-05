@@ -129,8 +129,9 @@ export const UI_TEXT = {
     resourceCriticalAction:
       "Сохраните работу сейчас. Освободите память или место на указанном диске перед продолжением.",
     terminalInputHelp:
-      "Выделите текст терминала и нажмите «Ответить» рядом с ним либо используйте правую кнопку мыши. Цитата добавится в текущий ввод OMP без отправки. Ctrl+A выбирает текущий ввод для очистки Backspace/Delete; клик перемещает курсор только внутри безопасно распознанной wrapped-строки.",
+      "Ctrl+Z — отменить правку текущего ввода OMP. Ctrl+Backspace/Delete — удалить слово назад/вперёд; Shift+Enter — новая строка; Ctrl+Enter — сообщение в очередь. Ctrl+C копирует выделенный текст, без выделения прерывает работу. Ctrl+V вставляет из буфера через OMP (включая изображения), Ctrl+Shift+V — текст без сворачивания. Ctrl+A выбирает ввод для очистки Backspace/Delete. Ссылки открываются кликом; файлы показываются в файловом менеджере. Выделенный вывод можно добавить во ввод кнопкой «Ответить». Ctrl+Y — yank OMP, не redo.",
     terminalInputSelected: "Текущий ввод выбран; Backspace или Delete очистит его",
+    contentLinkUnsupported: "Этот тип ссылки не поддерживается клиентом.",
     terminalReplyToSelection: "Ответить",
     terminalReplyContext: "По выделенному фрагменту:",
     updateAvailable: "Доступно обновление OMP",
@@ -616,8 +617,9 @@ export const UI_TEXT = {
     resourceCriticalAction:
       "Save your work now. Free memory or space on the listed disk before continuing.",
     terminalInputHelp:
-      "Select terminal text and choose Reply beside it, or use the right mouse button. The quote is added to the current OMP input without sending it. Ctrl+A arms the current input for clearing with Backspace/Delete; mouse clicks move the cursor only within a safely recognized wrapped line.",
+      "Ctrl+Z undoes an edit in the current OMP input. Ctrl+Backspace/Delete delete a word backward/forward; Shift+Enter adds a line; Ctrl+Enter queues a follow-up. Ctrl+C copies selected text, or interrupts when nothing is selected. Ctrl+V pastes through OMP (including images); Ctrl+Shift+V pastes uncollapsed text. Ctrl+A arms the input for clearing with Backspace/Delete. Click links to open them; files are revealed in the file manager. Use Reply to quote selected output. Ctrl+Y is OMP yank, not redo.",
     terminalInputSelected: "Current input selected; Backspace or Delete will clear it",
+    contentLinkUnsupported: "This link type is not supported by the client.",
     terminalReplyToSelection: "Reply",
     terminalReplyContext: "Regarding the selected passage:",
     updateAvailable: "OMP update available",

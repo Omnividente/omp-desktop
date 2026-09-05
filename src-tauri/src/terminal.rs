@@ -2069,6 +2069,11 @@ fn build_omp_command(
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "OMP Desktop");
     command.env("TERM_SESSION_ID", terminal_id);
+    // OMP does not identify Desktop's xterm renderer automatically. Advertise
+    // OSC 8 support without overriding explicit runtime hyperlink opt-outs.
+    if command.get_env("PI_FORCE_HYPERLINKS").is_none() {
+        command.env("PI_FORCE_HYPERLINKS", "1");
+    }
     command
 }
 
