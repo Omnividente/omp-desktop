@@ -57,6 +57,23 @@ describe("backend error codes", () => {
     expect(errorMessage(error, "en")).toBe("Stop the active OMP session before deleting it")
   })
 
+  it("exposes bounded failure reasons only when a caller requests details", () => {
+    const error = {
+      code: "settings_save_failed",
+      message: "Could not save",
+      details: "Provider ID is already in use",
+    }
+    expect(errorMessage(error, "en")).not.toContain(error.details)
+    expect(errorMessage(JSON.stringify(error), "en", { includeDetails: true })).toContain(
+      error.details,
+    )
+    const bounded = errorMessage({ ...error, details: "x".repeat(9_000) }, "en", {
+      includeDetails: true,
+    })
+    expect(bounded).not.toContain("x".repeat(8 * 1024 + 1))
+    expect(bounded.endsWith("…")).toBe(true)
+  })
+
   it("preserves structured settings recovery metadata", () => {
     const error = {
       code: "settings_unavailable",

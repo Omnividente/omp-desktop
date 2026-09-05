@@ -300,6 +300,18 @@ function App() {
     if (!payload?.runtime.ompAvailable) return
     void loadOmpConfig().then(setOmpConfig).catch(console.error)
   }, [payload?.runtime.ompAvailable])
+
+  const appFontSize = payload?.settings.appFontSize
+  useEffect(() => {
+    if (appFontSize === undefined) return
+    const root = document.documentElement
+    const previousFontSize = root.style.fontSize
+    root.style.fontSize = `${appFontSize}px`
+    return () => {
+      root.style.fontSize = previousFontSize
+    }
+  }, [appFontSize])
+
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru"
   const langRef = useRef(lang)
   langRef.current = lang

@@ -13,13 +13,18 @@ use url::Url;
 const MAX_PROVIDER_ID_BYTES: usize = 64;
 const MAX_BASE_URL_BYTES: usize = 2_048;
 const MAX_API_KEY_BYTES: usize = 64 * 1024;
-const CUSTOM_PROVIDER_APIS: &[&str] = &["openai-completions", "openai-responses"];
+const CUSTOM_PROVIDER_APIS: &[&str] = &[
+    "openai-completions",
+    "openai-responses",
+    "anthropic-messages",
+];
 
 #[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct ModelsYamlFile {
     #[serde(default)]
     providers: BTreeMap<String, Value>,
+    #[serde(flatten)]
+    settings: BTreeMap<String, Value>,
 }
 
 struct NormalizedProvider {
@@ -80,10 +85,11 @@ pub fn prepare_provider_file_mutation(
             return Err("Один custom provider удаляется несколько раз".to_owned());
         }
     }
-    if normalized_upserts
-        .keys()
-        .any(|provider| normalized_removals.contains(provider))
-    {
+    if normalized_upserts.keys().any(|provider| {
+        normalized_removals
+            .iter()
+            .any(|removed| provider.eq_ignore_ascii_case(removed))
+    }) {
         return Err("Нельзя одновременно добавить и удалить один provider".to_owned());
     }
 
@@ -106,7 +112,11 @@ pub fn prepare_provider_file_mutation(
     let mut secret_values = HashMap::new();
     let mut added = BTreeMap::new();
     for (provider, normalized) in normalized_upserts {
-        if document.providers.contains_key(&provider) {
+        if document
+            .providers
+            .keys()
+            .any(|existing| existing.eq_ignore_ascii_case(&provider))
+        {
             return Err(format!(
                 "Provider `{provider}` уже существует в models.yml; сначала удалите существующую конфигурацию"
             ));
@@ -120,7 +130,7 @@ pub fn prepare_provider_file_mutation(
                 "authHeader": true,
                 "discovery": {
                     "type": "openai-models-list",
-                    "injectV1": false
+                    "injectV1": normalized.api == "anthropic-messages"
                 }
             }),
         );
@@ -204,13 +214,18 @@ fn parse_models_file(contents: Option<&[u8]>) -> Result<ModelsYamlFile, String> 
 }
 
 fn normalize_provider(request: OmpCustomProviderRequest) -> Result<NormalizedProvider, String> {
-    let provider = normalize_provider_id(&request.provider)?;
-    let base_url = normalize_base_url(&request.base_url)?;
+    let mut provider = normalize_provider_id(&request.provider)?;
+    provider.make_ascii_lowercase();
+    let mut base_url = normalize_base_url(&request.base_url)?;
     let api = request.api.trim().to_owned();
     if !CUSTOM_PROVIDER_APIS.contains(&api.as_str()) {
         return Err(
-            "Custom provider поддерживает OpenAI Chat Completions или Responses".to_owned(),
+            "Custom provider поддерживает OpenAI Chat Completions, Responses или Anthropic Messages".to_owned(),
         );
+    }
+    // Anthropic appends /v1/messages; discovery injects the same version prefix.
+    if api == "anthropic-messages" && base_url.ends_with("/v1") {
+        base_url.truncate(base_url.len() - 3);
     }
     let api_key = request.api_key.trim().to_owned();
     if api_key.is_empty()
@@ -229,6 +244,7 @@ fn normalize_provider(request: OmpCustomProviderRequest) -> Result<NormalizedPro
     })
 }
 
+// Existing IDs remain case-sensitive; only newly created providers are lowercased.
 pub fn normalize_provider_id(value: &str) -> Result<String, String> {
     let provider = value.trim();
     let valid = !provider.is_empty()
@@ -236,17 +252,17 @@ pub fn normalize_provider_id(value: &str) -> Result<String, String> {
         && provider
             .bytes()
             .next()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
         && provider
             .bytes()
             .next_back()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        && provider.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
-        });
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
     if !valid {
         return Err(
-            "Provider ID должен содержать 1–64 строчные латинские буквы, цифры, `.`, `_` или `-`"
+            "Provider ID должен содержать 1–64 латинские буквы, цифры, `.`, `_` или `-` и начинаться и заканчиваться буквой или цифрой"
                 .to_owned(),
         );
     }
@@ -335,7 +351,7 @@ mod tests {
         let secret = "private-provider-secret";
         let mutation = prepare_provider_file_mutation(
             path.clone(),
-            vec![request("team-gateway", secret)],
+            vec![request(" Antigravity-LB ", secret)],
             Vec::new(),
         )
         .expect("provider mutation should be prepared")
@@ -348,7 +364,7 @@ mod tests {
             parse_models_file(Some(contents.as_bytes())).expect("written YAML should parse");
         let provider = parsed
             .providers
-            .get("team-gateway")
+            .get("antigravity-lb")
             .and_then(Value::as_object)
             .expect("custom provider should be present");
         assert_eq!(
@@ -356,20 +372,41 @@ mod tests {
             Some("https://gateway.example.test/v1")
         );
         assert_eq!(
-            provider
-                .get("discovery")
-                .and_then(Value::as_object)
-                .and_then(|discovery| discovery.get("type"))
-                .and_then(Value::as_str),
-            Some("openai-models-list")
-        );
-        assert_eq!(
-            mutation.secret_values.values().next().map(String::as_str),
-            Some(secret)
+            provider.get("discovery"),
+            Some(&json!({"type": "openai-models-list", "injectV1": false}))
         );
 
         mutation.rollback().expect("created file should roll back");
         assert!(!path.exists());
+        fs::remove_dir_all(path.parent().expect("temp path should have parent"))
+            .expect("temp directory should be removed");
+    }
+
+    #[test]
+    fn anthropic_provider_preserves_gateway_prefix_without_doubling_v1() {
+        let path = temp_models_path("provider-anthropic");
+        let mut provider = request("Antigravity-LB", "private-provider-key");
+        provider.api = "anthropic-messages".to_owned();
+        provider.base_url = "https://gateway.example.test/proxy/v1/".to_owned();
+        let mutation = prepare_provider_file_mutation(path.clone(), vec![provider], Vec::new())
+            .expect("Anthropic provider should be accepted")
+            .expect("provider mutation should exist");
+
+        mutation.apply().expect("provider file should be written");
+        let contents = fs::read(&path).expect("provider file should be readable");
+        let parsed = parse_models_file(Some(&contents)).expect("written YAML should parse");
+        let provider = &parsed.providers["antigravity-lb"];
+        assert_eq!(provider["api"], "anthropic-messages");
+        assert_eq!(provider["baseUrl"], "https://gateway.example.test/proxy");
+        assert_eq!(
+            provider["discovery"],
+            json!({"type": "openai-models-list", "injectV1": true})
+        );
+
+        mutation.rollback().expect("created file should roll back");
+        assert!(!path.exists());
+        fs::remove_dir_all(path.parent().expect("temp path should have parent"))
+            .expect("temp directory should be removed");
     }
 
     #[test]
@@ -377,16 +414,26 @@ mod tests {
         let path = temp_models_path("provider-remove");
         fs::create_dir_all(path.parent().expect("temp path should have parent"))
             .expect("temp directory should be created");
-        let owned_key = provider_secret_key("remove-me");
+        let owned_key = provider_secret_key("Remove-Me");
         let fixture = format!(
-            r#"providers:
+            r#"settings:
+  nested:
+    enabled: true
+    label: "001"
+    values: [null, 3, "three"]
+providers:
   keep:
     baseUrl: https://keep.example.test/v1
     api: openai-responses
     apiKey: KEEP_KEY
     headers:
       X-Team: alpha
-  remove-me:
+    modelOverrides:
+      custom-model:
+        contextWindow: 65536
+        compat:
+          supportsStore: false
+  Remove-Me:
     baseUrl: https://remove.example.test/v1
     api: openai-completions
     apiKey: {owned_key}
@@ -395,10 +442,13 @@ mod tests {
         fs::write(&path, fixture).expect("fixture should be written");
         let original = fs::read(&path).expect("fixture should be readable");
 
-        let mutation =
-            prepare_provider_file_mutation(path.clone(), Vec::new(), vec!["remove-me".to_owned()])
-                .expect("removal should be prepared")
-                .expect("removal should exist");
+        let mutation = prepare_provider_file_mutation(
+            path.clone(),
+            vec![request("Fresh-LB", "new-private-key")],
+            vec!["Remove-Me".to_owned()],
+        )
+        .expect("mutation should be prepared")
+        .expect("mutation should exist");
         assert!(mutation.removed_secret_keys.contains(&owned_key));
         mutation.apply().expect("removal should be written");
         let parsed = parse_models_file(Some(
@@ -406,11 +456,11 @@ mod tests {
         ))
         .expect("updated YAML should parse");
         assert!(parsed.providers.contains_key("keep"));
-        assert!(!parsed.providers.contains_key("remove-me"));
-        assert_eq!(
-            parsed.providers["keep"].pointer("/headers/X-Team"),
-            Some(&Value::String("alpha".to_owned()))
-        );
+        assert!(!parsed.providers.contains_key("Remove-Me"));
+        assert!(parsed.providers.contains_key("fresh-lb"));
+        let before = parse_models_file(Some(&original)).expect("original YAML should parse");
+        assert_eq!(parsed.providers["keep"], before.providers["keep"]);
+        assert_eq!(parsed.settings, before.settings);
 
         mutation.rollback().expect("existing file should roll back");
         assert_eq!(
@@ -419,6 +469,48 @@ mod tests {
         );
         fs::remove_dir_all(path.parent().expect("temp path should have parent"))
             .expect("temp directory should be removed");
+    }
+
+    #[test]
+    fn mixed_case_provider_collisions_do_not_overwrite_existing_file() {
+        let path = temp_models_path("provider-collision");
+        fs::create_dir_all(path.parent().expect("temp path should have parent"))
+            .expect("temp directory should be created");
+        let original = b"providers:\n  Antigravity-LB:\n    apiKey: EXISTING_KEY\n";
+        fs::write(&path, original).expect("fixture should be written");
+
+        assert!(prepare_provider_file_mutation(
+            path.clone(),
+            vec![request("ANTIGRAVITY-LB", "new-private-key")],
+            Vec::new(),
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).expect("fixture should exist"), original);
+
+        assert!(prepare_provider_file_mutation(
+            path.clone(),
+            vec![request("antigravity-lb", "new-private-key")],
+            vec!["Antigravity-LB".to_owned()],
+        )
+        .is_err());
+        assert_eq!(fs::read(&path).expect("fixture should exist"), original);
+        fs::remove_dir_all(path.parent().expect("temp path should have parent"))
+            .expect("temp directory should be removed");
+    }
+
+    #[test]
+    fn new_provider_ids_cannot_collide_after_case_normalization() {
+        let path = temp_models_path("provider-duplicate");
+        assert!(prepare_provider_file_mutation(
+            path.clone(),
+            vec![
+                request("Antigravity-LB", "first-private-key"),
+                request("antigravity-lb", "second-private-key"),
+            ],
+            Vec::new(),
+        )
+        .is_err());
+        assert!(!path.exists());
     }
 
     #[test]
@@ -433,6 +525,7 @@ mod tests {
         .err()
         .expect("credentials in URL should be rejected");
         assert!(!error.contains("password"));
+        assert!(!error.contains("secret"));
         assert_eq!(
             public_base_url(Some("https://user:password@example.test/v1")),
             None

@@ -1,7 +1,7 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_APP_FONT_FAMILY,
+        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_APP_FONT_FAMILY, DEFAULT_APP_FONT_SIZE,
         DEFAULT_TERMINAL_FONT_FAMILY, DEFAULT_TERMINAL_FONT_SIZE,
     },
     omp_bridge::valid_selector_segment,
@@ -953,6 +953,10 @@ pub fn normalize_app_font_family(value: Option<String>) -> String {
     normalize_font_family(value, DEFAULT_APP_FONT_FAMILY)
 }
 
+pub fn normalize_app_font_size(value: Option<u16>) -> u16 {
+    value.unwrap_or(DEFAULT_APP_FONT_SIZE).clamp(16, 32)
+}
+
 pub fn normalize_terminal_font_family(value: Option<String>) -> String {
     normalize_font_family(value, DEFAULT_TERMINAL_FONT_FAMILY)
 }
@@ -1057,6 +1061,37 @@ mod tests {
             std::process::id(),
             rand::random::<u64>()
         ))
+    }
+
+    #[test]
+    fn app_font_size_survives_partial_saves_and_restart() {
+        let root = settings_fixture("app-font-size");
+        let path = root.join("settings.json");
+        fs::create_dir_all(&root).expect("font settings directory should be writable");
+        let mut settings: AppSettings = serde_json::from_str(r#"{"terminalFontSize":18}"#)
+            .expect("settings without appFontSize should remain compatible");
+        assert_eq!(settings.app_font_size, 16);
+
+        for (patch, expected_size) in [
+            (serde_json::json!({"appFontSize": 24}), 24),
+            (serde_json::json!({"language": "en"}), 24),
+            (serde_json::json!({}), 24),
+            (serde_json::json!({"appFontSize": null}), 16),
+            (serde_json::json!({"appFontSize": 8}), 16),
+            (serde_json::json!({"appFontSize": 40}), 32),
+        ] {
+            let update = serde_json::from_value(patch).expect("settings patch should deserialize");
+            crate::apply_settings_update(&mut settings, &update);
+            save_settings_to_path(&path, &settings).expect("font settings should persist");
+            settings = serde_json::from_slice(
+                &fs::read(&path).expect("persisted font settings should be readable"),
+            )
+            .expect("font settings should reload after restart");
+            assert_eq!(settings.app_font_size, expected_size);
+            assert_eq!(settings.terminal_font_size, 18);
+        }
+        assert_eq!(settings.language, "en");
+        fs::remove_dir_all(root).expect("font settings fixture should be removable");
     }
 
     #[test]

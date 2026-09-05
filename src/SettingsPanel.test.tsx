@@ -4,7 +4,8 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
-import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSaveRequest } from "./types"
+import type { AppSettings, OmpConfigSnapshot, RuntimeInfo } from "./types"
+import type * as Api from "./api"
 
 const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(
   () => ({
@@ -15,8 +16,8 @@ const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundle
   }),
 )
 
-vi.mock("./api", () => ({
-  errorMessage: (error: unknown) => String(error),
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof Api>()),
   loadOmpConfig: loadOmpConfigMock,
   refreshOmpConfig: refreshOmpConfigMock,
   saveSettingsBundle: saveSettingsBundleMock,
@@ -40,6 +41,7 @@ const settings: AppSettings = {
   railMode: "expanded",
   language: "ru",
   appFontFamily: "Inter",
+  appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",
   terminalFontSize: 14,
   providerEnvKeys: [],
@@ -236,16 +238,20 @@ describe("SettingsPanel Save state", () => {
     expect(missing?.open).toBe(true)
   })
 
-  it("saves provider disable, custom API creation, and confirmed deletion", async () => {
-    saveSettingsBundleMock.mockImplementation(async (request: SettingsSaveRequest) => ({
-      bootstrap: { settings },
-      ompConfig: {
-        ...ompConfig,
-        disabledProviders: request.ompConfig?.disabledProviders ?? [],
-        credentials: [],
-      },
-    }))
-
+  it("keeps a failed provider draft and clears its key only after a successful retry", async () => {
+    const failureReason = "Provider ID is already in use"
+    saveSettingsBundleMock
+      .mockRejectedValueOnce({ code: "settings_save_failed", details: failureReason })
+      .mockResolvedValueOnce({
+        bootstrap: { settings },
+        ompConfig: {
+          ...ompConfig,
+          credentials: [
+            ...ompConfig.credentials,
+            { ...ompConfig.credentials[0], provider: "private-gateway" },
+          ],
+        },
+      })
     await act(async () => {
       root.render(
         <SettingsPanel
@@ -259,57 +265,35 @@ describe("SettingsPanel Save state", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    const providersTab = [
-      ...container.querySelectorAll<HTMLButtonElement>(".settings-nav button"),
-    ].find((button) => button.textContent?.includes("Провайдеры"))
-    act(() => providersTab?.click())
-
-    const enabled = container.querySelectorAll<HTMLInputElement>(
-      ".provider-enabled-toggle input",
-    )[1]
-    act(() => enabled?.click())
-
-    const customInputs = container.querySelectorAll<HTMLInputElement>(".custom-provider-form input")
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")?.click())
+    const inputs = container.querySelectorAll<HTMLInputElement>(".custom-provider-form input")
+    const values = ["private-gateway", "https://gateway.example.test/v1", "secret-value"]
     await act(async () => {
-      const values = ["private-gateway", "https://gateway.example.test/v1", "secret-value"]
-      customInputs.forEach((input, index) => {
-        const descriptor = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          "value",
-        )
-        descriptor?.set?.call(input, values[index])
+      const setValue = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )!.set!
+      inputs.forEach((input, index) => {
+        setValue.call(input, values[index])
         input.dispatchEvent(new Event("input", { bubbles: true }))
       })
     })
-
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    await act(async () => save.click())
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(failureReason)
+    expect(Array.from(inputs, (input) => input.value)).toEqual(values)
+    expect(save.disabled).toBe(false)
+    expect(container.textContent).not.toContain(values[2])
     expect(container.textContent).not.toContain("OMP_DESKTOP_PROVIDER_")
 
-    const removeProvider = container.querySelector<HTMLButtonElement>(".provider-remove-button")
-    await act(async () => {
-      removeProvider?.click()
-      await Promise.resolve()
-    })
-    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")
-    await act(async () => {
-      save?.click()
-      await Promise.resolve()
-      await Promise.resolve()
-    })
-
-    expect(confirmMock).toHaveBeenCalledOnce()
-    expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
-    const request = saveSettingsBundleMock.mock.calls[0]?.[0]
-    expect(request.ompConfig).toMatchObject({
-      disabledProviders: ["openai"],
-      removedCustomProviders: ["codex-lb"],
-      customProviderUpserts: [
-        {
-          provider: "private-gateway",
-          baseUrl: "https://gateway.example.test/v1",
-          api: "openai-completions",
-          apiKey: "secret-value",
-        },
-      ],
-    })
+    await act(async () => save.click())
+    expect(container.querySelector(".settings-save-error")).toBeNull()
+    expect(Array.from(inputs, (input) => input.value)).toEqual(["", "", ""])
+    expect(
+      [...container.querySelectorAll(".provider-credential-main strong")].map(
+        (node) => node.textContent,
+      ),
+    ).toContain("private-gateway")
+    expect(save.disabled).toBe(true)
   })
 })

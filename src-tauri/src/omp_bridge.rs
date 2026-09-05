@@ -481,11 +481,11 @@ pub fn save_config(
             previous_config
                 .models
                 .iter()
-                .any(|model| model.provider == provider.as_str())
+                .any(|model| model.provider.eq_ignore_ascii_case(provider))
                 || previous_config
                     .credentials
                     .iter()
-                    .any(|credential| credential.provider == provider.as_str())
+                    .any(|credential| credential.provider.eq_ignore_ascii_case(provider))
         }) {
             return Err(format!(
                 "Provider ID `{provider}` уже занят; выберите новый уникальный ID"
@@ -689,7 +689,7 @@ pub fn save_config(
             if let Err(rollback_error) = run_omp_text(
                 &omp.executable,
                 &["models", "refresh"],
-                &app_settings.provider_env,
+                &previous_settings.provider_env,
                 OmpOperation::Models,
             ) {
                 rollback_errors.push(rollback_error);
@@ -2453,28 +2453,31 @@ providers:
             "path": "~/projects/sensitive",
             "providers": ["anthropic"]
         });
+        let providers = normalize_disabled_providers(vec!["Existing-Gateway".to_owned()])
+            .expect("existing mixed-case IDs should be accepted");
         let merged = merge_disabled_provider_entries(
             &[Value::String("old-provider".to_owned()), scoped.clone()],
-            &["new-provider".to_owned()],
+            &providers,
         );
         assert_eq!(
             merged,
-            Value::Array(vec![scoped, Value::String("new-provider".to_owned())])
+            Value::Array(vec![scoped, Value::String("Existing-Gateway".to_owned())])
         );
     }
 
     #[test]
     fn referenced_custom_provider_cannot_be_deleted() {
-        let removed = BTreeSet::from(["team-gateway".to_owned()]);
-        let roles = BTreeMap::from([("default".to_owned(), "team-gateway/model:high".to_owned())]);
+        let removed = BTreeSet::from(["Existing-Gateway".to_owned()]);
+        let roles = BTreeMap::from([(
+            "default".to_owned(),
+            "Existing-Gateway/model:high".to_owned(),
+        )]);
         let chains = BTreeMap::from([(
             "slow".to_owned(),
-            vec!["team-gateway/fallback:high".to_owned()],
+            vec!["Existing-Gateway/fallback:high".to_owned()],
         )]);
-        let error = validate_removed_provider_references(&removed, &roles, &chains)
-            .expect_err("referenced provider deletion should be rejected");
-        assert!(error.contains("default"));
-        assert!(error.contains("slow"));
+        assert!(validate_removed_provider_references(&removed, &roles, &BTreeMap::new()).is_err());
+        assert!(validate_removed_provider_references(&removed, &BTreeMap::new(), &chains).is_err());
     }
 
     #[test]

@@ -22,9 +22,10 @@ use models::{
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
-    normalize_app_font_family, normalize_optional, normalize_terminal_font_family,
-    normalize_terminal_font_size, save_settings, settings_snapshot, start_with_defaults_prepared,
-    update_provider_secrets, with_settings_transaction, SettingsState, SettingsTransaction,
+    normalize_app_font_family, normalize_app_font_size, normalize_optional,
+    normalize_terminal_font_family, normalize_terminal_font_size, save_settings, settings_snapshot,
+    start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
+    SettingsState, SettingsTransaction,
 };
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
@@ -271,6 +272,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     }
     if let SettingsPatch::Set(value) = &update.app_font_family {
         snapshot.app_font_family = normalize_app_font_family(value.clone());
+    }
+    if let SettingsPatch::Set(value) = &update.app_font_size {
+        snapshot.app_font_size = normalize_app_font_size(*value);
     }
     if let SettingsPatch::Set(value) = &update.terminal_font_family {
         snapshot.terminal_font_family = normalize_terminal_font_family(value.clone());
