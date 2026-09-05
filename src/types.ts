@@ -31,6 +31,7 @@ export interface AppSettings {
   railMode: RailMode
   language: "ru" | "en"
   appFontFamily: string
+  appFontSize: number
   terminalFontFamily: string
   terminalFontSize: number
   providerEnvKeys: string[]
@@ -160,6 +161,7 @@ export interface ImportBatchPayload {
 export interface SettingsUpdate {
   ompExecutable?: string | null
   appFontFamily?: string | null
+  appFontSize?: number | null
 
   terminalFontFamily?: string | null
   terminalFontSize?: number | null
@@ -260,7 +262,7 @@ export interface OmpConfigSnapshot {
 export interface OmpCustomProviderRequest {
   provider: string
   baseUrl: string
-  api: "openai-completions" | "openai-responses"
+  api: "openai-completions" | "openai-responses" | "anthropic-messages"
   apiKey: string
 }
 

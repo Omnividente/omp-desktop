@@ -158,6 +158,8 @@ pub struct AppSettings {
     pub language: String,
     #[serde(default = "default_app_font_family")]
     pub app_font_family: String,
+    #[serde(default = "default_app_font_size")]
+    pub app_font_size: u16,
     #[serde(default = "default_terminal_font_family")]
     pub terminal_font_family: String,
     #[serde(default = "default_terminal_font_size")]
@@ -187,6 +189,7 @@ impl Default for AppSettings {
             rail_mode: RailMode::default(),
             language: default_language(),
             app_font_family: default_app_font_family(),
+            app_font_size: default_app_font_size(),
             provider_env: HashMap::new(),
             provider_env_keys: Vec::new(),
             terminal_font_family: default_terminal_font_family(),
@@ -215,6 +218,7 @@ impl fmt::Debug for AppSettings {
             .field("rail_mode", &self.rail_mode)
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
+            .field("app_font_size", &self.app_font_size)
             .field("provider_env_keys", &self.provider_env_keys)
             .field("terminal_font_family", &self.terminal_font_family)
             .field("terminal_font_size", &self.terminal_font_size)
@@ -231,6 +235,7 @@ fn default_language() -> String {
 
 pub const DEFAULT_APP_FONT_FAMILY: &str =
     "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif";
+pub const DEFAULT_APP_FONT_SIZE: u16 = 16;
 
 pub const DEFAULT_TERMINAL_FONT_FAMILY: &str =
     "\"Cascadia Code\", \"Cascadia Mono\", \"JetBrains Mono\", \"Fira Code\", Consolas, monospace";
@@ -238,6 +243,10 @@ pub const DEFAULT_TERMINAL_FONT_SIZE: u16 = 14;
 
 fn default_app_font_family() -> String {
     DEFAULT_APP_FONT_FAMILY.to_owned()
+}
+
+fn default_app_font_size() -> u16 {
+    DEFAULT_APP_FONT_SIZE
 }
 
 fn default_terminal_font_family() -> String {
@@ -278,6 +287,8 @@ pub struct SettingsUpdate {
     pub language: SettingsPatch<String>,
     #[serde(default)]
     pub app_font_family: SettingsPatch<String>,
+    #[serde(default)]
+    pub app_font_size: SettingsPatch<u16>,
     #[serde(default)]
     pub terminal_font_family: SettingsPatch<String>,
     #[serde(default)]

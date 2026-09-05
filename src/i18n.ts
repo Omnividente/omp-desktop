@@ -199,6 +199,10 @@ export const UI_TEXT = {
     appFontFamily: "Шрифт интерфейса",
     appFontFamilyHelp:
       "CSS-имя или стек шрифтов для меню, панелей и диалогов. Терминал использует отдельную настройку.",
+    appFontSize: "Масштаб текста интерфейса",
+    appFontSizeHelp:
+      "От 100% до 200%. После сохранения увеличивает текст меню, панелей и диалогов. Размер шрифта терминала настраивается отдельно.",
+    appFontPreview: "Пример текста: меню, настройки и диалоги",
     pathsSection: "Пути и хранение",
     pathsSectionHelp: "Оставьте поля пустыми, чтобы использовать стандартные пути OMP.",
     behaviorSection: "Поведение OMP",
@@ -431,16 +435,26 @@ export const UI_TEXT = {
     removeCustomProvider: "Удалить provider",
     removeCustomProviderConfirm:
       "Удалить custom provider «{provider}», его API key и конфигурацию из models.yml? Действие применяется после сохранения.",
-    customProviderTitle: "Добавить свой API provider",
+    customProviderTitle: "Добавить свой API-провайдер",
     customProviderHelp:
-      "Подключает OpenAI-совместимый endpoint и получает список моделей через /models. Provider появится после сохранения.",
-    customProviderId: "Provider ID",
-    customProviderUrl: "API address",
-    customProviderApi: "API protocol",
+      "Подключает OpenAI- или Anthropic-совместимый API со списком моделей через /models. Провайдер появится после сохранения.",
+    customProviderId: "Идентификатор провайдера",
+    customProviderIdHelp:
+      "Латинские буквы, цифры, точка, дефис или подчёркивание. Заглавные буквы при сохранении станут строчными.",
+    customProviderUrl: "Базовый адрес API",
+    customProviderApi: "Формат запросов к API",
+    customProviderApiHelp: "Это протокол сервера, а не выбор модели или уровня рассуждений.",
+    customProviderChatHelp:
+      "Chat Completions отправляет запросы на /chat/completions. Обычно подходит для OpenAI-совместимых прокси и балансировщиков.",
+    customProviderResponsesHelp:
+      "Responses API отправляет запросы на /responses. Выбирайте только если сервер явно поддерживает этот формат; он не заменяет Chat Completions автоматически.",
+    customProviderAnthropicHelp:
+      "Anthropic Messages отправляет запросы на /v1/messages. Подходит для Anthropic-совместимых серверов, включая Antigravity Claude Proxy. Адрес можно указать с /v1 или без него.",
     customProviderKey: "API key",
     customProviderSecretHelp:
-      "API key хранится в системном хранилище credentials. В models.yml записываются только address, protocol и имя защищённого ключа.",
-    customProviderFieldsRequired: "Заполните Provider ID, API address и API key.",
+      "Ключ сохраняется защищённым механизмом Desktop. В models.yml записываются только адрес, протокол и имя переменной ключа.",
+    customProviderFieldsRequired:
+      "Заполните идентификатор провайдера, базовый адрес API и API key.",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
       "Удерживает fallback внутри пула выбранного провайдера. Пока режим включён хотя бы для одного провайдера, OMP глобально отключает OpenAI Codex WebSocket во всех новых терминалах Desktop.",
@@ -672,6 +686,10 @@ export const UI_TEXT = {
     appFontFamily: "Interface font family",
     appFontFamilyHelp:
       "A CSS font name or stack for menus, panels, and dialogs. The terminal has a separate setting.",
+    appFontSize: "Interface text scale",
+    appFontSizeHelp:
+      "From 100% to 200%. Saving scales text in menus, panels, and dialogs. Terminal font size is configured separately.",
+    appFontPreview: "Sample text: menus, settings, and dialogs",
     pathsSection: "Paths and storage",
     pathsSectionHelp: "Leave these fields empty to use the standard OMP locations.",
     behaviorSection: "OMP behavior",
@@ -904,13 +922,22 @@ export const UI_TEXT = {
       "Delete custom provider “{provider}”, its API key, and its models.yml configuration? The change is applied when you save.",
     customProviderTitle: "Add a custom API provider",
     customProviderHelp:
-      "Connects an OpenAI-compatible endpoint and discovers its model list through /models. The provider appears after saving.",
+      "Connects an OpenAI- or Anthropic-compatible API with /models discovery. The provider appears after saving.",
     customProviderId: "Provider ID",
+    customProviderIdHelp:
+      "Letters, digits, dots, hyphens, or underscores. Uppercase letters are saved as lowercase.",
     customProviderUrl: "API address",
-    customProviderApi: "API protocol",
+    customProviderApi: "API request format",
+    customProviderApiHelp: "This is the server protocol, not a model or reasoning-level selection.",
+    customProviderChatHelp:
+      "Chat Completions sends requests to /chat/completions. Usually suitable for OpenAI-compatible proxies and load balancers.",
+    customProviderResponsesHelp:
+      "Responses API sends requests to /responses. Select it only when the server explicitly supports this format; it does not automatically replace Chat Completions.",
+    customProviderAnthropicHelp:
+      "Anthropic Messages sends requests to /v1/messages. Use it for Anthropic-compatible servers, including Antigravity Claude Proxy. The base address can include or omit /v1.",
     customProviderKey: "API key",
     customProviderSecretHelp:
-      "The API key stays in the operating-system credential store. models.yml receives only the address, protocol, and protected key name.",
+      "The key uses Desktop's protected credential storage. models.yml receives only the address, protocol, and key variable name.",
     providerProxyMode: "Proxy / account load balancer",
     customProviderFieldsRequired: "Enter the Provider ID, API address, and API key.",
     providerProxyModeHelp:

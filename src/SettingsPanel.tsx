@@ -18,6 +18,7 @@ import type {
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
   OmpCredentialInfo,
+  OmpCustomProviderRequest,
   RuntimeInfo,
 } from "./types"
 
@@ -210,6 +211,7 @@ export function SettingsPanel({
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
@@ -228,12 +230,12 @@ export function SettingsPanel({
   const [removedCustomProviders, setRemovedCustomProviders] = useState<string[]>([])
   const [customProviderId, setCustomProviderId] = useState("")
   const [customProviderUrl, setCustomProviderUrl] = useState("")
-  const [customProviderApi, setCustomProviderApi] = useState<
-    "openai-completions" | "openai-responses"
-  >("openai-completions")
+  const [customProviderApi, setCustomProviderApi] =
+    useState<OmpCustomProviderRequest["api"]>("openai-completions")
   const [customProviderKey, setCustomProviderKey] = useState("")
   const fallbackDraftSequence = useRef(0)
   const [appFontFamily, setAppFontFamily] = useState(settings.appFontFamily)
+  const [appFontSize, setAppFontSize] = useState(settings.appFontSize)
   const [terminalFontFamily, setTerminalFontFamily] = useState(
     settings.terminalFontFamily ?? "monospace",
   )
@@ -451,6 +453,7 @@ export function SettingsPanel({
       (sessionRoot.trim() || null) !== settings.sessionRoot ||
       language !== settings.language ||
       appFontFamily !== settings.appFontFamily ||
+      appFontSize !== settings.appFontSize ||
       terminalFontFamily !== settings.terminalFontFamily ||
       Number(terminalFontSize) !== settings.terminalFontSize
 
@@ -500,6 +503,7 @@ export function SettingsPanel({
     customProviderStarted,
     disabledProviders,
     appFontFamily,
+    appFontSize,
     autoResume,
     executable,
     fallbackChains,
@@ -520,6 +524,7 @@ export function SettingsPanel({
 
   const save = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
@@ -534,6 +539,7 @@ export function SettingsPanel({
           sessionRoot: sessionRoot.trim() || null,
           language,
           appFontFamily,
+          appFontSize,
           terminalFontFamily,
           terminalFontSize: Number(terminalFontSize),
           providerEnv,
@@ -585,7 +591,9 @@ export function SettingsPanel({
       )
       onSaved(result.bootstrap)
     } catch (error) {
-      onError(errorMessage(error, language))
+      const message = errorMessage(error, language, { includeDetails: true })
+      setSaveError(message)
+      onError(message)
     } finally {
       setSaving(false)
     }
@@ -788,13 +796,40 @@ export function SettingsPanel({
                     <label className="field-label" htmlFor="app-font-family">
                       {t(language, "appFontFamily")}
                     </label>
-                    <input
-                      id="app-font-family"
-                      onChange={(event) => setAppFontFamily(event.target.value)}
-                      spellCheck={false}
-                      value={appFontFamily}
-                    />
+                    <div className="path-field">
+                      <input
+                        id="app-font-family"
+                        onChange={(event) => setAppFontFamily(event.target.value)}
+                        spellCheck={false}
+                        value={appFontFamily}
+                      />
+                    </div>
                     <p className="field-help">{t(language, "appFontFamilyHelp")}</p>
+
+                    <label className="field-label" htmlFor="app-font-size">
+                      {t(language, "appFontSize")}
+                    </label>
+                    <div className="path-field select-field">
+                      <select
+                        aria-describedby="app-font-size-help"
+                        id="app-font-size"
+                        onChange={(event) => setAppFontSize(Number(event.target.value))}
+                        value={appFontSize}
+                      >
+                        {Array.from({ length: 17 }, (_, index) => index + 16).map((size) => (
+                          <option key={size} value={size}>
+                            {Math.round((size / 16) * 100)}%
+                          </option>
+                        ))}
+                      </select>
+                      <Icon className="select-chevron" name="chevron" size={14} />
+                    </div>
+                    <p className="field-help" id="app-font-size-help">
+                      {t(language, "appFontSizeHelp")}
+                    </p>
+                    <p className="app-font-preview" style={{ fontSize: `${appFontSize}px` }}>
+                      {t(language, "appFontPreview")}
+                    </p>
                   </section>
 
                   <section className="settings-section">
@@ -1524,48 +1559,74 @@ export function SettingsPanel({
                     <div className="custom-provider-form">
                       <label>
                         <span>{t(language, "customProviderId")}</span>
-                        <input
-                          autoComplete="off"
-                          onChange={(event) => setCustomProviderId(event.target.value)}
-                          placeholder="my-gateway"
-                          spellCheck={false}
-                          value={customProviderId}
-                        />
+                        <div className="path-field">
+                          <input
+                            aria-describedby="custom-provider-id-help"
+                            autoComplete="off"
+                            onChange={(event) => setCustomProviderId(event.target.value)}
+                            placeholder="my-gateway"
+                            spellCheck={false}
+                            value={customProviderId}
+                          />
+                        </div>
+                        <small id="custom-provider-id-help">
+                          {t(language, "customProviderIdHelp")}
+                        </small>
                       </label>
                       <label>
                         <span>{t(language, "customProviderUrl")}</span>
-                        <input
-                          autoComplete="off"
-                          onChange={(event) => setCustomProviderUrl(event.target.value)}
-                          placeholder="https://gateway.example.com/v1"
-                          spellCheck={false}
-                          value={customProviderUrl}
-                        />
+                        <div className="path-field">
+                          <input
+                            autoComplete="off"
+                            onChange={(event) => setCustomProviderUrl(event.target.value)}
+                            placeholder="https://gateway.example.com/v1"
+                            spellCheck={false}
+                            value={customProviderUrl}
+                          />
+                        </div>
                       </label>
                       <label>
                         <span>{t(language, "customProviderApi")}</span>
-                        <select
-                          onChange={(event) =>
-                            setCustomProviderApi(
-                              event.target.value as "openai-completions" | "openai-responses",
-                            )
-                          }
-                          value={customProviderApi}
-                        >
-                          <option value="openai-completions">OpenAI Chat Completions</option>
-                          <option value="openai-responses">OpenAI Responses</option>
-                        </select>
+                        <div className="path-field select-field">
+                          <select
+                            aria-describedby="custom-provider-api-help"
+                            onChange={(event) =>
+                              setCustomProviderApi(
+                                event.target.value as OmpCustomProviderRequest["api"],
+                              )
+                            }
+                            value={customProviderApi}
+                          >
+                            <option value="openai-completions">Chat Completions</option>
+                            <option value="openai-responses">Responses API</option>
+                            <option value="anthropic-messages">Anthropic Messages</option>
+                          </select>
+                          <Icon className="select-chevron" name="chevron" size={14} />
+                        </div>
+                        <small id="custom-provider-api-help">
+                          {t(language, "customProviderApiHelp")}{" "}
+                          {t(
+                            language,
+                            customProviderApi === "anthropic-messages"
+                              ? "customProviderAnthropicHelp"
+                              : customProviderApi === "openai-completions"
+                                ? "customProviderChatHelp"
+                                : "customProviderResponsesHelp",
+                          )}
+                        </small>
                       </label>
                       <label>
                         <span>{t(language, "customProviderKey")}</span>
-                        <input
-                          autoComplete="new-password"
-                          onChange={(event) => setCustomProviderKey(event.target.value)}
-                          placeholder={t(language, "keyValue")}
-                          spellCheck={false}
-                          type="password"
-                          value={customProviderKey}
-                        />
+                        <div className="path-field">
+                          <input
+                            autoComplete="new-password"
+                            onChange={(event) => setCustomProviderKey(event.target.value)}
+                            placeholder={t(language, "keyValue")}
+                            spellCheck={false}
+                            type="password"
+                            value={customProviderKey}
+                          />
+                        </div>
                       </label>
                     </div>
                     <small className="custom-provider-note">
@@ -1645,6 +1706,12 @@ export function SettingsPanel({
             {runtime.platform} · {runtime.arch}
           </strong>
         </div>
+
+        {saveError && (
+          <div className="settings-state is-error settings-save-error" role="alert">
+            {saveError}
+          </div>
+        )}
 
         <footer className="settings-actions">
           <button className="button secondary" onClick={onClose} type="button">

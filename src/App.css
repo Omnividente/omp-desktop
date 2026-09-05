@@ -8,6 +8,7 @@
     sans-serif;
   color: #dce2de;
   background: #0c0e0d;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -62,7 +63,9 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid rgba(185, 242, 124, 0.8);
   outline-offset: 2px;
 }
@@ -132,13 +135,13 @@ button:disabled {
 
 .brand strong {
   color: #f1f5f2;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 720;
 }
 
 .brand-product {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .app-version {
@@ -148,7 +151,7 @@ button:disabled {
   border-radius: 5px;
   background: #141715;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   letter-spacing: 0;
 }
 
@@ -157,7 +160,7 @@ button:disabled {
   min-width: 0;
   padding-left: 16px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .topbar-context > span {
@@ -192,7 +195,7 @@ button:disabled {
   border-radius: 999px;
   background: #151816;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -271,7 +274,7 @@ button:disabled {
   border-radius: 999px;
   background: var(--warning);
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 750;
   line-height: 1;
 }
@@ -306,7 +309,7 @@ button:disabled {
   border-radius: 999px;
   background: var(--warning);
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 750;
   line-height: 1;
 }
@@ -373,7 +376,7 @@ button:disabled {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-overflow: ellipsis;
@@ -463,7 +466,7 @@ button:disabled {
   min-height: 28px;
   padding: 0 6px 7px 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -615,7 +618,7 @@ button:disabled {
 }
 
 .project-copy strong {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 620;
 }
 
@@ -638,7 +641,7 @@ button:disabled {
 
 .project-copy small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .project-expand-marker {
@@ -682,13 +685,13 @@ button:disabled {
 }
 
 .project-sessions .session-project-row h2 {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .project-sessions .new-session-button {
   height: 30px;
   margin-bottom: 7px;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .project-sessions .session-list {
@@ -722,7 +725,7 @@ button:disabled {
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .open-project-button:hover {
@@ -740,7 +743,7 @@ button:disabled {
   padding-top: 10px;
   color: #68716b;
   border-top: 1px solid #202521;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .rail-footer span {
@@ -784,7 +787,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   color: #79827c;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 750;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -794,7 +797,7 @@ button:disabled {
   margin: 3px 0 0;
   overflow: hidden;
   color: #ecf0ed;
-  font-size: 17px;
+  font-size: 1.0625rem;
   font-weight: 650;
   letter-spacing: -0.025em;
   text-overflow: ellipsis;
@@ -811,7 +814,7 @@ button:disabled {
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 650;
   transition:
     border-color 120ms ease,
@@ -826,7 +829,7 @@ button:disabled {
 .button.large {
   height: 39px;
   padding: 0 16px;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .button.primary {
@@ -884,7 +887,7 @@ button:disabled {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .search-box input::placeholder {
@@ -1036,7 +1039,7 @@ button:disabled {
 .session-copy strong {
   overflow: hidden;
   color: #cbd1cd;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 590;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1053,7 +1056,7 @@ button:disabled {
   border-radius: 7px;
   background: #171c18;
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.46);
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
   pointer-events: none;
@@ -1067,7 +1070,7 @@ button:disabled {
   padding: 0 4px;
   margin: -1px -4px;
   color: #fff;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 590;
   font-family: inherit;
   border: 1px solid #455249;
@@ -1082,7 +1085,7 @@ button:disabled {
   min-width: 0;
   overflow: hidden;
   color: #646d67;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1123,7 +1126,7 @@ button:disabled {
 
 .session-live-marker b {
   color: var(--accent);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -1189,7 +1192,7 @@ button:disabled {
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: 144px minmax(0, 1fr);
+  grid-template-columns: 9rem minmax(0, 1fr);
   gap: 14px;
   margin-top: 18px;
 }
@@ -1206,13 +1209,13 @@ button:disabled {
   align-items: center;
   gap: 9px;
   min-height: 36px;
-  padding: 0 10px;
-  color: #758078;
+  padding: 8px 10px;
+  color: var(--text-soft);
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 620;
   text-align: left;
 }
@@ -1263,12 +1266,12 @@ button:disabled {
 }
 
 .settings-secret-warning strong {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .settings-secret-warning small {
   color: #a79570;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.5;
 }
 
@@ -1291,9 +1294,31 @@ button:disabled {
 .settings-section-heading p {
   max-width: 470px;
   margin: 6px 0 0;
-  color: #737d76;
-  font-size: 10px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
   line-height: 1.55;
+}
+
+.settings-section .eyebrow {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.app-font-preview {
+  padding: 12px;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+.settings-save-error {
+  flex: none;
+  max-height: 8rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .settings-count {
@@ -1303,7 +1328,7 @@ button:disabled {
   border: 1px solid #303832;
   border-radius: 999px;
   background: #181c19;
-  font-size: 9px;
+  font-size: 0.5625rem;
   white-space: nowrap;
 }
 
@@ -1333,7 +1358,7 @@ button:disabled {
 .provider-credential-main strong {
   overflow: hidden;
   color: #d9e1dc;
-  font-size: 10px;
+  font-size: 0.625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1342,7 +1367,7 @@ button:disabled {
 .provider-credential-source,
 .provider-credential small {
   color: #69746d;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .provider-credential-main code {
@@ -1371,7 +1396,7 @@ button:disabled {
   border: 1px solid #34443a;
   border-radius: 999px;
   background: #162019;
-  font-size: 7px;
+  font-size: 0.4375rem;
   text-transform: uppercase;
 }
 
@@ -1379,7 +1404,7 @@ button:disabled {
   grid-column: 1 / -1;
   overflow: hidden;
   color: #8c9890;
-  font-size: 8px;
+  font-size: 0.5rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1412,7 +1437,7 @@ button:disabled {
 
 .custom-provider-form {
   display: grid;
-  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -1423,16 +1448,19 @@ button:disabled {
 }
 
 .custom-provider-form label > span,
+.custom-provider-form label > small,
 .custom-provider-note {
-  color: #737d76;
-  font-size: 8px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
-.custom-provider-form input,
-.custom-provider-form select {
+.custom-provider-form .path-field input,
+.custom-provider-form .path-field select {
   width: 100%;
   min-width: 0;
+  font-size: 0.875rem;
+  font-family: inherit;
 }
 
 .custom-provider-note {
@@ -1458,7 +1486,7 @@ button:disabled {
   border: 1px solid rgba(129, 201, 149, 0.2);
   border-radius: 999px;
   background: rgba(129, 201, 149, 0.06);
-  font-size: 8px;
+  font-size: 0.5rem;
   white-space: nowrap;
 }
 
@@ -1502,12 +1530,12 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   color: #758079;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .provider-account-group-header strong {
   color: #aeb9b1;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .provider-account-list {
@@ -1525,7 +1553,7 @@ button:disabled {
   border: 1px solid #29302b;
   border-radius: 7px;
   background: #0e110f;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .provider-account-freshness.is-stale {
@@ -1594,7 +1622,7 @@ button:disabled {
 .provider-account-header strong {
   overflow: hidden;
   color: #dce5df;
-  font-size: 11px;
+  font-size: 0.6875rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1606,7 +1634,7 @@ button:disabled {
 .provider-account-fetched-at,
 .provider-account-limit small {
   color: #707a73;
-  font-size: 8px;
+  font-size: 0.5rem;
   line-height: 1.45;
 }
 
@@ -1644,7 +1672,7 @@ button:disabled {
   border: 1px solid #29302b;
   border-radius: 999px;
   background: #0b0e0c;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .provider-account-route.is-ready {
@@ -1680,7 +1708,7 @@ button:disabled {
   justify-content: space-between;
   gap: 10px;
   color: #9ca79f;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .provider-account-limit > div span {
@@ -1692,7 +1720,7 @@ button:disabled {
 .provider-account-limit > div strong {
   flex: none;
   color: #cbd5ce;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .provider-account-meter {
@@ -1725,11 +1753,11 @@ button:disabled {
 }
 
 .provider-proxy-toggle strong {
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .provider-proxy-toggle small {
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .settings-role-skeletons.is-compact .settings-role-skeleton {
@@ -1766,13 +1794,13 @@ button:disabled {
 }
 
 .toggle-row strong {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
 }
 
 .toggle-row small {
   color: #68726b;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.45;
 }
 
@@ -1785,15 +1813,15 @@ button:disabled {
   z-index: 1;
   width: 100%;
   min-width: 0;
-  padding: 0 10px;
-  color: #cbd2cd;
+  padding: 8px 10px;
+  color: var(--text);
   border: 0;
-  outline: 0;
+  outline-offset: 2px;
   appearance: none;
   color-scheme: dark;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.75rem;
 }
 
 .path-field select option {
@@ -1819,7 +1847,7 @@ button:disabled {
   border: 1px solid #2c332e;
   border-radius: 9px;
   background: #0d100e;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .settings-state.is-error {
@@ -1892,13 +1920,13 @@ button:disabled {
 
 .settings-loading-copy strong {
   color: #e1e7e3;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 620;
 }
 
 .settings-loading-copy small {
   color: #7e8981;
-  font-size: 8px;
+  font-size: 0.5rem;
   line-height: 1.45;
 }
 
@@ -2012,7 +2040,7 @@ button:disabled {
 
 .role-head strong {
   color: #e3e8e5;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 620;
 }
 
@@ -2022,13 +2050,13 @@ button:disabled {
   border: 1px solid #2b332d;
   border-radius: 5px;
   background: #151916;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .role-description {
   margin: 6px 0 10px;
   color: #7d8780;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.5;
 }
 
@@ -2039,7 +2067,7 @@ button:disabled {
   padding: 3px 6px;
   border-radius: 999px;
   background: #1a1f1b;
-  font-size: 8px;
+  font-size: 0.5rem;
   white-space: nowrap;
 }
 
@@ -2073,7 +2101,7 @@ button:disabled {
 .role-health {
   margin: 8px 0 0;
   color: #68726b;
-  font-size: 8px;
+  font-size: 0.5rem;
   line-height: 1.45;
 }
 
@@ -2123,7 +2151,7 @@ button:disabled {
 
 .model-picker-copy strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2133,7 +2161,7 @@ button:disabled {
   overflow: hidden;
   color: #7a857d;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2182,7 +2210,7 @@ button:disabled {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .model-picker-options {
@@ -2228,7 +2256,7 @@ button:disabled {
 
 .model-picker-option strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2238,7 +2266,7 @@ button:disabled {
   overflow: hidden;
   color: #738078;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2247,7 +2275,7 @@ button:disabled {
   padding: 22px 10px;
   color: #68726b;
   text-align: center;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .model-picker-manual {
@@ -2259,7 +2287,7 @@ button:disabled {
   display: block;
   margin-bottom: 6px;
   color: #929c95;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 600;
 }
 
@@ -2279,7 +2307,7 @@ button:disabled {
   outline: 0;
   background: #0c0f0d;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .model-picker-manual input:focus {
@@ -2289,7 +2317,7 @@ button:disabled {
 .model-picker-manual p {
   margin: 6px 0 0;
   color: #5f6962;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .model-picker-thinking {
@@ -2303,7 +2331,7 @@ button:disabled {
   border: 1px solid #29312b;
   border-radius: 8px;
   background: #111512;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .model-picker-thinking-control {
@@ -2323,7 +2351,7 @@ button:disabled {
   appearance: none;
   background: #171c18;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .model-picker-thinking-control select:focus-visible {
@@ -2368,7 +2396,7 @@ button:disabled {
   gap: 6px;
   min-width: 0;
   color: #aab3ad;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 600;
 }
 
@@ -2382,7 +2410,7 @@ button:disabled {
   outline: 0;
   background: #151916;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .fallback-chain-key input:focus {
@@ -2396,7 +2424,7 @@ button:disabled {
 .fallback-chain-help {
   margin: 6px 0 14px;
   color: #626d65;
-  font-size: 8px;
+  font-size: 0.5rem;
   line-height: 1.45;
 }
 
@@ -2408,12 +2436,12 @@ button:disabled {
 
 .fallback-chain-label strong {
   color: #cbd3cd;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .fallback-chain-label small {
   color: #667168;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .fallback-entry {
@@ -2433,7 +2461,7 @@ button:disabled {
   border: 1px solid #323b34;
   border-radius: 50%;
   background: #171b18;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 700;
 }
 
@@ -2480,13 +2508,13 @@ button:disabled {
 .provider-key-row code {
   overflow: hidden;
   color: #b9f27c;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
 }
 
 .provider-key-row span {
   color: #818c84;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .provider-add-row input {
@@ -2498,7 +2526,7 @@ button:disabled {
   border-radius: 8px;
   outline: 0;
   background: #0f1210;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .provider-add-row input:focus {
@@ -2513,7 +2541,7 @@ button:disabled {
 
 .provider-key-suggestions > span {
   color: #727d75;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .provider-key-suggestions > div {
@@ -2530,7 +2558,7 @@ button:disabled {
   background: #171b18;
   cursor: pointer;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 7px;
+  font-size: 0.4375rem;
 }
 
 .provider-key-suggestions button:hover {
@@ -2544,7 +2572,7 @@ button:disabled {
   color: #b9f27c;
   border-color: #4f6835;
   background: #1b2219;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .update-check-pill {
@@ -2557,7 +2585,7 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: #151916;
-  font-size: 9px;
+  font-size: 0.5625rem;
   white-space: nowrap;
 }
 
@@ -2577,7 +2605,7 @@ button:disabled {
   gap: 16px;
   margin: 16px 0 4px;
   color: #b8c1bb;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
 }
 
@@ -2638,7 +2666,7 @@ button:disabled {
 .codex-item strong {
   display: block;
   color: #e7ece8;
-  font-size: 12px;
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 
@@ -2647,7 +2675,7 @@ button:disabled {
   display: block;
   margin-top: 4px;
   color: #7b857e;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-style: normal;
 }
 
@@ -2691,7 +2719,7 @@ button:disabled {
   overflow: hidden;
   color: var(--muted);
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2707,7 +2735,7 @@ button:disabled {
   height: 32px;
   padding: 0 10px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .transcript-truncated {
@@ -2717,7 +2745,7 @@ button:disabled {
   margin-bottom: 12px;
   padding: 9px 11px;
   color: #d8bf83;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.45;
   border: 1px solid rgba(216, 191, 131, 0.24);
   border-radius: 8px;
@@ -2760,7 +2788,7 @@ button:disabled {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .transcript-search-field input::-webkit-search-cancel-button {
@@ -2799,7 +2827,7 @@ button:disabled {
   border-radius: 5px;
   background: transparent;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 0.5625rem;
   white-space: nowrap;
 }
 
@@ -2837,14 +2865,14 @@ button:disabled {
 
 .transcript-state strong {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
 }
 
 .transcript-state > span:not(.mini-loader) {
   max-width: 520px;
   color: #7d8780;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -2890,7 +2918,7 @@ button:disabled {
 
 .transcript-entry > header > strong {
   color: #dce4de;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 680;
 }
 
@@ -2909,7 +2937,7 @@ button:disabled {
   justify-content: flex-end;
   gap: 7px;
   color: #69736d;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .transcript-entry-meta span {
@@ -2929,7 +2957,7 @@ button:disabled {
   overflow: visible;
   color: #c8cfca;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.58;
   overflow-wrap: anywhere;
   tab-size: 2;
@@ -2946,7 +2974,7 @@ button:disabled {
   padding-top: 12px;
   color: var(--muted);
   border-top: 1px solid var(--line);
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .mini-loader {
@@ -2971,12 +2999,12 @@ button:disabled {
 .sidebar-empty strong {
   margin-top: 4px;
   color: #818a84;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .sidebar-empty span {
   max-width: 180px;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.5;
 }
 
@@ -2987,7 +3015,7 @@ button:disabled {
   padding: 0 13px;
   color: #626b65;
   border-top: 1px solid #222723;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .session-footer small {
@@ -3062,7 +3090,7 @@ button:disabled {
   margin: 14px 0 7px;
   overflow: hidden;
   color: #f0f4f1;
-  font-size: clamp(30px, 4vw, 46px);
+  font-size: clamp(1.875rem, 4vw, 2.875rem);
   font-weight: 650;
   letter-spacing: -0.045em;
   line-height: 1.05;
@@ -3081,7 +3109,7 @@ button:disabled {
   background: transparent;
   cursor: pointer;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
+  font-size: 0.625rem;
   text-align: left;
 }
 
@@ -3103,7 +3131,7 @@ button:disabled {
   max-width: 570px;
   margin: 19px 0 24px;
   color: #909a93;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.65;
 }
 
@@ -3126,7 +3154,7 @@ button:disabled {
 .hero-mark > span {
   margin-top: -9px;
   color: rgba(185, 242, 124, 0.4);
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 800;
   letter-spacing: 0.36em;
 }
@@ -3151,7 +3179,7 @@ button:disabled {
 
 .stats-grid article > span {
   color: #6f7872;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3160,14 +3188,14 @@ button:disabled {
 .stats-grid strong {
   margin: 9px 0 4px;
   color: #e5eae7;
-  font-size: 25px;
+  font-size: 1.5625rem;
   font-weight: 600;
   letter-spacing: -0.04em;
 }
 
 .stats-grid strong.stat-text {
   overflow: hidden;
-  font-size: 16px;
+  font-size: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3176,7 +3204,7 @@ button:disabled {
   margin-top: auto;
   overflow: hidden;
   color: #5f6862;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3199,14 +3227,14 @@ button:disabled {
 .card-heading h2 {
   margin: 4px 0 0;
   color: #dfe4e1;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 620;
   letter-spacing: -0.02em;
 }
 
 .muted-count {
   color: #667069;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .recent-list {
@@ -3265,13 +3293,13 @@ button:disabled {
 
 .recent-copy strong {
   color: #c7ceca;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 600;
 }
 
 .recent-copy small {
   color: #626b65;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .inline-empty {
@@ -3292,11 +3320,11 @@ button:disabled {
 
 .inline-empty strong {
   color: #9da69f;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .inline-empty span {
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .empty-workspace {
@@ -3345,7 +3373,7 @@ button:disabled {
 .empty-workspace h1 {
   margin: 9px 0 8px;
   color: #e9eeeb;
-  font-size: 27px;
+  font-size: 1.6875rem;
   font-weight: 620;
   letter-spacing: -0.04em;
 }
@@ -3354,7 +3382,7 @@ button:disabled {
   max-width: 470px;
   margin: 0 0 22px;
   color: #7f8982;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.65;
 }
 
@@ -3362,7 +3390,7 @@ button:disabled {
   margin-top: 12px;
   color: #535b56;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .terminal-workspace {
@@ -3413,7 +3441,7 @@ button:disabled {
   color: #7c857f;
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .terminal-tab.is-active > button:first-child {
@@ -3434,21 +3462,21 @@ button:disabled {
   gap: 4px;
   flex: none;
   color: var(--accent);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 650;
 }
 
 .terminal-tab-error {
   flex: none;
   color: var(--danger);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 650;
 }
 
 .terminal-tab-fallback {
   flex: none;
   color: var(--warning);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 650;
 }
 
@@ -3589,7 +3617,7 @@ button:disabled {
   padding: 4px 8px;
   color: #535c56;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
 }
 
 .session-controls {
@@ -3610,7 +3638,7 @@ button:disabled {
   background: #111512;
   color-scheme: dark;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .session-controls select:hover:not(:disabled) {
@@ -3654,7 +3682,7 @@ button:disabled {
   background: #111512;
   cursor: pointer;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   white-space: nowrap;
 }
 
@@ -3698,7 +3726,7 @@ button:disabled {
 .primary-provider-pin-state {
   min-width: 25px;
   color: #778179;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 750;
   text-align: left;
 }
@@ -3810,7 +3838,7 @@ button:disabled {
   border: 1px solid rgba(239, 199, 119, 0.3);
   border-radius: 999px;
   background: rgba(239, 199, 119, 0.08);
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -3859,7 +3887,7 @@ button:disabled {
   background: rgba(27, 34, 30, 0.96);
   box-shadow: 0 9px 28px rgba(0, 0, 0, 0.45);
   cursor: pointer;
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 650;
   white-space: nowrap;
   transform: translate(-50%, -50%);
@@ -3913,7 +3941,7 @@ button:disabled {
   border-radius: 7px;
   background: rgba(19, 24, 21, 0.97);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.38);
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.55;
 }
 
@@ -3929,7 +3957,7 @@ button:disabled {
   border-radius: 7px;
   background: #a8de77;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 650;
 }
 
@@ -3956,7 +3984,7 @@ button:disabled {
 
 .settings-panel {
   display: flex;
-  width: min(620px, 96vw);
+  width: min(50rem, 96vw);
   height: 100%;
   flex-direction: column;
   padding: 24px;
@@ -3983,7 +4011,7 @@ button:disabled {
 .settings-header h2 {
   margin: 5px 0 0;
   color: #eef2ef;
-  font-size: 22px;
+  font-size: 1.375rem;
   font-weight: 640;
   letter-spacing: -0.035em;
 }
@@ -4037,13 +4065,13 @@ button:disabled {
 
 .runtime-card strong {
   color: #dce2de;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .runtime-card span {
   overflow: hidden;
   color: #77817a;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4056,14 +4084,14 @@ button:disabled {
   display: block;
   margin: 0 0 7px;
   color: #aab2ad;
-  font-size: 10px;
+  font-size: 0.75rem;
   font-weight: 650;
 }
 
 .path-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  height: 36px;
+  min-height: 2.5rem;
   border: 1px solid #303732;
   border-radius: 8px;
   background: #0f1210;
@@ -4076,17 +4104,17 @@ button:disabled {
 
 .path-field input {
   min-width: 0;
-  padding: 0 10px;
-  color: #cbd2cd;
+  padding: 8px 10px;
+  color: var(--text);
   border: 0;
-  outline: 0;
+  outline-offset: 2px;
   background: transparent;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.75rem;
 }
 
 .path-field input::placeholder {
-  color: #4f5752;
+  color: var(--text-soft);
 }
 
 .path-field button {
@@ -4098,7 +4126,7 @@ button:disabled {
   border-left: 1px solid #303732;
   background: #181c19;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .path-field button:hover {
@@ -4108,8 +4136,8 @@ button:disabled {
 
 .field-help {
   margin: 7px 0 20px;
-  color: #5f6862;
-  font-size: 9px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -4120,7 +4148,7 @@ button:disabled {
   padding: 13px 0;
   color: #69726c;
   border-top: 1px solid #252b27;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .settings-meta strong {
@@ -4169,13 +4197,13 @@ button:disabled {
 
 .update-toast strong {
   color: #edf4e8;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .update-toast span {
   overflow: hidden;
   color: #899487;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4189,7 +4217,7 @@ button:disabled {
   color: #a8cf7f;
   background: transparent;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .release-notes-link:hover {
@@ -4201,7 +4229,7 @@ button:disabled {
 .update-toast .button {
   height: 30px;
   padding: 0 10px;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .update-toast-close {
@@ -4239,7 +4267,7 @@ button:disabled {
   border-radius: 9px;
   background: #211716;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
-  font-size: 10px;
+  font-size: 0.625rem;
   animation: toast-in 180ms ease-out;
 }
 
@@ -4309,7 +4337,7 @@ button:disabled {
 .splash-screen h1 {
   margin: 18px 0 5px;
   color: #edf2ee;
-  font-size: 23px;
+  font-size: 1.4375rem;
   font-weight: 640;
   letter-spacing: -0.035em;
 }
@@ -4320,7 +4348,7 @@ button:disabled {
   gap: 8px;
   margin: 3px 0 16px;
   color: #6f7872;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .splash-screen .splash-error {
@@ -4363,7 +4391,7 @@ button:disabled {
 
 .settings-recovery-card h1 {
   margin: 1px 0 8px;
-  font-size: 24px;
+  font-size: 1.5rem;
 }
 
 .splash-screen .settings-recovery-description {
@@ -4371,7 +4399,7 @@ button:disabled {
   max-width: 590px;
   margin: 0;
   color: #9aa49e;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.6;
 }
 
@@ -4394,7 +4422,7 @@ button:disabled {
 
 .settings-recovery-details dt {
   color: #6f7872;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4404,7 +4432,7 @@ button:disabled {
   min-width: 0;
   margin: 0;
   color: #c5ccc7;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -4412,7 +4440,7 @@ button:disabled {
 .settings-recovery-details code {
   color: #d8ded9;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.625rem;
   white-space: normal;
 }
 
@@ -4533,7 +4561,7 @@ button:disabled {
   display: block;
   margin-top: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .incident-center-toolbar {
@@ -4565,7 +4593,7 @@ button:disabled {
   border-radius: 5px;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .incident-filter button.is-active {
@@ -4580,7 +4608,7 @@ button:disabled {
   border-radius: 999px;
   background: #111412;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 8px;
+  font-size: 0.5rem;
   text-align: center;
 }
 
@@ -4588,7 +4616,7 @@ button:disabled {
 .incident-open-terminal {
   min-height: 30px;
   padding: 0 10px;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .incident-center-scroll {
@@ -4617,7 +4645,7 @@ button:disabled {
 
 .incident-empty strong {
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 
@@ -4665,7 +4693,7 @@ button:disabled {
   max-width: 250px;
   overflow: hidden;
   color: #e2e7e3;
-  font-size: 12px;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4675,7 +4703,7 @@ button:disabled {
 .incident-transition code {
   color: #89928c;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .incident-terminal > code {
@@ -4695,7 +4723,7 @@ button:disabled {
 .incident-count {
   padding: 3px 6px;
   border-radius: 999px;
-  font-size: 8px;
+  font-size: 0.5rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -4738,7 +4766,7 @@ button:disabled {
 .incident-reason > span,
 .incident-times > span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 0.5625rem;
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -4781,7 +4809,7 @@ button:disabled {
   overflow-wrap: anywhere;
   color: #c8cfca;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.45;
   white-space: pre-wrap;
 }
@@ -4801,7 +4829,7 @@ button:disabled {
   width: fit-content;
   color: var(--accent);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .incident-reason pre {
@@ -4826,7 +4854,7 @@ button:disabled {
 .incident-times time {
   color: #8d9690;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .incident-row-footer {
@@ -4836,12 +4864,12 @@ button:disabled {
 
 .incident-resolution {
   color: var(--text-soft);
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .incident-terminal-closed {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 
 .resource-backdrop {
@@ -4886,7 +4914,7 @@ button:disabled {
 .resource-panel-header h2 {
   margin: 4px 0 0;
   color: #edf2ef;
-  font-size: 19px;
+  font-size: 1.1875rem;
 }
 
 .resource-summary {
@@ -4897,7 +4925,7 @@ button:disabled {
   border: 1px solid rgba(129, 201, 149, 0.22);
   border-radius: 9px;
   background: rgba(129, 201, 149, 0.06);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .resource-summary.is-warning {
@@ -4917,7 +4945,7 @@ button:disabled {
   margin: 10px 0 0;
   padding: 9px 11px;
   border-radius: 7px;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.5;
 }
 
@@ -4953,7 +4981,7 @@ button:disabled {
 .resource-group h3 {
   margin: 0;
   color: #8e9892;
-  font-size: 10px;
+  font-size: 0.625rem;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -4985,14 +5013,14 @@ button:disabled {
   overflow: hidden;
   color: #d8ded9;
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
+  font-size: 0.625rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .resource-card-heading span {
   color: #79837c;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-align: right;
 }
 
@@ -5015,7 +5043,7 @@ button:disabled {
 .resource-scope-note {
   margin: 3px 0 0;
   color: #7f8982;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.5;
 }
 
@@ -5034,7 +5062,7 @@ button:disabled {
   min-height: 32px;
   padding: 0 10px;
   background: #101311;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 
 .resource-process span {
@@ -5053,7 +5081,7 @@ button:disabled {
 .resource-panel-footer {
   padding-top: 12px;
   color: #667069;
-  font-size: 9px;
+  font-size: 0.5625rem;
   text-align: right;
 }
 

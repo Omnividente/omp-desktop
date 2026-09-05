@@ -325,14 +325,21 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   },
 }
 
-export function errorMessage(error: unknown, language: Lang = "ru"): string {
+export function errorMessage(
+  error: unknown,
+  language: Lang = "ru",
+  { includeDetails = false }: { includeDetails?: boolean } = {},
+): string {
   const parsed = parseBackendError(error)
-  if (parsed.code && BACKEND_ERROR_TEXT[parsed.code]) {
-    return BACKEND_ERROR_TEXT[parsed.code][language]
-  }
-  return (
-    parsed.message || parsed.details || (language === "en" ? "Unknown error" : "Неизвестная ошибка")
-  )
+  const message =
+    (parsed.code && BACKEND_ERROR_TEXT[parsed.code]?.[language]) ||
+    parsed.message ||
+    parsed.details ||
+    (language === "en" ? "Unknown error" : "Неизвестная ошибка")
+  const details = parsed.details?.trim()
+  return includeDetails && details && details !== message
+    ? `${message}: ${boundedBackendErrorText(details)}`
+    : message
 }
 
 export function backendErrorCode(error: unknown): string | null {
