@@ -63,6 +63,7 @@ function config(): OmpConfigSnapshot {
     modelFallbackEnabled: true,
     fallbackChains: {},
     proxyProviders: [],
+    disabledProviders: [],
     usageObservedAt: null,
     providerEnvKeys: [],
     credentials: [],

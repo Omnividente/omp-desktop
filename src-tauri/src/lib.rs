@@ -5,6 +5,7 @@ mod diagnostics;
 mod models;
 mod omp_bridge;
 mod omp_command;
+mod provider_config;
 mod resource_health;
 mod secrets;
 mod session_lease;

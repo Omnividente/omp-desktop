@@ -1359,6 +1359,97 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.provider-credential.is-disabled {
+  border-color: rgba(239, 112, 112, 0.2);
+  opacity: 0.82;
+}
+
+.provider-custom-badge {
+  flex: none;
+  padding: 2px 5px;
+  color: #9fb8a8;
+  border: 1px solid #34443a;
+  border-radius: 999px;
+  background: #162019;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.provider-base-url {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: #8c9890;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-management-actions {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-enabled-toggle {
+  margin: 0;
+}
+
+.provider-remove-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  border-color: rgba(239, 112, 112, 0.24);
+  background: rgba(239, 112, 112, 0.05);
+}
+
+.provider-remove-button:hover:not(:disabled) {
+  border-color: rgba(239, 112, 112, 0.48);
+  background: rgba(239, 112, 112, 0.1);
+}
+
+.custom-provider-form {
+  display: grid;
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr);
+  gap: 12px;
+}
+
+.custom-provider-form label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.custom-provider-form label > span,
+.custom-provider-note {
+  color: #737d76;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.custom-provider-form input,
+.custom-provider-form select {
+  width: 100%;
+  min-width: 0;
+}
+
+.custom-provider-note {
+  display: block;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .custom-provider-form,
+  .provider-management-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-remove-button {
+    justify-self: start;
+  }
+}
 
 .credential-status {
   justify-self: end;

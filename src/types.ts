@@ -225,9 +225,13 @@ export interface OmpCredentialInfo {
   provider: string
   keyName: string | null
   source: "desktop" | "environment" | "command" | "models" | "omp"
-  status: "ready" | "configured" | "ok" | "limited" | "exhausted" | "auth-error" | "missing"
+  status:
+    "ready" | "configured" | "ok" | "limited" | "exhausted" | "auth-error" | "missing" | "disabled"
   available: boolean
   modelCount: number
+  custom: boolean
+  baseUrl: string | null
+  api: string | null
 }
 
 export interface OmpConfigWarning {
@@ -246,10 +250,18 @@ export interface OmpConfigSnapshot {
   modelFallbackEnabled: boolean
   fallbackChains: Record<string, string[]>
   proxyProviders: string[]
+  disabledProviders: string[]
   providerEnvKeys: string[]
   usageObservedAt: number | null
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
+}
+
+export interface OmpCustomProviderRequest {
+  provider: string
+  baseUrl: string
+  api: "openai-completions" | "openai-responses"
+  apiKey: string
 }
 
 export interface OmpConfigSaveRequest {
@@ -260,6 +272,9 @@ export interface OmpConfigSaveRequest {
   modelFallbackEnabled?: boolean | null
   fallbackChains?: Record<string, string[]> | null
   proxyProviders?: string[] | null
+  disabledProviders?: string[] | null
+  customProviderUpserts?: OmpCustomProviderRequest[]
+  removedCustomProviders?: string[]
   providerEnv?: Record<string, string> | null
 }
 
