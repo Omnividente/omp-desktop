@@ -4,13 +4,16 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
-import type { AppSettings, OmpConfigSnapshot, RuntimeInfo } from "./types"
+import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSaveRequest } from "./types"
 
-const { loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(() => ({
-  loadOmpConfigMock: vi.fn(),
-  refreshOmpConfigMock: vi.fn(),
-  saveSettingsBundleMock: vi.fn(),
-}))
+const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(
+  () => ({
+    confirmMock: vi.fn(),
+    loadOmpConfigMock: vi.fn(),
+    refreshOmpConfigMock: vi.fn(),
+    saveSettingsBundleMock: vi.fn(),
+  }),
+)
 
 vi.mock("./api", () => ({
   errorMessage: (error: unknown) => String(error),
@@ -19,7 +22,7 @@ vi.mock("./api", () => ({
   saveSettingsBundle: saveSettingsBundleMock,
 }))
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }))
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: vi.fn() }))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -97,15 +100,30 @@ const ompConfig: OmpConfigSnapshot = {
   modelFallbackEnabled: true,
   fallbackChains: {},
   proxyProviders: [],
+  disabledProviders: [],
   providerEnvKeys: [],
   credentials: [
     {
       provider: "codex-lb",
-      keyName: null,
+      keyName: "OMP_DESKTOP_PROVIDER_636F6465782D6C62_API_KEY",
       source: "command",
       status: "ready",
       available: true,
       modelCount: 1,
+      custom: true,
+      baseUrl: "https://gateway.example.test/v1",
+      api: "openai-completions",
+    },
+    {
+      provider: "openai",
+      keyName: "OPENAI_API_KEY",
+      source: "environment",
+      status: "ready",
+      available: true,
+      modelCount: 2,
+      custom: false,
+      baseUrl: null,
+      api: null,
     },
   ],
   warnings: [],
@@ -119,6 +137,8 @@ describe("SettingsPanel Save state", () => {
     loadOmpConfigMock.mockReset()
     refreshOmpConfigMock.mockReset()
     saveSettingsBundleMock.mockReset()
+    confirmMock.mockReset()
+    confirmMock.mockResolvedValue(true)
     loadOmpConfigMock.mockResolvedValue(ompConfig)
     refreshOmpConfigMock.mockResolvedValue(ompConfig)
     container = document.createElement("div")
@@ -214,5 +234,82 @@ describe("SettingsPanel Save state", () => {
     expect(missing?.open).toBe(false)
     act(() => missing?.querySelector("summary")?.click())
     expect(missing?.open).toBe(true)
+  })
+
+  it("saves provider disable, custom API creation, and confirmed deletion", async () => {
+    saveSettingsBundleMock.mockImplementation(async (request: SettingsSaveRequest) => ({
+      bootstrap: { settings },
+      ompConfig: {
+        ...ompConfig,
+        disabledProviders: request.ompConfig?.disabledProviders ?? [],
+        credentials: [],
+      },
+    }))
+
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          onClose={vi.fn()}
+          onError={vi.fn()}
+          onSaved={vi.fn()}
+          runtime={runtime}
+          settings={settings}
+        />,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const providersTab = [
+      ...container.querySelectorAll<HTMLButtonElement>(".settings-nav button"),
+    ].find((button) => button.textContent?.includes("Провайдеры"))
+    act(() => providersTab?.click())
+
+    const enabled = container.querySelectorAll<HTMLInputElement>(
+      ".provider-enabled-toggle input",
+    )[1]
+    act(() => enabled?.click())
+
+    const customInputs = container.querySelectorAll<HTMLInputElement>(".custom-provider-form input")
+    await act(async () => {
+      const values = ["private-gateway", "https://gateway.example.test/v1", "secret-value"]
+      customInputs.forEach((input, index) => {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value",
+        )
+        descriptor?.set?.call(input, values[index])
+        input.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+    })
+
+    expect(container.textContent).not.toContain("OMP_DESKTOP_PROVIDER_")
+
+    const removeProvider = container.querySelector<HTMLButtonElement>(".provider-remove-button")
+    await act(async () => {
+      removeProvider?.click()
+      await Promise.resolve()
+    })
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")
+    await act(async () => {
+      save?.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(confirmMock).toHaveBeenCalledOnce()
+    expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+    const request = saveSettingsBundleMock.mock.calls[0]?.[0]
+    expect(request.ompConfig).toMatchObject({
+      disabledProviders: ["openai"],
+      removedCustomProviders: ["codex-lb"],
+      customProviderUpserts: [
+        {
+          provider: "private-gateway",
+          baseUrl: "https://gateway.example.test/v1",
+          api: "openai-completions",
+          apiKey: "secret-value",
+        },
+      ],
+    })
   })
 })

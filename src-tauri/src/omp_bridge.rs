@@ -6,12 +6,13 @@ use crate::{
         OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
+    provider_config,
     settings::{resolve_omp, SettingsTransaction},
     update,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const KNOWN_ROLES: &[&str] = &[
     "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
@@ -54,6 +55,14 @@ pub fn load_config_snapshot(
         &app_settings.provider_env,
         OmpOperation::Config,
     )?;
+    let disabled_provider_entries = extract_array_entries(&raw, "disabledProviders");
+    let disabled_providers = disabled_provider_entries
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
     let (models_result, usage_result) = std::thread::scope(|scope| {
         let models = scope.spawn(|| load_models(&omp.executable, &app_settings.provider_env));
         let usage = scope.spawn(|| load_usage(&omp.executable, &app_settings.provider_env));
@@ -88,7 +97,13 @@ pub fn load_config_snapshot(
             ),
         });
     }
-    let credentials = build_credentials(app, app_settings, &models, &usage.providers);
+    let credentials = build_credentials(
+        app,
+        app_settings,
+        &models,
+        &usage.providers,
+        &disabled_providers,
+    );
 
     Ok(OmpConfigSnapshot {
         roles,
@@ -101,6 +116,8 @@ pub fn load_config_snapshot(
         model_fallback_enabled: extract_bool(&raw, "retry.modelFallback").unwrap_or(true),
         fallback_chains,
         proxy_providers: app_settings.proxy_providers.iter().cloned().collect(),
+        disabled_providers: disabled_providers.into_iter().collect(),
+        disabled_provider_entries,
         provider_env_keys: PROVIDER_ENV_KEYS
             .iter()
             .map(|key| (*key).to_owned())
@@ -166,18 +183,14 @@ struct ModelsYamlFile {
 struct ModelsYamlProvider {
     #[serde(rename = "apiKey")]
     api_key: Option<serde_json::Value>,
+    #[serde(rename = "baseUrl")]
+    base_url: Option<String>,
+    api: Option<String>,
 }
 
 fn load_models_yaml(app: &AppHandle) -> BTreeMap<String, ModelsYamlProvider> {
-    let path = if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
-        std::path::PathBuf::from(dir).join("models.yml")
-    } else {
-        app.path()
-            .home_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join(".omp")
-            .join("agent")
-            .join("models.yml")
+    let Ok(path) = provider_config::models_path(app) else {
+        return BTreeMap::new();
     };
     let Ok(contents) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
@@ -193,12 +206,14 @@ fn build_credentials(
     app_settings: &AppSettings,
     models: &[OmpModelInfo],
     usage: &UsageMap,
+    disabled_providers: &BTreeSet<String>,
 ) -> Vec<OmpCredentialInfo> {
     build_credentials_from_sources(
         load_models_yaml(app),
         &app_settings.provider_env,
         models,
         usage,
+        disabled_providers,
         |key| std::env::var_os(key).is_some(),
     )
 }
@@ -208,6 +223,7 @@ fn build_credentials_from_sources<F>(
     provider_env: &HashMap<String, String>,
     models: &[OmpModelInfo],
     usage: &UsageMap,
+    disabled_providers: &BTreeSet<String>,
     environment_has: F,
 ) -> Vec<OmpCredentialInfo>
 where
@@ -228,31 +244,71 @@ where
             Some(resolver) if environment_has(resolver) => {
                 ("environment".to_owned(), Some(resolver.to_owned()))
             }
-            Some(resolver) => (
-                "models".to_owned(),
-                looks_like_environment_key(resolver).then(|| resolver.to_owned()),
-            ),
+            Some(_) => ("models".to_owned(), None),
             None => ("omp".to_owned(), None),
         };
+        let managed = provider_config::is_desktop_managed_provider(
+            &provider,
+            config.api_key.as_ref().and_then(Value::as_str),
+        );
         let model_count = model_counts.get(&provider).copied().unwrap_or_default();
         credentials.insert(
             provider.clone(),
-            credential_info(provider, source, key_name, model_count, usage),
+            credential_info(
+                provider.clone(),
+                source,
+                key_name,
+                model_count,
+                usage,
+                CredentialMetadata {
+                    disabled: disabled_providers.contains(&provider),
+                    custom: true,
+                    base_url: managed
+                        .then(|| provider_config::public_base_url(config.base_url.as_deref()))
+                        .flatten(),
+                    api: managed
+                        .then(|| provider_config::public_api(config.api.as_deref()))
+                        .flatten(),
+                },
+            ),
         );
     }
 
-    for provider in model_counts.keys().chain(usage.keys()) {
+    for provider in model_counts
+        .keys()
+        .chain(usage.keys())
+        .chain(disabled_providers)
+    {
         if credentials.contains_key(provider) {
             continue;
         }
         let model_count = model_counts.get(provider).copied().unwrap_or_default();
         credentials.insert(
             provider.clone(),
-            credential_info(provider.clone(), "omp".to_owned(), None, model_count, usage),
+            credential_info(
+                provider.clone(),
+                "omp".to_owned(),
+                None,
+                model_count,
+                usage,
+                CredentialMetadata {
+                    disabled: disabled_providers.contains(provider),
+                    custom: false,
+                    base_url: None,
+                    api: None,
+                },
+            ),
         );
     }
 
     credentials.into_values().collect()
+}
+
+struct CredentialMetadata {
+    disabled: bool,
+    custom: bool,
+    base_url: Option<String>,
+    api: Option<String>,
 }
 
 fn credential_info(
@@ -261,24 +317,36 @@ fn credential_info(
     key_name: Option<String>,
     model_count: usize,
     usage: &UsageMap,
+    metadata: CredentialMetadata,
 ) -> OmpCredentialInfo {
+    let CredentialMetadata {
+        disabled,
+        custom,
+        base_url,
+        api,
+    } = metadata;
     let usage_status = usage.get(&provider).map(summarize_provider_usage);
-    let available = usage_status
-        .as_ref()
-        .map(|item| item.available)
-        .unwrap_or(model_count > 0);
-    let status = usage_status
-        .as_ref()
-        .map(|item| item.status.clone())
-        .unwrap_or_else(|| {
-            if model_count == 0 {
-                "missing".to_owned()
-            } else if matches!(source.as_str(), "command" | "models") {
-                "configured".to_owned()
-            } else {
-                "ready".to_owned()
-            }
-        });
+    let available = !disabled
+        && usage_status
+            .as_ref()
+            .map(|item| item.available)
+            .unwrap_or(model_count > 0);
+    let status = if disabled {
+        "disabled".to_owned()
+    } else {
+        usage_status
+            .as_ref()
+            .map(|item| item.status.clone())
+            .unwrap_or_else(|| {
+                if model_count == 0 {
+                    "missing".to_owned()
+                } else if matches!(source.as_str(), "command" | "models") {
+                    "configured".to_owned()
+                } else {
+                    "ready".to_owned()
+                }
+            })
+    };
     OmpCredentialInfo {
         provider,
         key_name,
@@ -286,14 +354,67 @@ fn credential_info(
         status,
         available,
         model_count,
+        custom,
+        base_url,
+        api,
     }
 }
 
-fn looks_like_environment_key(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+fn extract_array_entries(raw: &Value, key: &str) -> Vec<Value> {
+    raw.pointer(&format!("/{key}/value"))
+        .and_then(Value::as_array)
+        .or_else(|| raw.get(key).and_then(Value::as_array))
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn normalize_disabled_providers(providers: Vec<String>) -> Result<Vec<String>, String> {
+    let mut normalized = BTreeSet::new();
+    for provider in providers {
+        let provider = provider_config::normalize_provider_id(&provider)?;
+        normalized.insert(provider);
+    }
+    Ok(normalized.into_iter().collect())
+}
+
+fn merge_disabled_provider_entries(entries: &[Value], providers: &[String]) -> Value {
+    let mut merged = entries
+        .iter()
+        .filter(|entry| !entry.is_string())
+        .cloned()
+        .collect::<Vec<_>>();
+    merged.extend(providers.iter().cloned().map(Value::String));
+    Value::Array(merged)
+}
+
+fn validate_removed_provider_references(
+    removed: &BTreeSet<String>,
+    roles: &BTreeMap<String, String>,
+    chains: &BTreeMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let used = |selector: &str| {
+        strip_thinking(selector)
+            .split_once('/')
+            .is_some_and(|(provider, _)| removed.contains(provider))
+    };
+    let role_references = roles
+        .iter()
+        .filter(|(_, selector)| used(selector))
+        .map(|(role, _)| role.as_str())
+        .collect::<Vec<_>>();
+    let fallback_references = chains
+        .iter()
+        .filter(|(_, selectors)| selectors.iter().any(|selector| used(selector)))
+        .map(|(chain, _)| chain.as_str())
+        .collect::<Vec<_>>();
+    if role_references.is_empty() && fallback_references.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Сначала уберите удаляемый provider из ролей [{}] и fallback-цепочек [{}]",
+        role_references.join(", "),
+        fallback_references.join(", ")
+    ))
 }
 
 pub(crate) struct OmpConfigSaveResult {
@@ -334,11 +455,60 @@ pub fn save_config(
         .fallback_chains
         .map(normalize_fallback_chains)
         .transpose()?;
-    let expected_proxy_providers = request
+    let mut expected_proxy_providers = request
         .proxy_providers
         .map(normalize_proxy_providers)
         .transpose()?;
+    let mut expected_disabled_providers = request
+        .disabled_providers
+        .map(normalize_disabled_providers)
+        .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
+    let custom_changes_requested =
+        !request.custom_provider_upserts.is_empty() || !request.removed_custom_providers.is_empty();
+    let mut provider_file_mutation = if custom_changes_requested {
+        provider_config::prepare_provider_file_mutation(
+            provider_config::models_path(app)?,
+            request.custom_provider_upserts,
+            request.removed_custom_providers,
+        )?
+    } else {
+        None
+    };
+
+    if let Some(mutation) = provider_file_mutation.as_ref() {
+        if let Some(provider) = mutation.added.keys().find(|provider| {
+            previous_config
+                .models
+                .iter()
+                .any(|model| model.provider == provider.as_str())
+                || previous_config
+                    .credentials
+                    .iter()
+                    .any(|credential| credential.provider == provider.as_str())
+        }) {
+            return Err(format!(
+                "Provider ID `{provider}` уже занят; выберите новый уникальный ID"
+            ));
+        }
+        let chains = expected_fallback_chains
+            .as_ref()
+            .unwrap_or(&previous_config.fallback_chains);
+        validate_removed_provider_references(&mutation.removed, &expected_roles, chains)?;
+        if !mutation.removed.is_empty() {
+            let providers = expected_proxy_providers
+                .get_or_insert_with(|| previous_config.proxy_providers.clone());
+            providers.retain(|provider| !mutation.removed.contains(provider));
+        }
+        if !mutation.added.is_empty() || !mutation.removed.is_empty() {
+            let providers = expected_disabled_providers
+                .get_or_insert_with(|| previous_config.disabled_providers.clone());
+            providers.retain(|provider| {
+                !mutation.added.contains_key(provider) && !mutation.removed.contains(provider)
+            });
+        }
+    }
+
     let proxy_provider_warnings = if let Some(providers) = expected_proxy_providers.as_ref() {
         let warnings = validate_proxy_provider_membership(
             providers,
@@ -351,26 +521,55 @@ pub fn save_config(
         Vec::new()
     };
 
-    let credentials_changed = if let Some(provider_env) = request.provider_env {
+    let mut requested_provider_env = request.provider_env;
+    if let Some(mutation) = provider_file_mutation.as_mut() {
+        let requested = requested_provider_env.get_or_insert_with(|| {
+            app_settings
+                .provider_env_keys
+                .iter()
+                .cloned()
+                .map(|key| (key, String::new()))
+                .collect()
+        });
+        for key in &mutation.removed_secret_keys {
+            requested.remove(key);
+        }
+        requested.extend(std::mem::take(&mut mutation.secret_values));
+    }
+    let credentials_changed = if let Some(provider_env) = requested_provider_env {
         crate::settings::update_provider_secrets(app, &mut app_settings, provider_env)?;
         true
     } else {
         false
     };
+
     let roles_value = Value::Object(
         expected_roles
             .iter()
             .map(|(role, selector)| (role.clone(), Value::String(selector.clone())))
             .collect::<Map<String, Value>>(),
     );
+    let previous_roles = previous_config
+        .roles
+        .iter()
+        .filter(|role| !role.selector.trim().is_empty())
+        .map(|role| (role.role.clone(), role.selector.trim().to_owned()))
+        .collect::<BTreeMap<_, _>>();
+    let model_config_touched = expected_roles != previous_roles;
+    let disabled_value = expected_disabled_providers.as_ref().map(|providers| {
+        merge_disabled_provider_entries(&previous_config.disabled_provider_entries, providers)
+    });
     let mut settings_save_attempted = false;
+    let mut models_file_applied = false;
     let transaction_result = (|| {
-        set_omp_config(
-            &omp.executable,
-            "modelRoles",
-            &roles_value,
-            &app_settings.provider_env,
-        )?;
+        if model_config_touched {
+            set_omp_config(
+                &omp.executable,
+                "modelRoles",
+                &roles_value,
+                &app_settings.provider_env,
+            )?;
+        }
         if let Some(chains) = expected_fallback_chains.as_ref() {
             let value = Value::Object(
                 chains
@@ -422,6 +621,27 @@ pub fn save_config(
                 &app_settings.provider_env,
             )?;
         }
+        if let Some(value) = disabled_value.as_ref() {
+            set_omp_config(
+                &omp.executable,
+                "disabledProviders",
+                value,
+                &app_settings.provider_env,
+            )?;
+        }
+        if let Some(mutation) = provider_file_mutation.as_ref() {
+            mutation.apply()?;
+            models_file_applied = true;
+        }
+
+        if provider_file_mutation.is_some() {
+            run_omp_text(
+                &omp.executable,
+                &["models", "refresh"],
+                &app_settings.provider_env,
+                OmpOperation::Models,
+            )?;
+        }
         let mut snapshot = load_config_snapshot(app, &app_settings)?;
         snapshot.warnings.extend(proxy_provider_warnings);
         verify_saved_config(
@@ -434,6 +654,8 @@ pub fn save_config(
                 model_fallback: expected_model_fallback,
                 fallback_chains: expected_fallback_chains.as_ref(),
                 proxy_providers: expected_proxy_providers.as_deref(),
+                disabled_providers: expected_disabled_providers.as_deref(),
+                provider_mutation: provider_file_mutation.as_ref(),
             },
         )?;
         let bootstrap = crate::sessions::build_bootstrap(app, &app_settings)?;
@@ -450,12 +672,29 @@ pub fn save_config(
             &omp.executable,
             &app_settings.provider_env,
             &previous_config,
+            model_config_touched,
             expected_advisor.is_some(),
             expected_auto_resume.is_some(),
             expected_thinking.is_some(),
             expected_model_fallback.is_some(),
             expected_fallback_chains.is_some(),
+            expected_disabled_providers.is_some(),
         );
+        if models_file_applied {
+            if let Some(mutation) = provider_file_mutation.as_ref() {
+                if let Err(rollback_error) = mutation.rollback() {
+                    rollback_errors.push(rollback_error);
+                }
+            }
+            if let Err(rollback_error) = run_omp_text(
+                &omp.executable,
+                &["models", "refresh"],
+                &app_settings.provider_env,
+                OmpOperation::Models,
+            ) {
+                rollback_errors.push(rollback_error);
+            }
+        }
         if credentials_changed {
             if let Err(rollback_error) =
                 crate::settings::restore_provider_secrets(app, &app_settings, &previous_settings)
@@ -479,11 +718,13 @@ fn rollback_omp_config(
     executable: &str,
     provider_env: &HashMap<String, String>,
     previous: &OmpConfigSnapshot,
+    model_roles_touched: bool,
     advisor_touched: bool,
     auto_resume_touched: bool,
     thinking_touched: bool,
     model_fallback_touched: bool,
     fallback_chains_touched: bool,
+    disabled_providers_touched: bool,
 ) -> Vec<String> {
     let mut errors = Vec::new();
     let roles = Value::Object(
@@ -499,7 +740,9 @@ fn rollback_omp_config(
             errors.push(format!("{key}: {error}"));
         }
     };
-    restore("modelRoles", roles);
+    if model_roles_touched {
+        restore("modelRoles", roles);
+    }
     if fallback_chains_touched {
         restore(
             "retry.fallbackChains",
@@ -528,6 +771,12 @@ fn rollback_omp_config(
                 .unwrap_or(Value::Null),
         );
     }
+    if disabled_providers_touched {
+        restore(
+            "disabledProviders",
+            Value::Array(previous.disabled_provider_entries.clone()),
+        );
+    }
     errors
 }
 
@@ -539,6 +788,8 @@ struct SavedConfigExpectation<'a> {
     model_fallback: Option<bool>,
     fallback_chains: Option<&'a BTreeMap<String, Vec<String>>>,
     proxy_providers: Option<&'a [String]>,
+    disabled_providers: Option<&'a [String]>,
+    provider_mutation: Option<&'a provider_config::ProviderFileMutation>,
 }
 
 fn verify_saved_config(
@@ -589,6 +840,36 @@ fn verify_saved_config(
         .is_some_and(|value| snapshot.proxy_providers != value)
     {
         return Err("OMP Desktop не сохранил proxy-режим провайдеров".to_owned());
+    }
+    if expected
+        .disabled_providers
+        .is_some_and(|value| snapshot.disabled_providers != value)
+    {
+        return Err("OMP не применил состояние провайдеров".to_owned());
+    }
+    if let Some(mutation) = expected.provider_mutation {
+        for (provider, (base_url, api)) in &mutation.added {
+            let credential = snapshot
+                .credentials
+                .iter()
+                .find(|credential| credential.provider == *provider)
+                .ok_or_else(|| format!("OMP не загрузил добавленный provider `{provider}`"))?;
+            if !credential.custom
+                || credential.base_url.as_deref() != Some(base_url)
+                || credential.api.as_deref() != Some(api)
+                || credential.source != "desktop"
+            {
+                return Err(format!("OMP некорректно загрузил provider `{provider}`"));
+            }
+        }
+        if mutation.removed.iter().any(|provider| {
+            snapshot
+                .credentials
+                .iter()
+                .any(|credential| credential.custom && credential.provider == *provider)
+        }) {
+            return Err("OMP не удалил custom provider".to_owned());
+        }
     }
     Ok(())
 }
@@ -2140,10 +2421,14 @@ providers:
             model("rdsh", "advisor"),
             model("codex-lb", "fallback"),
         ];
-        let credentials =
-            build_credentials_from_sources(yaml, &provider_env, &models, &HashMap::new(), |key| {
-                key == "G2A_API_KEY"
-            });
+        let credentials = build_credentials_from_sources(
+            yaml,
+            &provider_env,
+            &models,
+            &HashMap::new(),
+            &BTreeSet::new(),
+            |key| key == "G2A_API_KEY",
+        );
         let get = |provider: &str| {
             credentials
                 .iter()
@@ -2157,7 +2442,39 @@ providers:
         assert_eq!(get("rdsh").source, "models");
         assert_eq!(get("rdsh").status, "configured");
         assert_eq!(get("codex-lb").source, "command");
+        assert!(get("a6api").custom);
+        assert_eq!(get("rdsh").key_name, None);
         assert!(!format!("{credentials:?}").contains("secret_token_12345"));
+    }
+
+    #[test]
+    fn disabled_provider_updates_preserve_path_scopes() {
+        let scoped = serde_json::json!({
+            "path": "~/projects/sensitive",
+            "providers": ["anthropic"]
+        });
+        let merged = merge_disabled_provider_entries(
+            &[Value::String("old-provider".to_owned()), scoped.clone()],
+            &["new-provider".to_owned()],
+        );
+        assert_eq!(
+            merged,
+            Value::Array(vec![scoped, Value::String("new-provider".to_owned())])
+        );
+    }
+
+    #[test]
+    fn referenced_custom_provider_cannot_be_deleted() {
+        let removed = BTreeSet::from(["team-gateway".to_owned()]);
+        let roles = BTreeMap::from([("default".to_owned(), "team-gateway/model:high".to_owned())]);
+        let chains = BTreeMap::from([(
+            "slow".to_owned(),
+            vec!["team-gateway/fallback:high".to_owned()],
+        )]);
+        let error = validate_removed_provider_references(&removed, &roles, &chains)
+            .expect_err("referenced provider deletion should be rejected");
+        assert!(error.contains("default"));
+        assert!(error.contains("slow"));
     }
 
     #[test]

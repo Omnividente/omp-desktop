@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { open } from "@tauri-apps/plugin-dialog"
+import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
 import {
@@ -32,7 +32,11 @@ interface SettingsPanelProps {
 
 const USAGE_STALE_MS = 10 * 60_000
 const USAGE_REFRESH_COOLDOWN_MS = 30_000
+const MANAGED_PROVIDER_KEY_PREFIX = "OMP_DESKTOP_PROVIDER_"
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
+function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
+  return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
+}
 
 type SettingsSection = "general" | "behavior" | "models" | "providers"
 
@@ -96,6 +100,7 @@ function credentialSourceLabel(language: Lang, source: OmpCredentialInfo["source
 }
 
 function credentialStatusLabel(language: Lang, credential: OmpCredentialInfo): string {
+  if (credential.status === "disabled") return t(language, "providerDisabled")
   if (credential.status === "limited" || credential.status === "exhausted") {
     return statusLabel(language, credential.status)
   }
@@ -219,6 +224,14 @@ export function SettingsPanel({
   const [modelFallbackEnabled, setModelFallbackEnabled] = useState(true)
   const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>([])
   const [proxyProviders, setProxyProviders] = useState<string[]>([])
+  const [disabledProviders, setDisabledProviders] = useState<string[]>([])
+  const [removedCustomProviders, setRemovedCustomProviders] = useState<string[]>([])
+  const [customProviderId, setCustomProviderId] = useState("")
+  const [customProviderUrl, setCustomProviderUrl] = useState("")
+  const [customProviderApi, setCustomProviderApi] = useState<
+    "openai-completions" | "openai-responses"
+  >("openai-completions")
+  const [customProviderKey, setCustomProviderKey] = useState("")
   const fallbackDraftSequence = useRef(0)
   const [appFontFamily, setAppFontFamily] = useState(settings.appFontFamily)
   const [terminalFontFamily, setTerminalFontFamily] = useState(
@@ -226,7 +239,7 @@ export function SettingsPanel({
   )
   const [terminalFontSize, setTerminalFontSize] = useState(String(settings.terminalFontSize ?? 14))
   const [providerEnv, setProviderEnv] = useState<Record<string, string>>(() =>
-    Object.fromEntries((settings.providerEnvKeys ?? []).map((key) => [key, ""])),
+    providerEnvDraft(settings.providerEnvKeys ?? []),
   )
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY")
   const [newKeyValue, setNewKeyValue] = useState("")
@@ -266,6 +279,8 @@ export function SettingsPanel({
       setModelFallbackEnabled(snapshot.modelFallbackEnabled)
       setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
       setProxyProviders(snapshot.proxyProviders)
+      setDisabledProviders(snapshot.disabledProviders)
+      setRemovedCustomProviders([])
       setClockNow(loadedAt)
     } catch (error) {
       const message = errorMessage(error, language)
@@ -282,9 +297,7 @@ export function SettingsPanel({
   }, [runtime.ompAvailable])
 
   useEffect(() => {
-    setProviderEnv((current) =>
-      Object.fromEntries((settings.providerEnvKeys ?? []).map((key) => [key, current[key] ?? ""])),
-    )
+    setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
   }, [settings.providerEnvKeys])
 
   useEffect(() => {
@@ -302,7 +315,11 @@ export function SettingsPanel({
   }, [])
 
   const orderedRoles = ompConfig?.roles ?? []
-  const credentials = ompConfig?.credentials ?? []
+  const credentials = useMemo(() => ompConfig?.credentials ?? [], [ompConfig?.credentials])
+  const visibleCredentials = useMemo(
+    () => credentials.filter((credential) => !removedCustomProviders.includes(credential.provider)),
+    [credentials, removedCustomProviders],
+  )
   const accounts = useMemo(() => ompConfig?.accounts ?? [], [ompConfig?.accounts])
   const accountGroups = useMemo(() => {
     const grouped = new Map<string, OmpAccountUsageInfo[]>()
@@ -398,6 +415,36 @@ export function SettingsPanel({
       return current.includes(provider) ? current : [...current, provider].sort()
     })
   }
+  const setProviderEnabled = (provider: string, enabled: boolean) => {
+    setDisabledProviders((current) => {
+      if (enabled) return current.filter((candidate) => candidate !== provider)
+      return current.includes(provider) ? current : [...current, provider].sort()
+    })
+    if (!enabled)
+      setProxyProviders((current) => current.filter((candidate) => candidate !== provider))
+  }
+
+  const removeCustomProvider = async (provider: string) => {
+    const accepted = await confirm(
+      t(language, "removeCustomProviderConfirm").replace("{provider}", provider),
+      { title: t(language, "removeCustomProvider"), kind: "warning" },
+    )
+    if (!accepted) return
+    setRemovedCustomProviders((current) =>
+      current.includes(provider) ? current : [...current, provider],
+    )
+    setProxyProviders((current) => current.filter((candidate) => candidate !== provider))
+    setDisabledProviders((current) => current.filter((candidate) => candidate !== provider))
+  }
+
+  const customProviderStarted =
+    customProviderId.trim() !== "" ||
+    customProviderUrl.trim() !== "" ||
+    customProviderKey.trim() !== ""
+  const customProviderReady =
+    customProviderId.trim() !== "" &&
+    customProviderUrl.trim() !== "" &&
+    customProviderKey.trim() !== ""
   const hasChanges = useMemo(() => {
     const generalChanged =
       (executable.trim() || null) !== settings.ompExecutable ||
@@ -414,7 +461,13 @@ export function SettingsPanel({
       currentProviderEnvKeys.some((key) => !initialProviderEnvKeys.includes(key)) ||
       Object.values(providerEnv).some((value) => value.trim() !== "")
 
-    if (generalChanged || providerEnvChanged) return true
+    if (
+      generalChanged ||
+      providerEnvChanged ||
+      removedCustomProviders.length > 0 ||
+      customProviderStarted
+    )
+      return true
     if (!runtime.ompAvailable || !ompConfig) return false
 
     const rolesChanged = ompConfig.roles.some(
@@ -438,10 +491,14 @@ export function SettingsPanel({
       modelFallbackEnabled !== ompConfig.modelFallbackEnabled ||
       [...proxyProviders].sort().join("\u0000") !==
         [...ompConfig.proxyProviders].sort().join("\u0000") ||
+      [...disabledProviders].sort().join("\u0000") !==
+        [...ompConfig.disabledProviders].sort().join("\u0000") ||
       fallbackChainsChanged
     )
   }, [
     advisorEnabled,
+    customProviderStarted,
+    disabledProviders,
     appFontFamily,
     autoResume,
     executable,
@@ -450,6 +507,7 @@ export function SettingsPanel({
     modelFallbackEnabled,
     ompConfig,
     providerEnv,
+    removedCustomProviders,
     proxyProviders,
     roleDrafts,
     runtime.ompAvailable,
@@ -463,6 +521,9 @@ export function SettingsPanel({
   const save = async () => {
     setSaving(true)
     try {
+      if (customProviderStarted && !customProviderReady) {
+        throw new Error(t(language, "customProviderFieldsRequired"))
+      }
       const includeOmpConfig = runtime.ompAvailable && ompConfig !== null
       const fallbackConfig = includeOmpConfig
         ? serializeFallbackChains(fallbackChains, language)
@@ -486,6 +547,18 @@ export function SettingsPanel({
               modelFallbackEnabled,
               fallbackChains: fallbackConfig,
               proxyProviders,
+              disabledProviders,
+              customProviderUpserts: customProviderReady
+                ? [
+                    {
+                      provider: customProviderId,
+                      baseUrl: customProviderUrl,
+                      api: customProviderApi,
+                      apiKey: customProviderKey,
+                    },
+                  ]
+                : [],
+              removedCustomProviders,
             }
           : null,
       })
@@ -500,10 +573,15 @@ export function SettingsPanel({
         setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
         setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
         setProxyProviders(result.ompConfig.proxyProviders)
+        setDisabledProviders(result.ompConfig.disabledProviders)
+        setRemovedCustomProviders([])
+        setCustomProviderId("")
+        setCustomProviderUrl("")
+        setCustomProviderKey("")
         onConfigSaved?.(result.ompConfig)
       }
-      setProviderEnv(
-        Object.fromEntries(result.bootstrap.settings.providerEnvKeys.map((key) => [key, ""])),
+      setProviderEnv((current) =>
+        providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
       onSaved(result.bootstrap)
     } catch (error) {
@@ -1344,49 +1422,155 @@ export function SettingsPanel({
                         </button>
                       </div>
                     )}
-                    {ompConfig && credentials.length === 0 && (
+                    {ompConfig && visibleCredentials.length === 0 && (
                       <div className="settings-state">
                         <Icon name="terminal" size={16} />
                         <span>{t(language, "noConnectedProviders")}</span>
                       </div>
                     )}
-                    {ompConfig && credentials.length > 0 && (
+                    {ompConfig && visibleCredentials.length > 0 && (
                       <div className="provider-credential-list">
-                        {credentials.map((credential) => (
-                          <article className="provider-credential" key={credential.provider}>
-                            <div className="provider-credential-main">
-                              <strong>{credential.provider}</strong>
-                              {credential.keyName && <code>{credential.keyName}</code>}
-                            </div>
-                            <span className="provider-credential-source">
-                              {credentialSourceLabel(language, credential.source)}
-                            </span>
-                            <span className={`credential-status is-${credential.status}`}>
-                              {credentialStatusLabel(language, credential)}
-                            </span>
-                            <small>
-                              {t(language, "credentialModels").replace(
-                                "{count}",
-                                String(credential.modelCount),
-                              )}
-                            </small>
-                            <label className="toggle-row provider-proxy-toggle">
-                              <input
-                                checked={proxyProviders.includes(credential.provider)}
-                                onChange={(event) =>
-                                  setProviderProxyMode(credential.provider, event.target.checked)
-                                }
-                                type="checkbox"
-                              />
-                              <span>
-                                <strong>{t(language, "providerProxyMode")}</strong>
-                                <small>{t(language, "providerProxyModeHelp")}</small>
+                        {visibleCredentials.map((credential) => {
+                          const enabled = !disabledProviders.includes(credential.provider)
+                          return (
+                            <article
+                              className={`provider-credential${enabled ? "" : " is-disabled"}`}
+                              key={credential.provider}
+                            >
+                              <div className="provider-credential-main">
+                                <strong>{credential.provider}</strong>
+                                {credential.custom && (
+                                  <span className="provider-custom-badge">
+                                    {t(language, "customProviderBadge")}
+                                  </span>
+                                )}
+                                {credential.keyName &&
+                                  !credential.keyName.startsWith(MANAGED_PROVIDER_KEY_PREFIX) && (
+                                    <code>{credential.keyName}</code>
+                                  )}
+                              </div>
+                              <span className="provider-credential-source">
+                                {credentialSourceLabel(language, credential.source)}
                               </span>
-                            </label>
-                          </article>
-                        ))}
+                              <span
+                                className={`credential-status is-${enabled ? credential.status : "disabled"}`}
+                              >
+                                {enabled
+                                  ? credentialStatusLabel(language, credential)
+                                  : t(language, "providerDisabled")}
+                              </span>
+                              <small>
+                                {t(language, "credentialModels").replace(
+                                  "{count}",
+                                  String(credential.modelCount),
+                                )}
+                              </small>
+                              {credential.baseUrl && (
+                                <code className="provider-base-url">{credential.baseUrl}</code>
+                              )}
+                              <div className="provider-management-actions">
+                                <label className="toggle-row provider-enabled-toggle">
+                                  <input
+                                    checked={enabled}
+                                    onChange={(event) =>
+                                      setProviderEnabled(credential.provider, event.target.checked)
+                                    }
+                                    type="checkbox"
+                                  />
+                                  <span>
+                                    <strong>{t(language, "providerEnabled")}</strong>
+                                    <small>{t(language, "providerEnabledHelp")}</small>
+                                  </span>
+                                </label>
+                                {credential.custom && (
+                                  <button
+                                    className="button danger provider-remove-button"
+                                    onClick={() => void removeCustomProvider(credential.provider)}
+                                    type="button"
+                                  >
+                                    <Icon name="trash" size={13} />
+                                    {t(language, "removeCustomProvider")}
+                                  </button>
+                                )}
+                              </div>
+                              <label className="toggle-row provider-proxy-toggle">
+                                <input
+                                  checked={proxyProviders.includes(credential.provider)}
+                                  disabled={!enabled}
+                                  onChange={(event) =>
+                                    setProviderProxyMode(credential.provider, event.target.checked)
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>
+                                  <strong>{t(language, "providerProxyMode")}</strong>
+                                  <small>{t(language, "providerProxyModeHelp")}</small>
+                                </span>
+                              </label>
+                            </article>
+                          )
+                        })}
                       </div>
                     )}
+                  </section>
+
+                  <section className="settings-section">
+                    <div className="settings-section-heading">
+                      <div>
+                        <span className="eyebrow">{t(language, "customProviderTitle")}</span>
+                        <p>{t(language, "customProviderHelp")}</p>
+                      </div>
+                    </div>
+                    <div className="custom-provider-form">
+                      <label>
+                        <span>{t(language, "customProviderId")}</span>
+                        <input
+                          autoComplete="off"
+                          onChange={(event) => setCustomProviderId(event.target.value)}
+                          placeholder="my-gateway"
+                          spellCheck={false}
+                          value={customProviderId}
+                        />
+                      </label>
+                      <label>
+                        <span>{t(language, "customProviderUrl")}</span>
+                        <input
+                          autoComplete="off"
+                          onChange={(event) => setCustomProviderUrl(event.target.value)}
+                          placeholder="https://gateway.example.com/v1"
+                          spellCheck={false}
+                          value={customProviderUrl}
+                        />
+                      </label>
+                      <label>
+                        <span>{t(language, "customProviderApi")}</span>
+                        <select
+                          onChange={(event) =>
+                            setCustomProviderApi(
+                              event.target.value as "openai-completions" | "openai-responses",
+                            )
+                          }
+                          value={customProviderApi}
+                        >
+                          <option value="openai-completions">OpenAI Chat Completions</option>
+                          <option value="openai-responses">OpenAI Responses</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t(language, "customProviderKey")}</span>
+                        <input
+                          autoComplete="new-password"
+                          onChange={(event) => setCustomProviderKey(event.target.value)}
+                          placeholder={t(language, "keyValue")}
+                          spellCheck={false}
+                          type="password"
+                          value={customProviderKey}
+                        />
+                      </label>
+                    </div>
+                    <small className="custom-provider-note">
+                      {t(language, "customProviderSecretHelp")}
+                    </small>
                   </section>
 
                   <section className="settings-section">
@@ -1397,6 +1581,7 @@ export function SettingsPanel({
                       </div>
                     </div>
                     {Object.entries(providerEnv)
+                      .filter(([key]) => !key.startsWith(MANAGED_PROVIDER_KEY_PREFIX))
                       .sort(([left], [right]) => left.localeCompare(right))
                       .map(([key]) => (
                         <div className="provider-key-row" key={key}>

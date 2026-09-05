@@ -423,6 +423,24 @@ export const UI_TEXT = {
     credentialConfigured: "настроен",
     credentialMissing: "модели не найдены",
     credentialModels: "моделей: {count}",
+    providerEnabled: "Провайдер включён",
+    providerEnabledHelp:
+      "Отключение скрывает все модели провайдера, но сохраняет его credentials и конфигурацию.",
+    providerDisabled: "отключён",
+    customProviderBadge: "custom",
+    removeCustomProvider: "Удалить provider",
+    removeCustomProviderConfirm:
+      "Удалить custom provider «{provider}», его API key и конфигурацию из models.yml? Действие применяется после сохранения.",
+    customProviderTitle: "Добавить свой API provider",
+    customProviderHelp:
+      "Подключает OpenAI-совместимый endpoint и получает список моделей через /models. Provider появится после сохранения.",
+    customProviderId: "Provider ID",
+    customProviderUrl: "API address",
+    customProviderApi: "API protocol",
+    customProviderKey: "API key",
+    customProviderSecretHelp:
+      "API key хранится в системном хранилище credentials. В models.yml записываются только address, protocol и имя защищённого ключа.",
+    customProviderFieldsRequired: "Заполните Provider ID, API address и API key.",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
       "Удерживает fallback внутри пула выбранного провайдера. Пока режим включён хотя бы для одного провайдера, OMP глобально отключает OpenAI Codex WebSocket во всех новых терминалах Desktop.",
@@ -876,7 +894,25 @@ export const UI_TEXT = {
     credentialConfigured: "configured",
     credentialMissing: "models not found",
     credentialModels: "models: {count}",
+    providerEnabled: "Provider enabled",
+    providerEnabledHelp:
+      "Disabling hides every model from this provider while preserving its credentials and configuration.",
+    providerDisabled: "disabled",
+    customProviderBadge: "custom",
+    removeCustomProvider: "Delete provider",
+    removeCustomProviderConfirm:
+      "Delete custom provider “{provider}”, its API key, and its models.yml configuration? The change is applied when you save.",
+    customProviderTitle: "Add a custom API provider",
+    customProviderHelp:
+      "Connects an OpenAI-compatible endpoint and discovers its model list through /models. The provider appears after saving.",
+    customProviderId: "Provider ID",
+    customProviderUrl: "API address",
+    customProviderApi: "API protocol",
+    customProviderKey: "API key",
+    customProviderSecretHelp:
+      "The API key stays in the operating-system credential store. models.yml receives only the address, protocol, and protected key name.",
     providerProxyMode: "Proxy / account load balancer",
+    customProviderFieldsRequired: "Enter the Provider ID, API address, and API key.",
     providerProxyModeHelp:
       "Keeps fallback inside the selected provider's account pool. While any provider uses this mode, OMP globally disables OpenAI Codex WebSockets for every new Desktop terminal.",
     providerKeys: "Keys saved by Desktop",

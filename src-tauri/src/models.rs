@@ -464,6 +464,9 @@ pub struct OmpCredentialInfo {
     pub status: String,
     pub available: bool,
     pub model_count: usize,
+    pub custom: bool,
+    pub base_url: Option<String>,
+    pub api: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -525,9 +528,21 @@ pub struct OmpConfigSnapshot {
     pub model_fallback_enabled: bool,
     pub fallback_chains: BTreeMap<String, Vec<String>>,
     pub proxy_providers: Vec<String>,
+    pub disabled_providers: Vec<String>,
+    #[serde(skip_serializing)]
+    pub disabled_provider_entries: Vec<serde_json::Value>,
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpCustomProviderRequest {
+    pub provider: String,
+    pub base_url: String,
+    pub api: String,
+    pub api_key: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -540,6 +555,11 @@ pub struct OmpConfigSaveRequest {
     pub model_fallback_enabled: Option<bool>,
     pub fallback_chains: Option<HashMap<String, Vec<String>>>,
     pub proxy_providers: Option<Vec<String>>,
+    pub disabled_providers: Option<Vec<String>>,
+    #[serde(default)]
+    pub custom_provider_upserts: Vec<OmpCustomProviderRequest>,
+    #[serde(default)]
+    pub removed_custom_providers: Vec<String>,
     pub provider_env: Option<HashMap<String, String>>,
 }
 
