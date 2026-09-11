@@ -1,0 +1,61 @@
+name: Autonomous Monitor
+
+# Read-only health report for the parallel loop. Changes nothing.
+
+on:
+  schedule:
+    - cron: "7 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  monitor:
+    name: Report loop health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      DEFAULT_BRANCH: main
+      GH_TOKEN: ${{ github.token }}
+      LOOP_ENABLED: ${{ vars.JULES_LOOP_ENABLED }}
+    steps:
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 0
+
+      - name: Validate control plane
+        run: |
+          set -euo pipefail
+          python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+
+      - name: Report
+        run: |
+          set -euo pipefail
+          git fetch origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          ahead=$(git rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
+          open_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --json number --jq 'length')
+          merged_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state merged --json number --jq 'length')
+          python3 scripts/autonomous/select_task.py --manifest agent_tasks.json --json > selection.json
+          {
+            echo "### Autonomous loop health"
+            echo ""
+            echo "- Loop enabled: ${LOOP_ENABLED:-unset}"
+            echo "- Open autonomous pull requests: ${open_prs}"
+            echo "- Merged into ${INTEGRATION_BRANCH} so far: ${merged_prs}"
+            echo "- Commits on ${INTEGRATION_BRANCH} ahead of ${DEFAULT_BRANCH}: ${ahead}"
+            echo "- Releases: disabled by policy, human-gated"
+            echo ""
+            echo "Queue state:"
+            echo ""
+            echo '```json'
+            cat selection.json
+            echo '```'
+            echo ""
+            echo "Run **Autonomous Release Review** when you want to decide on a release."
+          } >> "${GITHUB_STEP_SUMMARY}"

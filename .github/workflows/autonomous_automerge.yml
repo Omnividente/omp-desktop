@@ -1,0 +1,71 @@
+name: Autonomous Automerge
+
+# Lands green autonomous pull requests on the integration branch only.
+# The control plane is read from the default branch, so the loop cannot relax
+# its own guardrails. Nothing here touches main, tags, versions, or releases.
+
+on:
+  workflow_run:
+    workflows:
+      - Quality Gate
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: autonomous-automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    name: Merge green autonomous pull requests
+    if: ${{ github.event.workflow_run.conclusion == 'success' && vars.JULES_LOOP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Verify release automation is still disabled
+        run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+
+      - name: Evaluate and merge
+        run: |
+          set -euo pipefail
+          numbers=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" -H "Accept: application/vnd.github+json" --jq '.[].number' || true)
+          if [ -z "${numbers}" ]; then
+            echo "No pull request is associated with ${HEAD_SHA}; nothing to do."
+            exit 0
+          fi
+          for number in ${numbers}; do
+            echo "::group::Pull request #${number}"
+            gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json number,state,isDraft,baseRefName,labels,files,title,author,headRefOid > pr.json
+            set +e
+            python3 scripts/autonomous/automerge_decision.py --pr-json pr.json --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}" --changed-files-out changed-files.txt
+            status=$?
+            set -e
+            if [ "${status}" = "0" ]; then
+              head_oid=$(gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')
+              gh pr merge "${number}" --repo "${GITHUB_REPOSITORY}" --squash --match-head-commit "${head_oid}"
+              echo "Merged pull request #${number} into ${INTEGRATION_BRANCH}."
+              echo "- Merged #${number} into ${INTEGRATION_BRANCH}" >> "${GITHUB_STEP_SUMMARY}"
+            elif [ "${status}" = "20" ]; then
+              echo "::warning::Pull request #${number} changes files outside the allowed product scope; refusing to merge."
+              gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body 'Autonomous automerge refused this pull request: it changes files outside the allowed product scope (src/**, src-tauri/src/**, src-tauri/tests/**). Release, version, updater, workflow and control-plane files are off limits for the autonomous loop.' || true
+              echo "- Refused #${number}: out-of-scope changes" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              echo "Skipping pull request #${number}."
+              echo "- Skipped #${number}" >> "${GITHUB_STEP_SUMMARY}"
+            fi
+            echo "::endgroup::"
+          done

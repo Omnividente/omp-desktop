@@ -1,0 +1,79 @@
+name: Autonomous Replenish
+
+# Refills the task queue from real diagnostics only (eslint, tsc). No speculative
+# work is ever queued, and one defect class produces at most one task.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autonomous-replenish
+  cancel-in-progress: false
+
+jobs:
+  replenish:
+    name: Refill the task queue from real diagnostics
+    if: ${{ vars.JULES_LOOP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+    steps:
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+
+      - name: Verify release automation is still disabled
+        run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Collect ESLint diagnostics
+        run: npx eslint src --format json --output-file eslint-report.json || true
+
+      - name: Collect TypeScript diagnostics
+        run: npm run typecheck > tsc-report.log 2>&1 || true
+
+      - name: Append evidence-backed tasks
+        run: |
+          set -euo pipefail
+          base_sha=$(git rev-parse HEAD)
+          python3 scripts/autonomous/replenish_tasks.py --manifest agent_tasks.json --eslint-json eslint-report.json --tsc-log tsc-report.log --base-commit "${base_sha}" --max-new 10
+          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+
+      - name: Commit queue changes
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- agent_tasks.json; then
+            echo "Queue unchanged; nothing to commit."
+            echo "Task queue unchanged." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent_tasks.json
+          git commit -m "chore(autonomous): replenish task queue from real diagnostics"
+          git push origin "HEAD:${INTEGRATION_BRANCH}"
+          {
+            echo "### Task queue replenished"
+            echo ""
+            python3 scripts/autonomous/select_task.py --manifest agent_tasks.json --json
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Clean up diagnostics artifacts
+        if: always()
+        run: rm -f eslint-report.json tsc-report.log

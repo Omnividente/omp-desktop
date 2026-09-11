@@ -1,0 +1,76 @@
+name: Autonomous Control CI
+
+# Self-tests for the autonomous control plane, including a hard assertion that
+# none of the loop workflows can release, tag, or bump a version.
+
+on:
+  pull_request:
+    paths:
+      - autonomous-project.json
+      - agent_tasks.json
+      - scripts/autonomous/**
+      - docs/autonomous/**
+      - .github/workflows/autonomous_*.yml
+  push:
+    branches:
+      - main
+      - autonomous/lab
+    paths:
+      - autonomous-project.json
+      - agent_tasks.json
+      - scripts/autonomous/**
+      - docs/autonomous/**
+      - .github/workflows/autonomous_*.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  control-plane:
+    name: Validate the autonomous control plane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compile control-plane scripts
+        run: python3 -m py_compile scripts/autonomous/*.py
+
+      - name: Run control-plane unit tests
+        run: |
+          set -uo pipefail
+          status=0
+          for test in scripts/autonomous/*_test.py; do
+            echo "== ${test}"
+            python3 "${test}" || status=1
+          done
+          exit "${status}"
+
+      - name: Validate configuration and task queue
+        run: |
+          set -euo pipefail
+          python3 -c "import json; json.load(open('autonomous-project.json', encoding='utf-8'))"
+          python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch autonomous/lab
+          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+
+      - name: Assert the loop contains no release automation
+        run: |
+          set -uo pipefail
+          files=$(ls .github/workflows/autonomous_*.yml | grep -v '/autonomous_control_ci.yml$')
+          if grep -En "action-gh-release|gh release|git tag|npm version|cargo release|tauri-action|softprops" $files; then
+            echo "::error::Autonomous workflows must never create releases, tags, or version bumps."
+            exit 1
+          fi
+          echo "No release automation found in the autonomous workflows."
+
+      - name: Assert the loop never targets the default branch
+        run: |
+          set -uo pipefail
+          files=$(ls .github/workflows/autonomous_*.yml | grep -v '/autonomous_control_ci.yml$')
+          if grep -En "pr merge .*--base main|HEAD:main|:refs/heads/main" $files; then
+            echo "::error::Autonomous workflows must never push or merge into the default branch."
+            exit 1
+          fi
+          echo "No default-branch writes found in the autonomous workflows."

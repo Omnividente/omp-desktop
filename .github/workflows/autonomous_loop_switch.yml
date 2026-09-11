@@ -1,0 +1,80 @@
+name: Autonomous Loop Switch
+
+# Master on/off switch for the parallel autonomous improvement loop.
+# The loop never releases: it only accumulates changes on the integration branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      loop_enabled:
+        description: Enable the autonomous loop
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+      ensure_integration_branch:
+        description: Create the integration branch if it is missing
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autonomous-loop-switch
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    name: Set the loop state
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      DEFAULT_BRANCH: main
+      LOOP_ENABLED: ${{ inputs.loop_enabled }}
+      ADMIN_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set the JULES_LOOP_ENABLED repository variable
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with repo scope so this workflow can manage Actions variables."
+            exit 1
+          fi
+          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/variables"
+          payload=$(printf '{"name":"JULES_LOOP_ENABLED","value":"%s"}' "${LOOP_ENABLED}")
+          code=$(curl -sS -o /tmp/variable.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "${api}/JULES_LOOP_ENABLED" -d "${payload}")
+          if [ "${code}" = "404" ]; then
+            code=$(curl -sS -o /tmp/variable.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "${api}" -d "${payload}")
+          fi
+          echo "HTTP ${code}"
+          cat /tmp/variable.json || true
+          case "${code}" in
+            2*) ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Ensure the integration branch exists
+        if: ${{ inputs.ensure_integration_branch }}
+        run: |
+          set -euo pipefail
+          if gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" > /dev/null 2>&1; then
+            echo "Integration branch ${INTEGRATION_BRANCH} already exists."
+          else
+            sha=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" --jq '.object.sha')
+            gh api --method POST "/repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/heads/${INTEGRATION_BRANCH}" -f "sha=${sha}"
+            echo "Created ${INTEGRATION_BRANCH} from ${DEFAULT_BRANCH} at ${sha}."
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### Autonomous loop switch"
+            echo ""
+            echo "- JULES_LOOP_ENABLED: ${LOOP_ENABLED}"
+            echo "- Integration branch: ${INTEGRATION_BRANCH}"
+            echo "- Release automation: disabled by policy, human-gated"
+          } >> "${GITHUB_STEP_SUMMARY}"

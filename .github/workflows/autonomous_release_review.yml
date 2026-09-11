@@ -1,0 +1,76 @@
+name: Autonomous Release Review
+
+# The human gate. Run this whenever you want to review what the loop has
+# accumulated and decide whether to release. It only produces a report - it
+# never bumps versions, creates tags, or publishes anything.
+#
+# Tip: dispatch this workflow with the branch set to autonomous/lab so the
+# optional Quality Gate job runs against the integration branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Release branch to compare against
+        type: string
+        default: main
+      head:
+        description: Integration branch to review
+        type: string
+        default: autonomous/lab
+      run_quality_gate:
+        description: Also run the Quality Gate on the dispatched ref
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Build the release decision report
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE_BRANCH: ${{ inputs.base }}
+      HEAD_BRANCH: ${{ inputs.head }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Fetch both branches
+        run: |
+          set -euo pipefail
+          git fetch origin "${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
+          git fetch origin "${HEAD_BRANCH}:refs/remotes/origin/${HEAD_BRANCH}"
+
+      - name: Build the report
+        run: |
+          set -euo pipefail
+          python3 scripts/autonomous/release_review.py --base "origin/${BASE_BRANCH}" --head "origin/${HEAD_BRANCH}" --out release-review.md
+          cat release-review.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: List autonomous pull requests merged into the integration branch
+        run: |
+          set -euo pipefail
+          {
+            echo ""
+            echo "## Autonomous pull requests merged into ${HEAD_BRANCH}"
+            echo ""
+            gh pr list --repo "${GITHUB_REPOSITORY}" --base "${HEAD_BRANCH}" --state merged --limit 50 --json number,title,mergedAt,author --jq '.[] | "- #\(.number) \(.title) (\(.author.login), \(.mergedAt))"'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-review
+          path: release-review.md
+          if-no-files-found: error
+
+  quality_gate:
+    name: Quality Gate on the dispatched ref
+    if: ${{ inputs.run_quality_gate }}
+    uses: ./.github/workflows/pr.yml

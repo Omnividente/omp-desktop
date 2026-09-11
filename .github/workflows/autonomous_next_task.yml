@@ -1,0 +1,125 @@
+name: Autonomous Next Task
+
+# Picks one evidence-backed task and asks the AI worker to implement it on the
+# integration branch. Never targets main, never releases.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: Dispatch one specific task id (optional)
+        type: string
+        default: ""
+      focus:
+        description: Comma-separated focus filter (optional)
+        type: string
+        default: ""
+      risk_ceiling:
+        description: Highest task risk the worker may take on
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+        default: medium
+  pull_request:
+    types:
+      - closed
+    branches:
+      - autonomous/lab
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: autonomous-next-task
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch the next autonomous task
+    if: ${{ vars.JULES_LOOP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      GH_TOKEN: ${{ github.token }}
+      TASK_ID: ${{ inputs.task_id }}
+      FOCUS: ${{ inputs.focus }}
+      RISK_CEILING: ${{ inputs.risk_ceiling }}
+    steps:
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+
+      - name: Verify release automation is still disabled
+        run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+
+      - name: Validate the task queue
+        run: python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+
+      - name: Count open autonomous pull requests
+        id: open_prs
+        run: |
+          set -euo pipefail
+          count=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --json number --jq 'length')
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "Open pull requests into ${INTEGRATION_BRANCH}: ${count}"
+
+      - name: Select the next task
+        id: select
+        if: steps.open_prs.outputs.count == '0'
+        run: |
+          set -euo pipefail
+          python3 scripts/autonomous/select_task.py --manifest agent_tasks.json --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --task-id "${TASK_ID}" --github-output "${GITHUB_OUTPUT}"
+
+      - name: Build the AI worker request
+        id: build
+        if: steps.select.outputs.selected == 'true'
+        env:
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SELECTED_TASK_TYPE: ${{ steps.select.outputs.task_type }}
+        run: |
+          set -euo pipefail
+          template=docs/autonomous/JULES_TASK_PROMPT.md
+          if [ "${SELECTED_TASK_TYPE}" = "project_discovery" ]; then
+            template=docs/autonomous/JULES_PROJECT_DISCOVERY_PROMPT.md
+          fi
+          base_sha=$(git rev-parse HEAD)
+          python3 scripts/autonomous/build_jules_request.py --manifest agent_tasks.json --template "${template}" --task-id "${SELECTED_TASK_ID}" --repo "${GITHUB_REPOSITORY}" --branch "${INTEGRATION_BRANCH}" --base-sha "${base_sha}" --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --out jules-request.json
+
+      - name: Dispatch the AI worker session
+        id: jules
+        if: steps.select.outputs.selected == 'true'
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
+        run: python3 scripts/autonomous/jules_dispatch.py --request-body jules-request.json --response jules-response.json
+
+      - name: Summary
+        if: always()
+        env:
+          OPEN_PRS: ${{ steps.open_prs.outputs.count }}
+          SELECTED: ${{ steps.select.outputs.selected }}
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          REASON_CODE: ${{ steps.select.outputs.reason_code }}
+          TODO_COUNT: ${{ steps.select.outputs.todo_count }}
+          DISPATCH_RESULT: ${{ steps.jules.outputs.dispatch_result }}
+          SESSION_ID: ${{ steps.jules.outputs.session_id }}
+        run: |
+          {
+            echo "### Autonomous next task"
+            echo ""
+            echo "- Integration branch: ${INTEGRATION_BRANCH}"
+            echo "- Open autonomous pull requests: ${OPEN_PRS:-unknown}"
+            echo "- Queue depth (todo): ${TODO_COUNT:-unknown}"
+            echo "- Task selected: ${SELECTED:-false} (${REASON_CODE:-skipped_open_pull_request})"
+            echo "- Task id: ${SELECTED_TASK_ID:-none}"
+            echo "- Worker dispatch: ${DISPATCH_RESULT:-none} (session ${SESSION_ID:-none})"
+            echo "- Releases: disabled by policy, human-gated"
+          } >> "${GITHUB_STEP_SUMMARY}"
