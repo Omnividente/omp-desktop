@@ -917,6 +917,18 @@ pub struct TerminalAttachment {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalCapture {
+    pub path: String,
+    pub metadata_path: String,
+    pub bytes: usize,
+    pub first_seq: Option<u64>,
+    pub last_seq: Option<u64>,
+    pub truncated: bool,
+    pub dropped_bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PtyOutputEvent {
@@ -3640,6 +3652,94 @@ pub fn detach_terminal(
     };
     lock_terminal_output(&output).detach(&request.attachment_id);
     Ok(())
+}
+
+/// Writes the bytes the engine actually sent to this terminal to a file, so a
+/// repaint problem (for example the anchored bottom region being committed to
+/// native scrollback under ConPTY) can be diagnosed from a capture instead of a
+/// live reproduction session.
+///
+/// The capture is the same replay window used for reattach, so it always covers
+/// the most recent [`MAX_REPLAY_OUTPUT`] bytes and never needs a live tee. A
+/// JSON sidecar records the sequence range and whether the window was truncated,
+/// because the raw `.bin` is meant to be replayed byte-for-byte through a
+/// terminal emulator and must stay free of headers.
+#[tauri::command]
+pub fn save_terminal_capture(
+    terminal_id: String,
+    app: AppHandle,
+    terminals: State<'_, TerminalState>,
+) -> Result<TerminalCapture, String> {
+    let output = {
+        let processes = lock_processes(&terminals);
+        processes
+            .get(&terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?
+            .output
+            .clone()
+    };
+    // `baseline_reset` drops the `after_seq` filter, giving the whole window.
+    let snapshot = lock_terminal_output(&output).replay.snapshot(None, true);
+
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| format!("не удалось определить каталог логов: {error}"))?
+        .join("captures");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("не удалось создать {}: {error}", directory.display()))?;
+
+    let captured_at = OffsetDateTime::now_utc();
+    let stem = format!(
+        "omp-pty-{}-{}",
+        capture_file_component(&terminal_id),
+        captured_at.unix_timestamp()
+    );
+    let path = directory.join(format!("{stem}.bin"));
+    fs::write(&path, &snapshot.data)
+        .map_err(|error| format!("не удалось записать {}: {error}", path.display()))?;
+
+    let metadata_path = directory.join(format!("{stem}.json"));
+    let metadata = serde_json::json!({
+        "terminalId": terminal_id,
+        "capturedAt": captured_at.format(&Rfc3339).unwrap_or_default(),
+        "bytes": snapshot.data.len(),
+        "firstSeq": snapshot.first_seq,
+        "lastSeq": snapshot.last_seq,
+        "truncated": snapshot.truncated,
+        "droppedBytes": snapshot.dropped_bytes,
+        "replayWindowBytes": MAX_REPLAY_OUTPUT,
+    });
+    let encoded = serde_json::to_vec_pretty(&metadata)
+        .map_err(|error| format!("не удалось собрать метаданные захвата: {error}"))?;
+    fs::write(&metadata_path, encoded)
+        .map_err(|error| format!("не удалось записать {}: {error}", metadata_path.display()))?;
+
+    Ok(TerminalCapture {
+        path: path.display().to_string(),
+        metadata_path: metadata_path.display().to_string(),
+        bytes: snapshot.data.len(),
+        first_seq: snapshot.first_seq,
+        last_seq: snapshot.last_seq,
+        truncated: snapshot.truncated,
+        dropped_bytes: snapshot.dropped_bytes,
+    })
+}
+
+/// Keeps a terminal id usable as a path component without changing the ids a
+/// reader would compare against the session files.
+fn capture_file_component(terminal_id: &str) -> String {
+    terminal_id
+        .chars()
+        .take(64)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
