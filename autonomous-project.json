@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "project": "omp-desktop",
+  "description": "Autonomous self-improvement loop for the OMP Desktop (Tauri + React/TS) app. Runs in parallel to normal development and never performs releases.",
+  "default_branch": "main",
+  "parallel_mode": {
+    "enabled": true,
+    "integration_branch": "autonomous/lab",
+    "merge_target": "autonomous/lab",
+    "never_merge_to_default": true
+  },
+  "release_policy": {
+    "automation": "disabled",
+    "human_gated": true,
+    "notes": "The loop must never bump versions, create tags/GitHub Releases, publish artifacts, or edit release/updater workflows. A human operator reviews the integration branch and decides releases."
+  },
+  "product": {
+    "roots": ["src", "src-tauri/src", "src-tauri/tests"],
+    "editable_globs": ["src/**", "src-tauri/src/**", "src-tauri/tests/**"],
+    "excluded": [
+      ".git/",
+      ".github/workflows/**",
+      ".github/scripts/**",
+      ".github/release-notes/**",
+      ".github/release-tag-exceptions.json",
+      "scripts/autonomous/**",
+      "docs/autonomous/**",
+      "autonomous-project.json",
+      "agent_tasks.json",
+      "package.json",
+      "package-lock.json",
+      "src-tauri/Cargo.toml",
+      "src-tauri/Cargo.lock",
+      "src-tauri/tauri.conf.json",
+      "src-tauri/tauri.updater-e2e.conf.json",
+      "**/*.png",
+      "**/*.ico",
+      "**/*.icns"
+    ]
+  },
+  "validation": {
+    "gate_workflow": ".github/workflows/pr.yml",
+    "commands": [
+      { "name": "install", "cmd": ["npm", "ci"], "timeout_seconds": 600, "required": true },
+      { "name": "typecheck", "cmd": ["npm", "run", "typecheck"], "timeout_seconds": 300, "required": true },
+      { "name": "lint", "cmd": ["npm", "run", "lint"], "timeout_seconds": 300, "required": true },
+      { "name": "test", "cmd": ["npm", "test"], "timeout_seconds": 600, "required": true },
+      { "name": "build", "cmd": ["npm", "run", "build"], "timeout_seconds": 600, "required": true }
+    ],
+    "total_timeout_seconds": 2400
+  },
+  "anti_churn": {
+    "require_evidence": true,
+    "one_task_per_defect_class": true,
+    "ban_repeat_without_new_evidence": true,
+    "require_regression_test_for_bugfix": true,
+    "min_todo_tasks": 3
+  },
+  "automation": {
+    "ai_worker": "jules",
+    "allowed_pr_authors": ["google-labs-jules[bot]"],
+    "max_open_pull_requests": 1,
+    "blocking_labels": ["hold", "do-not-merge", "human-review", "wip"]
+  },
+  "task_focus": ["quality", "tests", "bugfix", "refactor", "a11y", "i18n", "perf", "compat"],
+  "risk_ceiling": "medium"
+}
