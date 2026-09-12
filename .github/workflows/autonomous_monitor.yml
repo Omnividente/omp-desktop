@@ -1,6 +1,9 @@
 name: Autonomous Monitor
 
 # Read-only health report for the parallel loop. Changes nothing.
+#
+# It reports the lifecycle of the queue, not just how many runs happened, so a
+# loop that keeps starting work without finishing any is visible immediately.
 
 on:
   schedule:
@@ -22,40 +25,58 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       LOOP_ENABLED: ${{ vars.JULES_LOOP_ENABLED }}
     steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+
       - name: Check out the integration branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
           fetch-depth: 0
+          path: lab
 
       - name: Validate control plane
         run: |
           set -euo pipefail
-          python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
-          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
 
       - name: Report
         run: |
           set -euo pipefail
-          git fetch origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
-          ahead=$(git rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
+          git -C lab fetch --no-tags origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          ahead=$(git -C lab rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
           open_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --json number --jq 'length')
           merged_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state merged --json number --jq 'length')
-          python3 scripts/autonomous/select_task.py --manifest agent_tasks.json --json > selection.json
+          review_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --label human-review --json number --jq 'length' || echo 0)
+          todo=$(jq '[.tasks[] | select(.status == "todo")] | length' lab/agent_tasks.json)
+          in_progress=$(jq '[.tasks[] | select(.status == "in_progress")] | length' lab/agent_tasks.json)
+          finished=$(jq '[.tasks[] | select(.status == "done")] | length' lab/agent_tasks.json)
+          blocked=$(jq '[.tasks[] | select(.status == "blocked")] | length' lab/agent_tasks.json)
+          python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --json > selection.json
           {
             echo "### Autonomous loop health"
             echo ""
             echo "- Loop enabled: ${LOOP_ENABLED:-unset}"
-            echo "- Open autonomous pull requests: ${open_prs}"
+            echo "- Queue: ${todo} todo, ${in_progress} in progress, ${finished} done, ${blocked} blocked"
+            echo "- Open autonomous pull requests: ${open_prs} (waiting for a human: ${review_prs})"
             echo "- Merged into ${INTEGRATION_BRANCH} so far: ${merged_prs}"
             echo "- Commits on ${INTEGRATION_BRANCH} ahead of ${DEFAULT_BRANCH}: ${ahead}"
             echo "- Releases: disabled by policy, human-gated"
             echo ""
-            echo "Queue state:"
+            echo "Next selection:"
             echo ""
             echo '```json'
             cat selection.json
             echo '```'
             echo ""
+            if [ "${finished}" = "0" ] && [ "${merged_prs}" != "0" ]; then
+              echo "**Warning:** pull requests have merged but no task is marked done. The lifecycle is not closing tasks."
+              echo ""
+            fi
             echo "Run **Autonomous Release Review** when you want to decide on a release."
           } >> "${GITHUB_STEP_SUMMARY}"

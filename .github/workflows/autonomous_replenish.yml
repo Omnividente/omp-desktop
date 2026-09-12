@@ -2,6 +2,9 @@ name: Autonomous Replenish
 
 # Refills the task queue from real diagnostics only (eslint, tsc). No speculative
 # work is ever queued, and one defect class produces at most one task.
+#
+# The control plane is read from the default branch; the integration branch only
+# has to carry agent_tasks.json.
 
 on:
   schedule:
@@ -24,38 +27,58 @@ jobs:
     env:
       INTEGRATION_BRANCH: autonomous/lab
     steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+
       - name: Check out the integration branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
           fetch-depth: 1
+          path: lab
 
       - name: Verify release automation is still disabled
-        run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+        run: python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: lab/package-lock.json
 
       - name: Install frontend dependencies
+        working-directory: lab
         run: npm ci
 
       - name: Collect ESLint diagnostics
+        working-directory: lab
         run: npx eslint src --format json --output-file eslint-report.json || true
 
       - name: Collect TypeScript diagnostics
+        working-directory: lab
         run: npm run typecheck > tsc-report.log 2>&1 || true
+
+      - name: Make diagnostic paths repository-relative
+        run: |
+          set -uo pipefail
+          if [ -f lab/eslint-report.json ]; then
+            sed -i "s#${GITHUB_WORKSPACE}/lab/##g" lab/eslint-report.json
+          fi
 
       - name: Append evidence-backed tasks
         run: |
           set -euo pipefail
-          base_sha=$(git rev-parse HEAD)
-          python3 scripts/autonomous/replenish_tasks.py --manifest agent_tasks.json --eslint-json eslint-report.json --tsc-log tsc-report.log --base-commit "${base_sha}" --max-new 10
-          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+          base_sha=$(git -C lab rev-parse HEAD)
+          python3 control/scripts/autonomous/replenish_tasks.py --manifest lab/agent_tasks.json --eslint-json lab/eslint-report.json --tsc-log lab/tsc-report.log --base-commit "${base_sha}" --max-new 10
+          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
 
       - name: Commit queue changes
+        working-directory: lab
         run: |
           set -euo pipefail
           if git diff --quiet -- agent_tasks.json; then
@@ -71,9 +94,9 @@ jobs:
           {
             echo "### Task queue replenished"
             echo ""
-            python3 scripts/autonomous/select_task.py --manifest agent_tasks.json --json
+            python3 ../control/scripts/autonomous/select_task.py --manifest agent_tasks.json --json
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Clean up diagnostics artifacts
         if: always()
-        run: rm -f eslint-report.json tsc-report.log
+        run: rm -f lab/eslint-report.json lab/tsc-report.log
