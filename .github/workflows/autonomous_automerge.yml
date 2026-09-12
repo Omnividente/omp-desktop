@@ -1,0 +1,267 @@
+name: Autonomous Automerge
+
+# Lands green autonomous pull requests on the integration branch only.
+#
+# One revision, end to end. The commit the gates verified is the only commit
+# this job looks at: the file list is read for it, the pull request head must
+# still equal it before and after that read, and the merge itself is bound to it
+# with --match-head-commit.
+#
+# Both gates, on that revision. The job is triggered by either gate finishing,
+# and then checks the actual check runs recorded against the revision. While a
+# gate is still running the pull request is left completely untouched, so the
+# other gate's completion can evaluate it again - a blocking label applied to a
+# pull request that was merely early would never be removed by anything.
+#
+# Completion does not wait for an event GitHub will not send. A merge performed
+# with this workflow's own token does not start a new workflow run, so the task
+# is closed and the discovery backlog imported here, right after the merge.
+#
+# The control plane is read from the default branch, so the loop cannot relax
+# its own guardrails. Nothing here touches main, tags, versions, or releases.
+
+on:
+  workflow_run:
+    workflows:
+      - Quality Gate
+      - Autonomous Evidence Gate
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: autonomous-automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    name: Merge green autonomous pull requests
+    if: ${{ vars.JULES_LOOP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      CI_SHA: ${{ github.event.workflow_run.head_sha }}
+      TRIGGERING_WORKFLOW: ${{ github.event.workflow_run.name }}
+      TRIGGERING_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+          path: lab
+
+      - name: Verify release automation is still disabled
+        run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+
+      - name: Evaluate and merge the CI-verified revision
+        env:
+          QUEUE_PUSH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          malformed_backlog=0
+          evidence_check=$(jq -r '.merge_gate.evidence_check_name // ""' autonomous-project.json)
+          required_checks=$(jq -r '.merge_gate.required_check_names[]? // empty' autonomous-project.json)
+          echo "Triggered by ${TRIGGERING_WORKFLOW} (${TRIGGERING_CONCLUSION})"
+          echo "CI-verified revision: ${CI_SHA}"
+
+          # Every check run recorded against that exact revision, read once.
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${CI_SHA}/check-runs?per_page=100" --jq '.check_runs[]' | jq -s '.' > checks.json
+          raw_state() {
+            CHECK_NAME="$1" jq -r 'map(select(.name == env.CHECK_NAME)) | sort_by(.started_at // "") | last | if . == null then "missing" elif (.status != "completed") then "pending" else (.conclusion // "failed") end' checks.json
+          }
+
+          # A revision is green only if every required check run says so. "Not
+          # finished yet" is reported as pending, never as a failure.
+          quality_state=passed
+          have_required=0
+          while IFS= read -r name; do
+            [ -n "${name}" ] || continue
+            have_required=1
+            raw=$(raw_state "${name}")
+            case "${raw}" in
+              success) state=passed ;;
+              pending) state=pending ;;
+              missing) state=missing ;;
+              *) state=failed ;;
+            esac
+            echo "required check '${name}' on ${CI_SHA}: ${raw} -> ${state}"
+            case "${state}" in
+              failed) quality_state=failed ;;
+              pending) [ "${quality_state}" = "failed" ] || quality_state=pending ;;
+              missing)
+                case "${quality_state}" in
+                  failed|pending) ;;
+                  *) quality_state=missing ;;
+                esac
+                ;;
+            esac
+          done <<< "${required_checks}"
+          if [ "${have_required}" = "0" ]; then
+            echo "::error::merge_gate.required_check_names is empty, so there is no definition of green. Refusing to decide."
+            exit 1
+          fi
+          echo "Quality state on ${CI_SHA}: ${quality_state}"
+
+          evidence_state=missing
+          if [ -n "${evidence_check}" ]; then
+            raw=$(raw_state "${evidence_check}")
+            case "${raw}" in
+              success) evidence_state=passed ;;
+              pending|missing) evidence_state=pending ;;
+              *) evidence_state=failed ;;
+            esac
+          fi
+          echo "Evidence gate on ${CI_SHA}: ${evidence_state}"
+
+          numbers=$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${CI_SHA}/pulls?per_page=100" -H "Accept: application/vnd.github+json" --jq '.[].number')
+          if [ -z "${numbers}" ]; then
+            echo "No pull request is associated with ${CI_SHA}; nothing to do."
+            exit 0
+          fi
+          for number in ${numbers}; do
+            echo "::group::Pull request #${number}"
+            gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json number,state,isDraft,baseRefName,labels,title,author,headRefOid,changedFiles > pr.json
+            head_oid=$(jq -r '.headRefOid // ""' pr.json)
+            expected_files=$(jq -r '.changedFiles // -1' pr.json)
+
+            # Guard 1: the pull request must still point at the verified revision.
+            if [ "${head_oid}" != "${CI_SHA}" ]; then
+              echo "::warning::#${number} now points at ${head_oid} but the gates verified ${CI_SHA}. Refusing to merge an unverified revision."
+              echo "- Skipped #${number}: head moved after CI (${CI_SHA} -> ${head_oid})" >> "${GITHUB_STEP_SUMMARY}"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Guard 2: the whole file list, renames included. The pull request
+            # files endpoint paginates (the compare endpoint caps at 300 files on
+            # a single page), and previous_filename is what catches a guardrail
+            # file moved out of the way under a new name.
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls/${number}/files?per_page=100" --jq '.[] | {filename: .filename, previous_filename: (.previous_filename // ""), status: .status}' | jq -s '.' > pr-files.json
+            listed=$(jq 'length' pr-files.json)
+            echo "Files #${number} reports: ${expected_files}; entries read: ${listed}"
+            jq -r '.[] | "- " + .status + " " + .filename + (if .previous_filename == "" then "" else " (was " + .previous_filename + ")" end)' pr-files.json
+
+            # Guard 3: approvals are statements about one revision, so they are
+            # read with the commit they were given on.
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls/${number}/reviews?per_page=100" --jq '.[] | {login: .user.login, commit_id: .commit_id, state: .state}' | jq -s '.' > approvals.json
+
+            # Guard 4: nothing may have moved while that was being read.
+            head_after=$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" --jq '.head.sha')
+            if [ "${head_after}" != "${CI_SHA}" ]; then
+              echo "::warning::#${number} moved to ${head_after} while its diff was being read; the list may describe a different revision."
+              echo "- Skipped #${number}: head moved while reading the diff" >> "${GITHUB_STEP_SUMMARY}"
+              echo "::endgroup::"
+              continue
+            fi
+
+            set +e
+            python3 scripts/autonomous/automerge_decision.py --pr-json pr.json --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}" --ci-sha "${CI_SHA}" --pr-files pr-files.json --expected-file-count "${expected_files}" --approvals approvals.json --evidence-state "${evidence_state}" --quality-state "${quality_state}" --decision-out decision.json
+            status=$?
+            set -e
+
+            case "${status}" in
+              0)
+                # Guard 5: the merge is bound to the same revision. If anything
+                # pushed to the branch in the meantime, GitHub rejects this.
+                gh pr merge "${number}" --repo "${GITHUB_REPOSITORY}" --squash --match-head-commit "${CI_SHA}"
+                echo "Merged #${number} at ${CI_SHA} into ${INTEGRATION_BRANCH}."
+                echo "- Merged #${number} at ${CI_SHA} into ${INTEGRATION_BRANCH}" >> "${GITHUB_STEP_SUMMARY}"
+
+                # GitHub starts no workflow run for the pull_request closed event
+                # this merge caused, because our own token caused it. The task is
+                # therefore closed here, immediately and idempotently, instead of
+                # waiting for an event that never arrives and later being counted
+                # as abandoned work.
+                title=$(jq -r '.title // ""' pr.json)
+                gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body // ""' > pr-body.txt
+                git -C lab fetch --depth 1 origin "${INTEGRATION_BRANCH}"
+                git -C lab reset --hard FETCH_HEAD
+                cp lab/agent_tasks.json queue-staged.json
+                python3 scripts/autonomous/task_lifecycle.py --manifest queue-staged.json --action close-from-pr --pull-request "${number}" --title "${title}" --body-file pr-body.txt --merged true > close-result.json
+                if [ "$(jq -r '.changed' close-result.json)" = "true" ]; then
+                  if ! python3 scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10; then
+                    malformed_backlog=1
+                    echo "::warning::#${number} carried a malformed backlog; queue completion was not committed. Correct its body and rerun the API sweep."
+                    echo "::endgroup::"
+                    continue
+                  fi
+                fi
+                python3 scripts/autonomous/validate_tasks.py queue-staged.json
+                cp queue-staged.json lab/agent_tasks.json
+                if git -C lab diff --quiet -- agent_tasks.json; then
+                  echo "Queue unchanged after the merge."
+                else
+                  git -C lab config user.name "github-actions[bot]"
+                  git -C lab config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git -C lab add agent_tasks.json
+                  git -C lab commit -m "chore(autonomous): close the task behind #${number}"
+                  # Only queue persistence uses the owner's ruleset bypass.
+                  # The PR merge above still uses the non-bypassing job token.
+                  GH_TOKEN="${QUEUE_PUSH_TOKEN}" git -C lab \
+                    -c http.https://github.com/.extraheader= -c credential.helper= \
+                    -c 'credential.https://github.com.helper=!gh auth git-credential' \
+                    push origin "HEAD:${INTEGRATION_BRANCH}"
+                  echo "- Closed the task behind #${number} in the queue" >> "${GITHUB_STEP_SUMMARY}"
+                fi
+                ;;
+              20)
+                echo "::warning::#${number} touches files outside the allowed product scope; refusing to merge."
+                {
+                  echo "Autonomous automerge refused this pull request: it changes files outside the allowed product scope."
+                  echo ""
+                  jq -r '.violations[]? | "- " + .path + " (" + .reason + ")"' decision.json || true
+                  echo ""
+                  echo "Renames are checked under both names, so moving one of these files does not help."
+                  echo "Release, version, workflow and control-plane files are off limits for the autonomous loop."
+                  echo "Reviewed revision: ${CI_SHA}"
+                } > scope-comment.md
+                gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body-file scope-comment.md || true
+                echo "- Refused #${number}: out-of-scope changes" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+              30)
+                echo "::warning::#${number} needs an explicit human decision; refusing to merge unattended."
+                {
+                  echo "Autonomous automerge stopped here and handed this pull request to a human."
+                  echo ""
+                  jq -r '.review_reasons[]? | "- " + .' decision.json || true
+                  echo ""
+                  echo "Reviewed revision: ${CI_SHA}"
+                  echo ""
+                  echo "To accept it, review and merge manually. To retry automerge, approve this exact revision, remove the human-review label and rerun a gate; an approval alone does not trigger this workflow. A later push invalidates the approval."
+                } > review-comment.md
+                gh label create human-review --repo "${GITHUB_REPOSITORY}" --color B60205 --description "The autonomous loop needs a human decision" --force > /dev/null 2>&1 || true
+                gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body-file review-comment.md || true
+                gh pr edit "${number}" --repo "${GITHUB_REPOSITORY}" --add-label human-review || true
+                echo "- Handed #${number} to manual review" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+              *)
+                # Skipping is deliberately silent: a pull request whose gates are
+                # still running must stay clean so the next completion re-decides.
+                echo "Skipping pull request #${number}."
+                jq -r '.reasons[]? | "  skip reason: " + .' decision.json || true
+                if [ "$(jq -r '.pending // false' decision.json)" = "true" ]; then
+                  echo "- Skipped #${number}: a gate is still running on ${CI_SHA}; it will be re-evaluated when that gate finishes" >> "${GITHUB_STEP_SUMMARY}"
+                else
+                  echo "- Skipped #${number}" >> "${GITHUB_STEP_SUMMARY}"
+                fi
+                ;;
+            esac
+            echo "::endgroup::"
+          done
+          if [ "${malformed_backlog}" != "0" ]; then
+            echo "::error::A merged discovery pull request carried a malformed AUTONOMOUS_TASKS block, so its findings were not imported. Fix the block or file those tasks by hand."
+            exit 1
+          fi
