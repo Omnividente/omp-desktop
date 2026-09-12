@@ -1,0 +1,180 @@
+name: Autonomous Evidence Gate
+
+# Proves - rather than trusts - that an autonomous bugfix is backed by a test
+# that fails without it.
+#
+# The worker prompt asks for a failing-first regression test, but an
+# instruction is not a guarantee, and the ordinary Quality Gate only shows that
+# the suite is green *after* the change. This job reverts the changed product
+# sources to the base revision, runs the new tests (they must fail), restores
+# the fix and runs them again (they must pass).
+#
+# The proof is read from the Vitest JSON report, not from an exit code. A test
+# that cannot even load without the fix - because the fix created the module it
+# imports - crashes without asserting anything, and a crash is not evidence that
+# a defect existed.
+#
+# A change that cannot be proven this way is not silently blocked: automerge
+# routes it to manual review, so a human decides.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - autonomous/lab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-evidence-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    name: Autonomous Evidence Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+
+      - name: Check out the pull request revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+
+      - name: Collect the files changed by this revision
+        working-directory: pr
+        run: |
+          set -euo pipefail
+          merge_base=$(git merge-base "${BASE_SHA}" "${HEAD_SHA}")
+          echo "MERGE_BASE=${merge_base}" >> "${GITHUB_ENV}"
+          echo "Comparing ${merge_base} (base) with ${HEAD_SHA} (head)"
+          git diff --name-only --no-renames -z "${merge_base}" "${HEAD_SHA}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split("\0")[:-1]))' > "${GITHUB_WORKSPACE}/changed-files.json"
+          cat "${GITHUB_WORKSPACE}/changed-files.json"
+
+      - name: Plan the proof
+        id: plan
+        run: python3 control/scripts/autonomous/evidence_plan.py --config control/autonomous-project.json --changed-files changed-files.json --github-output "${GITHUB_OUTPUT}"
+
+      - name: Nothing to prove
+        if: ${{ steps.plan.outputs.mode == 'no_source_change' }}
+        run: |
+          echo "No product source changed in this pull request, so there is no regression claim to prove."
+          echo "### Autonomous Evidence Gate: nothing to prove" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Refuse a change that cannot be proven
+        if: ${{ steps.plan.outputs.mode != 'no_source_change' && steps.plan.outputs.proof_supported != 'true' }}
+        run: |
+          set -uo pipefail
+          python3 control/scripts/autonomous/evidence_plan.py --config control/autonomous-project.json --changed-files changed-files.json > plan.txt 2>&1
+          cat plan.txt
+          {
+            echo "### Autonomous Evidence Gate: manual acceptance required"
+            echo ""
+            echo "Reviewed revision: ${HEAD_SHA}"
+            echo ""
+            echo '```'
+            cat plan.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "::error::This pull request changes product source without a reproducible proof that the defect existed first. A human has to accept it."
+          exit 1
+
+      - name: Set up Node
+        if: ${{ steps.plan.outputs.mode == 'proof_required_ts' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pr/package-lock.json
+
+      - name: Install dependencies
+        if: ${{ steps.plan.outputs.mode == 'proof_required_ts' }}
+        working-directory: pr
+        run: npm ci
+
+      - name: Prove the test fails without the fix and passes with it
+        if: ${{ steps.plan.outputs.mode == 'proof_required_ts' }}
+        working-directory: pr
+        env:
+          TS_TEST_FILES: ${{ steps.plan.outputs.ts_test_files }}
+          SOURCE_FILES: ${{ steps.plan.outputs.source_files }}
+        run: |
+          set -uo pipefail
+          echo "Tests under proof: ${TS_TEST_FILES}"
+          echo "Sources to revert: ${SOURCE_FILES}"
+
+          mapfile -d '' -t source_args < <(python3 -c 'import json,os; print("\0".join(json.loads(os.environ["SOURCE_FILES"])), end="\0")')
+          mapfile -d '' -t test_args < <(python3 -c 'import json,os; print("\0".join(json.loads(os.environ["TS_TEST_FILES"])), end="\0")')
+          restore_sources() {
+            local revision="$1" file
+            for file in "${source_args[@]}"; do
+              if git cat-file -e "${revision}:${file}" 2> /dev/null; then
+                git --literal-pathspecs checkout "${revision}" -- "${file}" || return 1
+              else
+                rm -f -- "${file}" || return 1
+              fi
+            done
+          }
+          restore_sources "${MERGE_BASE}" || exit 1
+
+          # GitHub starts Bash with -e; an expected failing-first run must not
+          # abort before its JSON report is classified and sources restored.
+          set +e
+          echo "::group::Run without the fix (must fail on an assertion)"
+          npx vitest run "${test_args[@]}" --reporter=json --outputFile="${GITHUB_WORKSPACE}/before.json" > ../before.log 2>&1
+          before=$?
+          tail -n 60 ../before.log
+          echo "::endgroup::"
+
+          restore_sources "${HEAD_SHA}" || exit 1
+
+          echo "::group::Run with the fix (must pass)"
+          npx vitest run "${test_args[@]}" --reporter=json --outputFile="${GITHUB_WORKSPACE}/after.json" > ../after.log 2>&1
+          after=$?
+          tail -n 60 ../after.log
+          echo "::endgroup::"
+
+          # A non-zero exit code is not evidence. Reverting the fix can delete
+          # a module the new test imports, and then the suite crashes without
+          # asserting anything at all. Inspect both JSON reports instead.
+          proof="${GITHUB_WORKSPACE}/control/scripts/autonomous/vitest_proof.py"
+          python3 "${proof}" --report "${GITHUB_WORKSPACE}/before.json" --expect fail --out "${GITHUB_WORKSPACE}/before-proof.json"
+          before_ok=$?
+          min_tests=$(jq -r '.collected // 1' "${GITHUB_WORKSPACE}/before-proof.json" 2> /dev/null || echo 1)
+          python3 "${proof}" --report "${GITHUB_WORKSPACE}/after.json" --expect pass --min-tests "${min_tests}" --out "${GITHUB_WORKSPACE}/after-proof.json"
+          after_ok=$?
+
+          {
+            echo "### Autonomous Evidence Gate"
+            echo ""
+            echo "- Base revision: ${MERGE_BASE}"
+            echo "- Head revision: ${HEAD_SHA}"
+            echo "- Tests: ${TS_TEST_FILES}"
+            echo "- Without the fix: exit ${before}; $(jq -r '.detail // "no report"' "${GITHUB_WORKSPACE}/before-proof.json" 2> /dev/null)"
+            echo "- With the fix: exit ${after}; $(jq -r '.detail // "no report"' "${GITHUB_WORKSPACE}/after-proof.json" 2> /dev/null)"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${before_ok}" != "0" ]; then
+            echo "::error::$(jq -r '.explanation // "the run without the fix did not prove that a defect existed"' "${GITHUB_WORKSPACE}/before-proof.json" 2> /dev/null)"
+            exit 1
+          fi
+          if [ "${after_ok}" != "0" ] || [ "${after}" != "0" ]; then
+            echo "::error::$(jq -r '.explanation // "the tests do not pass with the fix applied"' "${GITHUB_WORKSPACE}/after-proof.json" 2> /dev/null)"
+            exit 1
+          fi
+          echo "Proof complete: ${TS_TEST_FILES} fails on an assertion at ${MERGE_BASE} and passes at ${HEAD_SHA}."
