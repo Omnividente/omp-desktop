@@ -67,6 +67,8 @@ jobs:
         run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
 
       - name: Evaluate and merge the CI-verified revision
+        env:
+          QUEUE_PUSH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
         run: |
           set -euo pipefail
           malformed_backlog=0
@@ -206,7 +208,12 @@ jobs:
                   git -C lab config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                   git -C lab add agent_tasks.json
                   git -C lab commit -m "chore(autonomous): close the task behind #${number}"
-                  git -C lab push origin "HEAD:${INTEGRATION_BRANCH}"
+                  # Only queue persistence uses the owner's ruleset bypass.
+                  # The PR merge above still uses the non-bypassing job token.
+                  GH_TOKEN="${QUEUE_PUSH_TOKEN}" git -C lab \
+                    -c http.https://github.com/.extraheader= -c credential.helper= \
+                    -c 'credential.https://github.com.helper=!gh auth git-credential' \
+                    push origin "HEAD:${INTEGRATION_BRANCH}"
                   echo "- Closed the task behind #${number} in the queue" >> "${GITHUB_STEP_SUMMARY}"
                 fi
                 ;;

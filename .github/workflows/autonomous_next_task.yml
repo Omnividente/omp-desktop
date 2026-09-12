@@ -110,6 +110,8 @@ jobs:
 
       - name: Commit the queue back to the integration branch
         working-directory: lab
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
         run: |
           set -euo pipefail
           if git diff --quiet -- agent_tasks.json; then
@@ -120,7 +122,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add agent_tasks.json
           git commit -m "chore(autonomous): close the task behind #${PR_NUMBER}"
-          git push origin "HEAD:${INTEGRATION_BRANCH}"
+          git -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
 
       - name: Summary
         if: always()
@@ -294,6 +298,8 @@ jobs:
       - name: Commit the queue back to the integration branch
         if: always()
         working-directory: lab
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
         run: |
           set -euo pipefail
           python3 ../control/scripts/autonomous/validate_tasks.py agent_tasks.json
@@ -305,7 +311,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add agent_tasks.json
           git commit -m "chore(autonomous): update the task lifecycle"
-          git push origin "HEAD:${INTEGRATION_BRANCH}"
+          git -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
 
       - name: Summary
         if: always()

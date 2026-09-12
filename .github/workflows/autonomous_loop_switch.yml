@@ -65,6 +65,8 @@ jobs:
       - name: Prepare the integration branch
         id: prepare
         if: ${{ inputs.loop_enabled == 'true' && inputs.prepare_integration_branch }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
         run: |
           set -euo pipefail
           created=false
@@ -192,7 +194,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add agent_tasks.json
           git commit -m "chore(autonomous): release in-flight tasks after the loop was switched off"
-          git push origin "HEAD:${INTEGRATION_BRANCH}"
+          GH_TOKEN="${ADMIN_TOKEN}" git \
+            -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
 
       - name: Summary
         env:

@@ -129,16 +129,20 @@ Consequences worth knowing:
    **and `workflow`** scopes. The loop switch needs it to write the
    `JULES_LOOP_ENABLED` Actions variable and to publish the entry-point
    workflows onto `autonomous/lab`; `GITHUB_TOKEN` cannot write
-   `.github/workflows/**`.
+   `.github/workflows/**`. Trusted queue-persistence steps also use this token:
+   their service commits have no product checks, so its owner must be allowed
+   to bypass the lab ruleset. It is never used to merge product pull requests.
 3. Merge the control plane into `main`. Until these workflow files are on the
    default branch, `workflow_run`-triggered automerge does not exist yet.
 4. **Protect `autonomous/lab`** and require these check runs _by name_:
    `Checks (ubuntu-latest)`, `Checks (windows-latest)` - both produced by the
    `Quality Gate` workflow, and the required-checks list takes check-run names,
    not workflow names - plus `Autonomous Evidence Gate`. The same names are in
-   `merge_gate.required_check_names`, which is what automerge reads. Without
-   server-side protection the guards are enforced only by the workflow that
-   performs the merge; with it, the rules hold even if a workflow is edited.
+   `merge_gate.required_check_names`, which is what automerge reads. Allow only
+   the owner's administrator role to bypass this lab ruleset for setup and
+   queue commits. Do not grant Jules a bypass. The built-in GitHub Actions app
+   cannot be added as a ruleset bypass actor; automerge keeps using its ordinary
+   `GITHUB_TOKEN`, so GitHub enforces the product checks at merge time too.
 5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It first disables
    new dispatches, then creates/seeds the branch and publishes entry points,
    and only then enables the variable. A publication failure leaves the loop
