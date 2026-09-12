@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "project": "omp-desktop",
   "description": "Autonomous self-improvement loop for the OMP Desktop (Tauri + React/TS) app. Runs in parallel to normal development and never performs releases.",
   "default_branch": "main",
@@ -36,7 +36,33 @@
       "**/*.png",
       "**/*.ico",
       "**/*.icns"
-    ]
+    ],
+    "manual_review_paths": [
+      "src/clientUpdater.ts",
+      "src/useClientUpdater.ts",
+      "src/useClientUpdater.test.tsx",
+      "src/ClientUpdateNotice.tsx",
+      "src/UpdateNotice.tsx",
+      "src/UpdateNotices.test.tsx",
+      "src/updateReminder.ts",
+      "src/updateReminder.test.ts",
+      "src-tauri/src/updater*",
+      "src-tauri/tests/updater*"
+    ],
+    "manual_review_notes": "The auto-update surface is ordinary product code, so the loop may propose fixes there, but a broken updater cannot be repaired remotely. Any pull request touching these paths is downgraded to manual review and never merged unattended."
+  },
+  "merge_gate": {
+    "require_regression_test": true,
+    "evidence_check_name": "Autonomous Evidence Gate",
+    "manual_approval_labels": ["approved-by-owner"],
+    "test_globs": [
+      "*.test.ts",
+      "*.test.tsx",
+      "*.spec.ts",
+      "*.spec.tsx",
+      "src-tauri/tests/**"
+    ],
+    "notes": "A change to product source is merged only when the Autonomous Evidence Gate proved, on the very commit CI verified, that the new test fails against the base revision and passes with the fix. Anything else - no test, an unprovable diff, a manual-review path - is handed to the owner, who must remove the human-review label and apply approved-by-owner to accept it."
   },
   "validation": {
     "gate_workflow": ".github/workflows/pr.yml",

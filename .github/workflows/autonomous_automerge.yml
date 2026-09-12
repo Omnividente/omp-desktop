@@ -1,6 +1,13 @@
 name: Autonomous Automerge
 
 # Lands green autonomous pull requests on the integration branch only.
+#
+# One revision, end to end. The commit CI verified is the only commit this job
+# ever looks at: the changed-file list is derived from it, the pull request head
+# must still equal it, and the merge itself is bound to it with
+# --match-head-commit. If the branch moved while this workflow ran, the
+# operation stops instead of merging code nobody checked.
+#
 # The control plane is read from the default branch, so the loop cannot relax
 # its own guardrails. Nothing here touches main, tags, versions, or releases.
 
@@ -27,7 +34,7 @@ jobs:
     timeout-minutes: 15
     env:
       INTEGRATION_BRANCH: autonomous/lab
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      CI_SHA: ${{ github.event.workflow_run.head_sha }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out the control plane from the default branch
@@ -39,33 +46,96 @@ jobs:
       - name: Verify release automation is still disabled
         run: python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
 
-      - name: Evaluate and merge
+      - name: Evaluate and merge the CI-verified revision
         run: |
           set -euo pipefail
-          numbers=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" -H "Accept: application/vnd.github+json" --jq '.[].number' || true)
+          evidence_check=$(jq -r '.merge_gate.evidence_check_name // ""' autonomous-project.json)
+          echo "CI-verified revision: ${CI_SHA}"
+          numbers=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${CI_SHA}/pulls" -H "Accept: application/vnd.github+json" --jq '.[].number' || true)
           if [ -z "${numbers}" ]; then
-            echo "No pull request is associated with ${HEAD_SHA}; nothing to do."
+            echo "No pull request is associated with ${CI_SHA}; nothing to do."
             exit 0
           fi
           for number in ${numbers}; do
             echo "::group::Pull request #${number}"
             gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json number,state,isDraft,baseRefName,labels,files,title,author,headRefOid > pr.json
+            head_oid=$(jq -r '.headRefOid // ""' pr.json)
+
+            # Guard 1: the pull request must still point at the revision CI verified.
+            if [ "${head_oid}" != "${CI_SHA}" ]; then
+              echo "::warning::#${number} now points at ${head_oid} but CI verified ${CI_SHA}. Refusing to merge an unverified revision."
+              echo "- Skipped #${number}: head moved after CI (${CI_SHA} -> ${head_oid})" >> "${GITHUB_STEP_SUMMARY}"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Guard 2: the scope check reads that same revision, never a fresh
+            # read of the branch that may already carry newer commits.
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/compare/${INTEGRATION_BRANCH}...${CI_SHA}" --jq '.files[]?.filename' > changed-files.txt || true
+            echo "Files changed at ${CI_SHA}:"
+            cat changed-files.txt
+
+            # Guard 3: the fix-evidence gate must have run on that same revision.
+            evidence_state=missing
+            if [ -n "${evidence_check}" ]; then
+              CHECK="${evidence_check}" gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${CI_SHA}/check-runs" --jq '.check_runs[] | select(.name == env.CHECK) | .conclusion' > evidence.txt || true
+              conclusion=$(tail -n 1 evidence.txt || true)
+              case "${conclusion}" in
+                success) evidence_state=passed ;;
+                neutral|skipped) evidence_state=not_required ;;
+                "") evidence_state=missing ;;
+                *) evidence_state=failed ;;
+              esac
+            fi
+            echo "Evidence gate on ${CI_SHA}: ${evidence_state}"
+
             set +e
-            python3 scripts/autonomous/automerge_decision.py --pr-json pr.json --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}" --changed-files-out changed-files.txt
+            python3 scripts/autonomous/automerge_decision.py --pr-json pr.json --config autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}" --ci-sha "${CI_SHA}" --changed-files changed-files.txt --evidence-state "${evidence_state}" --decision-out decision.json
             status=$?
             set -e
-            if [ "${status}" = "0" ]; then
-              head_oid=$(gh pr view "${number}" --repo "${GITHUB_REPOSITORY}" --json headRefOid --jq '.headRefOid')
-              gh pr merge "${number}" --repo "${GITHUB_REPOSITORY}" --squash --match-head-commit "${head_oid}"
-              echo "Merged pull request #${number} into ${INTEGRATION_BRANCH}."
-              echo "- Merged #${number} into ${INTEGRATION_BRANCH}" >> "${GITHUB_STEP_SUMMARY}"
-            elif [ "${status}" = "20" ]; then
-              echo "::warning::Pull request #${number} changes files outside the allowed product scope; refusing to merge."
-              gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body 'Autonomous automerge refused this pull request: it changes files outside the allowed product scope (src/**, src-tauri/src/**, src-tauri/tests/**). Release, version, updater, workflow and control-plane files are off limits for the autonomous loop.' || true
-              echo "- Refused #${number}: out-of-scope changes" >> "${GITHUB_STEP_SUMMARY}"
-            else
-              echo "Skipping pull request #${number}."
-              echo "- Skipped #${number}" >> "${GITHUB_STEP_SUMMARY}"
-            fi
+
+            case "${status}" in
+              0)
+                # Guard 4: the merge is bound to the same revision. If anything
+                # pushed to the branch in the meantime, GitHub rejects this.
+                gh pr merge "${number}" --repo "${GITHUB_REPOSITORY}" --squash --match-head-commit "${CI_SHA}"
+                echo "Merged #${number} at ${CI_SHA} into ${INTEGRATION_BRANCH}."
+                echo "- Merged #${number} at ${CI_SHA} into ${INTEGRATION_BRANCH}" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+              20)
+                echo "::warning::#${number} touches files outside the allowed product scope; refusing to merge."
+                {
+                  echo "Autonomous automerge refused this pull request: it changes files outside the allowed product scope."
+                  echo ""
+                  jq -r '.violations[]? | "- " + .path + " (" + .reason + ")"' decision.json || true
+                  echo ""
+                  echo "Release, version, workflow and control-plane files are off limits for the autonomous loop."
+                  echo "Reviewed revision: ${CI_SHA}"
+                } > scope-comment.md
+                gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body-file scope-comment.md || true
+                echo "- Refused #${number}: out-of-scope changes" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+              30)
+                echo "::warning::#${number} needs an explicit human decision; refusing to merge unattended."
+                {
+                  echo "Autonomous automerge stopped here and handed this pull request to a human."
+                  echo ""
+                  jq -r '.review_reasons[]? | "- " + .' decision.json || true
+                  echo ""
+                  echo "Reviewed revision: ${CI_SHA}"
+                  echo ""
+                  echo "To accept it: read the diff, remove the human-review label, add the approved-by-owner label, and re-run Quality Gate on this pull request."
+                } > review-comment.md
+                gh label create human-review --repo "${GITHUB_REPOSITORY}" --color B60205 --description "The autonomous loop needs a human decision" --force > /dev/null 2>&1 || true
+                gh pr comment "${number}" --repo "${GITHUB_REPOSITORY}" --body-file review-comment.md || true
+                gh pr edit "${number}" --repo "${GITHUB_REPOSITORY}" --add-label human-review || true
+                echo "- Handed #${number} to manual review" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+              *)
+                echo "Skipping pull request #${number}."
+                jq -r '.reasons[]? | "  skip reason: " + .' decision.json || true
+                echo "- Skipped #${number}" >> "${GITHUB_STEP_SUMMARY}"
+                ;;
+            esac
             echo "::endgroup::"
           done
