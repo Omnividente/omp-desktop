@@ -55,7 +55,7 @@
       "id": "research-terminal-input-behavior-1",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -85,15 +85,42 @@
         "previous_reports": []
       },
       "execution": {
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9782085721129371451",
         "dispatch_key": "ff10b8053314a628004b6ba4",
         "attempts": 1,
         "started_at": "2026-09-12T22:38:11Z",
-        "finished_at": "",
+        "finished_at": "2026-09-12T23:01:29Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": ""
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request"
+      },
+      "research_result": {
+        "summary": "Verified terminal input behaviour, including terminal batching boundary logic, shortcuts execution, and terminal continuity handling.",
+        "observations": [
+          {
+            "scenario": "Writing terminal input over maximum batch sizes in `terminalOutputBatcher.ts`",
+            "evidence": "Manually executed node script importing batch logic showing correct flush triggering at size boundaries (256 * 1024 bytes). Tested vitest terminal input suite verifying cursor inputs and batching logic boundaries.",
+            "result": "The terminal buffer behaves consistently handling chunk boundaries, correctly delaying processing using the 16ms window unless boundaries are met where it synchronously flushes."
+          },
+          {
+            "scenario": "Shortcuts edge conditions mapping correctly inside `terminalShortcuts.ts`",
+            "evidence": "Ran unit tests ensuring shortcuts such as `Ctrl+Z`, `Ctrl+Delete` mapping to PTY sequences correctly (`\\x1f`, `\\x1b[3;3~`). Manual regex inspection validates shortcuts pass unmodified when disabled by `isAgent`.",
+            "result": "Desktop input mappings properly filter out non-agent events and retain layout stability mapping keys properly."
+          },
+          {
+            "scenario": "Terminal output continuity generation validation in `terminalContinuity.ts`",
+            "evidence": "Running `vitest` `src/terminalContinuity.test.ts` validates generation drops and explicit continuity boundaries.",
+            "result": "Identified behavior that properly flags generating gaps and expected next sequences properly tracking truncation intent across restarts."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate input encoding/handling regarding copy/paste buffer and unicode multi-byte inputs interacting with `TerminalInput.ts` limits.",
+          "Investigate `TerminalState` transition boundary conditions where model switching drops recovery on overlapping events in `terminal.rs`."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-12T23:01:29Z",
+        "deferred_findings": []
       }
     }
   ]
