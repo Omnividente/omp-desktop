@@ -122,6 +122,51 @@
         "completed_at": "2026-09-12T23:01:29Z",
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-terminal-input-reliability-1",
+      "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "in_progress",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-12T23:01:51Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "reliability",
+        "fingerprint": "45445ec91f99c55f1c5836d02aa4536693771226418507682632351a1089f6df",
+        "cycle": 1,
+        "previous_reports": []
+      },
+      "execution": {
+        "state": "dispatched",
+        "session_id": "8273921387898488588",
+        "dispatch_key": "4c204080c72a24154d679a04",
+        "attempts": 1,
+        "started_at": "2026-09-12T23:02:33Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
+      }
     }
   ]
 }
