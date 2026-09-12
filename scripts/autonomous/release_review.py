@@ -19,13 +19,103 @@ line up with the reviewed commit, the artifact itself opens with **NOT VERIFIED
 a job summary they may never open.
 """
 from __future__ import annotations
-
 import argparse
+import html
+import json
 import subprocess
 from pathlib import Path
 
 RESULT_SUCCESS = "success"
 VERIFY_RESULTS = ("success", "failure", "cancelled", "skipped", "none")
+MAX_LAB_REPORT = 12000
+
+
+def _safe(value, limit=500) -> str:
+    """Render untrusted lab prose as inert, single-line Markdown text."""
+    text = " ".join(str(value or "").split())
+    text = text[:limit] + (" [excerpt]" if len(text) > limit else "")
+    return html.escape(text, quote=True).translate({
+        ord(char): "&#" + str(ord(char)) + ";" for char in "\\`*_[]()!#|~@:"
+    })
+
+
+def _lab_queue(head_sha: str):
+    """Read the queue from the reviewed Git object, never from the worktree."""
+    try:
+        raw = _git("show", f"{head_sha}:agent_tasks.json")
+        value = json.loads(raw)
+    except (OSError, subprocess.CalledProcessError, TypeError, ValueError):
+        return None
+    if isinstance(value, dict) and isinstance(value.get("tasks"), list):
+        return value["tasks"]
+    return None
+
+
+def _lab_section(head_sha: str) -> list[str]:
+    tasks = _lab_queue(head_sha)
+    if tasks is None:
+        return ["## Autonomous lab results", "", "_Reviewed `agent_tasks.json` is absent or unreadable; no lab results are claimed._", ""]
+    tasks = [task for task in tasks if isinstance(task, dict)]
+    counts = {}
+    for task in tasks:
+        status = str(task.get("status", "unknown"))
+        counts[status] = counts.get(status, 0) + 1
+    lines = ["## Autonomous lab results", "", "Results below are evidence for human review only; research is not release verification.", "", "### Queue summary", ""]
+    lines.append("- Tasks in reviewed queue: **" + str(len(tasks)) + "**; " + ", ".join(f"`{_safe(k)}`: **{v}**" for k, v in sorted(counts.items())) + ".")
+    groups = {"Active work and pending proposals": [], "Completed investigations": [], "Completed implementations": []}
+    for task in reversed(tasks):
+        group = ("Active work and pending proposals" if task.get("status") != "done" else
+                 "Completed investigations" if task.get("task_type") == "project_discovery" else
+                 "Completed implementations")
+        groups[group].append(task)
+    for title, selected in groups.items():
+        if not selected:
+            continue
+        lines += ["", "### " + title, ""]
+        for task in selected:
+            execution = task.get("execution") if isinstance(task.get("execution"), dict) else {}
+            research = task.get("research_result") if isinstance(task.get("research_result"), dict) else {}
+            meta = task.get("research") if isinstance(task.get("research"), dict) else {}
+            lines.append("- " + _safe(task.get("id"), 160) + " - **" + _safe(task.get("status"), 40)
+                         + "**: " + _safe(task.get("title"), 300))
+            if meta:
+                lines.append("  - Area: " + _safe(meta.get("area_id"), 100) + "; perspective: "
+                             + _safe(meta.get("perspective_id"), 100) + "; cycle: " + _safe(meta.get("cycle"), 30))
+            if execution:
+                lines.append("  - Execution: " + _safe(execution.get("state"), 60) + "; outcome: "
+                             + _safe(execution.get("outcome"), 60) + "; attempts: " + _safe(execution.get("attempts"), 30))
+                if execution.get("pull_request"):
+                    lines.append("  - Pull request: #" + _safe(execution["pull_request"], 30))
+                if execution.get("note"):
+                    lines.append("  - Note: " + _safe(execution["note"]))
+            if research:
+                lines.append("  - Summary: " + _safe(research.get("summary")))
+                for item in research.get("observations", [])[:8]:
+                    if isinstance(item, dict):
+                        lines.append("  - Observation: " + _safe("; ".join(
+                            str(item.get(field) or "") for field in ("scenario", "evidence", "result"))))
+                for hypothesis in research.get("next_hypotheses", [])[:8]:
+                    lines.append("  - Next hypothesis: " + _safe(hypothesis))
+                for identifier in research.get("proposed_task_ids", [])[:10]:
+                    lines.append("  - Linked task: " + _safe(identifier, 160))
+                for item in research.get("deferred_findings", [])[:10]:
+                    if isinstance(item, dict):
+                        lines.append("  - Deferred proposal: " + _safe(item.get("title")) + "; reason: "
+                                     + _safe(item.get("reason"), 100))
+                        lines.append("    - Evidence: " + _safe(item.get("evidence")))
+                        lines.append("    - Paths: " + _safe(", ".join(item.get("target_paths", []))))
+                        lines.append("    - Acceptance: " + _safe("; ".join(item.get("acceptance", []))))
+            origin = task.get("origin") if isinstance(task.get("origin"), dict) else {}
+            if origin.get("task_id"):
+                lines.append("  - Found by: " + _safe(origin["task_id"], 160))
+            evidence = task.get("evidence") if isinstance(task.get("evidence"), dict) else {}
+            if evidence.get("detail") and not meta:
+                lines.append("  - Evidence: " + _safe(evidence["detail"]))
+    text = "\n".join(lines)
+    if len(text) > MAX_LAB_REPORT:
+        text = text[:MAX_LAB_REPORT].rsplit("\n", 1)[0] + "\n\n_Additional task details omitted for size; queue totals above include them. Read agent_tasks.json at the reviewed SHA for the full history._"
+    return text.splitlines() + [""]
+
 
 
 def _git(*args: str) -> str:
@@ -157,6 +247,7 @@ def build_report(base: str, head: str, *, base_sha: str = "", head_sha: str = ""
         stat or "(no differences)",
         "```",
         "",
+        *(_lab_section(head_sha)),
         "## Release decision checklist (human-gated)",
         "",
         checklist_verification,

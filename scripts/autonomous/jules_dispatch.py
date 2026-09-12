@@ -184,6 +184,58 @@ def list_sessions(transport: Callable, api_base: str, ring: KeyRing) -> list:
         seen.add(token)
 
 
+def session_resource(value: str) -> str:
+    raw = str(value or "")
+    resource = raw if raw.startswith("sessions/") else "sessions/" + raw
+    if not re.fullmatch(r"sessions/[A-Za-z0-9_-]+", resource):
+        raise ValueError("invalid Jules session resource")
+    return resource
+
+
+def get_session(transport: Callable, api_base: str, ring: KeyRing, resource: str) -> dict:
+    response = request_with_keys(
+        transport, ring, "GET", api_base.rstrip("/") + "/" + session_resource(resource),
+    )
+    if response.status // 100 != 2:
+        raise RuntimeError("Jules GetSession failed: HTTP " + str(response.status))
+    if not isinstance(response.payload, dict):
+        raise RuntimeError("Jules GetSession returned an invalid response")
+    return response.payload
+
+
+def list_activities(transport: Callable, api_base: str, ring: KeyRing, resource: str) -> list:
+    """Read every page from the exact session; API order is not chronological."""
+    resource = session_resource(resource)
+    activities = []
+    token = ""
+    seen = set()
+    while True:
+        query = {"pageSize": 100}
+        if token:
+            query["pageToken"] = token
+        response = request_with_keys(
+            transport, ring, "GET", api_base.rstrip("/") + "/" + resource
+            + "/activities?" + urllib.parse.urlencode(query),
+        )
+        if response.status // 100 != 2:
+            raise RuntimeError("Jules ListActivities failed: HTTP " + str(response.status))
+        payload = response.payload
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("activities", []), list):
+            raise RuntimeError("Jules ListActivities returned an invalid response")
+        for activity in payload.get("activities", []):
+            if not isinstance(activity, dict) or not re.fullmatch(
+                re.escape(resource) + r"/activities/[^/]+", str(activity.get("name") or ""),
+            ):
+                raise RuntimeError("Jules ListActivities returned a foreign or invalid activity")
+            activities.append(activity)
+        token = payload.get("nextPageToken") or ""
+        if not token:
+            return activities
+        if not isinstance(token, str) or token in seen:
+            raise RuntimeError("Jules ListActivities returned an invalid pagination token")
+        seen.add(token)
+
+
 def find_matches(sessions, key: str) -> tuple:
     """Return (active_match, terminal_match) for the dispatch key."""
     matches = [

@@ -15,7 +15,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: autonomous-replenish
+  group: autonomous-lab-queue
+  queue: max
   cancel-in-progress: false
 
 jobs:

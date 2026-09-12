@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from datetime import datetime, timedelta
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,12 +17,113 @@ VALID_TASK_TYPES = {
     "project_discovery", "chore",
 }
 VALID_OUTCOMES = {
-    "", "merged", "no_change", "closed_unmerged", "failed", "stale",
+    "", "merged", "no_change", "researched", "review_required", "closed_unmerged", "failed", "stale",
 }
 VALID_EXECUTION_STATES = {
-    "", "dispatched", "completed", "retry", "exhausted",
+    "", "dispatched", "completed", "retry", "exhausted", "awaiting_review",
 }
 
+MAX_PREVIOUS_REPORTS = 3
+MAX_PREVIOUS_REPORT_CHARS = 24000
+
+
+def _nonblank(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(_nonblank(item) for item in value)
+
+
+def _utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or "T" not in value:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
+def validate_research_result(block: Any, prefix: str = "research_result") -> list:
+    if not isinstance(block, dict):
+        return [prefix + " must be an object"]
+    errors = []
+    if not _nonblank(block.get("summary")):
+        errors.append(prefix + ".summary must be a non-empty string")
+    observations = block.get("observations")
+    if not isinstance(observations, list) or not observations:
+        errors.append(prefix + ".observations must be a non-empty list")
+    else:
+        for index, observation in enumerate(observations):
+            if not isinstance(observation, dict) or any(
+                not _nonblank(observation.get(field))
+                for field in ("scenario", "evidence", "result")
+            ):
+                errors.append(prefix + ".observations[" + str(index)
+                              + "] requires non-empty scenario, evidence and result strings")
+    for field in ("next_hypotheses", "proposed_task_ids"):
+        if not _string_list(block.get(field)):
+            errors.append(prefix + "." + field + " must be a list of non-empty strings")
+    if not _utc_timestamp(block.get("completed_at")):
+        errors.append(prefix + ".completed_at must be an ISO UTC timestamp")
+    deferred = block.get("deferred_findings", [])
+    if not isinstance(deferred, list):
+        errors.append(prefix + ".deferred_findings must be a list")
+    else:
+        for item in deferred:
+            if (not isinstance(item, dict)
+                    or any(not _nonblank(item.get(field)) for field in ("title", "reason", "evidence"))
+                    or any(not _string_list(item.get(field)) or not item[field]
+                           for field in ("target_paths", "acceptance"))):
+                errors.append(prefix + ".deferred_findings requires a proposal and its exclusion reason")
+    return errors
+
+
+def _validate_research(task: dict, prefix: str) -> list:
+    errors = []
+    research = task.get("research")
+    if "research" in task:
+        if not isinstance(research, dict):
+            return [prefix + ".research must be an object"]
+        if task.get("task_type") != "project_discovery":
+            errors.append(prefix + ".research requires project_discovery task_type")
+        for field in ("area_id", "perspective_id"):
+            if not _nonblank(research.get(field)):
+                errors.append(prefix + ".research." + field + " must be a non-empty string")
+        if not isinstance(research.get("fingerprint"), str) or not re.fullmatch(
+            r"[0-9a-f]{64}", research.get("fingerprint", "")
+        ):
+            errors.append(prefix + ".research.fingerprint must be a SHA-256 hex digest")
+        cycle = research.get("cycle")
+        if type(cycle) is not int or cycle < 1:
+            errors.append(prefix + ".research.cycle must be a positive integer")
+        reports = research.get("previous_reports")
+        if not isinstance(reports, list) or len(reports) > MAX_PREVIOUS_REPORTS:
+            errors.append(prefix + ".research.previous_reports must be a bounded list")
+        else:
+            if len(json.dumps(reports, ensure_ascii=False)) > MAX_PREVIOUS_REPORT_CHARS:
+                errors.append(prefix + ".research.previous_reports exceeds context bound")
+            for index, report in enumerate(reports):
+                errors.extend(validate_research_result(
+                    report, prefix + ".research.previous_reports[" + str(index) + "]",
+                ))
+    if "research_result" in task:
+        errors.extend(validate_research_result(task["research_result"], prefix + ".research_result"))
+    if research and task.get("status") == "done" and "research_result" not in task:
+        errors.append(prefix + ".completed research requires research_result")
+    execution = task.get("execution")
+    if isinstance(execution, dict):
+        outcome, state = execution.get("outcome"), execution.get("state")
+        if outcome == "researched" and (
+            task.get("status") != "done" or state != "completed"
+            or "research_result" not in task
+        ):
+            errors.append(prefix + ".researched requires done/completed and research_result")
+        if state == "awaiting_review" or outcome == "review_required":
+            if (task.get("status"), state, outcome) != ("blocked", "awaiting_review", "review_required"):
+                errors.append(prefix + ".manual review requires blocked/awaiting_review/review_required")
+    return errors
 
 def _validate_execution(block: Any, prefix: str) -> list:
     errors: list = []
@@ -107,6 +210,7 @@ def validate(manifest: Any) -> list:
             if not str(evidence.get("detail") or "").strip():
                 errors.append(prefix + ".evidence.detail is required")
         errors.extend(_validate_execution(task.get("execution"), prefix))
+        errors.extend(_validate_research(task, prefix))
 
     # The loop runs one worker session at a time; more than one in-flight task
     # means a lifecycle transition was lost and the queue is no longer truthful.

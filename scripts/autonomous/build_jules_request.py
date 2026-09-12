@@ -84,16 +84,18 @@ def build(
     marker = "AUTONOMOUS_DISPATCH_KEY: " + key + "\nAUTONOMOUS_TASK_ID: " + task_id + "\n\n"
     prompt = marker + render_prompt(template, replacements)
     title = "[dispatch:" + key + "] " + (str(task.get("title") or task_id))
-    return {
+    request = {
         "prompt": prompt,
         "sourceContext": {
             "source": "sources/github/" + repo,
             "githubRepoContext": {"startingBranch": branch},
         },
-        "automationMode": "AUTO_CREATE_PR",
         "requirePlanApproval": False,
         "title": title[:200],
     }
+    if task.get("task_type") != "project_discovery":
+        request["automationMode"] = "AUTO_CREATE_PR"
+    return request
 
 
 def main(argv=None) -> int:

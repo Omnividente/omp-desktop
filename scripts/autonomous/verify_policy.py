@@ -30,6 +30,7 @@ REQUIRED_EXCLUSIONS = (
     "src-tauri/Cargo.lock",
     "src-tauri/tauri.conf.json",
     "src-tauri/tauri.updater-e2e.conf.json",
+    "src-tauri/src/secrets.rs",
     "autonomous-project.json",
     "agent_tasks.json",
 )

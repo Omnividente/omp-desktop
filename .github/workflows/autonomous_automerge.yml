@@ -34,7 +34,8 @@ permissions:
   checks: read
 
 concurrency:
-  group: autonomous-automerge-${{ github.event.workflow_run.head_sha }}
+  group: autonomous-lab-queue
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -192,7 +193,7 @@ jobs:
                 cp lab/agent_tasks.json queue-staged.json
                 python3 scripts/autonomous/task_lifecycle.py --manifest queue-staged.json --action close-from-pr --pull-request "${number}" --title "${title}" --body-file pr-body.txt --merged true > close-result.json
                 if [ "$(jq -r '.changed' close-result.json)" = "true" ]; then
-                  if ! python3 scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10; then
+                  if ! python3 scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10 --config autonomous-project.json; then
                     malformed_backlog=1
                     echo "::warning::#${number} carried a malformed backlog; queue completion was not committed. Correct its body and rerun the API sweep."
                     echo "::endgroup::"

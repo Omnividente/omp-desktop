@@ -90,6 +90,15 @@ class DispatchKeyTest(unittest.TestCase):
 
 
 class BuildTest(unittest.TestCase):
+    def test_only_implementation_sessions_create_pull_requests(self):
+        discovery = build(dict(TASK, task_type="project_discovery"), template=TEMPLATE,
+                          repo="r", branch="lab", base_sha="s")
+        self.assertNotIn("automationMode", discovery)
+        self.assertFalse(discovery["requirePlanApproval"])
+        implementation = make()
+        self.assertEqual(implementation["automationMode"], "AUTO_CREATE_PR")
+        self.assertFalse(implementation["requirePlanApproval"])
+
     def test_title_is_capped_for_the_api(self):
         long_task = dict(TASK)
         long_task["title"] = "x" * 500

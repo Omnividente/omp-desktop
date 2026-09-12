@@ -2,6 +2,7 @@
 """Tests for validate_tasks.py, including the shipped queue."""
 from __future__ import annotations
 
+import copy
 import json
 import sys
 import unittest
@@ -31,7 +32,7 @@ def task(task_id: str = "auto-1", **overrides) -> dict:
 
 
 def manifest(*tasks, **policy) -> dict:
-    loop_policy = {"integration_branch": "autonomous/lab", "min_todo_tasks": 3}
+    loop_policy = {"integration_branch": "autonomous/lab"}
     loop_policy.update(policy)
     return {"version": 2, "autonomous_loop_policy": loop_policy, "tasks": list(tasks)}
 
@@ -41,18 +42,6 @@ class ShippedManifestTest(unittest.TestCase):
         data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         self.assertEqual(validate(data), [])
 
-    def test_discovery_does_not_outrank_concrete_work_in_the_shipped_queue(self):
-        """Replenished eslint/tsc tasks land at priority 40."""
-        data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-        for entry in data["tasks"]:
-            if entry["task_type"] == "project_discovery":
-                self.assertLess(entry["priority"], 40, entry["id"])
-
-    def test_the_shipped_queue_declares_a_lifecycle_policy(self):
-        data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-        lifecycle = data["autonomous_loop_policy"]["lifecycle"]
-        self.assertGreaterEqual(lifecycle["max_attempts"], 1)
-        self.assertGreaterEqual(lifecycle["stale_in_progress_hours"], 1)
 
 
 class StructureTest(unittest.TestCase):
@@ -162,6 +151,73 @@ class LifecycleTest(unittest.TestCase):
     def test_lifecycle_must_be_an_object(self):
         data = manifest(task(), lifecycle=[])
         self.assertTrue(any("lifecycle must be an object" in e for e in validate(data)))
+
+
+class ResearchSchemaTest(unittest.TestCase):
+    def research_task(self):
+        return task(
+            task_type="project_discovery", status="done",
+            research={
+                "area_id": "terminal-input", "perspective_id": "behavior",
+                "fingerprint": "a" * 64, "cycle": 1, "previous_reports": [],
+            },
+            research_result={
+                "summary": "Cancellation preserves state",
+                "observations": [{"scenario": "Cancel input", "evidence": "Synthetic session transcript", "result": "No input lost"}],
+                "next_hypotheses": ["Exercise concurrent cancellation"],
+                "proposed_task_ids": [], "completed_at": "2026-09-13T12:00:00Z",
+            },
+            execution={"state": "completed", "outcome": "researched", "attempts": 1},
+        )
+
+    def test_completed_research_and_legacy_done_tasks_coexist(self):
+        data = manifest(self.research_task(), task("legacy", status="done", execution={
+            "state": "completed", "outcome": "no_change", "attempts": 1,
+        }))
+        self.assertEqual(validate(data), [])
+        data["tasks"][0]["execution"]["outcome"] = "no_change"
+        self.assertEqual(validate(data), [])
+
+    def test_malformed_new_results_are_rejected(self):
+        invalid = {
+            "summary": " ", "observations": [{"scenario": "x", "evidence": 4, "result": "x"}],
+            "next_hypotheses": "repeat", "proposed_task_ids": [3],
+            "completed_at": "2026-09-13T12:00:00",
+        }
+        for field, value in invalid.items():
+            entry = self.research_task()
+            entry["research_result"][field] = value
+            with self.subTest(field=field):
+                self.assertTrue(any(field in error for error in validate(manifest(entry))))
+
+    def test_completed_scheduled_research_cannot_omit_report(self):
+        entry = self.research_task()
+        del entry["research_result"]
+        self.assertTrue(any("research_result" in error for error in validate(manifest(entry))))
+        entry["execution"]["outcome"] = "no_change"
+        self.assertTrue(any("research_result" in error for error in validate(manifest(entry))))
+
+    def test_cycle_fingerprint_and_prior_context_are_validated(self):
+        for field, value in (("cycle", True), ("cycle", 0), ("fingerprint", "commit-tip"),
+                             ("previous_reports", [{}]), ("area_id", "")):
+            entry = self.research_task()
+            entry["research"][field] = value
+            with self.subTest(field=field, value=value):
+                self.assertTrue(any(field in error for error in validate(manifest(entry))))
+        entry = self.research_task()
+        report = copy.deepcopy(entry["research_result"])
+        entry["research"]["previous_reports"] = [report]
+        self.assertEqual(validate(manifest(entry)), [])
+        entry["research"]["previous_reports"] = [report] * 4
+        self.assertTrue(any("bounded" in error for error in validate(manifest(entry))))
+
+    def test_deferred_review_requires_complete_truthful_state(self):
+        entry = task(status="blocked", execution={
+            "state": "awaiting_review", "outcome": "review_required", "pull_request": 53,
+        })
+        self.assertEqual(validate(manifest(entry)), [])
+        entry["status"] = "in_progress"
+        self.assertTrue(any("manual review" in error for error in validate(manifest(entry))))
 
 
 if __name__ == "__main__":

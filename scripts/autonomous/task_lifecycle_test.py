@@ -30,6 +30,7 @@ from task_lifecycle import (  # noqa: E402
     attempts_of, close_from_pr, complete, counts, find_task,
     main, match_task, reconcile, start, sweep,
 )
+from select_task import select
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
 TASK_ID = "auto-clock-1"
@@ -317,6 +318,46 @@ class SweepTest(unittest.TestCase):
     """GitHub starts no workflow run for an event the loop's own token caused,
     so completion may never depend on receiving one."""
 
+    def test_review_pr_parks_attempt_without_blocking_other_work_and_later_merges(self):
+        data = manifest(task(), task("other"))
+        start(data, TASK_ID, session_id="1", dispatch_key="first", now=NOW)
+        pr = {"number": 7, "state": "OPEN", "title": "[dispatch:first]",
+              "labels": ["human-review"], "draft": False}
+        sweep(data, [pr], now=NOW)
+        self.assertEqual(status_of(data), "blocked")
+        self.assertEqual(execution(data)["state"], "awaiting_review")
+        self.assertEqual(execution(data)["outcome"], "review_required")
+        self.assertFalse(sweep(data, [pr], now=NOW)["changed"])
+        start(data, "other", dispatch_key="other-key", now=NOW)
+        self.assertEqual(status_of(data, "other"), "in_progress")
+        pr.update(state="MERGED", title="edited")
+        sweep(data, [pr], now=NOW)
+        self.assertEqual(status_of(data), "done")
+        self.assertEqual(execution(data)["attempts"], 1)
+        self.assertEqual(execution(data)["outcome"], "merged")
+        self.assertEqual(status_of(data, "other"), "in_progress")
+
+    def test_draft_closed_review_retries_and_old_attempt_cannot_close_new_one(self):
+        data = manifest(task())
+        start(data, TASK_ID, dispatch_key="first", now=NOW)
+        pr = {"number": 7, "state": "OPEN", "title": "[dispatch:first]", "isDraft": True}
+        sweep(data, [pr], now=NOW)
+        self.assertEqual(status_of(data), "blocked")
+        close_from_pr(data, pull_request=7, title="[dispatch:first]", now=NOW)
+        self.assertEqual(status_of(data), "todo")
+        self.assertEqual(execution(data)["attempts"], 1)
+        start(data, TASK_ID, dispatch_key="second", now=NOW)
+        pr.update(state="MERGED")
+        self.assertFalse(sweep(data, [pr], now=NOW)["changed"])
+        self.assertEqual(status_of(data), "in_progress")
+
+    def test_linked_open_pr_is_not_timed_out_as_a_dead_worker(self):
+        data = manifest(task())
+        start(data, TASK_ID, dispatch_key="first", now=NOW)
+        sweep(data, [{"number": 7, "state": "OPEN", "title": "[dispatch:first]"}], now=NOW)
+        self.assertFalse(reconcile(data, now=NOW + timedelta(hours=12))["changed"])
+        self.assertEqual(status_of(data), "in_progress")
+
     def test_merged_pull_request_is_swept_without_any_event(self):
         data = manifest(task(status="in_progress",
                              execution={"attempts": 1, "dispatch_key": "abc123"}))
@@ -346,6 +387,25 @@ class SweepTest(unittest.TestCase):
         }], now=NOW)
         self.assertEqual(result["changes"][0]["outcome"], OUTCOME_CLOSED)
         self.assertEqual(status_of(data), "todo")
+
+    def test_deferred_review_frees_worker_and_eventually_closes_same_attempt(self):
+        for pause in ({"labels": ["custom-review"]}, {"draft": True}):
+            with self.subTest(pause=pause):
+                data = manifest(task(), task("next-work"))
+                start(data, TASK_ID, session_id="7", dispatch_key="first", now=NOW)
+                pr = {"number": 9, "state": "open", "title": "[dispatch:first] fix", **pause}
+                config = {"automation": {"blocking_labels": ["custom-review"]}}
+                sweep(data, [pr], now=NOW, config=config)
+                self.assertEqual(status_of(data), "blocked")
+                self.assertEqual(execution(data)["outcome"], "review_required")
+                self.assertEqual(select(data)["task_id"], "next-work")
+                self.assertFalse(sweep(data, [pr], now=NOW, config=config)["changed"])
+                start(data, "next-work", session_id="8", dispatch_key="second", now=NOW)
+                sweep(data, [dict(pr, state="closed", merged=True)], now=NOW, config=config)
+                self.assertEqual(status_of(data), "done")
+                self.assertEqual(execution(data)["outcome"], "merged")
+                self.assertEqual(execution(data)["attempts"], 1)
+                self.assertEqual(status_of(data, "next-work"), "in_progress")
 
     def test_an_open_pull_request_is_only_linked(self):
         data = manifest(task(status="in_progress", execution={"attempts": 1}))
