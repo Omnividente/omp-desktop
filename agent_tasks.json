@@ -21,7 +21,7 @@
       "id": "project-discovery-0001",
       "title": "Discover concrete, evidence-backed improvements in omp-desktop and file them as tasks",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "tests",
@@ -40,15 +40,15 @@
       },
       "created_at": "2026-09-11T00:00:00Z",
       "execution": {
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3954569502611073242",
         "dispatch_key": "d4b34b4ec758e0a023da6fb1",
         "attempts": 1,
         "started_at": "2026-09-12T19:17:41Z",
-        "finished_at": "",
+        "finished_at": "2026-09-12T20:27:30Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": ""
+        "outcome": "no_change",
+        "note": "the worker session for this task had already finished"
       }
     }
   ]
