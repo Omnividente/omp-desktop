@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
-"""Create (or reconcile) exactly one Jules session for an autonomous task.
+"""Create (or reconcile) exactly one AI worker session for an autonomous task.
 
 Talks to the Jules API (https://jules.googleapis.com/v1alpha). An idempotency
-marker embedded in the request prompt lets repeated scheduler runs reconcile an
-already-running session instead of creating duplicates. The HTTP transport is
-injectable so the logic is unit-testable offline.
+marker embedded in the request prompt lets repeated scheduler runs recognise
+work they already started, so the loop does not pile up duplicate sessions.
+
+Two behaviours matter for not repeating finished work:
+
+* A **finished** session counts. Matching only active sessions means a worker
+  that completed without opening a pull request looks like it never ran, and the
+  next tick hands it the same task again. Here a terminal session reports
+  ``already_completed`` so the caller can close the task out instead.
+* The dispatch key must be **stable across runs**. It is derived from repo plus
+  task id only - never from the branch head - because a moving base commit would
+  change the key and duplicate work that is still in flight.
+
+The API key ring rotates on an authentication failure, not just when the primary
+key is absent, so a revoked key actually fails over to the backup. The HTTP
+transport is injectable, so all of this is unit-testable offline.
 """
 from __future__ import annotations
 
@@ -17,15 +30,20 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 DEFAULT_API_BASE = "https://jules.googleapis.com/v1alpha"
 TRANSIENT_STATUSES = {0, 408, 409, 429, 500, 502, 503, 504}
+AUTH_STATUSES = {401, 403}
 ACTIVE_STATES = {
     "", "UNKNOWN", "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "IN_PROGRESS",
     "AWAITING_PLAN_APPROVAL", "AWAITING_USER_FEEDBACK",
 }
 MARKER_RE = re.compile(r"AUTONOMOUS_DISPATCH_KEY:\s*([A-Za-z0-9]+)")
+
+RESULT_CREATED = "created"
+RESULT_RECONCILED = "reconciled"
+RESULT_ALREADY_COMPLETED = "already_completed"
 
 
 class Response:
@@ -33,6 +51,27 @@ class Response:
         self.status = status
         self.payload = payload
         self.text = text
+
+
+class KeyRing:
+    """Holds the API keys in preference order and rotates on auth failure."""
+
+    def __init__(self, keys: Sequence[str]) -> None:
+        self.keys = [str(key) for key in keys if str(key or "").strip()]
+        self.index = 0
+
+    def __bool__(self) -> bool:
+        return bool(self.keys)
+
+    @property
+    def current(self) -> str:
+        return self.keys[self.index] if self.keys else ""
+
+    def rotate(self) -> bool:
+        if self.index + 1 < len(self.keys):
+            self.index += 1
+            return True
+        return False
 
 
 def extract_key(prompt: str) -> str:
@@ -85,10 +124,18 @@ def urllib_transport(method: str, url: str, headers: Mapping[str, str], payload:
         return Response(0, None, str(exc))
 
 
-def list_sessions(transport: Callable, api_base: str, api_key: str) -> list:
-    response = transport(
-        "GET", api_base.rstrip("/") + "/sessions?pageSize=100",
-        {"X-Goog-Api-Key": api_key}, None,
+def request_with_keys(transport: Callable, ring: KeyRing, method: str, url: str,
+                      payload: Any = None) -> Response:
+    while True:
+        response = transport(method, url, {"X-Goog-Api-Key": ring.current}, payload)
+        if response.status in AUTH_STATUSES and ring.rotate():
+            continue
+        return response
+
+
+def list_sessions(transport: Callable, api_base: str, ring: KeyRing) -> list:
+    response = request_with_keys(
+        transport, ring, "GET", api_base.rstrip("/") + "/sessions?pageSize=100"
     )
     if response.status // 100 != 2:
         raise RuntimeError("Jules ListSessions failed: HTTP " + str(response.status))
@@ -96,55 +143,71 @@ def list_sessions(transport: Callable, api_base: str, api_key: str) -> list:
     return list(payload.get("sessions") or [])
 
 
-def find_active_match(sessions, key: str):
+def find_matches(sessions, key: str) -> tuple:
+    """Return (active_match, terminal_match) for the dispatch key."""
     matches = [
-        s for s in sessions
-        if isinstance(s, dict) and session_matches(s, key) and session_is_active(s)
+        s for s in sessions if isinstance(s, dict) and session_matches(s, key)
     ]
-    matches.sort(key=lambda s: str(s.get("updateTime") or s.get("createTime") or ""), reverse=True)
-    return matches[0] if matches else None
+    matches.sort(
+        key=lambda s: str(s.get("updateTime") or s.get("createTime") or ""), reverse=True
+    )
+    active = [s for s in matches if session_is_active(s)]
+    terminal = [s for s in matches if not session_is_active(s)]
+    return (active[0] if active else None), (terminal[0] if terminal else None)
+
+
+def find_active_match(sessions, key: str):
+    return find_matches(sessions, key)[0]
+
+
+def _result(kind: str, session: Mapping[str, Any]) -> dict:
+    return {
+        "result": kind,
+        "session_id": session_id(session),
+        "session_state": session_state(session),
+        "session": session,
+    }
 
 
 def dispatch(
     transport: Callable,
     *,
     api_base: str,
-    api_key: str,
+    api_keys: Sequence[str] | KeyRing,
     request_body: Mapping[str, Any],
     max_attempts: int = 3,
     base_delay: float = 3.0,
     sleeper: Callable = time.sleep,
 ) -> dict:
+    ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
+    if not ring:
+        raise RuntimeError("no Jules API key is configured")
+
     key = extract_key(str(request_body.get("prompt") or ""))
     if not key:
         raise RuntimeError("request prompt is missing the AUTONOMOUS_DISPATCH_KEY marker")
 
-    existing = find_active_match(list_sessions(transport, api_base, api_key), key)
-    if existing:
-        return {
-            "result": "reconciled", "session_id": session_id(existing),
-            "session_state": session_state(existing), "session": existing,
-        }
+    active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
+    if active:
+        return _result(RESULT_RECONCILED, active)
+    if terminal:
+        # This exact task was already worked on and the session ended. Creating a
+        # second session would re-run finished work; the caller closes the task.
+        return _result(RESULT_ALREADY_COMPLETED, terminal)
 
     last_status = 0
     for attempt in range(1, max_attempts + 1):
-        response = transport(
-            "POST", api_base.rstrip("/") + "/sessions",
-            {"X-Goog-Api-Key": api_key}, dict(request_body),
+        response = request_with_keys(
+            transport, ring, "POST", api_base.rstrip("/") + "/sessions", dict(request_body)
         )
         last_status = response.status
         if response.status // 100 == 2 and isinstance(response.payload, dict):
-            session = response.payload
-            return {
-                "result": "created", "session_id": session_id(session),
-                "session_state": session_state(session), "session": session,
-            }
-        match = find_active_match(list_sessions(transport, api_base, api_key), key)
-        if match:
-            return {
-                "result": "reconciled", "session_id": session_id(match),
-                "session_state": session_state(match), "session": match,
-            }
+            return _result(RESULT_CREATED, response.payload)
+        active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
+        if active:
+            return _result(RESULT_RECONCILED, active)
+        if terminal:
+            return _result(RESULT_ALREADY_COMPLETED, terminal)
         if response.status not in TRANSIENT_STATUSES:
             raise RuntimeError("Jules CreateSession failed: HTTP " + str(response.status))
         if attempt < max_attempts:
@@ -171,15 +234,18 @@ def main(argv=None) -> int:
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
     args = parser.parse_args(argv)
 
-    api_key = os.environ.get("JULES_API_KEY", "") or os.environ.get("JULES_API_KEY_BACKUP", "")
-    if not api_key:
+    ring = KeyRing([
+        os.environ.get("JULES_API_KEY", ""),
+        os.environ.get("JULES_API_KEY_BACKUP", ""),
+    ])
+    if not ring:
         print("ERROR: JULES_API_KEY (or JULES_API_KEY_BACKUP) is required", file=sys.stderr)
         return 1
 
     request_body = json.loads(args.request_body.read_text(encoding="utf-8"))
     try:
         result = dispatch(
-            urllib_transport, api_base=args.api_base, api_key=api_key, request_body=request_body
+            urllib_transport, api_base=args.api_base, api_keys=ring, request_body=request_body
         )
     except RuntimeError as exc:
         print("ERROR: " + str(exc), file=sys.stderr)
