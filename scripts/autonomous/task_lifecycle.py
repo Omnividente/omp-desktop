@@ -44,15 +44,18 @@ OPEN_STATUSES = (STATUS_IN_PROGRESS, STATUS_TODO)
 
 OUTCOME_MERGED = "merged"
 OUTCOME_NO_CHANGE = "no_change"
+OUTCOME_RESEARCHED = "researched"
+OUTCOME_REVIEW_REQUIRED = "review_required"
 OUTCOME_CLOSED = "closed_unmerged"
 OUTCOME_FAILED = "failed"
 OUTCOME_STALE = "stale"
 VALID_OUTCOMES = (
-    OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_CLOSED, OUTCOME_FAILED, OUTCOME_STALE,
+    OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED,
+    OUTCOME_CLOSED, OUTCOME_FAILED, OUTCOME_STALE,
 )
 # Outcomes that answer the question the task asked. Anything else is retried
 # while the attempt budget lasts.
-TERMINAL_OUTCOMES = (OUTCOME_MERGED, OUTCOME_NO_CHANGE)
+TERMINAL_OUTCOMES = (OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED)
 
 TASK_ID_RE = re.compile(r"AUTONOMOUS_TASK_ID:[ \t]*([^\s<>`]+)")
 DISPATCH_KEY_RE = re.compile(r"\[dispatch:([^\]\s]+)\]")
@@ -142,6 +145,26 @@ def recorded_pull_request(task: Any) -> int:
     return _int(block.get("pull_request"))
 
 
+def awaiting_review(task: Mapping[str, Any]) -> bool:
+    block = task.get("execution") or {}
+    return (task.get("status") == STATUS_BLOCKED
+            and block.get("state") == "awaiting_review"
+            and block.get("outcome") == OUTCOME_REVIEW_REQUIRED)
+
+
+def defer_review(task: dict, pull_request: int) -> dict:
+    """Park this attempt without spending it or pretending its PR has closed."""
+    block = _execution(task)
+    task["status"] = STATUS_BLOCKED
+    block["state"] = "awaiting_review"
+    block["outcome"] = OUTCOME_REVIEW_REQUIRED
+    block["pull_request"] = pull_request
+    block["note"] = "pull request #" + str(pull_request) + " awaits human review"
+    return {"changed": True, "reason": OUTCOME_REVIEW_REQUIRED,
+            "task_id": str(task.get("id") or ""), "status": STATUS_BLOCKED,
+            "pull_request": pull_request, "attempts": attempts_of(task)}
+
+
 def start(
     manifest: dict,
     task_id: Any,
@@ -210,7 +233,8 @@ def _finish(
     max_attempts, _stale_hours = limits(manifest)
     block = _execution(task)
     previous_status = str(task.get("status") or "")
-    if block.get("outcome") or previous_status not in OPEN_STATUSES:
+    parked = awaiting_review(task) and outcome in (OUTCOME_MERGED, OUTCOME_CLOSED)
+    if not parked and (block.get("outcome") or previous_status not in OPEN_STATUSES):
         return {
             "changed": False, "reason": "task_already_closed",
             "task_id": str(task.get("id") or ""), "status": previous_status,
@@ -219,7 +243,7 @@ def _finish(
 
     # Always materialise the counter, so a task that finished on its first
     # dispatch still records how many attempts it took.
-    block["attempts"] = max(1, attempts_of(task) + (previous_status != STATUS_IN_PROGRESS))
+    block["attempts"] = max(1, attempts_of(task) + (previous_status != STATUS_IN_PROGRESS and not parked))
     block["outcome"] = outcome
     block["note"] = str(note or "")
     block["finished_at"] = iso(moment)
@@ -343,7 +367,7 @@ def close_from_pr(
             "pull_request": number,
         }
     status = str(task.get("status") or "")
-    if status not in OPEN_STATUSES:
+    if status not in OPEN_STATUSES and not awaiting_review(task):
         return {
             "changed": False,
             "reason": "task_already_closed",
@@ -370,6 +394,7 @@ def sweep(
     pull_requests: Sequence[Any],
     *,
     now: datetime | None = None,
+    config: Mapping[str, Any] | None = None,
 ) -> dict:
     """Reconcile in-flight tasks against the pull requests the API reports.
 
@@ -380,6 +405,9 @@ def sweep(
     changes: list = []
     linked: list = []
     matches: dict[int, list] = {}
+    blocking_labels = set((config or {}).get("automation", {}).get(
+        "blocking_labels", ["human-review", "hold", "do-not-merge", "wip"],
+    ))
     for entry in pull_requests or []:
         if not isinstance(entry, Mapping) or not _int(entry.get("number")):
             continue
@@ -415,7 +443,7 @@ def sweep(
             continue
         if len(set(matches.get(id(task), []))) != 1:
             continue
-        if str(task.get("status") or "") != STATUS_IN_PROGRESS:
+        if str(task.get("status") or "") != STATUS_IN_PROGRESS and not awaiting_review(task):
             continue
 
         if merged or state == "CLOSED":
@@ -433,6 +461,14 @@ def sweep(
             changes.append(result)
             continue
         if state != "OPEN":
+            continue
+        labels = {
+            str(label.get("name") or "") if isinstance(label, Mapping) else str(label)
+            for label in entry.get("labels", [])
+        }
+        paused = bool(entry.get("draft") or entry.get("isDraft") or labels & blocking_labels)
+        if paused and not awaiting_review(task):
+            changes.append(defer_review(task, number))
             continue
 
 
@@ -470,6 +506,9 @@ def reconcile(manifest: dict, *, now: datetime | None = None) -> dict:
         if not isinstance(task, dict):
             continue
         if str(task.get("status") or "") != STATUS_IN_PROGRESS:
+            continue
+        if recorded_pull_request(task):
+            # GitHub sweep, not elapsed worker time, owns a linked PR's result.
             continue
         block = task.get("execution")
         started = parse_iso((block or {}).get("started_at")) if isinstance(block, Mapping) else None
@@ -513,6 +552,7 @@ def _read_text(path: Path | None) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--config", type=Path)
     parser.add_argument(
         "--action", required=True,
         choices=("start", "complete", "close-from-pr", "sweep", "reconcile"),
@@ -567,7 +607,8 @@ def main(argv=None) -> int:
             if not isinstance(entries, list):
                 print("::error::--pull-requests must be a JSON array", file=sys.stderr)
                 return 2
-            result = sweep(manifest, entries)
+            config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
+            result = sweep(manifest, entries, config=config)
         else:
             result = reconcile(manifest)
     except (OSError, ValueError) as exc:

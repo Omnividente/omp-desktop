@@ -18,10 +18,11 @@ release anything, never bump a version.
 {{TASK_JSON}}
 ```
 
-Do this one task and nothing else. If you conclude the task is invalid, already
-fixed, or cannot be done safely, say so plainly in the pull request description
-instead of inventing adjacent work. "No change needed, here is why" is a
-respected outcome; unrelated churn is not.
+Do this one task and nothing else. Use its observations, `target_paths` and
+acceptance criteria to verify the expected benefit, not just the absence of a
+lint error. If the task is invalid, already fixed, or cannot be done safely,
+explain the actual checks and conclusion in your final session message; do not
+open an empty pull request or invent adjacent work. No change is a valid outcome.
 
 ## What you may edit
 
@@ -41,6 +42,7 @@ particular do **not** edit:
 - `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`,
   `src-tauri/tauri.updater-e2e.conf.json`
 - binary assets (`*.png`, `*.ico`, `*.icns`)
+- `src-tauri/src/secrets.rs` or any real credentials/user session data
 
 The auto-update surface (`src/clientUpdater.ts`, `src/useClientUpdater.ts`,
 `src/updateReminder.ts`, the update notices and their tests, `src-tauri` updater
@@ -57,7 +59,10 @@ never merged unattended.
 
 So:
 
-1. Write or extend a test that fails because of the bug. Test files must match
+1. Write or extend a behavioral test that fails without the required behavior.
+   An improvement may expose a measured limitation or unmet scenario rather than
+   an existing failing test. Do not assert incidental wording or implementation.
+   Test files must match
    `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx` or live under
    `src-tauri/tests/**`.
 2. Then make it pass with the smallest reasonable change.
@@ -78,6 +83,11 @@ npm run lint
 npm run test
 ```
 
+Use isolated synthetic data for persistence and interactive checks. Exercise the
+actual app when possible and distinguish native results from mocks or source
+inspection. If a required platform is unavailable, record that limitation rather
+than claiming its smoke passed. Keep dependency versions and lockfiles unchanged.
+
 ## Pull request description
 
 Include, as plain text in the body:
@@ -91,7 +101,15 @@ into the pull request body (or preserve the exact `[dispatch:...]` title marker)
 The task id identifies the work; the dispatch key identifies this attempt. Never
 reuse a marker from an older attempt. Then describe, briefly:
 
-- what was wrong and how you know (the evidence, not a guess)
+- the observed defect or limitation and the expected user benefit
 - what you changed
 - which test proves it, and that it fails without the fix
 - anything you deliberately left alone
+- reproducible commands/scenarios and any before/after measurements
+- additional concrete findings, if any, in an `AUTONOMOUS_TASKS_BEGIN` / `END`
+  JSON array with title, task_type, risk, priority, focus, target_paths,
+  acceptance and evidence; otherwise omit that block
+
+Changes deferred to human review remain proposals for later inspection. Do not
+weaken checks or broaden the change to force acceptance; the lab continues with
+other work while this proposal waits.

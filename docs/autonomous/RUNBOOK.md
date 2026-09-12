@@ -1,9 +1,10 @@
 # Autonomous improvement loop - runbook
 
-This is a **parallel** improvement track. It never releases, never bumps a
-version, and never pushes to `main`. It accumulates reviewed changes on
-`autonomous/lab`, and you decide - by hand, whenever you feel like it - whether
-any of it is worth releasing.
+This is a **parallel research and improvement lab**. It investigates product
+scenarios without manual queue feeding, records observations and proposals, and
+implements concrete findings on `autonomous/lab`. Inspect the accumulated results
+when useful. It never releases, bumps versions or pushes to `main`; accepting a
+release remains a separate human decision.
 
 ## Architecture
 
@@ -13,8 +14,8 @@ main            control plane (workflows, scripts, policy) + product
   v
 autonomous/lab  accumulated product changes, task queue and event entry points
   ^
-  |  one pull request per task, squash-merged only when every gate passes
-AI worker (Jules)
+  |  research reports without PRs; implementation PRs gated before squash merge
+AI worker (Jules): investigate -> record findings -> implement concrete tasks
 ```
 
 Mutating queue workflows separate the trusted control plane from the product:
@@ -45,6 +46,12 @@ Consequences worth knowing:
   and policy come from `main`; the queue and workflow YAML come from the exact
   event revision. Other events test the control plane at their own event SHA,
   so a pull request into `main` cannot pass by testing the old `main` scripts.
+- All queue writers share `autonomous-lab-queue` with `queue: max` and
+  `cancel-in-progress: false`: scheduled dispatch, replenishment, merge completion
+  and the loop switch serialize instead of overwriting each other's snapshots.
+  GitHub permits up to 100 pending runs with this setting. `actionlint` 1.7.12
+  does not yet recognize this documented key; do not replace it with single-slot
+  pending cancellation to silence that outdated schema.
 
 ## Invariants enforced by code
 
@@ -106,13 +113,16 @@ Consequences worth knowing:
    and `--action sweep` reconciles the full paginated PR history on each scheduled
    run. Each retry has a new dispatch key, so a retry cannot rediscover the
    previous finished session and stall.
-9. **Discovery yields to real work.** Project discovery is only dispatched when
-   no concrete task is queued, and a merged discovery pull request has its
-   proposals imported into the queue by `import_discovery_tasks.py`. Only a newly
-   matched completion imports proposals, so repeated sweeps cannot import the
-   next ten findings from an old PR. Completion and import are staged together;
-   malformed JSON fails without committing either. Fix its PR body and rerun
-   Autonomous Next Task instead of losing the backlog.
+9. **Research yields to concrete eligible work.** `research_cycle.py` creates one
+   scoped investigation only when no eligible task or active session remains.
+   Research is read-only and returns its report in the completed session, without
+   a fictitious PR. `complete_jules_task.py` binds the exact session/dispatch,
+   reads every activity page, selects the latest marked report and persists its
+   findings with its outcome as one validated transaction. Repeated completion
+   does not duplicate tasks. API failures leave the queue unchanged; malformed
+   reports consume a bounded attempt, never pretend to be `no_change`.
+   Findings in older merged PRs still use the same bounded importer and exact
+   attempt matching; malformed PR JSON prevents partial completion/import.
 10. **Scope is checked, not trusted.** `check_change_scope.py` rejects anything
     outside `product.editable_globs` and anything in `product.excluded`.
 11. **Sensitive paths need you.** Files in `product.manual_review_paths` (the
@@ -124,6 +134,36 @@ Consequences worth knowing:
     exact Linux/Windows and evidence check names. Autonomous Control CI executes
     regressions and parses workflows; source-text matches are not proof that a
     workflow enforces these contracts.
+
+## Research cadence and saved results
+
+`autonomous-project.json.research` defines six product areas (terminal, sessions,
+workspace, settings, diagnostics and transcript) and four perspectives (behavior,
+reliability, performance and UX). Green quality checks do not end the lab: a
+measured limitation or a useful missing behavior can justify an implementation
+task without inventing a failing linter. Only concrete observed findings become
+work; unconfirmed ideas remain `next_hypotheses`.
+
+The planner prefers unvisited area/perspective pairs, then the least recently
+investigated pair. It fingerprints only tracked, permitted product blobs;
+queue/control commits and untracked fixtures do not reset coverage. A changed
+area can be investigated immediately after a successful report. Unchanged areas
+and unsuccessful attempts wait 24 hours before a new investigation of that pair.
+At most 24 new investigations are scheduled in a rolling 24-hour window; each
+still has the existing bounded attempt budget. Concrete tasks bypass research
+throttling. The planner reports the next eligible time instead of filling a quota.
+
+Each investigation keeps `research` (area, perspective, fingerprint, cycle and
+bounded previous reports) and `research_result` (summary, scenario/evidence/result
+observations, next hypotheses, linked task IDs and completion time). Findings
+outside the execution boundary remain `deferred_findings` with their paths,
+acceptance criteria and exclusion reason; they are visible but never dispatched.
+`researched` means findings were recorded; `no_change` requires real observations
+and an empty findings list. Neither is proof that a release is verified.
+
+The seed queue is empty; the planner creates the first scoped investigation.
+Preparing the lab preserves an existing queue and its history rather than
+replacing them with the seed. Prior reports survive controller restarts.
 
 ## One-time owner setup
 
@@ -159,30 +199,37 @@ Until step 5 the loop is completely inert: every scheduled job is gated on
 
 ## Day-to-day
 
-- **Autonomous Monitor** (every 3h, or on demand) reports queue lifecycle, open
-  pull requests, how far `autonomous/lab` is ahead of `main`, and warns when
-  pull requests merge but no task is marked done.
-- **Autonomous Next Task** (every 30 min) dispatches at most one task while no
-  autonomous pull request is open.
-- **Autonomous Replenish** (every 6h) refills the queue from real eslint and tsc
-  diagnostics only. No speculative work is ever queued.
+- **Autonomous Monitor** (every 3h, or on demand) reports queue lifecycle, PRs,
+  branch/entry-point drift and the planner's next decision in read-only preview.
+- **Autonomous Next Task** (every 30 min) reconciles PR outcomes, plans research
+  when concrete work runs out and starts or polls one worker. Draft PRs and PRs
+  carrying a configured blocking label do not occupy the active-work slot.
+- **Autonomous Replenish** (every 6h) remains an additional source of concrete
+  ESLint/TypeScript diagnostic tasks, not the only reason the lab may do work.
 
 ### Accepting something the loop cannot merge alone
 
-A pull request labelled `human-review` is waiting for you. Review it, and if you
-want it in, merge it yourself. Do not remove the label to make the robot merge
-it - the label is a stop sign, not a switch.
+A draft PR or a PR with a configured blocking label (`human-review`, `hold`,
+`do-not-merge`, `wip`) is parked as `blocked / awaiting_review / review_required`.
+It remains available for later inspection while unrelated work continues. Its
+eventual merge or close resolves the same attempt without charging another one.
+Review it and merge it yourself when appropriate; do not remove the label or
+weaken the evidence gate just to make automation accept it.
 
-### Deciding on a release
+### Inspecting results and deciding on a release
 
-Run **Autonomous Release Review**. It pins `autonomous/lab` to one commit,
-dispatches the existing Quality Gate and requires that run to have executed on
-exactly that commit, then reports the diff, the merged pull requests and the
-verification result for that same commit. If the branch moves mid-review, the
-review fails instead of pairing a green run with a different tree. The downloaded
-report itself says **NOT VERIFIED** unless the reviewed SHA has a successful
-verification. Git/resolve failures produce a failure artifact too; upload runs
-even when report generation fails after checkout.
+Run **Autonomous Release Review** with its default `run_quality_gate = false`
+for a lightweight on-demand report: investigations, observations, deferred
+proposals, linked task/PR outcomes and the accumulated product diff. The queue is
+read from `agent_tasks.json` in the exact reviewed Git commit, never from a moving
+worktree. The report bounds and escapes worker prose; the full history remains
+in that commit's queue. Inspection does not stop the lab or publish anything.
+
+For release-readiness review, enable `run_quality_gate`. The existing Quality
+Gate must verify exactly the pinned SHA. If the branch moves, a green result for
+another commit is not accepted. The downloadable report says **NOT VERIFIED**
+without that exact-SHA successful verification. Git/resolve failures produce a
+failure artifact too; upload runs even when generation fails after checkout.
 
 Releasing itself stays manual and unchanged: your existing release workflows,
 your decision, your version bump.
@@ -215,4 +262,8 @@ loop is off.
   path if that transaction did not finish, within 30 minutes.
 - **A fallback API key is only used when the primary key fails**, not for load
   balancing.
-- **Merged discovery proposals are capped** at 10 new tasks per pull request.
+- **Findings are bounded** at 10 new tasks per report/PR. Missing fields or an
+  overflow are not accepted as successful partial research. Prior-report context
+  is capped at three reports and 24,000 JSON characters; full reports remain in
+  queue history. Research quality still depends on the worker's actual evidence;
+  orchestration cannot itself guarantee a useful product improvement.

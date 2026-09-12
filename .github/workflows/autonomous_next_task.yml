@@ -1,7 +1,7 @@
 name: Autonomous Next Task
 
-# Picks one evidence-backed task, asks the AI worker to implement it on the
-# integration branch, and closes the task once the work comes back.
+# Researches the next product area when concrete work runs out, dispatches one
+# worker, and records its observations, proposed tasks and implementation result.
 #
 # Two checkouts on purpose:
 #   control/ - the control plane, always read from the default branch, so the
@@ -43,7 +43,8 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: autonomous-next-task
+  group: autonomous-lab-queue
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -101,6 +102,7 @@ jobs:
             --manifest queue-staged.json \
             --body-file pr-body.txt \
             --max-new 10 \
+            --config control/autonomous-project.json \
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Validate the task queue
@@ -181,17 +183,18 @@ jobs:
           # event, so the queue is reconciled against the real state of the pull
           # requests rather than against an event that may never arrive. Without
           # this, finished work would later be mistaken for an abandoned session.
-          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number, state, title, body, merged: (.merged_at != null)}' | jq -s '.' > pull-requests.json
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number, state, title, body, merged: (.merged_at != null), labels: [.labels[]?.name], draft}' | jq -s '.' > pull-requests.json
           cp lab/agent_tasks.json queue-staged.json
           python3 control/scripts/autonomous/task_lifecycle.py \
             --manifest queue-staged.json \
             --action sweep \
+            --config control/autonomous-project.json \
             --pull-requests pull-requests.json \
             --github-output "${GITHUB_OUTPUT}" > sweep-result.json
           cat sweep-result.json
           while IFS= read -r number; do
             jq -r --argjson number "${number}" '.[] | select(.number == $number) | .body // ""' pull-requests.json > pr-body.txt
-            python3 control/scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10
+            python3 control/scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10 --config control/autonomous-project.json
           done < <(jq -r '.changes[]? | select(.outcome == "merged") | .pull_request' sweep-result.json)
           python3 control/scripts/autonomous/validate_tasks.py queue-staged.json
           cp queue-staged.json lab/agent_tasks.json
@@ -199,13 +202,28 @@ jobs:
       - name: Validate the task queue
         run: python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
 
-      - name: Count open autonomous pull requests
+      - name: Count active autonomous pull requests
         id: open_prs
         run: |
           set -euo pipefail
-          count=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --json number --jq 'length')
+          blocked=$(jq -c '.automation.blocking_labels' control/autonomous-project.json)
+          count=$(jq --argjson blocked "${blocked}" '[.[] | select(.state == "open" and .draft != true) | select(any(.labels[]?; . as $label | $blocked | index($label)) | not)] | length' pull-requests.json)
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
-          echo "Open pull requests into ${INTEGRATION_BRANCH}: ${count}"
+          echo "Active pull requests into ${INTEGRATION_BRANCH}: ${count} (deferred proposals do not block research)"
+
+      - name: Plan the next product investigation when concrete work runs out
+        id: research
+        if: steps.open_prs.outputs.count == '0'
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/research_cycle.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --repo lab \
+            --focus "${FOCUS}" \
+            --risk-ceiling "${RISK_CEILING:-medium}" \
+            --task-id "${TASK_ID}" \
+            --github-output "${GITHUB_OUTPUT}"
 
       - name: Select the next task
         id: select
@@ -254,23 +272,20 @@ jobs:
             --dispatch-key "${DISPATCH_KEY}" \
             --github-output "${GITHUB_OUTPUT}"
 
-      - name: Record the result of an already completed session
+      - name: Collect completed session findings and record their outcome
         id: already_done
         if: ${{ steps.jules.outputs.dispatch_result == 'already_completed' }}
         env:
           SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
         run: |
           set -euo pipefail
-          if jq -e 'any(.outputs[]?; .pullRequest != null)' jules-response.json > /dev/null; then
-            echo "The completed session produced a pull request; the API sweep will record its actual outcome."
-            exit 0
-          fi
-          python3 control/scripts/autonomous/task_lifecycle.py \
+          python3 control/scripts/autonomous/complete_jules_task.py \
             --manifest lab/agent_tasks.json \
-            --action complete \
+            --config control/autonomous-project.json \
             --task-id "${SELECTED_TASK_ID}" \
-            --outcome no_change \
-            --note "the worker session for this task had already finished" \
+            --session-file jules-response.json \
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Record a task whose worker session failed
@@ -324,6 +339,11 @@ jobs:
           REASON_CODE: ${{ steps.select.outputs.reason_code }}
           TODO_COUNT: ${{ steps.select.outputs.todo_count }}
           DEFERRED_DISCOVERY: ${{ steps.select.outputs.deferred_discovery }}
+          RESEARCH_REASON: ${{ steps.research.outputs.research_reason }}
+          RESEARCH_TASK_ID: ${{ steps.research.outputs.research_task_id }}
+          RESEARCH_NEXT_AT: ${{ steps.research.outputs.research_next_at }}
+          COMPLETION_REASON: ${{ steps.already_done.outputs.lifecycle_reason }}
+          IMPORTED_COUNT: ${{ steps.already_done.outputs.imported_count }}
           SWEEP_REASON: ${{ steps.sweep.outputs.lifecycle_reason }}
           SWEEP_TASK_ID: ${{ steps.sweep.outputs.lifecycle_task_id }}
           RECONCILE_REASON: ${{ steps.reconcile.outputs.lifecycle_reason }}
@@ -336,13 +356,16 @@ jobs:
             echo ""
             echo "- Integration branch: ${INTEGRATION_BRANCH}"
             echo "- Control plane: read from main"
-            echo "- Open autonomous pull requests: ${OPEN_PRS:-unknown}"
+            echo "- Active autonomous pull requests: ${OPEN_PRS:-unknown} (deferred proposals excluded)"
             echo "- Queue depth (todo): ${TODO_COUNT:-unknown}"
             echo "- Finished pull requests swept: ${SWEEP_REASON:-none} (${SWEEP_TASK_ID:-no task})"
             echo "- Abandoned work released: ${RECONCILE_REASON:-none}"
             echo "- Task selected: ${SELECTED:-false} (${REASON_CODE:-skipped_open_pull_request})"
             echo "- Task id: ${SELECTED_TASK_ID:-none}"
             echo "- Discovery deferred for real work: ${DEFERRED_DISCOVERY:-false}"
+            echo "- Research planner: ${RESEARCH_REASON:-not run} (${RESEARCH_TASK_ID:-no new task})"
+            echo "- Next eligible investigation: ${RESEARCH_NEXT_AT:-now or existing work first}"
+            echo "- Completed session: ${COMPLETION_REASON:-none}; findings imported: ${IMPORTED_COUNT:-0}"
             echo "- Worker dispatch: ${DISPATCH_RESULT:-none} (session ${SESSION_ID:-none}, state ${SESSION_STATE:-none})"
             echo "- Releases: disabled by policy, human-gated"
           } >> "${GITHUB_STEP_SUMMARY}"

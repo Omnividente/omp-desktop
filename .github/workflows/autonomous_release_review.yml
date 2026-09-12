@@ -1,8 +1,8 @@
 name: Autonomous Release Review
 
-# The human gate. Run this whenever you want to review what the loop has
-# accumulated and decide whether to release. It only produces a report - it
-# never bumps versions, creates tags, or publishes anything.
+# Inspect accumulated research, proposals and changes whenever needed. Enable
+# the optional Quality Gate for a release-readiness review. Inspection itself
+# only produces a report; it never bumps versions, tags or publishes anything.
 #
 # Everything in this workflow is pinned to one commit. The revision is resolved
 # once, the Quality Gate run is required to have executed on exactly that
@@ -18,17 +18,17 @@ on:
   workflow_dispatch:
     inputs:
       base:
-        description: Release branch to compare against
+        description: Baseline branch or commit to compare against
         type: string
         default: main
       head:
-        description: Integration branch to review
+        description: Lab branch or commit to inspect
         type: string
         default: autonomous/lab
       run_quality_gate:
-        description: Run the Quality Gate on the reviewed commit
+        description: Also verify release readiness with the Quality Gate
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -115,7 +115,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   report:
-    name: Build the release decision report
+    name: Build the lab findings and release decision report
     needs:
       - resolve
       - verify

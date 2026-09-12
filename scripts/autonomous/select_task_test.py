@@ -12,11 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from select_task import select  # noqa: E402
 
 
-def manifest(*tasks, min_todo: int = 3, max_attempts: int = 2) -> dict:
+def manifest(*tasks, max_attempts: int = 2) -> dict:
     return {
         "version": 2,
         "autonomous_loop_policy": {
-            "min_todo_tasks": min_todo,
             "lifecycle": {"max_attempts": max_attempts},
         },
         "tasks": list(tasks),
@@ -78,6 +77,15 @@ class InFlightTest(unittest.TestCase):
         self.assertEqual(result["reason_code"], "work_in_progress")
         self.assertEqual(result["task_id"], "auto-1")
 
+
+    def test_deferred_review_does_not_block_unrelated_work(self):
+        data = manifest(
+            task("review", status="blocked", execution={
+                "state": "awaiting_review", "outcome": "review_required",
+            }),
+            task("next"),
+        )
+        self.assertEqual(select(data)["task_id"], "next")
 
 class EligibilityTest(unittest.TestCase):
     def test_priority_then_age_decides_between_concrete_tasks(self):
@@ -151,18 +159,6 @@ class ExplicitTaskTest(unittest.TestCase):
         data = manifest(task("a", risk="high"))
         result = select(data, task_id="a", risk_ceiling="low")
         self.assertEqual(result["reason_code"], "explicit_task_ineligible")
-
-
-class ReplenishmentTest(unittest.TestCase):
-    def test_thin_queue_asks_for_replenishment(self):
-        data = manifest(task("a"), min_todo=3)
-        result = select(data)
-        self.assertTrue(result["replenishment_required"])
-        self.assertEqual(result["todo_count"], 1)
-
-    def test_healthy_queue_does_not(self):
-        data = manifest(task("a"), task("b"), task("c"), min_todo=3)
-        self.assertFalse(select(data)["replenishment_required"])
 
 
 class PurityTest(unittest.TestCase):

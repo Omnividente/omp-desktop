@@ -37,6 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_tasks import (  # noqa: E402
     VALID_RISKS, VALID_TASK_TYPES, validate,
 )
+from check_change_scope import evaluate as evaluate_scope  # noqa: E402
+from task_lifecycle import find_task, match_task  # noqa: E402
 
 BEGIN = "AUTONOMOUS_TASKS_BEGIN"
 END = "AUTONOMOUS_TASKS_END"
@@ -131,12 +133,15 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
         risk = "low"
     try:
         priority = int(entry.get("priority", DEFAULT_PRIORITY))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         priority = DEFAULT_PRIORITY
     priority = max(1, min(90, priority))
     focus = entry.get("focus")
     if not isinstance(focus, list):
         focus = ["quality"]
+    acceptance = entry.get("acceptance")
+    if not isinstance(acceptance, list):
+        acceptance = []
     task_id = str(entry.get("id") or "").strip() or ("discovery-" + _fingerprint(title))
     return {
         "id": task_id,
@@ -148,59 +153,116 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
         "focus": [str(item) for item in focus],
         "created_at": now,
         "acceptance": [
-            str(item) for item in (entry.get("acceptance") or [])
+            str(item) for item in acceptance
         ] or ["A failing-first regression test proves the change"],
         "evidence": {
             "source": str(evidence.get("source") or "project_discovery"),
             "detail": detail,
         },
+        **({"target_paths": list(entry["target_paths"])}
+           if isinstance(entry.get("target_paths"), list) else {}),
     }
+
+
+def finding_error(entry: Mapping[str, Any], config: Mapping[str, Any]) -> str:
+    """Worker output cannot expand the trusted product or execution boundary."""
+    for field in ("title",):
+        if not isinstance(entry.get(field), str) or not entry[field].strip():
+            return "missing_" + field
+    evidence = entry.get("evidence")
+    if not isinstance(evidence, dict) or any(
+        not isinstance(evidence.get(field), str) or not evidence[field].strip()
+        for field in ("source", "detail")
+    ):
+        return "missing_evidence"
+    for field in ("acceptance", "target_paths"):
+        values = entry.get(field)
+        if not isinstance(values, list) or not values or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            return "missing_" + field
+    if entry.get("task_type") == "project_discovery":
+        return "unsafe_discovery_child"
+    task_type = entry.get("task_type", "product_improvement")
+    if not isinstance(task_type, str) or task_type not in VALID_TASK_TYPES:
+        return "invalid_task_type"
+    risk = entry.get("risk", "low")
+    ranks = {"low": 0, "medium": 1, "high": 2}
+    if not isinstance(risk, str) or risk not in ranks:
+        return "invalid_risk"
+    if ranks[risk] > ranks.get(config.get("risk_ceiling", "medium"), 1):
+        return "unsafe_risk"
+    paths = entry["target_paths"]
+    if any(path != path.strip() or "\\" in path or ":" in path or path.startswith("/")
+           or any(part in ("", ".", "..") for part in path.split("/"))
+           or any(char in path for char in "*?[]") for path in paths):
+        return "unsafe_target_paths"
+    if not (config.get("product") or {}).get("editable_globs"):
+        return "unsafe_missing_product_scope"
+    if not evaluate_scope(config, paths)["allowed"]:
+        return "unsafe_product_scope"
+    return ""
 
 
 def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
-                 now: str | None = None) -> dict:
+                 now: str | None = None, config: Mapping[str, Any] | None = None,
+                 origin: Mapping[str, str] | None = None) -> dict:
     stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     block = parse_block(body)
-    if block["status"] == STATUS_MALFORMED:
-        return {
-            "changed": False, "added": [], "skipped": [],
-            "status": STATUS_MALFORMED, "detail": block["detail"],
-        }
     tasks = manifest.get("tasks", [])
-    known_ids = {str(t.get("id")) for t in tasks if isinstance(t, dict)}
-    known_titles = {
-        str(t.get("title") or "").strip().lower() for t in tasks if isinstance(t, dict)
-    }
-    pending = []
-
-    added, skipped = [], []
+    known_ids = {str(t.get("id")): t for t in tasks if isinstance(t, dict)}
+    known_titles = {str(t.get("title") or "").strip().lower(): str(t.get("id"))
+                    for t in tasks if isinstance(t, dict)}
+    pending, added, skipped, duplicates, deferred = [], [], [], [], []
+    invalid = block["status"] == STATUS_MALFORMED
     for entry in block["entries"]:
         candidate = normalize(entry, now=stamp)
-        if not candidate["title"]:
-            skipped.append({"id": candidate["id"], "reason": "missing_title"})
+        reason = finding_error(entry, config) if config is not None else (
+            "missing_title" if not candidate["title"] else
+            "missing_evidence" if not candidate["evidence"]["detail"] else ""
+        )
+        if reason:
+            skipped.append({"id": candidate["id"], "reason": reason})
+            invalid = invalid or not reason.startswith("unsafe_")
+            if reason.startswith("unsafe_"):
+                deferred.append({"title": candidate["title"], "reason": reason,
+                                 "evidence": candidate["evidence"]["detail"],
+                                 "target_paths": candidate["target_paths"],
+                                 "acceptance": candidate["acceptance"]})
             continue
-        if not candidate["evidence"]["detail"]:
-            skipped.append({"id": candidate["id"], "reason": "missing_evidence"})
+        existing = known_ids.get(candidate["id"])
+        title = candidate["title"].strip().lower()
+        if existing is not None:
+            if config is not None and str(existing.get("title") or "").strip().lower() != title:
+                skipped.append({"id": candidate["id"], "reason": "conflicting_id"})
+                invalid = True
+            else:
+                skipped.append({"id": candidate["id"], "reason": "duplicate_id"})
+                duplicates.append(candidate["id"])
             continue
-        if candidate["id"] in known_ids:
-            skipped.append({"id": candidate["id"], "reason": "duplicate_id"})
-            continue
-        if candidate["title"].strip().lower() in known_titles:
+        if title in known_titles:
             skipped.append({"id": candidate["id"], "reason": "duplicate_title"})
+            duplicates.append(known_titles[title])
             continue
         if len(added) >= max_new:
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
+            invalid = True
             continue
+        if origin:
+            candidate["origin"] = dict(origin)
         pending.append(candidate)
-        known_ids.add(candidate["id"])
-        known_titles.add(candidate["title"].strip().lower())
+        known_ids[candidate["id"]] = candidate
+        known_titles[title] = candidate["id"]
         added.append(candidate["id"])
 
+    if config is not None and invalid:
+        return {"changed": False, "added": [], "duplicates": duplicates, "skipped": skipped,
+                "status": STATUS_MALFORMED, "detail": "incomplete or unsafe discovery findings"}
     if pending:
         manifest.setdefault("tasks", []).extend(pending)
-
     return {
-        "changed": bool(added), "added": added, "skipped": skipped,
+        "changed": bool(added), "added": added, "duplicates": duplicates, "skipped": skipped,
+        "deferred": deferred,
         "status": block["status"], "detail": block["detail"],
     }
 
@@ -208,6 +270,8 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--source-task-id", default="")
     parser.add_argument("--body-file", type=Path)
     parser.add_argument("--body", default="")
     parser.add_argument("--max-new", type=int, default=DEFAULT_MAX_NEW)
@@ -220,7 +284,18 @@ def main(argv=None) -> int:
         body = args.body_file.read_text(encoding="utf-8")
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    result = import_tasks(manifest, body, max_new=args.max_new)
+    config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
+    source = (find_task(manifest, args.source_task_id) if args.source_task_id
+              else match_task(manifest, body=body)[0])
+    if args.source_task_id and source is None:
+        print("::error::discovery source task was not found", file=sys.stderr)
+        return 1
+    origin = None
+    if source is not None:
+        execution = source.get("execution") or {}
+        origin = {"task_id": source["id"], "session_id": str(execution.get("session_id") or ""),
+                  "dispatch_key": str(execution.get("dispatch_key") or "")}
+    result = import_tasks(manifest, body, max_new=args.max_new, config=config, origin=origin)
 
     if result["changed"]:
         errors = validate(manifest)

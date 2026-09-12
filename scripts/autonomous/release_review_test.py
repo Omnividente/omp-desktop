@@ -2,6 +2,7 @@
 """Exercise the downloadable report with real commits and real Git failures."""
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,7 @@ class DownloadedReportTest(unittest.TestCase):
             ).strip()
 
         def commit(message):
-            git("add", "change.txt")
+            git("add", "-A")
             git("-c", "user.name=Release Review Test", "-c", "user.email=test@example.invalid",
                 "-c", "commit.gpgsign=false", "commit", "--no-verify", "-qm", message)
             return git("rev-parse", "HEAD")
@@ -33,10 +34,21 @@ class DownloadedReportTest(unittest.TestCase):
         (cls.repo / "change.txt").write_text("before\n", encoding="utf-8")
         cls.base = commit("Baseline")
         (cls.repo / "change.txt").write_text("after\n", encoding="utf-8")
+        (cls.repo / "agent_tasks.json").write_text(json.dumps({"tasks": [
+            {"id": "research-1", "status": "done", "task_type": "project_discovery",
+             "execution": {"state": "completed", "outcome": "researched"}, "research_result": {
+                 "summary": "Observed <unsafe>\nline", "observations": [{"scenario": "x", "evidence": "<b>bad</b>", "result": "no-change"}],
+                 "next_hypotheses": ["[fake](https://example.invalid) @owner"], "proposed_task_ids": ["proposal-1"]}},
+            {"id": "proposal-1", "status": "blocked", "task_type": "bugfix",
+             "execution": {"state": "awaiting_review", "outcome": "review_required", "pull_request": 42}, "title": "proposal"},
+            {"id": "nothing-1", "status": "done", "task_type": "project_discovery",
+             "execution": {"state": "completed", "outcome": "no_change"}},
+        ]}), encoding="utf-8")
         cls.head = commit("Reviewed change")
         git("checkout", "--orphan", "unrelated", "--quiet")
         (cls.repo / "change.txt").write_text("unrelated\n", encoding="utf-8")
         cls.unrelated = commit("Unrelated history")
+        
 
     def report(self, *extra):
         output = self.repo / "release-review.md"
@@ -51,6 +63,25 @@ class DownloadedReportTest(unittest.TestCase):
     def assert_unverified(self, report):
         self.assertIn("NOT VERIFIED", report)
         self.assertNotIn("- [x]", report)
+    def test_lab_is_read_from_reviewed_sha_and_text_is_safe(self):
+        (self.repo / "agent_tasks.json").write_text('{"tasks":[{"id":"working-tree","status":"done"}]}', encoding="utf-8")
+        result, report = self.report()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("research-1", report)
+        self.assertNotIn("working-tree", report)
+        self.assertIn("review&#95;required", report)
+        self.assertNotIn("<b>bad</b>", report)
+        self.assertIn("&lt;b&gt;bad&lt;/b&gt;", report)
+        self.assertIn("Pull request: #42", report)
+        self.assertIn("Linked task: proposal-1", report)
+        self.assertNotIn("[fake](", report)
+        self.assertNotIn("@owner", report)
+
+    def test_legacy_review_without_queue_is_explicit(self):
+        result, report = self.report("--head-sha", self.base)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("agent_tasks.json", report)
+        self.assertIn("absent", report)
 
     def test_only_success_on_the_exact_reviewed_commit_checks_verification(self):
         result, report = self.report("--verify-result", "success", "--verified-sha", self.head)

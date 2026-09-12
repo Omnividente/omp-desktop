@@ -15,16 +15,8 @@
     "notes": "The loop must never bump versions, create tags/GitHub Releases, publish artifacts, or edit release/updater workflows. A human operator reviews the integration branch and decides releases."
   },
   "product": {
-    "roots": [
-      "src",
-      "src-tauri/src",
-      "src-tauri/tests"
-    ],
-    "editable_globs": [
-      "src/**",
-      "src-tauri/src/**",
-      "src-tauri/tests/**"
-    ],
+    "roots": ["src", "src-tauri/src", "src-tauri/tests"],
+    "editable_globs": ["src/**", "src-tauri/src/**", "src-tauri/tests/**"],
     "excluded": [
       ".git/",
       ".github/workflows/**",
@@ -41,6 +33,7 @@
       "src-tauri/Cargo.lock",
       "src-tauri/tauri.conf.json",
       "src-tauri/tauri.updater-e2e.conf.json",
+      "src-tauri/src/secrets.rs",
       "**/*.png",
       "**/*.ico",
       "**/*.icns"
@@ -62,24 +55,11 @@
   "merge_gate": {
     "require_regression_test": true,
     "evidence_check_name": "Autonomous Evidence Gate",
-    "manual_approval_labels": [
-      "approved-by-owner"
-    ],
-    "test_globs": [
-      "*.test.ts",
-      "*.test.tsx",
-      "*.spec.ts",
-      "*.spec.tsx",
-      "src-tauri/tests/**"
-    ],
+    "manual_approval_labels": ["approved-by-owner"],
+    "test_globs": ["*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx", "src-tauri/tests/**"],
     "notes": "A pull request may only merge when every required_check_names check run and the evidence_check_name check run are green for the exact revision being merged. manual_approval_labels are a signal for humans, not an approval: only a review approval recorded against that revision by an owner_approvers login can release a manual-review pull request, because a label survives a force-push. A diff larger than max_changed_files, or one whose file list cannot be proven complete, is never merged unattended.",
-    "required_check_names": [
-      "Checks (ubuntu-latest)",
-      "Checks (windows-latest)"
-    ],
-    "owner_approvers": [
-      "Omnividente"
-    ],
+    "required_check_names": ["Checks (ubuntu-latest)", "Checks (windows-latest)"],
+    "owner_approvers": ["Omnividente"],
     "max_changed_files": 200
   },
   "validation": {
@@ -87,49 +67,31 @@
     "commands": [
       {
         "name": "install",
-        "cmd": [
-          "npm",
-          "ci"
-        ],
+        "cmd": ["npm", "ci"],
         "timeout_seconds": 600,
         "required": true
       },
       {
         "name": "typecheck",
-        "cmd": [
-          "npm",
-          "run",
-          "typecheck"
-        ],
+        "cmd": ["npm", "run", "typecheck"],
         "timeout_seconds": 300,
         "required": true
       },
       {
         "name": "lint",
-        "cmd": [
-          "npm",
-          "run",
-          "lint"
-        ],
+        "cmd": ["npm", "run", "lint"],
         "timeout_seconds": 300,
         "required": true
       },
       {
         "name": "test",
-        "cmd": [
-          "npm",
-          "test"
-        ],
+        "cmd": ["npm", "test"],
         "timeout_seconds": 600,
         "required": true
       },
       {
         "name": "build",
-        "cmd": [
-          "npm",
-          "run",
-          "build"
-        ],
+        "cmd": ["npm", "run", "build"],
         "timeout_seconds": 600,
         "required": true
       }
@@ -140,31 +102,119 @@
     "require_evidence": true,
     "one_task_per_defect_class": true,
     "ban_repeat_without_new_evidence": true,
-    "require_regression_test_for_bugfix": true,
-    "min_todo_tasks": 3
+    "require_regression_test_for_bugfix": true
+  },
+  "research": {
+    "enabled": true,
+    "revisit_after_hours": 24,
+    "max_sessions_per_day": 24,
+    "areas": [
+      {
+        "id": "terminal-input",
+        "title": "Terminal input, output and continuity",
+        "paths": [
+          "src/TerminalView.tsx",
+          "src/terminalInput.ts",
+          "src/terminalShortcuts.ts",
+          "src/terminalContinuity.ts",
+          "src/terminalOutputBatcher.ts",
+          "src-tauri/src/terminal.rs"
+        ]
+      },
+      {
+        "id": "sessions-persistence",
+        "title": "Session lifecycle, import and persistence",
+        "paths": [
+          "src/SessionControls.tsx",
+          "src/SessionList.tsx",
+          "src/SessionRow.tsx",
+          "src/ImportSessionModal.tsx",
+          "src/CodexImportModal.tsx",
+          "src-tauri/src/sessions.rs",
+          "src-tauri/src/session_lease.rs"
+        ]
+      },
+      {
+        "id": "workspace-navigation",
+        "title": "Workspace navigation and project switching",
+        "paths": [
+          "src/WorkspaceHome.tsx",
+          "src/ProjectRail.tsx",
+          "src/TerminalWorkspace.tsx",
+          "src/Topbar.tsx",
+          "src/App.tsx"
+        ]
+      },
+      {
+        "id": "settings-models",
+        "title": "Settings recovery and model selection",
+        "paths": [
+          "src/SettingsPanel.tsx",
+          "src/SettingsRecoveryScreen.tsx",
+          "src/ModelPicker.tsx",
+          "src-tauri/src/settings.rs",
+          "src-tauri/src/models.rs"
+        ]
+      },
+      {
+        "id": "diagnostics-resources",
+        "title": "Runtime incidents and resource health",
+        "paths": [
+          "src/IncidentCenter.tsx",
+          "src/ResourceHealthPanel.tsx",
+          "src/runtimeIncidents.ts",
+          "src/runtimeEvents.ts",
+          "src/resourceHealth.ts",
+          "src-tauri/src/diagnostics.rs",
+          "src-tauri/src/resource_health.rs"
+        ]
+      },
+      {
+        "id": "transcript-links",
+        "title": "Transcript rendering, scrolling and content links",
+        "paths": [
+          "src/TranscriptModal.tsx",
+          "src/useTranscript.ts",
+          "src/useVirtualList.ts",
+          "src/LinkedText.tsx",
+          "src/contentLinks.ts",
+          "src-tauri/src/content_links.rs"
+        ]
+      }
+    ],
+    "perspectives": [
+      {
+        "id": "behavior",
+        "title": "Observable behavior and contracts",
+        "focus": ["quality", "bugfix", "tests", "compat"],
+        "instruction": "Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate."
+      },
+      {
+        "id": "reliability",
+        "title": "Failure recovery and persistence",
+        "focus": ["quality", "bugfix", "tests", "compat"],
+        "instruction": "Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations."
+      },
+      {
+        "id": "performance",
+        "title": "Measured responsiveness and resource use",
+        "focus": ["perf", "quality", "refactor"],
+        "instruction": "Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark."
+      },
+      {
+        "id": "ux",
+        "title": "Interaction clarity and accessibility",
+        "focus": ["a11y", "i18n", "quality", "bugfix"],
+        "instruction": "Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis."
+      }
+    ]
   },
   "automation": {
     "ai_worker": "jules",
-    "allowed_pr_authors": [
-      "google-labs-jules[bot]"
-    ],
+    "allowed_pr_authors": ["google-labs-jules[bot]"],
     "max_open_pull_requests": 1,
-    "blocking_labels": [
-      "hold",
-      "do-not-merge",
-      "human-review",
-      "wip"
-    ]
+    "blocking_labels": ["hold", "do-not-merge", "human-review", "wip"]
   },
-  "task_focus": [
-    "quality",
-    "tests",
-    "bugfix",
-    "refactor",
-    "a11y",
-    "i18n",
-    "perf",
-    "compat"
-  ],
+  "task_focus": ["quality", "tests", "bugfix", "refactor", "a11y", "i18n", "perf", "compat"],
   "risk_ceiling": "medium"
 }

@@ -99,6 +99,7 @@ jobs:
           finished=$(jq '[.tasks[] | select(.status == "done")] | length' lab/agent_tasks.json)
           blocked=$(jq '[.tasks[] | select(.status == "blocked")] | length' lab/agent_tasks.json)
           python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --json > selection.json
+          python3 control/scripts/autonomous/research_cycle.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --dry-run > research-preview.json
           {
             echo "### Autonomous loop health"
             echo ""
@@ -116,9 +117,15 @@ jobs:
             cat selection.json
             echo '```'
             echo ""
+            echo "Next research decision (preview only; this monitor does not change the queue):"
+            echo ""
+            echo '```json'
+            cat research-preview.json
+            echo '```'
+            echo ""
             if [ "${finished}" = "0" ] && [ "${merged_prs}" != "0" ]; then
               echo "**Warning:** pull requests have merged but no task is marked done. The lifecycle is not closing tasks."
               echo ""
             fi
-            echo "Run **Autonomous Release Review** when you want to decide on a release."
+            echo "Run **Autonomous Release Review** to inspect accumulated lab findings and proposals. Quality Gate verification is optional for inspection and required before accepting release readiness."
           } >> "${GITHUB_STEP_SUMMARY}"

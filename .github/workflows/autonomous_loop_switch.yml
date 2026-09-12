@@ -38,7 +38,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: autonomous-loop-switch
+  group: autonomous-lab-queue
+  queue: max
   cancel-in-progress: false
 
 jobs:
