@@ -1,0 +1,71 @@
+name: Autonomous Control CI
+
+# Self-tests for the autonomous control plane.
+#
+# Run executable policy, queue and merge-decision regressions. Source-text
+# matches cannot establish that the workflow actually enforces those contracts.
+
+on:
+  pull_request:
+    paths:
+      - autonomous-project.json
+      - agent_tasks.json
+      - scripts/autonomous/**
+      - docs/autonomous/**
+      - .github/workflows/autonomous_*.yml
+  push:
+    branches:
+      - main
+      - autonomous/lab
+    paths:
+      - autonomous-project.json
+      - agent_tasks.json
+      - scripts/autonomous/**
+      - docs/autonomous/**
+      - .github/workflows/autonomous_*.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  control-plane:
+    name: Validate the autonomous control plane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compile control-plane scripts
+        run: python3 -m py_compile scripts/autonomous/*.py
+
+      - name: Run control-plane unit tests
+        run: |
+          set -uo pipefail
+          status=0
+          for test in scripts/autonomous/*_test.py; do
+            echo "== ${test}"
+            python3 "${test}" || status=1
+          done
+          exit "${status}"
+
+      - name: Validate configuration and task queue
+        run: |
+          set -euo pipefail
+          python3 -c "import json; json.load(open('autonomous-project.json', encoding='utf-8'))"
+          python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch autonomous/lab
+          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+
+      - name: Parse every autonomous workflow
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+          python3 - <<'PY'
+          import glob
+          import yaml
+          for path in sorted(glob.glob(".github/workflows/autonomous_*.yml")):
+              with open(path, encoding="utf-8") as handle:
+                  yaml.safe_load(handle)
+              print("parsed " + path)
+          PY
