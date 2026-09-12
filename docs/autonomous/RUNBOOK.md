@@ -1,118 +1,136 @@
 # Autonomous improvement loop - runbook
 
-This repository runs an **optional, parallel** self-improvement loop. An AI worker
-(Google Jules by default) picks one evidence-backed task at a time, opens a pull
-request against a dedicated integration branch, and the existing `Quality Gate`
-workflow decides whether that pull request is allowed to land there.
+This is a **parallel** improvement track. It never releases, never bumps a
+version, and never pushes to `main`. It accumulates reviewed changes on
+`autonomous/lab`, and you decide - by hand, whenever you feel like it - whether
+any of it is worth releasing.
 
-The loop **never releases**. It cannot bump versions, create tags, publish
-releases, or touch release/updater files. Releasing stays a manual human
-decision, made periodically from the accumulated state of the integration
-branch.
-
-## Model
+## Architecture
 
 ```
-            agent_tasks.json  (queue, evidence-backed tasks only)
-                     |
-     Autonomous Next Task  --->  Jules session  --->  PR into autonomous/lab
-                     |                                        |
-                     |                                  Quality Gate (pr.yml)
-                     |                                        |
-                     |                              Autonomous Automerge
-                     |                              (scope gate + merge)
-                     v                                        v
-      Autonomous Replenish  <---- real eslint/tsc output ---- autonomous/lab
-                                                              |
-                                    Autonomous Release Review (manual, human)
-                                                              |
-                                          human decides: promote to main or keep iterating
+main            control plane (workflows, scripts, policy) + product
+  |  read-only for the loop
+  v
+autonomous/lab  accumulated improvements; carries only agent_tasks.json
+  ^
+  |  one pull request per task, squash-merged only when every gate passes
+AI worker (Jules)
 ```
 
-- `main` - normal development and releases. The loop never writes here.
-- `autonomous/lab` - the loop's integration branch. Everything the loop produces
-  accumulates here, reviewed and released only by a human.
+Every loop workflow performs **two checkouts**:
 
-## Components
+| Path       | Ref              | Purpose                                    |
+| ---------- | ---------------- | ------------------------------------------ |
+| `control/` | `main`           | scripts, `autonomous-project.json`, prompts |
+| `lab/`     | `autonomous/lab` | product tree and `agent_tasks.json`        |
 
-| File | Purpose |
-| --- | --- |
-| `autonomous-project.json` | Policy: integration branch, editable/excluded paths, validation commands, anti-churn rules, release automation disabled. |
-| `agent_tasks.json` | The task queue. Tasks require an `evidence` block. |
-| `scripts/autonomous/select_task.py` | Deterministic next-task selection (priority, risk ceiling, focus, exclusions). |
-| `scripts/autonomous/validate_tasks.py` | Schema + evidence validation of the queue. |
-| `scripts/autonomous/build_jules_request.py` | Renders the prompt template and builds the Jules `CreateSession` body with an idempotency marker. |
-| `scripts/autonomous/jules_dispatch.py` | Creates exactly one Jules session per task; reconciles instead of duplicating on retries. |
-| `scripts/autonomous/check_change_scope.py` | Hard gate: rejects any change outside product scope (release, version, workflow, control-plane files). |
-| `scripts/autonomous/replenish_tasks.py` | Turns real eslint/tsc diagnostics into evidence-backed tasks, one per defect class. |
-| `scripts/autonomous/release_review.py` | Builds the human release-decision report (diff of the integration branch vs `main`). |
+Consequences worth knowing:
 
-### Workflows
+- The loop cannot weaken its own rules. A pull request that edits
+  `scripts/autonomous/**` or `.github/workflows/**` can never be merged by the
+  loop, and even if it were, the loop would keep reading the version on `main`.
+- A fresh `autonomous/lab` does **not** need the control plane copied into it.
+  The only file it must carry is `agent_tasks.json`, which **Autonomous Loop
+  Switch** seeds for you (additively - an existing queue is never overwritten).
 
-| Workflow | Trigger | What it does |
-| --- | --- | --- |
-| `Autonomous Loop Switch` | manual | Sets the `JULES_LOOP_ENABLED` repository variable and creates `autonomous/lab` if missing. The master on/off switch. |
-| `Autonomous Next Task` | every 30 min, on PR closed into `autonomous/lab`, manual | Selects one task and dispatches a Jules session targeting `autonomous/lab`. |
-| `Autonomous Automerge` | on `Quality Gate` completion | Merges a green autonomous pull request **into `autonomous/lab` only**, after the scope gate passes. |
-| `Autonomous Replenish` | every 6 h, manual | Runs eslint/tsc on `autonomous/lab` and appends evidence-backed tasks to the queue. |
-| `Autonomous Monitor` | every 3 h, manual | Health report: queue depth, open autonomous pull requests, loop state. |
-| `Autonomous Release Review` | manual | Produces the release-decision report + checklist for a human (and an AI assistant) to review. |
-| `Quality Gate` (`pr.yml`, pre-existing) | every pull request | The product gate. Unchanged by this loop. |
+## Invariants enforced by code
 
-## One-time setup (repository owner only)
+1. **One revision, end to end.** `autonomous_automerge.yml` acts on the commit
+   the Quality Gate actually verified (`CI_SHA`). It aborts if the pull request
+   head has moved, derives the changed-file list from that commit, evaluates
+   scope for that commit, and merges with
+   `--match-head-commit "${CI_SHA}"`. The CI-verified SHA, the reviewed SHA and
+   the merged SHA are the same commit or nothing merges.
+2. **A fix must prove it fixes something.** `autonomous_evidence_gate.yml` runs
+   the touched tests at the merge base with the source change reverted (it must
+   **fail**) and again with the change applied (it must **pass**). Automerge
+   reads that check run by name and refuses to merge without it. Changes it
+   cannot prove offline - Rust, config, anything outside the TypeScript test
+   runner - are failed on purpose and routed to you.
+3. **Tasks have a lifecycle.** `todo -> in_progress -> done | blocked`, owned by
+   `task_lifecycle.py`. A merged or closed pull request closes its task; a
+   session that finished without changes closes it as `no_change`; an abandoned
+   session is released after `lifecycle.stale_in_progress_hours`; a task that
+   burns `lifecycle.max_attempts` becomes `blocked` instead of cycling forever.
+   The worker cannot edit the queue - only the automation writes it.
+4. **Discovery yields to real work.** Project discovery is only dispatched when
+   no concrete task is queued, and a merged discovery pull request has its
+   proposals imported into the queue by `import_discovery_tasks.py`.
+5. **Scope is checked, not trusted.** `check_change_scope.py` rejects anything
+   outside `product.editable_globs` and anything in `product.excluded`.
+6. **Sensitive paths need you.** Files in `product.manual_review_paths` (the
+   client updater and its tests) may be proposed by the loop but never merged
+   unattended: the pull request is labelled `human-review` and stops there.
+7. **Nothing releases.** `verify_policy.py` fails if release automation is ever
+   re-enabled in policy, and Autonomous Control CI greps every loop workflow for
+   release verbs, tags, version bumps and writes to `main`.
 
-These steps require repository admin rights and cannot be done by the loop itself.
+## One-time owner setup
 
-1. **Install the Jules GitHub App** on `Omnividente/omp-desktop` and grant it access to this repository.
-2. **Add repository secrets** (Settings -> Secrets and variables -> Actions):
-   - `JULES_API_KEY` - Jules API key (required).
-   - `JULES_API_KEY_BACKUP` - optional second key used as a fallback.
-   - `PAT` - a fine-grained or classic token with `repo` scope, required only so the switch workflow can write the `JULES_LOOP_ENABLED` variable.
-3. **Create the integration branch** (or let the switch workflow do it): `autonomous/lab` from `main`.
-4. **Turn the loop on**: run `Autonomous Loop Switch` with `loop_enabled = true`. This sets the `JULES_LOOP_ENABLED` repository variable; every loop workflow refuses to run unless it is exactly `true`.
-5. Optional but recommended: protect `autonomous/lab` with a required status check on `Quality Gate`, so nothing can land there red.
+1. Install the **Jules GitHub app** on `Omnividente/omp-desktop` and allow it to
+   open pull requests.
+2. Add repository secrets: `JULES_API_KEY`, optionally `JULES_API_KEY_BACKUP`
+   (used only when the primary key fails), and `PAT` (a token with `repo` scope,
+   needed only by the loop switch to write the Actions variable).
+3. Merge the control plane into `main`. Until these workflow files are on the
+   default branch, `workflow_run`-triggered automerge does not exist yet.
+4. **Protect `autonomous/lab`** and require the checks `Quality Gate` and
+   `Autonomous Evidence Gate`. Without server-side protection the guards are
+   enforced only by the workflow that performs the merge; with it, the rules hold
+   even if a workflow is edited.
+5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It creates and
+   seeds `autonomous/lab` if needed.
 
-Until step 4 is done, all loop workflows are inert - they evaluate their guard and exit.
+Until step 5 the loop is completely inert: every scheduled job is gated on
+`vars.JULES_LOOP_ENABLED == 'true'`.
 
-> `Autonomous Automerge` is triggered by `workflow_run`, which GitHub only honors
-> for workflow files present on the **default branch**. The loop therefore only
-> becomes fully active after this bootstrap is merged into `main`.
+## Day-to-day
 
-## Periodic human review (the release decision)
+- **Autonomous Monitor** (every 3h, or on demand) reports queue lifecycle, open
+  pull requests, how far `autonomous/lab` is ahead of `main`, and warns when
+  pull requests merge but no task is marked done.
+- **Autonomous Next Task** (every 30 min) dispatches at most one task while no
+  autonomous pull request is open.
+- **Autonomous Replenish** (every 6h) refills the queue from real eslint and tsc
+  diagnostics only. No speculative work is ever queued.
 
-Whenever you want to check in:
+### Accepting something the loop cannot merge alone
 
-1. Run **`Autonomous Release Review`** (manual). Optionally select the branch `autonomous/lab` when dispatching.
-2. Read the generated report: commits accumulated, files changed, and the decision checklist. It is attached as the `release-review` artifact and printed in the run summary.
-3. Run **`Quality Gate`** manually on `autonomous/lab` to get a fresh green/red signal.
-4. Ask an AI assistant to review the diff (`git diff main...autonomous/lab`) against the checklist.
-5. Decide:
-   - **Promote**: open a normal pull request from `autonomous/lab` into `main`, review it like any other change, merge it, and then cut a release using the existing release workflows - manually, as always.
-   - **Keep iterating**: do nothing. The loop keeps improving the branch.
-   - **Pause**: run `Autonomous Loop Switch` with `loop_enabled = false`.
+A pull request labelled `human-review` is waiting for you. Review it, and if you
+want it in, merge it yourself. Do not remove the label to make the robot merge
+it - the label is a stop sign, not a switch.
 
-## Guardrails
+### Deciding on a release
 
-- **No releases**: the loop has no tag/release/version step anywhere, and
-  `check_change_scope.py` blocks any change to version, release, updater,
-  workflow, or control-plane files.
-- **No writes to `main`**: automerge refuses any pull request whose base is not
-  `autonomous/lab`.
-- **Evidence required**: `validate_tasks.py` rejects tasks without an
-  `evidence.source` and `evidence.detail`; the replenisher only creates tasks
-  from real tool output.
-- **One defect class per task**: task ids are fingerprinted by
-  `tool + rule + file`, so the same defect class is never queued twice.
-- **Idempotent dispatch**: a dispatch key embedded in the Jules prompt lets a
-  retried run reconcile the existing session instead of starting a duplicate.
-- **Bounded concurrency**: one open autonomous pull request at a time.
-- **Kill switch**: set `JULES_LOOP_ENABLED` to `false`.
+Run **Autonomous Release Review**. It pins `autonomous/lab` to one commit,
+dispatches the existing Quality Gate and requires that run to have executed on
+exactly that commit, then reports the diff, the merged pull requests and the
+verification result for that same commit. If the branch moves mid-review, the
+review fails instead of pairing a green run with a different tree.
 
-## Swapping the AI worker
+Releasing itself stays manual and unchanged: your existing release workflows,
+your decision, your version bump.
 
-Jules is only the default worker. To use a different agent, replace
-`scripts/autonomous/build_jules_request.py` and
-`scripts/autonomous/jules_dispatch.py` with an equivalent pair that accepts the
-same arguments and honors `startingBranch = autonomous/lab` plus
-"open a pull request" automation. Everything else - the queue, selection, scope
-gate, replenishment, review, and guardrails - is worker-agnostic.
+## Stopping
+
+Run **Autonomous Loop Switch** with `loop_enabled = false`. It stops all
+dispatching and releases any task left in flight back into the queue.
+
+**It does not cancel a worker session that is already running** - the worker API
+documents no cancel operation. Stop such a session in the Jules UI if you need it
+stopped immediately. Any pull request it still opens will sit unmerged while the
+loop is off.
+
+## Known limits
+
+- **Rust and non-TypeScript changes cannot be proven offline.** The evidence gate
+  fails them deliberately; they become owner decisions.
+- **The updater is not untouchable, it is manual.** The loop may propose changes
+  to `src/clientUpdater.ts`, `src/useClientUpdater.ts` and the related update
+  notices, but they can only land with your review. (An earlier note claiming the
+  updater is never touched was wrong.)
+- **Very large pull requests.** The compare API returns at most 300 files; a
+  larger diff is treated as out of scope rather than partially checked.
+- **A fallback API key is only used when the primary key fails**, not for load
+  balancing.
+- **Merged discovery proposals are capped** at 10 new tasks per pull request.
