@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
-"""Build a Jules CreateSession request body for the selected autonomous task.
+"""Build an AI worker CreateSession request body for the selected task.
 
-The prompt is rendered from a template in docs/autonomous and carries an
-idempotency marker that jules_dispatch.py uses to reconcile sessions.
+The prompt is rendered from a template in docs/autonomous and carries two
+markers:
+
+* ``AUTONOMOUS_DISPATCH_KEY`` - the idempotency key jules_dispatch.py uses to
+  recognise a session it already started. It is derived from repository and task
+  id **only**. Folding the branch head into it would change the key on every new
+  commit and duplicate work that is still running.
+* ``AUTONOMOUS_TASK_ID`` - lets task_lifecycle.py map the resulting pull request
+  back to the queue entry and close it out.
+
+The base commit still travels in the prompt as context for the worker; it just
+no longer influences identity.
 """
 from __future__ import annotations
 
@@ -14,8 +24,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-def dispatch_key(repo: str, task_id: str, base_sha: str) -> str:
-    material = "\n".join((str(repo), str(task_id), str(base_sha)))
+def dispatch_key(repo: str, task_id: str) -> str:
+    material = "\n".join((str(repo), str(task_id)))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:24]
 
 
@@ -37,7 +47,7 @@ def build(
     risk_ceiling: str = "medium",
 ) -> dict:
     task_id = str(task.get("id") or "")
-    key = dispatch_key(repo, task_id, base_sha)
+    key = dispatch_key(repo, task_id)
     replacements = {
         "PROJECT_REPO": repo,
         "INTEGRATION_BRANCH": branch,
@@ -75,6 +85,7 @@ def main(argv=None) -> int:
     parser.add_argument("--focus", default="")
     parser.add_argument("--risk-ceiling", default="medium")
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--github-output", default="")
     args = parser.parse_args(argv)
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -101,7 +112,14 @@ def main(argv=None) -> int:
         risk_ceiling=args.risk_ceiling,
     )
     args.out.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("wrote Jules request for task " + args.task_id + " (startingBranch " + args.branch + ")")
+    key = dispatch_key(args.repo, args.task_id)
+    if args.github_output:
+        with open(args.github_output, "a", encoding="utf-8") as handle:
+            handle.write("dispatch_key=" + key + "\n")
+    print(
+        "wrote request for task " + args.task_id + " (startingBranch " + args.branch
+        + ", dispatch key " + key + ")"
+    )
     return 0
 
 

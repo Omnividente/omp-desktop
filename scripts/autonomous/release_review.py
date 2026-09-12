@@ -5,6 +5,12 @@ Compares the integration branch against the release branch and summarizes what
 the loop has accumulated, so a human (optionally with an AI assistant) can
 decide whether to cut a release. This script never mutates the repository, and
 never bumps versions, tags, or publishes anything.
+
+Everything is reported against a **resolved commit SHA**, not a branch name. A
+report that says "autonomous/lab" while the verification job happened to test a
+different commit is worse than no report at all: the decision would be made on
+code nobody checked. The caller resolves the SHA once and passes it here and to
+the verification job, and the report prints it so the two can be compared.
 """
 from __future__ import annotations
 
@@ -20,15 +26,46 @@ def _git(*args: str) -> str:
         return "(git " + " ".join(args) + " failed: " + str(exc) + ")"
 
 
-def build_report(base: str, head: str) -> str:
-    ahead = _git("rev-list", "--count", base + ".." + head)
-    behind = _git("rev-list", "--count", head + ".." + base)
+def resolve(ref: str) -> str:
+    value = _git("rev-parse", ref)
+    return "" if value.startswith("(git ") else value
+
+
+def build_report(base: str, head: str, *, base_sha: str = "", head_sha: str = "",
+                 verified_sha: str = "") -> str:
+    base_rev = base_sha or base
+    head_rev = head_sha or head
+    ahead = _git("rev-list", "--count", base_rev + ".." + head_rev)
+    behind = _git("rev-list", "--count", head_rev + ".." + base_rev)
     log = _git("log", "--no-merges", "--pretty=format:- %h %s (%an, %ad)", "--date=short",
-               base + ".." + head)
-    stat = _git("diff", "--stat", base + "..." + head)
+               base_rev + ".." + head_rev)
+    stat = _git("diff", "--stat", base_rev + "..." + head_rev)
+
+    if verified_sha and head_sha and verified_sha != head_sha:
+        pinning = (
+            "> **Do not use this report.** The verification job tested `"
+            + verified_sha[:12] + "` but this diff describes `" + head_sha[:12]
+            + "`. Re-run the review so both use one commit."
+        )
+    elif head_sha:
+        pinning = (
+            "Reviewed commit: `" + head_sha + "`. The verification job in this same run "
+            "checked out exactly this commit, so the green result below belongs to the "
+            "code described here."
+        )
+    else:
+        pinning = (
+            "> **Warning:** no commit SHA was pinned for this report, so the verification "
+            "result may belong to different code."
+        )
+
     lines = [
         "# Autonomous integration review: `" + head + "` vs `" + base + "`",
         "",
+        pinning,
+        "",
+        "- Reviewed head: `" + (head_sha or "unresolved") + "` (`" + head + "`)",
+        "- Compared against: `" + (base_sha or "unresolved") + "` (`" + base + "`)",
         "- Commits ahead of `" + base + "`: **" + ahead + "**",
         "- Commits behind `" + base + "`: **" + behind + "**",
         "",
@@ -44,8 +81,9 @@ def build_report(base: str, head: str) -> str:
         "",
         "## Release decision checklist (human-gated)",
         "",
-        "- [ ] Quality Gate is green on the integration branch",
-        "- [ ] Every change is inside product scope (no release/version/updater files)",
+        "- [ ] The verification job in this run is green **for the commit named above**",
+        "- [ ] Every change is inside product scope (no release/version files)",
+        "- [ ] Any auto-update change was reviewed by hand (it is never merged unattended)",
         "- [ ] Each change is backed by a test or reproducible evidence",
         "- [ ] Manual smoke of the built app is acceptable",
         "- [ ] Decision: promote to the release branch, or keep iterating",
@@ -60,9 +98,19 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="main")
     parser.add_argument("--head", default="autonomous/lab")
+    parser.add_argument("--base-sha", default="")
+    parser.add_argument("--head-sha", default="",
+                        help="the single commit this review decides on")
+    parser.add_argument("--verified-sha", default="",
+                        help="the commit the verification job actually checked out")
     parser.add_argument("--out", type=Path, default=Path("release-review.md"))
     args = parser.parse_args(argv)
-    report = build_report(args.base, args.head)
+    head_sha = args.head_sha or resolve(args.head)
+    base_sha = args.base_sha or resolve(args.base)
+    report = build_report(
+        args.base, args.head, base_sha=base_sha, head_sha=head_sha,
+        verified_sha=args.verified_sha,
+    )
     args.out.write_text(report + "\n", encoding="utf-8")
     print(report)
     return 0
