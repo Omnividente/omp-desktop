@@ -33,9 +33,23 @@ jobs:
     name: Validate the autonomous control plane
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: control
     steps:
-      - name: Check out repository
+      - name: Check out the control plane revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Lab carries entry points, not control scripts. PRs into main must
+          # still test their own control-plane changes, not the old main code.
+          ref: ${{ (github.base_ref == 'autonomous/lab' || github.ref == 'refs/heads/autonomous/lab') && 'main' || github.sha }}
+          path: control
+
+      - name: Check out the revision under validation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: lab
 
       - name: Compile control-plane scripts
         run: python3 -m py_compile scripts/autonomous/*.py
@@ -55,7 +69,7 @@ jobs:
           set -euo pipefail
           python3 -c "import json; json.load(open('autonomous-project.json', encoding='utf-8'))"
           python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch autonomous/lab
-          python3 scripts/autonomous/validate_tasks.py agent_tasks.json
+          python3 scripts/autonomous/validate_tasks.py ../lab/agent_tasks.json
 
       - name: Parse every autonomous workflow
         run: |
@@ -64,7 +78,7 @@ jobs:
           python3 - <<'PY'
           import glob
           import yaml
-          for path in sorted(glob.glob(".github/workflows/autonomous_*.yml")):
+          for path in sorted(glob.glob("../lab/.github/workflows/autonomous_*.yml")):
               with open(path, encoding="utf-8") as handle:
                   yaml.safe_load(handle)
               print("parsed " + path)
