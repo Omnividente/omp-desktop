@@ -40,6 +40,11 @@ Consequences worth knowing:
   does not hand the loop its own control plane. Writing them needs a token with
   the `workflow` scope: `GITHUB_TOKEN` is not allowed to write
   `.github/workflows/**`.
+- **Autonomous Control CI** also separates its checkouts. For pushes or manual
+  runs on `autonomous/lab`, and pull requests targeting it, control-plane tests
+  and policy come from `main`; the queue and workflow YAML come from the exact
+  event revision. Other events test the control plane at their own event SHA,
+  so a pull request into `main` cannot pass by testing the old `main` scripts.
 
 ## Invariants enforced by code
 
