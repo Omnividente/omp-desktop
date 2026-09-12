@@ -4,7 +4,11 @@
     "integration_branch": "autonomous/lab",
     "release_automation": "disabled",
     "min_todo_tasks": 3,
-    "execution_allowed_globs": ["src/**", "src-tauri/src/**", "src-tauri/tests/**"],
+    "execution_allowed_globs": [
+      "src/**",
+      "src-tauri/src/**",
+      "src-tauri/tests/**"
+    ],
     "lifecycle": {
       "max_attempts": 2,
       "stale_in_progress_hours": 6,
@@ -17,17 +21,35 @@
       "id": "project-discovery-0001",
       "title": "Discover concrete, evidence-backed improvements in omp-desktop and file them as tasks",
       "task_type": "project_discovery",
-      "status": "todo",
-      "focus": ["quality", "tests", "bugfix"],
+      "status": "in_progress",
+      "focus": [
+        "quality",
+        "tests",
+        "bugfix"
+      ],
       "risk": "low",
       "priority": 10,
-      "target_paths": ["src", "src-tauri/src"],
+      "target_paths": [
+        "src",
+        "src-tauri/src"
+      ],
       "evidence": {
         "source": "bootstrap",
         "detail": "Initial discovery task. The AI worker must run the project's own quality gate (npm ci; npm run typecheck; npm run lint; npm test; npm run build) plus cargo fmt/clippy/test, and only file follow-up tasks backed by a real failing check, a reproducible bug, or a measured regression. Findings must be emitted in the machine-readable AUTONOMOUS_TASKS block so import_discovery_tasks.py can add them to this queue. Never touch release/version/updater files.",
         "base_commit": ""
       },
-      "created_at": "2026-09-11T00:00:00Z"
+      "created_at": "2026-09-11T00:00:00Z",
+      "execution": {
+        "state": "dispatched",
+        "session_id": "3954569502611073242",
+        "dispatch_key": "d4b34b4ec758e0a023da6fb1",
+        "attempts": 1,
+        "started_at": "2026-09-12T19:17:41Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
+      }
     }
   ]
 }
