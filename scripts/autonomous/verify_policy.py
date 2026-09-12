@@ -17,21 +17,41 @@ from typing import Any, Mapping
 
 # Paths the loop may never touch at all.
 REQUIRED_EXCLUSIONS = (
+    ".git/",
     ".github/workflows/**",
+    ".github/scripts/**",
+    ".github/release-notes/**",
+    ".github/release-tag-exceptions.json",
+    "scripts/autonomous/**",
+    "docs/autonomous/**",
     "package.json",
     "package-lock.json",
     "src-tauri/Cargo.toml",
+    "src-tauri/Cargo.lock",
     "src-tauri/tauri.conf.json",
+    "src-tauri/tauri.updater-e2e.conf.json",
     "autonomous-project.json",
     "agent_tasks.json",
 )
 
-# Auto-update sources. These are ordinary product code, so the loop is allowed
+# Auto-update surface. These are ordinary product code, so the loop is allowed
 # to propose fixes, but a broken updater cannot be repaired remotely: it must
 # never be merged without a human explicitly accepting it.
+#
+# The list has to be the *whole* surface. Guarding two of ten files means the
+# other eight can be dropped out of manual review without this check noticing,
+# which is precisely the hole a policy verifier exists to close.
 REQUIRED_MANUAL_REVIEW = (
     "src/clientUpdater.ts",
     "src/useClientUpdater.ts",
+    "src/useClientUpdater.test.tsx",
+    "src/ClientUpdateNotice.tsx",
+    "src/UpdateNotice.tsx",
+    "src/UpdateNotices.test.tsx",
+    "src/updateReminder.ts",
+    "src/updateReminder.test.ts",
+    "src-tauri/src/updater*",
+    "src-tauri/tests/updater*",
 )
 
 
@@ -87,8 +107,33 @@ def verify(config: Mapping[str, Any], integration_branch: str = "autonomous/lab"
         problems.append("merge_gate.manual_approval_labels must list at least one label")
     if not [str(glob) for glob in gate.get("test_globs") or []]:
         problems.append("merge_gate.test_globs must not be empty")
-    if not str(gate.get("evidence_check_name") or "").strip():
-        problems.append("merge_gate.evidence_check_name must name the evidence check run")
+    if gate.get("evidence_check_name") != "Autonomous Evidence Gate":
+        problems.append(
+            "merge_gate.evidence_check_name must be 'Autonomous Evidence Gate'"
+        )
+
+    # These are check-run names, not the containing workflow name. Additional
+    # required checks may tighten policy, but neither platform may be dropped.
+    required_checks = gate.get("required_check_names")
+    for name in ("Checks (ubuntu-latest)", "Checks (windows-latest)"):
+        if not isinstance(required_checks, list) or name not in required_checks:
+            problems.append("merge_gate.required_check_names must contain " + repr(name))
+    # An approval is only meaningful if it can be attributed to a person: a label
+    # survives a force-push, a review approval of a specific commit does not.
+    if not [str(name) for name in gate.get("owner_approvers") or [] if str(name).strip()]:
+        problems.append(
+            "merge_gate.owner_approvers must list the logins whose review approval "
+            "can release a manual-review pull request"
+        )
+    try:
+        max_files = int(gate.get("max_changed_files", 0))
+    except (TypeError, ValueError):
+        max_files = 0
+    if max_files < 1:
+        problems.append(
+            "merge_gate.max_changed_files must be a positive number so an unreadably "
+            "large diff cannot be merged unattended"
+        )
     return problems
 
 

@@ -15,8 +15,16 @@
     "notes": "The loop must never bump versions, create tags/GitHub Releases, publish artifacts, or edit release/updater workflows. A human operator reviews the integration branch and decides releases."
   },
   "product": {
-    "roots": ["src", "src-tauri/src", "src-tauri/tests"],
-    "editable_globs": ["src/**", "src-tauri/src/**", "src-tauri/tests/**"],
+    "roots": [
+      "src",
+      "src-tauri/src",
+      "src-tauri/tests"
+    ],
+    "editable_globs": [
+      "src/**",
+      "src-tauri/src/**",
+      "src-tauri/tests/**"
+    ],
     "excluded": [
       ".git/",
       ".github/workflows/**",
@@ -54,7 +62,9 @@
   "merge_gate": {
     "require_regression_test": true,
     "evidence_check_name": "Autonomous Evidence Gate",
-    "manual_approval_labels": ["approved-by-owner"],
+    "manual_approval_labels": [
+      "approved-by-owner"
+    ],
     "test_globs": [
       "*.test.ts",
       "*.test.tsx",
@@ -62,16 +72,67 @@
       "*.spec.tsx",
       "src-tauri/tests/**"
     ],
-    "notes": "A change to product source is merged only when the Autonomous Evidence Gate proved, on the very commit CI verified, that the new test fails against the base revision and passes with the fix. Anything else - no test, an unprovable diff, a manual-review path - is handed to the owner, who must remove the human-review label and apply approved-by-owner to accept it."
+    "notes": "A pull request may only merge when every required_check_names check run and the evidence_check_name check run are green for the exact revision being merged. manual_approval_labels are a signal for humans, not an approval: only a review approval recorded against that revision by an owner_approvers login can release a manual-review pull request, because a label survives a force-push. A diff larger than max_changed_files, or one whose file list cannot be proven complete, is never merged unattended.",
+    "required_check_names": [
+      "Checks (ubuntu-latest)",
+      "Checks (windows-latest)"
+    ],
+    "owner_approvers": [
+      "Omnividente"
+    ],
+    "max_changed_files": 200
   },
   "validation": {
     "gate_workflow": ".github/workflows/pr.yml",
     "commands": [
-      { "name": "install", "cmd": ["npm", "ci"], "timeout_seconds": 600, "required": true },
-      { "name": "typecheck", "cmd": ["npm", "run", "typecheck"], "timeout_seconds": 300, "required": true },
-      { "name": "lint", "cmd": ["npm", "run", "lint"], "timeout_seconds": 300, "required": true },
-      { "name": "test", "cmd": ["npm", "test"], "timeout_seconds": 600, "required": true },
-      { "name": "build", "cmd": ["npm", "run", "build"], "timeout_seconds": 600, "required": true }
+      {
+        "name": "install",
+        "cmd": [
+          "npm",
+          "ci"
+        ],
+        "timeout_seconds": 600,
+        "required": true
+      },
+      {
+        "name": "typecheck",
+        "cmd": [
+          "npm",
+          "run",
+          "typecheck"
+        ],
+        "timeout_seconds": 300,
+        "required": true
+      },
+      {
+        "name": "lint",
+        "cmd": [
+          "npm",
+          "run",
+          "lint"
+        ],
+        "timeout_seconds": 300,
+        "required": true
+      },
+      {
+        "name": "test",
+        "cmd": [
+          "npm",
+          "test"
+        ],
+        "timeout_seconds": 600,
+        "required": true
+      },
+      {
+        "name": "build",
+        "cmd": [
+          "npm",
+          "run",
+          "build"
+        ],
+        "timeout_seconds": 600,
+        "required": true
+      }
     ],
     "total_timeout_seconds": 2400
   },
@@ -84,10 +145,26 @@
   },
   "automation": {
     "ai_worker": "jules",
-    "allowed_pr_authors": ["google-labs-jules[bot]"],
+    "allowed_pr_authors": [
+      "google-labs-jules[bot]"
+    ],
     "max_open_pull_requests": 1,
-    "blocking_labels": ["hold", "do-not-merge", "human-review", "wip"]
+    "blocking_labels": [
+      "hold",
+      "do-not-merge",
+      "human-review",
+      "wip"
+    ]
   },
-  "task_focus": ["quality", "tests", "bugfix", "refactor", "a11y", "i18n", "perf", "compat"],
+  "task_focus": [
+    "quality",
+    "tests",
+    "bugfix",
+    "refactor",
+    "a11y",
+    "i18n",
+    "perf",
+    "compat"
+  ],
   "risk_ceiling": "medium"
 }

@@ -5,15 +5,21 @@ Talks to the Jules API (https://jules.googleapis.com/v1alpha). An idempotency
 marker embedded in the request prompt lets repeated scheduler runs recognise
 work they already started, so the loop does not pile up duplicate sessions.
 
-Two behaviours matter for not repeating finished work:
+Three behaviours matter for not repeating finished work:
 
 * A **finished** session counts. Matching only active sessions means a worker
   that completed without opening a pull request looks like it never ran, and the
   next tick hands it the same task again. Here a terminal session reports
   ``already_completed`` so the caller can close the task out instead.
-* The dispatch key must be **stable across runs**. It is derived from repo plus
-  task id only - never from the branch head - because a moving base commit would
-  change the key and duplicate work that is still in flight.
+* A **failed** session is not a finished one. ``already_failed`` is reported
+  separately, because closing the task as "finished, nothing to change" after
+  the worker crashed would quietly drop real work, while retrying a session that
+  genuinely found nothing to do would loop forever.
+* The dispatch key is **stable inside one attempt** and different for the next
+  one. It is derived from repo, task id and attempt number - never from the
+  branch head, because a moving base commit would duplicate work that is still
+  in flight. Without the attempt number a retry would keep matching the previous
+  terminal session and never start a new one.
 
 The API key ring rotates on an authentication failure, not just when the primary
 key is absent, so a revoked key actually fails over to the backup. The HTTP
@@ -28,6 +34,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -35,15 +42,21 @@ from typing import Any, Callable, Mapping, Sequence
 DEFAULT_API_BASE = "https://jules.googleapis.com/v1alpha"
 TRANSIENT_STATUSES = {0, 408, 409, 429, 500, 502, 503, 504}
 AUTH_STATUSES = {401, 403}
-ACTIVE_STATES = {
-    "", "UNKNOWN", "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "IN_PROGRESS",
-    "AWAITING_PLAN_APPROVAL", "AWAITING_USER_FEEDBACK",
+COMPLETED_STATES = {"COMPLETED"}
+# Terminal states that mean the worker did not finish its job. These must not be
+# reported as a completed session: the task is retried (within its attempt
+# budget) instead of being closed as "nothing to change".
+FAILED_STATES = {
+    "FAILED", "FAILURE", "ERROR", "ERRORED", "CANCELLED", "CANCELED", "ABORTED",
+    "EXPIRED", "TIMED_OUT", "TIMEOUT",
 }
-MARKER_RE = re.compile(r"AUTONOMOUS_DISPATCH_KEY:\s*([A-Za-z0-9]+)")
+MARKER_RE = re.compile(r"AUTONOMOUS_DISPATCH_KEY:[ \t]*([^\s<>`]+)")
+TITLE_MARKER_RE = re.compile(r"\[dispatch:([^\]\s]+)\]")
 
 RESULT_CREATED = "created"
 RESULT_RECONCILED = "reconciled"
 RESULT_ALREADY_COMPLETED = "already_completed"
+RESULT_ALREADY_FAILED = "already_failed"
 
 
 class Response:
@@ -75,8 +88,8 @@ class KeyRing:
 
 
 def extract_key(prompt: str) -> str:
-    match = MARKER_RE.search(prompt or "")
-    return match.group(1) if match else ""
+    keys = set(MARKER_RE.findall(prompt or ""))
+    return next(iter(keys)) if len(keys) == 1 else ""
 
 
 def session_id(session: Mapping[str, Any]) -> str:
@@ -91,13 +104,25 @@ def session_state(session: Mapping[str, Any]) -> str:
 
 
 def session_is_active(session: Mapping[str, Any]) -> bool:
-    return session_state(session).upper() in ACTIVE_STATES
+    # A newly introduced API state must never be mistaken for success.
+    state = session_state(session).upper()
+    return state not in COMPLETED_STATES and state not in FAILED_STATES
+
+
+def session_failed(session: Mapping[str, Any]) -> bool:
+    return session_state(session).upper() in FAILED_STATES
+
+
+def terminal_result(session: Mapping[str, Any]) -> str:
+    """Which result a finished session reports: completed, or failed."""
+    return RESULT_ALREADY_FAILED if session_failed(session) else RESULT_ALREADY_COMPLETED
 
 
 def session_matches(session: Mapping[str, Any], key: str) -> bool:
     title = str(session.get("title") or "")
     prompt = str(session.get("prompt") or "")
-    return ("[dispatch:" + key + "]") in title or ("AUTONOMOUS_DISPATCH_KEY: " + key) in prompt
+    keys = set(TITLE_MARKER_RE.findall(title)) | set(MARKER_RE.findall(prompt))
+    return bool(key) and keys == {key}
 
 
 def urllib_transport(method: str, url: str, headers: Mapping[str, str], payload: Any) -> Response:
@@ -134,13 +159,29 @@ def request_with_keys(transport: Callable, ring: KeyRing, method: str, url: str,
 
 
 def list_sessions(transport: Callable, api_base: str, ring: KeyRing) -> list:
-    response = request_with_keys(
-        transport, ring, "GET", api_base.rstrip("/") + "/sessions?pageSize=100"
-    )
-    if response.status // 100 != 2:
-        raise RuntimeError("Jules ListSessions failed: HTTP " + str(response.status))
-    payload = response.payload or {}
-    return list(payload.get("sessions") or [])
+    sessions = []
+    token = ""
+    seen = set()
+    while True:
+        query = {"pageSize": 100}
+        if token:
+            query["pageToken"] = token
+        response = request_with_keys(
+            transport, ring, "GET",
+            api_base.rstrip("/") + "/sessions?" + urllib.parse.urlencode(query),
+        )
+        if response.status // 100 != 2:
+            raise RuntimeError("Jules ListSessions failed: HTTP " + str(response.status))
+        payload = response.payload
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("sessions", []), list):
+            raise RuntimeError("Jules ListSessions returned an invalid response")
+        sessions.extend(payload.get("sessions", []))
+        token = payload.get("nextPageToken") or ""
+        if not token:
+            return sessions
+        if not isinstance(token, str) or token in seen:
+            raise RuntimeError("Jules ListSessions returned an invalid pagination token")
+        seen.add(token)
 
 
 def find_matches(sessions, key: str) -> tuple:
@@ -186,14 +227,17 @@ def dispatch(
     key = extract_key(str(request_body.get("prompt") or ""))
     if not key:
         raise RuntimeError("request prompt is missing the AUTONOMOUS_DISPATCH_KEY marker")
+    if not session_matches(request_body, key):
+        raise RuntimeError("request contains contradictory dispatch markers")
 
     active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
     if active:
         return _result(RESULT_RECONCILED, active)
     if terminal:
-        # This exact task was already worked on and the session ended. Creating a
-        # second session would re-run finished work; the caller closes the task.
-        return _result(RESULT_ALREADY_COMPLETED, terminal)
+        # This exact attempt was already worked on and its session ended. Creating
+        # a second session for the same attempt would re-run finished work, so the
+        # caller closes the task out (completed) or retries it (failed) instead.
+        return _result(terminal_result(terminal), terminal)
 
     last_status = 0
     for attempt in range(1, max_attempts + 1):
@@ -207,7 +251,7 @@ def dispatch(
         if active:
             return _result(RESULT_RECONCILED, active)
         if terminal:
-            return _result(RESULT_ALREADY_COMPLETED, terminal)
+            return _result(terminal_result(terminal), terminal)
         if response.status not in TRANSIENT_STATUSES:
             raise RuntimeError("Jules CreateSession failed: HTTP " + str(response.status))
         if attempt < max_attempts:

@@ -15,6 +15,12 @@ This script parses that block, normalises each entry, drops duplicates and
 appends the rest to the queue. The resulting manifest must pass the ordinary
 validator, so malformed discovery output fails loudly instead of corrupting the
 queue.
+
+"Loudly" is the whole point: a JSON error used to be swallowed into an empty
+backlog, which is indistinguishable from "the worker found nothing". The block is
+machine-readable by contract, so a block that is not parseable is reported as
+``malformed_block`` with a non-zero exit code and a ``::error::`` annotation. The
+caller still commits whatever other queue changes it made, then fails the job.
 """
 from __future__ import annotations
 
@@ -38,26 +44,77 @@ BLOCK_RE = re.compile(BEGIN + r"(.*?)" + END, re.DOTALL)
 DEFAULT_PRIORITY = 45
 DEFAULT_MAX_NEW = 10
 
+STATUS_OK = "ok"
+STATUS_ABSENT = "absent"
+STATUS_MALFORMED = "malformed_block"
+
 
 def _fingerprint(text: str) -> str:
     return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
-def extract_block(text: str) -> list:
-    """Pull the JSON array out of the marked block, tolerating code fences."""
-    match = BLOCK_RE.search(str(text or ""))
-    if not match:
-        return []
-    body = match.group(1)
-    start = body.find("[")
-    end = body.rfind("]")
-    if start < 0 or end <= start:
-        return []
+def parse_block(text: str) -> dict:
+    """Pull the JSON array out of the marked block and say why it failed.
+
+    Returns ``status`` (ok / absent / malformed_block), the parsed ``entries``
+    and a human ``detail``. A missing block is a legitimate answer - not every
+    pull request carries a backlog. A *broken* block is a defect: the prompt
+    guarantees machine-readable JSON, so silently reading it as "no findings"
+    would erase real work.
+    """
+    text = str(text or "")
+    if BEGIN not in text and END not in text:
+        return {
+            "status": STATUS_ABSENT, "entries": [],
+            "detail": "no " + BEGIN + " block was present",
+        }
+    match = BLOCK_RE.search(text)
+    if text.count(BEGIN) != 1 or text.count(END) != 1 or match is None:
+        return {
+            "status": STATUS_MALFORMED, "entries": [],
+            "detail": "expected exactly one ordered pair of backlog delimiters",
+        }
+    body = match.group(1).strip()
+    if body.startswith("-->"):
+        body = body[3:].strip()
+    if body.endswith("<!--"):
+        body = body[:-4].strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", body, re.DOTALL)
+    if fenced:
+        body = fenced.group(1)
     try:
-        parsed = json.loads(body[start:end + 1])
-    except json.JSONDecodeError:
-        return []
-    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+        parsed = json.loads(body)
+    except json.JSONDecodeError as exc:
+        return {
+            "status": STATUS_MALFORMED, "entries": [],
+            "detail": "the " + BEGIN + " block is not valid JSON: " + str(exc),
+        }
+    if not isinstance(parsed, list):
+        return {
+            "status": STATUS_MALFORMED, "entries": [],
+            "detail": "the " + BEGIN + " block must contain a JSON array",
+        }
+    entries = [item for item in parsed if isinstance(item, dict)]
+    if len(entries) != len(parsed):
+        return {
+            "status": STATUS_MALFORMED, "entries": [],
+            "detail": "the task array contains entries that are not objects",
+        }
+    if any(entry.get("acceptance") is not None and not isinstance(entry["acceptance"], list)
+           for entry in entries):
+        return {
+            "status": STATUS_MALFORMED, "entries": [],
+            "detail": "task acceptance must be an array",
+        }
+    return {
+        "status": STATUS_OK, "entries": entries,
+        "detail": str(len(entries)) + " task entry/entries parsed",
+    }
+
+
+def extract_block(text: str) -> list:
+    """Backwards-compatible view of parse_block: the entries only."""
+    return parse_block(text)["entries"]
 
 
 def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
@@ -103,14 +160,21 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
 def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
                  now: str | None = None) -> dict:
     stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    tasks = manifest.setdefault("tasks", [])
+    block = parse_block(body)
+    if block["status"] == STATUS_MALFORMED:
+        return {
+            "changed": False, "added": [], "skipped": [],
+            "status": STATUS_MALFORMED, "detail": block["detail"],
+        }
+    tasks = manifest.get("tasks", [])
     known_ids = {str(t.get("id")) for t in tasks if isinstance(t, dict)}
     known_titles = {
         str(t.get("title") or "").strip().lower() for t in tasks if isinstance(t, dict)
     }
+    pending = []
 
     added, skipped = [], []
-    for entry in extract_block(body):
+    for entry in block["entries"]:
         candidate = normalize(entry, now=stamp)
         if not candidate["title"]:
             skipped.append({"id": candidate["id"], "reason": "missing_title"})
@@ -127,12 +191,18 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
         if len(added) >= max_new:
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
             continue
-        tasks.append(candidate)
+        pending.append(candidate)
         known_ids.add(candidate["id"])
         known_titles.add(candidate["title"].strip().lower())
         added.append(candidate["id"])
 
-    return {"changed": bool(added), "added": added, "skipped": skipped}
+    if pending:
+        manifest.setdefault("tasks", []).extend(pending)
+
+    return {
+        "changed": bool(added), "added": added, "skipped": skipped,
+        "status": block["status"], "detail": block["detail"],
+    }
 
 
 def main(argv=None) -> int:
@@ -169,6 +239,13 @@ def main(argv=None) -> int:
                 "imported_changed=" + ("true" if result["changed"] else "false") + "\n"
             )
             handle.write("imported_count=" + str(len(result["added"])) + "\n")
+            handle.write("imported_status=" + str(result.get("status", STATUS_OK)) + "\n")
+    if result.get("status") == STATUS_MALFORMED:
+        print(
+            "::error::discovery backlog was not imported: " + str(result.get("detail")),
+            file=sys.stderr,
+        )
+        return 2
     return 0
 
 

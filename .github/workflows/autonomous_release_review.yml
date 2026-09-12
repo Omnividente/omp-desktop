@@ -8,6 +8,11 @@ name: Autonomous Release Review
 # once, the Quality Gate run is required to have executed on exactly that
 # commit, and the report states which commit it describes. A report about the
 # lab branch can no longer be paired with a green run of a different branch.
+#
+# The report also states what verification actually did. The verified commit is
+# published only after the run finished green, and the artifact itself opens with
+# NOT VERIFIED when it did not, because a release decision is made from the file
+# a human downloads - not from a job summary nobody opens.
 
 on:
   workflow_dispatch:
@@ -67,6 +72,7 @@ jobs:
       actions: write
     outputs:
       verified_sha: ${{ steps.watch.outputs.verified_sha }}
+      verify_run_url: ${{ steps.watch.outputs.verify_run_url }}
     env:
       GH_TOKEN: ${{ github.token }}
       HEAD_REF: ${{ inputs.head }}
@@ -95,8 +101,12 @@ jobs:
             exit 1
           fi
           echo "Quality Gate run ${run_id} is verifying ${HEAD_SHA}."
-          echo "verified_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "verify_run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >> "${GITHUB_OUTPUT}"
+          # verified_sha is published only after the run has actually finished
+          # green. Writing it before the wait meant the report could name a
+          # commit as verified by a run that was still going - or that failed.
           gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          echo "verified_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
           {
             echo "### Quality Gate"
             echo ""
@@ -120,8 +130,10 @@ jobs:
       HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
       VERIFIED_SHA: ${{ needs.verify.outputs.verified_sha }}
       VERIFY_RESULT: ${{ needs.verify.result }}
+      VERIFY_RUN_URL: ${{ needs.verify.outputs.verify_run_url }}
     steps:
       - name: Check out the control plane from the default branch
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
@@ -135,6 +147,7 @@ jobs:
           git cat-file -e "${HEAD_SHA}^{commit}"
 
       - name: Build the report for the pinned commit
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
         run: |
           set -euo pipefail
           python3 scripts/autonomous/release_review.py \
@@ -143,6 +156,8 @@ jobs:
             --base-sha "${BASE_SHA}" \
             --head-sha "${HEAD_SHA}" \
             --verified-sha "${VERIFIED_SHA}" \
+            --verify-result "${VERIFY_RESULT}" \
+            --verify-run-url "${VERIFY_RUN_URL}" \
             --out release-review.md
           cat release-review.md >> "${GITHUB_STEP_SUMMARY}"
 
@@ -156,8 +171,8 @@ jobs:
             echo "- Verified commit: ${VERIFIED_SHA:-none}"
             echo "- Reviewed commit: ${HEAD_SHA}"
           } >> "${GITHUB_STEP_SUMMARY}"
-          if [ "${VERIFY_RESULT}" != "success" ]; then
-            echo "::warning::This report was produced without a green Quality Gate on ${HEAD_SHA}. Do not release on it."
+          if [ "${VERIFY_RESULT}" != "success" ] || [ "${VERIFIED_SHA}" != "${HEAD_SHA}" ]; then
+            echo "::warning::This report was produced without a green Quality Gate on ${HEAD_SHA}. The downloadable release-review.md opens with NOT VERIFIED for exactly this reason, so the decision cannot be made on a summary nobody read."
           fi
 
       - name: List autonomous pull requests merged into the integration branch
@@ -171,6 +186,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload the report
+        if: ${{ always() && hashFiles('release-review.md') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: release-review

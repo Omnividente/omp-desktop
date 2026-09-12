@@ -48,7 +48,7 @@ def plan(config: Mapping[str, Any], changed: Iterable[str]) -> dict:
     test_globs = list(gate.get("test_globs") or DEFAULT_TEST_GLOBS)
     excluded = list(product.get("excluded") or [])
 
-    paths = [str(raw).strip() for raw in changed if str(raw).strip()]
+    paths = [str(raw) for raw in changed if str(raw)]
     tests = [p for p in paths if _match_any(p, test_globs)]
     test_set = set(tests)
     source = [p for p in paths if p not in test_set and not _match_any(p, excluded)]
@@ -108,10 +108,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     config = json.loads(args.config.read_text(encoding="utf-8"))
-    changed = [
-        line for line in args.changed_files.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    changed = json.loads(args.changed_files.read_text(encoding="utf-8"))
+    if not isinstance(changed, list) or any(not isinstance(path, str) for path in changed):
+        parser.error("--changed-files must contain a JSON array of paths")
     result = plan(config, changed)
     print(json.dumps(result, ensure_ascii=False, indent=None if args.json else 2))
     print(explain(result))
@@ -122,8 +121,8 @@ def main(argv=None) -> int:
                 "proof_supported="
                 + ("true" if result["proof_supported"] else "false") + "\n"
             )
-            handle.write("ts_test_files=" + " ".join(result["ts_test_files"]) + "\n")
-            handle.write("source_files=" + " ".join(result["source_files"]) + "\n")
+            handle.write("ts_test_files=" + json.dumps(result["ts_test_files"]) + "\n")
+            handle.write("source_files=" + json.dumps(result["source_files"]) + "\n")
     return 0
 
 

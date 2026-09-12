@@ -86,8 +86,10 @@ Include, as plain text in the body:
 AUTONOMOUS_TASK_ID: {{TASK_ID}}
 ```
 
-That line is how the automation closes the task afterwards; without it the queue
-keeps thinking the work is still running. Then describe, briefly:
+Also copy the **exact `AUTONOMOUS_DISPATCH_KEY` line from the top of this prompt**
+into the pull request body (or preserve the exact `[dispatch:...]` title marker).
+The task id identifies the work; the dispatch key identifies this attempt. Never
+reuse a marker from an older attempt. Then describe, briefly:
 
 - what was wrong and how you know (the evidence, not a guess)
 - what you changed

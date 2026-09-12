@@ -59,7 +59,9 @@ the pull request.
 
 ## Pull request description format
 
-Start with this line, exactly:
+Start with the task id and copy the exact `AUTONOMOUS_DISPATCH_KEY` line from the
+top of this prompt. Preserve both markers; the dispatch key distinguishes this
+attempt from an earlier pull request for the same task.
 
 ```
 AUTONOMOUS_TASK_ID: {{TASK_ID}}
@@ -100,5 +102,6 @@ Rules for the block:
 - `acceptance`: what would prove the task is done.
 - At most **10** entries are imported per pull request, and duplicates of tasks
   already queued are ignored. Put the most valuable findings first.
-- Keep it valid JSON. A malformed block fails the import loudly and your
-  findings are lost.
+- Keep it valid JSON. A malformed block fails the import loudly. Queue completion
+  and import are atomic: correct the pull request body and rerun Autonomous Next
+  Task so the API sweep can apply both together.

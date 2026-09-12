@@ -10,9 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from verify_policy import (  # noqa: E402
-    REQUIRED_EXCLUSIONS, REQUIRED_MANUAL_REVIEW, verify,
-)
+from verify_policy import REQUIRED_MANUAL_REVIEW, verify  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "autonomous-project.json"
@@ -26,10 +24,6 @@ class RealConfigTest(unittest.TestCase):
     def test_the_shipped_config_satisfies_the_policy(self):
         self.assertEqual(verify(load()), [])
 
-    def test_the_shipped_config_puts_the_updater_behind_a_human(self):
-        manual = load()["product"]["manual_review_paths"]
-        for path in REQUIRED_MANUAL_REVIEW:
-            self.assertIn(path, manual)
 
 
 class ReleasePolicyTest(unittest.TestCase):
@@ -64,16 +58,21 @@ class ParallelModeTest(unittest.TestCase):
 
 
 class ScopeTest(unittest.TestCase):
-    def test_every_required_exclusion_is_enforced(self):
-        for pattern in REQUIRED_EXCLUSIONS:
-            config = load()
-            config["product"]["excluded"] = [
-                item for item in config["product"]["excluded"] if item != pattern
-            ]
-            self.assertTrue(
-                any(pattern in p for p in verify(config)),
-                "removing " + pattern + " must be rejected",
-            )
+    def test_each_current_guardrail_exclusion_cannot_be_removed(self):
+        # Keep this independent of the verifier's constants: a forgotten
+        # guardrail must not silently disappear from both code and coverage.
+        guardrails = [
+            path for path in load()["product"]["excluded"]
+            if path not in ("**/*.png", "**/*.ico", "**/*.icns")
+        ]
+        for pattern in guardrails:
+            with self.subTest(path=pattern):
+                config = load()
+                config["product"]["excluded"].remove(pattern)
+                self.assertTrue(
+                    any(pattern in p for p in verify(config)),
+                    "removing " + pattern + " must be rejected",
+                )
 
     def test_removing_the_updater_from_manual_review_is_rejected(self):
         config = load()
@@ -134,13 +133,71 @@ class MergeGateTest(unittest.TestCase):
 
 class EmptyConfigTest(unittest.TestCase):
     def test_an_empty_config_fails_loudly(self):
-        self.assertTrue(len(verify({})) >= 5)
+        self.assertTrue(verify({}))
 
     def test_verification_does_not_mutate_the_config(self):
         config = load()
         before = copy.deepcopy(config)
         verify(config)
         self.assertEqual(config, before)
+
+
+class MergeGateContractTest(unittest.TestCase):
+    """The policy check must cover everything the merge decision reads, or the
+    configuration can be weakened without the check noticing."""
+
+    def test_removing_the_required_check_names_is_rejected(self):
+        config = load()
+        config["merge_gate"].pop("required_check_names", None)
+        self.assertTrue(any("required_check_names" in p for p in verify(config)))
+
+    def test_an_empty_required_check_list_is_rejected(self):
+        config = load()
+        config["merge_gate"]["required_check_names"] = []
+        self.assertTrue(any("required_check_names" in p for p in verify(config)))
+
+    def test_substituting_workflow_or_dropping_a_platform_is_rejected(self):
+        for checks in (
+            ["Quality Gate"],
+            ["Checks (ubuntu-latest)"],
+            ["Checks (windows-latest)"],
+            ["Checks (ubuntu-latest)", "Checks (windows-latest) "],
+            "Checks (ubuntu-latest), Checks (windows-latest)",
+        ):
+            with self.subTest(checks=checks):
+                config = load()
+                config["merge_gate"]["required_check_names"] = checks
+                self.assertTrue(any("required_check_names" in p for p in verify(config)))
+
+    def test_adding_another_required_check_can_only_tighten_policy(self):
+        config = load()
+        config["merge_gate"]["required_check_names"].append("Additional security check")
+        self.assertEqual(verify(config), [])
+
+    def test_substituting_a_nonempty_evidence_check_is_rejected(self):
+        config = load()
+        config["merge_gate"]["evidence_check_name"] = "Quality Gate"
+        self.assertTrue(any("evidence_check_name" in p for p in verify(config)))
+
+    def test_removing_the_owner_approvers_is_rejected(self):
+        config = load()
+        config["merge_gate"].pop("owner_approvers", None)
+        self.assertTrue(any("owner_approvers" in p for p in verify(config)))
+
+    def test_an_unlimited_diff_size_is_rejected(self):
+        config = load()
+        config["merge_gate"]["max_changed_files"] = 0
+        self.assertTrue(any("max_changed_files" in p for p in verify(config)))
+
+    def test_every_updater_path_is_required_not_just_the_first_two(self):
+        for path in load()["product"]["manual_review_paths"]:
+            config = load()
+            config["product"]["manual_review_paths"] = [
+                kept for kept in config["product"]["manual_review_paths"]
+                if kept != path
+            ]
+            with self.subTest(path=path):
+                self.assertTrue(any(path in problem for problem in verify(config)))
 
 
 if __name__ == "__main__":

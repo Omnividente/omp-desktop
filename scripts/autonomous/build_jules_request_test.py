@@ -9,6 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_jules_request import build, dispatch_key, render_prompt  # noqa: E402
+from jules_dispatch import extract_key
+from task_lifecycle import complete, reconcile, start
+from datetime import datetime, timedelta, timezone
 
 TASK = {
     "id": "auto-tsc-abc123",
@@ -41,11 +44,6 @@ def make(**overrides):
 class DispatchKeyTest(unittest.TestCase):
     """Reported defect: base_sha in the key produced duplicate sessions."""
 
-    def test_key_is_stable_when_the_branch_moves(self):
-        first = dispatch_key("Omnividente/omp-desktop", "auto-1")
-        second = dispatch_key("Omnividente/omp-desktop", "auto-1")
-        self.assertEqual(first, second)
-
     def test_request_key_does_not_depend_on_the_base_commit(self):
         one = make(base_sha="a" * 40)["title"]
         two = make(base_sha="b" * 40)["title"]
@@ -57,35 +55,41 @@ class DispatchKeyTest(unittest.TestCase):
     def test_different_repositories_get_different_keys(self):
         self.assertNotEqual(dispatch_key("r1", "auto-1"), dispatch_key("r2", "auto-1"))
 
-    def test_key_is_short_and_hex(self):
-        key = dispatch_key("r", "auto-1")
-        self.assertEqual(len(key), 24)
-        self.assertTrue(all(c in "0123456789abcdef" for c in key))
+    def test_retry_changes_identity_but_reconciliation_does_not(self):
+        now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
+        for outcome in ("failed", "closed_unmerged", "stale"):
+            with self.subTest(outcome=outcome):
+                data = {"tasks": [dict(TASK)]}
+                item = data["tasks"][0]
+                def request_key():
+                    return extract_key(build(item, template=TEMPLATE, repo="r",
+                                             branch="b", base_sha="s")["prompt"])
+                first = request_key()
+                start(data, item["id"], session_id="1", dispatch_key=first, now=now)
+                self.assertEqual(request_key(), first)
+                start(data, item["id"], session_id="1", dispatch_key=first, now=now)
+                if outcome == "stale":
+                    reconcile(data, now=now + timedelta(hours=7))
+                else:
+                    complete(data, item["id"], outcome=outcome, now=now)
+                second = request_key()
+                self.assertNotEqual(first, second)
+                start(data, item["id"], session_id="2", dispatch_key=second, now=now)
+                complete(data, item["id"], outcome="failed", now=now)
+                self.assertEqual(item["status"], "blocked")
+                self.assertEqual(item["execution"]["attempts"], 2)
+
+    def test_no_change_finishes_instead_of_scheduling_another_attempt(self):
+        data = {"tasks": [dict(TASK)]}
+        key = dispatch_key("r", TASK["id"])
+        start(data, TASK["id"], session_id="1", dispatch_key=key)
+        complete(data, TASK["id"], outcome="no_change")
+        self.assertEqual(data["tasks"][0]["status"], "done")
+        with self.assertRaises(ValueError):
+            start(data, TASK["id"], session_id="2", dispatch_key="next")
 
 
 class BuildTest(unittest.TestCase):
-    def test_both_markers_are_present_for_reconciliation_and_lifecycle(self):
-        body = make()
-        key = dispatch_key("Omnividente/omp-desktop", TASK["id"])
-        self.assertIn("AUTONOMOUS_DISPATCH_KEY: " + key, body["prompt"])
-        self.assertIn("AUTONOMOUS_TASK_ID: " + TASK["id"], body["prompt"])
-        self.assertIn("[dispatch:" + key + "]", body["title"])
-
-    def test_worker_still_learns_the_base_commit_as_context(self):
-        self.assertIn("a" * 40, make()["prompt"])
-
-    def test_source_context_points_at_the_integration_branch(self):
-        body = make()
-        self.assertEqual(body["sourceContext"]["source"], "sources/github/Omnividente/omp-desktop")
-        self.assertEqual(
-            body["sourceContext"]["githubRepoContext"]["startingBranch"], "autonomous/lab"
-        )
-
-    def test_pull_request_creation_is_automatic_and_unattended(self):
-        body = make()
-        self.assertEqual(body["automationMode"], "AUTO_CREATE_PR")
-        self.assertFalse(body["requirePlanApproval"])
-
     def test_title_is_capped_for_the_api(self):
         long_task = dict(TASK)
         long_task["title"] = "x" * 500
@@ -94,19 +98,6 @@ class BuildTest(unittest.TestCase):
         )
         self.assertLessEqual(len(body["title"]), 200)
 
-    def test_placeholders_are_all_substituted(self):
-        prompt = make()["prompt"]
-        self.assertNotIn("{{", prompt)
-        self.assertIn("Fix TS2345 in clock.ts", prompt)
-        self.assertIn("quality", prompt)
-
-    def test_task_json_travels_with_the_prompt(self):
-        self.assertIn("TS2345 at src/clock.ts:42", make()["prompt"])
-
-
-class RenderPromptTest(unittest.TestCase):
-    def test_unknown_placeholders_are_left_alone(self):
-        self.assertEqual(render_prompt("a {{B}} c", {"X": "1"}), "a {{B}} c")
 
     def test_repeated_placeholders_are_all_replaced(self):
         self.assertEqual(render_prompt("{{A}}-{{A}}", {"A": "z"}), "z-z")

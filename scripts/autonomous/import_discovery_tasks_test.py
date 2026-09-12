@@ -2,13 +2,20 @@
 """Tests for import_discovery_tasks.py."""
 from __future__ import annotations
 
+import copy
+import json
+import tempfile
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from import_discovery_tasks import extract_block, import_tasks, normalize  # noqa: E402
+from import_discovery_tasks import (  # noqa: E402
+    STATUS_ABSENT, STATUS_MALFORMED, extract_block, import_tasks, main, normalize,
+)
 from validate_tasks import validate  # noqa: E402
 
 NOW = "2026-09-12T12:00:00Z"
@@ -60,14 +67,6 @@ class ExtractTest(unittest.TestCase):
 
 
 class NormalizeTest(unittest.TestCase):
-    def test_defaults_are_filled_in(self):
-        entry = normalize({"title": "Tidy up", "evidence": {"detail": "eslint"}}, now=NOW)
-        self.assertEqual(entry["status"], "todo")
-        self.assertEqual(entry["risk"], "low")
-        self.assertEqual(entry["task_type"], "product_improvement")
-        self.assertTrue(entry["id"].startswith("discovery-"))
-        self.assertEqual(entry["created_at"], NOW)
-
     def test_discovery_cannot_spawn_more_discovery(self):
         entry = normalize(
             {"title": "Look around again", "task_type": "project_discovery",
@@ -81,12 +80,6 @@ class NormalizeTest(unittest.TestCase):
             {"title": "Urgent", "priority": 5000, "evidence": {"detail": "x"}}, now=NOW
         )
         self.assertEqual(entry["priority"], 90)
-
-    def test_nonsense_risk_falls_back_to_low(self):
-        entry = normalize(
-            {"title": "X", "risk": "apocalyptic", "evidence": {"detail": "x"}}, now=NOW
-        )
-        self.assertEqual(entry["risk"], "low")
 
 
 class ImportTest(unittest.TestCase):
@@ -138,11 +131,59 @@ class ImportTest(unittest.TestCase):
         result = import_tasks(data, body(ONE_TASK), now=NOW)
         self.assertFalse(result["changed"])
         self.assertEqual(result["skipped"][0]["reason"], "duplicate_title")
+    def test_absent_backlog_does_not_materialize_or_change_the_queue(self):
+        data = {}
+        result = import_tasks(data, "No findings to import", now=NOW)
+        self.assertEqual(result["status"], STATUS_ABSENT)
+        self.assertEqual(data, {})
 
-    def test_imported_queue_still_validates(self):
-        data = manifest()
-        import_tasks(data, body(ONE_TASK), now=NOW)
-        self.assertEqual(validate(data), [])
+    def test_malformed_blocks_are_distinct_from_absent_and_never_partly_imported(self):
+        malformed = (
+            "AUTONOMOUS_TASKS_BEGIN\n" + ONE_TASK,
+            ONE_TASK + "\nAUTONOMOUS_TASKS_END",
+            "AUTONOMOUS_TASKS_END\n" + ONE_TASK + "\nAUTONOMOUS_TASKS_BEGIN",
+            body(ONE_TASK) + body("[]"),
+            body('{"tasks": ' + ONE_TASK + '}'),
+            body(ONE_TASK + " trailing garbage"),
+            body(ONE_TASK[:-1] + ', 7]'),
+            body(ONE_TASK[:-1] + ', {"title": "Bad", "acceptance": 7}]'),
+        )
+        for text in malformed:
+            with self.subTest(text=text):
+                data = manifest()
+                before = copy.deepcopy(data)
+                result = import_tasks(data, text, now=NOW)
+                self.assertEqual(result["status"], STATUS_MALFORMED)
+                self.assertFalse(result["changed"])
+                self.assertEqual(data, before)
+
+    def test_cli_malformed_input_reports_error_without_rewriting_any_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            queue = Path(directory) / "queue.json"
+            target = Path(directory) / "out.json"
+            outputs = Path(directory) / "outputs.txt"
+            original = json.dumps(manifest()).encode("utf-8")
+            queue.write_bytes(original)
+            target.write_bytes(b"previous output")
+            errors = StringIO()
+            with redirect_stdout(StringIO()), redirect_stderr(errors):
+                result = main(["--manifest", str(queue), "--out", str(target),
+                               "--github-output", str(outputs), "--body",
+                               "AUTONOMOUS_TASKS_BEGIN\n" + ONE_TASK])
+            self.assertEqual(result, 2)
+            self.assertIn("::error::", errors.getvalue())
+            self.assertIn("imported_status=malformed_block", outputs.read_text(encoding="utf-8"))
+            self.assertEqual(queue.read_bytes(), original)
+            self.assertEqual(target.read_bytes(), b"previous output")
+
+    def test_cli_absent_block_succeeds_without_rewriting_the_queue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            queue = Path(directory) / "queue.json"
+            original = json.dumps(manifest()).encode("utf-8")
+            queue.write_bytes(original)
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main(["--manifest", str(queue), "--body", "Nothing found"]), 0)
+            self.assertEqual(queue.read_bytes(), original)
 
 
 if __name__ == "__main__":

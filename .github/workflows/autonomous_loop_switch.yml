@@ -5,8 +5,17 @@ name: Autonomous Loop Switch
 #
 # Switching on also prepares the integration branch, because a lab branch that
 # predates the loop cannot run it. Preparation is additive: a missing branch is
-# created from the default branch and a missing task queue is seeded, but work
-# already accumulated on the branch is never overwritten.
+# created from the default branch, a missing task queue is seeded, and the
+# workflows that must exist *on the branch itself* are published onto it. Work
+# already accumulated on the branch is never overwritten and its history is
+# never rewritten.
+#
+# The entry points have to live on the branch because GitHub reads a
+# pull_request workflow from the ref of the event, not from the default branch:
+# a file that exists only on main would never run for a pull request into the
+# integration branch. Writing workflow files needs a PAT with the workflow
+# scope, and if that write fails the switch fails loudly - a loop whose own
+# pull requests have no evidence gate must not be turned on.
 #
 # Switching off releases any task left in flight so the queue cannot deadlock.
 
@@ -44,29 +53,18 @@ jobs:
       ADMIN_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Set the JULES_LOOP_ENABLED repository variable
+      - name: Stop new dispatches before changing the loop state
         run: |
           set -euo pipefail
           if [ -z "${ADMIN_TOKEN}" ]; then
-            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with repo scope so this workflow can manage Actions variables."
+            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with the repo and workflow scopes so this workflow can manage Actions variables and publish the loop entry points."
             exit 1
           fi
-          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/variables"
-          payload=$(printf '{"name":"JULES_LOOP_ENABLED","value":"%s"}' "${LOOP_ENABLED}")
-          code=$(curl -sS -o /tmp/variable.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "${api}/JULES_LOOP_ENABLED" -d "${payload}")
-          if [ "${code}" = "404" ]; then
-            code=$(curl -sS -o /tmp/variable.json -w '%{http_code}' -X POST -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "${api}" -d "${payload}")
-          fi
-          echo "HTTP ${code}"
-          cat /tmp/variable.json || true
-          case "${code}" in
-            2*) ;;
-            *) exit 1 ;;
-          esac
+          GH_TOKEN="${ADMIN_TOKEN}" gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body false
 
       - name: Prepare the integration branch
         id: prepare
-        if: ${{ inputs.prepare_integration_branch }}
+        if: ${{ inputs.loop_enabled == 'true' && inputs.prepare_integration_branch }}
         run: |
           set -euo pipefail
           created=false
@@ -79,9 +77,8 @@ jobs:
             created=true
             echo "Created ${INTEGRATION_BRANCH} from ${DEFAULT_BRANCH} at ${sha}."
           fi
-          # The loop reads its scripts and policy from the default branch, so the
-          # only file the integration branch has to carry is the task queue. An
-          # existing queue is never replaced.
+          # Existing queue state is never replaced. Event entry points are
+          # checked separately before dispatches can be enabled again.
           if gh api "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json?ref=${INTEGRATION_BRANCH}" > /dev/null 2>&1; then
             echo "Task queue already present on ${INTEGRATION_BRANCH}; keeping the accumulated state."
           else
@@ -96,6 +93,62 @@ jobs:
           fi
           echo "created=${created}" >> "${GITHUB_OUTPUT}"
           echo "seeded=${seeded}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish the loop entry points onto the integration branch
+        id: entrypoints
+        if: ${{ inputs.loop_enabled == 'true' }}
+        env:
+          ENTRY_WORKFLOWS: ".github/workflows/autonomous_evidence_gate.yml .github/workflows/autonomous_next_task.yml .github/workflows/autonomous_control_ci.yml"
+          PREPARE_BRANCH: ${{ inputs.prepare_integration_branch }}
+        run: |
+          set -euo pipefail
+          # GitHub resolves a pull_request workflow from the ref of the event, so
+          # a pull request into the integration branch only runs the evidence
+          # gate and the lifecycle hooks if the branch itself carries those
+          # files. They are copied from the default branch byte for byte and are
+          # never edited here; everything they execute is still read from main at
+          # run time, so this does not hand the loop control of its guardrails.
+          if [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with the repo and workflow scopes."
+            exit 1
+          fi
+          gh api "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json?ref=${INTEGRATION_BRANCH}" > /dev/null
+          synced=0
+          for path in ${ENTRY_WORKFLOWS}; do
+            source_content=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${DEFAULT_BRANCH}" --jq '.content' | tr -d '\n')
+            if [ -z "${source_content}" ]; then
+              echo "::error::${path} is missing on ${DEFAULT_BRANCH}. Merge the control plane into the default branch first."
+              exit 1
+            fi
+            target_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${INTEGRATION_BRANCH}" --jq '.sha' 2> /dev/null || true)
+            target_content=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${INTEGRATION_BRANCH}" --jq '.content' 2> /dev/null | tr -d '\n' || true)
+            if [ -n "${target_content}" ] && [ "${target_content}" = "${source_content}" ]; then
+              echo "${path} is already identical on ${INTEGRATION_BRANCH}."
+              continue
+            fi
+            if [ "${PREPARE_BRANCH}" != "true" ]; then
+              echo "::error::${path} is missing or differs on ${INTEGRATION_BRANCH}. Enable branch preparation before turning the loop on."
+              exit 1
+            fi
+            args=(--method PUT "/repos/${GITHUB_REPOSITORY}/contents/${path}" -f "message=chore(autonomous): publish ${path} on the integration branch" -f "content=${source_content}" -f "branch=${INTEGRATION_BRANCH}")
+            if [ -n "${target_sha}" ]; then
+              args+=(-f "sha=${target_sha}")
+            fi
+            code=0
+            GH_TOKEN="${ADMIN_TOKEN}" gh api "${args[@]}" > /tmp/entrypoint.json 2>&1 || code=$?
+            if [ "${code}" != "0" ]; then
+              cat /tmp/entrypoint.json || true
+              echo "::error::Could not write ${path} onto ${INTEGRATION_BRANCH}. A GITHUB_TOKEN is refused for .github/workflows/**, so the PAT secret needs the 'workflow' scope in addition to 'repo'. Until these files exist on the branch, pull requests into it run no evidence gate, so the loop must stay off."
+              exit 1
+            fi
+            synced=$((synced + 1))
+            echo "Published ${path} onto ${INTEGRATION_BRANCH}."
+          done
+          echo "synced=${synced}" >> "${GITHUB_OUTPUT}"
+
+      - name: Enable dispatches after all entry points are ready
+        if: ${{ inputs.loop_enabled == 'true' }}
+        run: GH_TOKEN="${ADMIN_TOKEN}" gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body true
 
       - name: Check out the control plane from the default branch
         if: ${{ inputs.loop_enabled == 'false' }}
@@ -145,6 +198,7 @@ jobs:
         env:
           BRANCH_CREATED: ${{ steps.prepare.outputs.created }}
           QUEUE_SEEDED: ${{ steps.prepare.outputs.seeded }}
+          ENTRY_POINTS_SYNCED: ${{ steps.entrypoints.outputs.synced }}
           RELEASED: ${{ steps.release.outputs.released }}
         run: |
           {
@@ -152,7 +206,8 @@ jobs:
             echo ""
             echo "- JULES_LOOP_ENABLED: ${LOOP_ENABLED}"
             echo "- Integration branch: ${INTEGRATION_BRANCH} (created now: ${BRANCH_CREATED:-skipped}, queue seeded now: ${QUEUE_SEEDED:-skipped})"
-            echo "- Control plane: always read from ${DEFAULT_BRANCH}, so the integration branch only carries agent_tasks.json"
+            echo "- Entry-point workflows published onto the branch now: ${ENTRY_POINTS_SYNCED:-skipped}"
+            echo "- Control plane: scripts and policy are always read from ${DEFAULT_BRANCH}; the branch carries agent_tasks.json plus the workflow files GitHub can only resolve from the event ref"
             echo "- Release automation: disabled by policy, human-gated"
             if [ "${LOOP_ENABLED}" = "false" ]; then
               echo "- Tasks released back to the queue: ${RELEASED:-0}"
@@ -160,6 +215,6 @@ jobs:
               echo "**The switch stops new dispatches only.** A worker session that is already running is not cancelled by it, because the worker API documents no cancel operation. Stop such a session in the Jules UI if you need it stopped now; any pull request it still opens will not be merged while the loop is off."
             else
               echo ""
-              echo "Before relying on unattended merges, protect ${INTEGRATION_BRANCH} and require the checks **Quality Gate** and **Autonomous Evidence Gate**. Without server-side protection, the merge guards are only enforced by the workflow that performs the merge."
+              echo "Before relying on unattended merges, protect ${INTEGRATION_BRANCH} and require the check runs **Checks (ubuntu-latest)**, **Checks (windows-latest)** (both from the Quality Gate workflow) and **Autonomous Evidence Gate**. Those are check-run names, not workflow names, which is what branch protection matches. Without server-side protection, the merge guards are only enforced by the workflow that performs the merge."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"

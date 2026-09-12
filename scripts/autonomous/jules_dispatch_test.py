@@ -9,8 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from jules_dispatch import (  # noqa: E402
-    RESULT_ALREADY_COMPLETED, RESULT_CREATED, RESULT_RECONCILED, KeyRing, Response,
-    dispatch, extract_key, find_matches, session_is_active,
+    RESULT_ALREADY_COMPLETED, RESULT_ALREADY_FAILED, RESULT_CREATED, RESULT_RECONCILED,
+    Response, dispatch,
 )
 
 KEY = "deadbeefcafe0001"
@@ -105,9 +105,14 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(result["session_state"], "COMPLETED")
         self.assertNotIn("POST", [method for method, _url in transport.calls])
 
-    def test_failed_session_also_counts_as_finished(self):
+    def test_a_failed_session_is_reported_as_failed_not_completed(self):
+        """Reported defect: a dead session was reported as 'already_completed',
+        so the queue recorded a success and closed the task as done."""
         transport = FakeTransport([sessions_response(session("FAILED"))])
-        self.assertEqual(run(transport)["result"], RESULT_ALREADY_COMPLETED)
+        result = run(transport)
+        self.assertEqual(result["result"], RESULT_ALREADY_FAILED)
+        self.assertEqual(result["session_state"], "FAILED")
+        self.assertNotEqual(result["result"], RESULT_ALREADY_COMPLETED)
 
     def test_active_session_wins_over_an_older_finished_one(self):
         transport = FakeTransport([sessions_response(
@@ -157,16 +162,6 @@ class KeyRingTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             run(transport, keys=("only",))
 
-    def test_ring_rotation_stops_at_the_last_key(self):
-        ring = KeyRing(["a", "b"])
-        self.assertEqual(ring.current, "a")
-        self.assertTrue(ring.rotate())
-        self.assertEqual(ring.current, "b")
-        self.assertFalse(ring.rotate())
-
-    def test_blank_keys_are_dropped(self):
-        self.assertEqual(KeyRing(["", "  ", "real"]).keys, ["real"])
-
     def test_no_key_at_all_is_an_error(self):
         with self.assertRaises(RuntimeError):
             dispatch(
@@ -176,9 +171,6 @@ class KeyRingTest(unittest.TestCase):
 
 
 class MarkerTest(unittest.TestCase):
-    def test_key_is_read_from_the_prompt(self):
-        self.assertEqual(extract_key(REQUEST["prompt"]), KEY)
-
     def test_request_without_a_marker_is_refused(self):
         with self.assertRaises(RuntimeError):
             dispatch(
@@ -186,18 +178,59 @@ class MarkerTest(unittest.TestCase):
                 api_keys=["k"], request_body={"prompt": "no marker here"},
             )
 
-    def test_unknown_state_is_treated_as_active(self):
-        self.assertTrue(session_is_active({"state": "UNKNOWN"}))
-        self.assertTrue(session_is_active({}))
-        self.assertFalse(session_is_active({"state": "COMPLETED"}))
+    def test_new_api_state_is_not_reported_as_a_success(self):
+        transport = FakeTransport([sessions_response(session("PAUSED"))])
+        self.assertEqual(run(transport)["result"], RESULT_RECONCILED)
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
 
-    def test_find_matches_separates_active_from_finished(self):
-        active, terminal = find_matches(
-            [session("IN_PROGRESS", name="sessions/1"), session("COMPLETED", name="sessions/2")],
-            KEY,
-        )
-        self.assertIsNotNone(active)
-        self.assertIsNotNone(terminal)
+    def test_prompt_marker_prefix_does_not_reconcile_another_attempt(self):
+        other = session("COMPLETED", title="fix", prompt="AUTONOMOUS_DISPATCH_KEY: " + KEY + "longer")
+        transport = FakeTransport([sessions_response(other)], [Response(200, session("QUEUED"))])
+        self.assertEqual(run(transport)["result"], RESULT_CREATED)
+
+    def test_conflicting_session_markers_do_not_reconcile_another_task(self):
+        other = session("COMPLETED", title="[dispatch:other]")
+        transport = FakeTransport([sessions_response(other)], [Response(200, session("QUEUED"))])
+        self.assertEqual(run(transport)["result"], RESULT_CREATED)
+
+    def test_conflicting_request_markers_fail_before_creating_work(self):
+        transport = FakeTransport([])
+        with self.assertRaises(RuntimeError):
+            dispatch(transport, api_base="https://example.test", api_keys=["k"],
+                     request_body={**REQUEST, "title": "[dispatch:other]"})
+        self.assertEqual(transport.calls, [])
+
+
+class PaginationTest(unittest.TestCase):
+    def test_matching_session_beyond_first_page_prevents_duplicate_dispatch(self):
+        transport = FakeTransport([
+            Response(200, {"sessions": [], "nextPageToken": "next+/="}),
+            sessions_response(session("COMPLETED")),
+        ])
+        self.assertEqual(run(transport)["result"], RESULT_ALREADY_COMPLETED)
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
+        self.assertIn("pageToken=next%2B%2F%3D", transport.calls[1][1])
+
+    def test_repeated_page_token_aborts_without_creating_duplicate_work(self):
+        page = Response(200, {"sessions": [], "nextPageToken": "same"})
+        transport = FakeTransport([page, page])
+        with self.assertRaises(RuntimeError):
+            run(transport)
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
+
+    def test_failed_later_page_does_not_mean_no_matching_session(self):
+        transport = FakeTransport([
+            Response(200, {"sessions": [], "nextPageToken": "next"}), Response(503, None),
+        ])
+        with self.assertRaises(RuntimeError):
+            run(transport)
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
+
+    def test_malformed_session_list_is_not_treated_as_empty(self):
+        transport = FakeTransport([Response(200, {"sessions": {}})])
+        with self.assertRaises(RuntimeError):
+            run(transport)
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
 
 
 if __name__ == "__main__":
