@@ -36,8 +36,7 @@ export function applyTerminalAttachment(
   const expectedSeq = reset ? 1 : previous.lastSeq + 1
   const receivedSeq = attachment.firstSeq
   const gap = !reset && !attachment.truncated && receivedSeq !== null && receivedSeq > expectedSeq
-  const lastSeq =
-    attachment.lastSeq ?? (reset ? 0 : (previous?.lastSeq ?? 0))
+  const lastSeq = attachment.lastSeq ?? (reset ? 0 : (previous?.lastSeq ?? 0))
   baselines.set(terminalId, {
     generation: attachment.generation,
     lastSeq: Math.max(reset ? 0 : (previous?.lastSeq ?? 0), lastSeq),

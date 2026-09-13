@@ -106,12 +106,23 @@ describe("terminal output continuity", () => {
     // The attachment has no data yet, but nextSeq might be advanced if the backend started producing data.
     applyTerminalAttachment(
       terminalId,
-      attachment({ generation: 12, firstSeq: null, lastSeq: null, nextSeq: 5, baselineReset: true })
+      attachment({
+        generation: 12,
+        firstSeq: null,
+        lastSeq: null,
+        nextSeq: 5,
+        baselineReset: true,
+      }),
     )
     // The lastSeq should be 0 so that sequences 1 to 4 are accepted when they arrive as deferred outputs.
     expect(terminalContinuityBaseline(terminalId)).toEqual({ generation: 12, lastSeq: 0 })
 
-    const decision = applyTerminalOutputEvent({ terminalId, data: "deferred", generation: 12, seq: 1 })
+    const decision = applyTerminalOutputEvent({
+      terminalId,
+      data: "deferred",
+      generation: 12,
+      seq: 1,
+    })
     expect(decision).toMatchObject({ accept: true, gap: false, expectedSeq: 1, receivedSeq: 1 })
   })
 })
