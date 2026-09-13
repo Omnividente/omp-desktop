@@ -255,6 +255,11 @@ def plan_research(
     while identifier in existing_ids:
         cycle += 1
         identifier = "research-" + area["id"] + "-" + perspective["id"] + "-" + str(cycle)
+    # Rotation and cooldown use the area/perspective pair; observations belong
+    # to the whole area, so a new perspective can build on earlier findings.
+    area_history = sorted([
+        task for task in research_tasks if task["research"]["area_id"] == area["id"]
+    ], key=lambda task: (_last_activity(task, now), task["id"]))
     task = {
         "id": identifier,
         "title": "Investigate " + area["title"] + ": " + perspective["title"],
@@ -273,7 +278,7 @@ def plan_research(
         "research": {
             "area_id": area["id"], "perspective_id": perspective["id"],
             "fingerprint": fingerprint, "cycle": cycle,
-            "previous_reports": _previous_reports(history),
+            "previous_reports": _previous_reports(area_history),
         },
     }
     updated = copy.deepcopy(manifest)

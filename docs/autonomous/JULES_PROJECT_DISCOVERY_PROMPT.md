@@ -55,9 +55,9 @@ refactors or duplicate tasks to meet a quota. Prefer meaningful untested scenari
 as `next_hypotheses`; a hypothesis is not yet an implementation task.
 
 Finish with the exact task and dispatch markers from the top of this prompt and
-both machine-readable blocks below. Put the **complete final report together in
+the machine-readable blocks below. Put the **complete final report together in
 one final agent message**, not fragmented across progress updates. The importer
-uses the latest marked report; malformed or missing evidence is not `no_change`.
+uses the latest agent report; malformed or missing evidence is not `no_change`.
 
 ```text
 AUTONOMOUS_TASK_ID: {{TASK_ID}}
@@ -82,6 +82,13 @@ AUTONOMOUS_DISPATCH_KEY: <copy the exact key from the top of this prompt>
 []
 <!-- AUTONOMOUS_TASKS_END -->
 ```
+
+The task array may be omitted entirely when there are no actionable findings,
+but the complete research block with real observations remains mandatory. If
+either task delimiter is present, both ordered delimiters and a valid JSON array
+are required. A malformed final report parks this same completed attempt for
+inspection and explicit report reharvesting; it does not launch another research
+session or silently fall back to an older report.
 
 Replace the empty task array only when there are actionable findings. Each entry
 must contain `title`, `task_type` (`bugfix` or `product_improvement`), `risk`,

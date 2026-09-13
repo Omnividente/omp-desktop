@@ -137,6 +137,28 @@ class ReconcileTest(unittest.TestCase):
         )
         self.assertEqual(run(transport)["result"], RESULT_RECONCILED)
 
+    def test_stored_completed_session_is_read_without_creating_a_replacement(self):
+        transport = FakeTransport([Response(200, session("COMPLETED"))])
+        result = run(transport, stored_session="555")
+        self.assertEqual(result["result"], RESULT_ALREADY_COMPLETED)
+        self.assertEqual(result["session_id"], "555")
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
+
+    def test_missing_stored_session_does_not_restart_research(self):
+        transport = FakeTransport([Response(404)], [Response(200, session("QUEUED"))])
+        with self.assertRaises(RuntimeError):
+            run(transport, stored_session="555")
+        self.assertNotIn("POST", [method for method, _url in transport.calls])
+
+    def test_stored_session_with_wrong_identity_or_dispatch_is_rejected(self):
+        for current in (session("COMPLETED", name="sessions/other"),
+                        session("COMPLETED", title="[dispatch:other]", prompt="")):
+            with self.subTest(current=current):
+                transport = FakeTransport([Response(200, current)])
+                with self.assertRaises(RuntimeError):
+                    run(transport, stored_session="555")
+                self.assertNotIn("POST", [method for method, _url in transport.calls])
+
 
 class KeyRingTest(unittest.TestCase):
     """Reported limitation: the backup key was used only if the primary was absent."""

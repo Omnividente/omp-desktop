@@ -17,10 +17,10 @@ VALID_TASK_TYPES = {
     "project_discovery", "chore",
 }
 VALID_OUTCOMES = {
-    "", "merged", "no_change", "researched", "review_required", "closed_unmerged", "failed", "stale",
+    "", "merged", "no_change", "researched", "review_required", "report_invalid", "closed_unmerged", "failed", "stale",
 }
 VALID_EXECUTION_STATES = {
-    "", "dispatched", "completed", "retry", "exhausted", "awaiting_review",
+    "", "dispatched", "completed", "retry", "exhausted", "awaiting_review", "awaiting_report",
 }
 
 MAX_PREVIOUS_REPORTS = 3
@@ -123,6 +123,20 @@ def _validate_research(task: dict, prefix: str) -> list:
         if state == "awaiting_review" or outcome == "review_required":
             if (task.get("status"), state, outcome) != ("blocked", "awaiting_review", "review_required"):
                 errors.append(prefix + ".manual review requires blocked/awaiting_review/review_required")
+        if state == "awaiting_report" or outcome == "report_invalid" or "report_error" in execution:
+            if (task.get("status"), state, outcome) != ("blocked", "awaiting_report", "report_invalid"):
+                errors.append(prefix + ".report recovery requires blocked/awaiting_report/report_invalid")
+            if (task.get("task_type") != "project_discovery"
+                    or not _nonblank(execution.get("session_id"))
+                    or not _nonblank(execution.get("dispatch_key"))
+                    or type(execution.get("attempts")) is not int or execution["attempts"] < 1
+                    or execution.get("pull_request")):
+                errors.append(prefix + ".report recovery requires a bound research attempt without a PR")
+            issue = execution.get("report_error")
+            if (not isinstance(issue, dict)
+                    or not _nonblank(issue.get("code")) or not _nonblank(issue.get("detail"))
+                    or not _utc_timestamp(issue.get("reported_at"))):
+                errors.append(prefix + ".report_error requires code, detail and an ISO UTC reported_at")
     return errors
 
 def _validate_execution(block: Any, prefix: str) -> list:
