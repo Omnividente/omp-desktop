@@ -9,6 +9,19 @@ import { confirm } from "@tauri-apps/plugin-dialog"
 import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
 import type { BootstrapPayload, OmpConfigSnapshot, TerminalStarted } from "./types"
 
+const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
+
+vi.mock("./useClientUpdater", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./useClientUpdater")>()
+  return {
+    useClientUpdater(...args: Parameters<typeof actual.useClientUpdater>) {
+      const updater = actual.useClientUpdater(...args)
+      updaterAction.install = updater.install
+      return updater
+    },
+  }
+})
+
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   bootstrap: vi.fn(),
@@ -156,7 +169,11 @@ describe("App lifecycle serialization", () => {
     return found!
   }
   function installButton() {
-    return element(".update-toast .primary")
+    const button = [
+      ...container.querySelectorAll<HTMLButtonElement>(".update-toast .primary"),
+    ].find((candidate) => candidate.textContent === "Установить и перезапустить")
+    expect(button).toBeDefined()
+    return button!
   }
 
   async function mountAndResume() {
@@ -182,6 +199,12 @@ describe("App lifecycle serialization", () => {
     vi.mocked(api.loadOmpConfig).mockReset().mockResolvedValue(config("Initial"))
     vi.mocked(api.saveSettingsBundle).mockReset()
     vi.mocked(api.startTerminal).mockReset().mockResolvedValue(started)
+    vi.mocked(api.checkOmpUpdate).mockReset().mockResolvedValue({
+      hasUpdate: false,
+      currentVersion: "18.1.19",
+      latestVersion: null,
+      message: "",
+    })
     vi.mocked(api.setTerminalPrimaryProviderPin)
       .mockReset()
       .mockResolvedValue({ ...started, terminalId: "terminal-2", processId: 102 })
@@ -200,6 +223,43 @@ describe("App lifecycle serialization", () => {
     container.remove()
     vi.restoreAllMocks()
   })
+
+  it.each(["session", "utility"] as const)(
+    "guards a successful %s spawn before React publishes its tab",
+    async (kind) => {
+      const launch = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValue(launch.promise)
+      if (kind === "utility") {
+        vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+          hasUpdate: true,
+          currentVersion: "18.1.19",
+          latestVersion: "99.0.0",
+          message: "Fixture runtime update",
+        })
+      }
+      await act(async () => root.render(<App />))
+      await act(async () => {
+        element(kind === "session" ? ".new-session-button" : ".update-pill").click()
+        launch.resolve(started)
+        // Drain spawn continuations while act still holds the React commit.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        expect(container.querySelector(".terminal-tab")).toBeNull()
+        // Exercise the real updater action, not the disabled button's separate UI guard.
+        await updaterAction.install!()
+      })
+      expect(installClientUpdate).not.toHaveBeenCalled()
+      expect(confirm).not.toHaveBeenCalled()
+
+      // Publication releases the transient gate, but the live process still requires consent.
+      const confirmation = deferred<boolean>()
+      vi.mocked(confirm).mockReturnValue(confirmation.promise)
+      await act(async () => installButton().click())
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(installClientUpdate).not.toHaveBeenCalled()
+      await act(async () => confirmation.resolve(false))
+      expect(installClientUpdate).not.toHaveBeenCalled()
+    },
+  )
 
   it("does not start a Desktop installer while provider-pin restart is pending, even before a render", async () => {
     const restart = deferred<TerminalStarted>()

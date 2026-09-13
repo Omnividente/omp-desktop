@@ -415,6 +415,52 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
+  it("reloads an initial config cancelled by a failed save without losing the Desktop draft", async () => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const replacement = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(replacement.promise)
+    saveSettingsBundleMock.mockRejectedValue(new Error("Fixture save failed"))
+    await renderPanel()
+    changeExecutable("draft-omp.exe")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(container.querySelector(".settings-save-error")).not.toBeNull()
+    expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+    await act(async () => replacement.resolve({ ...ompConfig, advisorEnabled: true }))
+    await act(async () => initial.resolve(ompConfig))
+    expectAdvisorDraft(true)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    expect(container.querySelector<HTMLInputElement>("#omp-executable")!.value).toBe(
+      "draft-omp.exe",
+    )
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    expect(container.querySelector(".settings-save-error")).not.toBeNull()
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it("does not replace a newer runtime load when an earlier save fails", async () => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const replacement = deferred<OmpConfigSnapshot>()
+    const save = deferred<SettingsSavePayload>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(replacement.promise)
+    saveSettingsBundleMock.mockReturnValue(save.promise)
+    await renderPanel()
+    changeExecutable("draft-omp.exe")
+    act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
+    await renderPanel({ ...runtime, ompVersion: "omp/19.0.0" })
+    await act(async () => save.reject(new Error("Earlier save failed")))
+    await act(async () => replacement.resolve({ ...ompConfig, advisorEnabled: true }))
+    await act(async () => initial.resolve(ompConfig))
+    expectAdvisorDraft(true)
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    expect(container.querySelector(".settings-save-error")).not.toBeNull()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
   it.each(["resolve", "reject"] as const)(
     "keeps a returned save snapshot when a pending refresh later %ss",
     async (settlement) => {

@@ -1,5 +1,5 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
@@ -228,6 +228,13 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const unpublishedTerminalIdsRef = useRef(new Set<string>())
+  useLayoutEffect(() => {
+    const unpublished = unpublishedTerminalIdsRef.current
+    if (unpublished.size === 0) return
+    // A spawned process remains guarded until its tab reaches the committed tree.
+    for (const tab of tabs) unpublished.delete(tab.id)
+  }, [tabs])
   const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
     createRuntimeIncidentState(Date.now()),
   )
@@ -483,6 +490,7 @@ function App() {
     ),
     launching:
       launchingRef.current ||
+      unpublishedTerminalIdsRef.current.size > 0 ||
       restartingTerminalIdsRef.current.size > 0 ||
       tabsRef.current.some((tab) => tab.primaryProviderPinPending),
   }))
@@ -1232,6 +1240,7 @@ function App() {
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
+        unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
         setActiveTabId(tab.id)
       } catch (error) {
@@ -1303,6 +1312,7 @@ function App() {
         primaryProviderPinned: false,
         primaryProviderPinPending: false,
       }
+      unpublishedTerminalIdsRef.current.add(tab.id)
       setTabs((current) => [...current, tab])
       setActiveTabId(tab.id)
     } catch (error) {

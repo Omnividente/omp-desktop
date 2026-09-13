@@ -644,7 +644,8 @@ export function SettingsPanel({
   ])
 
   const save = async () => {
-    invalidateConfig()
+    const reloadConfigOnFailure = loadingConfig && ompConfig === null
+    const generation = invalidateConfig()
     setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
@@ -759,6 +760,9 @@ export function SettingsPanel({
       const message = errorMessage(error, language, { includeDetails: true })
       setSaveError(message)
       onError(message)
+      if (reloadConfigOnFailure && generation === configGenerationRef.current) {
+        void refreshConfig(false, configRuntimeRef.current ?? runtime)
+      }
     } finally {
       if (!disposedRef.current) setSaving(false)
     }
