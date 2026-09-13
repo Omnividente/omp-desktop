@@ -92,8 +92,10 @@ session or silently fall back to an older report.
 
 Replace the empty task array only when there are actionable findings. Each entry
 must contain `title`, `task_type` (`bugfix` or `product_improvement`), `risk`,
-`priority` (1–90), `focus`, concrete repository-relative `target_paths`, non-empty
-`acceptance`, and `evidence: {"source": "product_research", "detail": "..."}`.
+`priority` (1–90), and non-empty string arrays `focus`, `target_paths` and
+`acceptance`. Paths must be concrete and repository-relative. `acceptance` must
+be an array even for one criterion, never a string. Include
+`evidence: {"source": "product_research", "detail": "..."}`.
 State the observed problem, expected benefit and how to verify the change. At
 most ten concrete tasks per report; additional unconfirmed directions belong in
 `next_hypotheses`. Do not propose more discovery tasks or repeat prior findings.

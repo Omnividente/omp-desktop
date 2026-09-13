@@ -230,9 +230,12 @@ it cannot dispatch a worker.
 - **Autonomous Continue** runs after successful trusted controller workflows and
   main pushes. It takes two live snapshots, waits at most 90 seconds for an active
   worker poll, rechecks the switch and existing queued/running controller jobs,
-  and dispatches at most one NextTask or Sync run. Explicit `workflow_dispatch`
-  with `GITHUB_TOKEN` starts a fresh chain instead of depending solely on cron or
-  exceeding GitHub's three-level `workflow_run` chain limit.
+  and dispatches at most one NextTask or Sync run. Dispatch uses the existing
+  Loop Switch PAT, so the child's completion can trigger continuation again.
+  `GITHUB_TOKEN` can start an explicit `workflow_dispatch`, but its downstream
+  completion did not wake this loop during live verification. Ordinary reads
+  still use the read-only `GITHUB_TOKEN`; cadence, queued-run checks and the live
+  switch bound the repeated work instead of relying on GitHub's recursion guard.
 - **Autonomous Sync Main** runs on main pushes or explicit dispatch. Active
   workers and non-parked PRs defer it. After those finish, continuation requests
   the pending sync before any new research can use an obsolete product base.
