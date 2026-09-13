@@ -1,0 +1,237 @@
+{
+  "version": 2,
+  "autonomous_loop_policy": {
+    "integration_branch": "autonomous/lab",
+    "release_automation": "disabled",
+    "min_todo_tasks": 3,
+    "execution_allowed_globs": [
+      "src/**",
+      "src-tauri/src/**",
+      "src-tauri/tests/**"
+    ],
+    "lifecycle": {
+      "max_attempts": 2,
+      "stale_in_progress_hours": 6,
+      "notes": "task_lifecycle.py owns every transition. The AI worker never edits this file. A task that burns through max_attempts becomes blocked instead of being retried forever."
+    },
+    "discovery_policy": "Discovery is the fallback for an empty queue, not the default activity. select_task.py always prefers a concrete evidence-backed task, whatever the priority numbers say, which is why this entry deliberately carries a low priority."
+  },
+  "tasks": [
+    {
+      "id": "project-discovery-0001",
+      "title": "Discover concrete, evidence-backed improvements in omp-desktop and file them as tasks",
+      "task_type": "project_discovery",
+      "status": "done",
+      "focus": [
+        "quality",
+        "tests",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src",
+        "src-tauri/src"
+      ],
+      "evidence": {
+        "source": "bootstrap",
+        "detail": "Initial discovery task. The AI worker must run the project's own quality gate (npm ci; npm run typecheck; npm run lint; npm test; npm run build) plus cargo fmt/clippy/test, and only file follow-up tasks backed by a real failing check, a reproducible bug, or a measured regression. Findings must be emitted in the machine-readable AUTONOMOUS_TASKS block so import_discovery_tasks.py can add them to this queue. Never touch release/version/updater files.",
+        "base_commit": ""
+      },
+      "created_at": "2026-09-11T00:00:00Z",
+      "execution": {
+        "state": "completed",
+        "session_id": "3954569502611073242",
+        "dispatch_key": "d4b34b4ec758e0a023da6fb1",
+        "attempts": 1,
+        "started_at": "2026-09-12T19:17:41Z",
+        "finished_at": "2026-09-12T20:27:30Z",
+        "pull_request": 0,
+        "outcome": "no_change",
+        "note": "the worker session for this task had already finished"
+      }
+    },
+    {
+      "id": "research-terminal-input-behavior-1",
+      "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "done",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-12T22:37:23Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "behavior",
+        "fingerprint": "45445ec91f99c55f1c5836d02aa4536693771226418507682632351a1089f6df",
+        "cycle": 1,
+        "previous_reports": []
+      },
+      "execution": {
+        "state": "completed",
+        "session_id": "9782085721129371451",
+        "dispatch_key": "ff10b8053314a628004b6ba4",
+        "attempts": 1,
+        "started_at": "2026-09-12T22:38:11Z",
+        "finished_at": "2026-09-12T23:01:29Z",
+        "pull_request": 0,
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request"
+      },
+      "research_result": {
+        "summary": "Verified terminal input behaviour, including terminal batching boundary logic, shortcuts execution, and terminal continuity handling.",
+        "observations": [
+          {
+            "scenario": "Writing terminal input over maximum batch sizes in `terminalOutputBatcher.ts`",
+            "evidence": "Manually executed node script importing batch logic showing correct flush triggering at size boundaries (256 * 1024 bytes). Tested vitest terminal input suite verifying cursor inputs and batching logic boundaries.",
+            "result": "The terminal buffer behaves consistently handling chunk boundaries, correctly delaying processing using the 16ms window unless boundaries are met where it synchronously flushes."
+          },
+          {
+            "scenario": "Shortcuts edge conditions mapping correctly inside `terminalShortcuts.ts`",
+            "evidence": "Ran unit tests ensuring shortcuts such as `Ctrl+Z`, `Ctrl+Delete` mapping to PTY sequences correctly (`\\x1f`, `\\x1b[3;3~`). Manual regex inspection validates shortcuts pass unmodified when disabled by `isAgent`.",
+            "result": "Desktop input mappings properly filter out non-agent events and retain layout stability mapping keys properly."
+          },
+          {
+            "scenario": "Terminal output continuity generation validation in `terminalContinuity.ts`",
+            "evidence": "Running `vitest` `src/terminalContinuity.test.ts` validates generation drops and explicit continuity boundaries.",
+            "result": "Identified behavior that properly flags generating gaps and expected next sequences properly tracking truncation intent across restarts."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate input encoding/handling regarding copy/paste buffer and unicode multi-byte inputs interacting with `TerminalInput.ts` limits.",
+          "Investigate `TerminalState` transition boundary conditions where model switching drops recovery on overlapping events in `terminal.rs`."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-12T23:01:29Z",
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "research-terminal-input-reliability-1",
+      "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "done",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-12T23:01:51Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "reliability",
+        "fingerprint": "45445ec91f99c55f1c5836d02aa4536693771226418507682632351a1089f6df",
+        "cycle": 1,
+        "previous_reports": []
+      },
+      "execution": {
+        "state": "completed",
+        "session_id": "10120695647573451296",
+        "dispatch_key": "fe76a63916c206fed06bc774",
+        "attempts": 2,
+        "started_at": "2026-09-13T06:23:01Z",
+        "finished_at": "2026-09-13T07:32:02Z",
+        "pull_request": 0,
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input continuity and failure recovery, identifying a defect in how frontend handles generation changes during deferred output processing.",
+        "observations": [
+          {
+            "scenario": "Terminal process crashes and restarts, generating a new process generation ID.",
+            "evidence": "Tested using isolated synthetic experiments invoking `applyTerminalOutputEvent` with a new generation ID when `outputReady` is still true (before frontend completes re-attachment). Found that `TerminalView.tsx` receives `pty-output` with the new generation and fatals due to `decision.generationChanged` triggering `onErrorRef.current`.",
+            "result": "Establishes that the frontend improperly considers generation changes on output events as fatal errors, preventing seamless failure recovery if an output event arrives slightly before the attachment resolves. This confirms a defect."
+          },
+          {
+            "scenario": "Processing terminal attachment on new generation (restart) with buffered initial output.",
+            "evidence": "Inspected `applyTerminalAttachment` in `src/terminalContinuity.ts`. The `lastSeq` was computed using `previous.lastSeq` fallback without considering `attachment.nextSeq - 1` properly when `attachment.lastSeq` is null. We created an experiment that proved the logic drops subsequent valid `pty-output` events.",
+            "result": "Establishes that terminal continuity baseline tracking does not properly establish a new baseline sequence during failure recovery (reset=true)."
+          }
+        ],
+        "next_hypotheses": [
+          "Check if terminal shortcuts or input handlers correctly handle queued inputs during switching/re-attaching (the SwitchInputRecovery state)"
+        ],
+        "proposed_task_ids": [
+          "discovery-5640a0d5b2031811"
+        ],
+        "completed_at": "2026-09-13T07:32:02Z",
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-5640a0d5b2031811",
+      "title": "Fix terminal continuity generation changes during failure recovery",
+      "task_type": "bugfix",
+      "status": "in_progress",
+      "priority": 10,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "created_at": "2026-09-13T07:32:02Z",
+      "acceptance": [
+        "Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTerminalAttachment` when a new generation starts."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is null, leading to dropped outputs."
+      },
+      "target_paths": [
+        "src/terminalContinuity.ts",
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-reliability-1",
+        "session_id": "10120695647573451296",
+        "dispatch_key": "fe76a63916c206fed06bc774"
+      },
+      "execution": {
+        "state": "dispatched",
+        "session_id": "16681333232569685693",
+        "dispatch_key": "0ac1d81fb9f819d97c5628f3",
+        "attempts": 1,
+        "started_at": "2026-09-13T07:46:44Z",
+        "finished_at": "",
+        "pull_request": 59,
+        "outcome": "",
+        "note": ""
+      }
+    }
+  ]
+}
