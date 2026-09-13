@@ -1,152 +1,123 @@
 # Autonomous improvement loop - runbook
 
-This is a **parallel research and improvement lab**. It investigates product
-scenarios without manual queue feeding, records observations and proposals, and
-implements concrete findings on `autonomous/lab`. Inspect the accumulated results
-when useful. It never releases, bumps versions or pushes to `main`; accepting a
-release remains a separate human decision.
+This is a **research and proposal lab, not an autonomous product acceptor**.
+It investigates concrete scenarios, saves observations and opens improvement
+PRs. A human or Main AI reviews and accepts or declines every proposal into
+`autonomous/lab`. The lab never merges its own product PRs, writes `main`, bumps
+versions or releases. Updating lab from accepted `main` is a separate checked
+synchronization, not acceptance of a worker's proposal.
 
 ## Architecture
 
-```
-main            control plane (workflows, scripts, policy) + product
-  |  read-only for the loop
+```text
+main                  trusted workflows, scripts, policy and accepted product
+  | checked main-to-lab synchronization
   v
-autonomous/lab  accumulated product changes, task queue and event entry points
-  ^
-  |  research reports without PRs; implementation PRs gated before squash merge
-AI worker (Jules): investigate -> record findings -> implement concrete tasks
+autonomous/lab        product history; only manually accepted proposals
+  | pinned product snapshot
+  v
+autonomous/attempt-*  immutable Jules starting ref for one saved attempt
+  | Jules final report or PR -> controller -> human/Main decision
+  v
+autonomous/state      one JSON queue and its independent Git history
 ```
 
-Mutating queue workflows separate the trusted control plane from the product:
+| Input        | Source                              | Purpose                                             |
+| ------------ | ----------------------------------- | --------------------------------------------------- |
+| `control/`   | `main`                              | Trusted scripts, policy and prompts                 |
+| `lab/`       | `autonomous/lab`                    | Product tree, never the live queue                  |
+| `queue.json` | `autonomous/state:agent_tasks.json` | Attempts, identities, reports and proposal outcomes |
 
-| Path       | Ref              | Purpose                                     |
-| ---------- | ---------------- | ------------------------------------------- |
-| `control/` | `main`           | scripts, `autonomous-project.json`, prompts |
-| `lab/`     | `autonomous/lab` | product tree and `agent_tasks.json`         |
+`state_store.py` migrates the exact existing lab queue on its first successful
+save. The original bytes remain the first state commit even if that operation
+also changes a task. Subsequent writes use the previously read SHA as parent and
+an explicit compare-and-swap lease. A stale writer or unreachable remote stops;
+it never falls back to an old product queue. State writes do not move product
+refs or invalidate strict up-to-date PR checks.
 
-Consequences worth knowing:
+Queue writers share `autonomous-lab-queue`, `queue: max` and
+`cancel-in-progress: false`; the Git lease also protects against independent
+writers. The switch's stop flag is deliberately outside that lock. There is no
+database or extra service. The JSON queue in the product remains a legacy seed.
 
-- The loop cannot weaken its own rules. A pull request that edits
-  `scripts/autonomous/**` or `.github/workflows/**` can never be merged by the
-  loop, and even if it were, the loop would keep reading the version on `main`.
-- The integration branch carries two control-plane inputs, published by
-  **Autonomous Loop Switch**: `agent_tasks.json` (seeded additively - an existing
-  queue is never overwritten) and byte-for-byte copies of the entry-point
-  workflows `autonomous_evidence_gate.yml`, `autonomous_next_task.yml` and
-  `autonomous_control_ci.yml`. GitHub resolves a `pull_request` workflow from the
-  ref of the event, so a pull request into `autonomous/lab` can only run the
-  evidence gate if the branch itself carries that file. The scripts and the
-  policy are still read from `main` at run time, so publishing those three files
-  does not hand the loop its own control plane. Writing them needs a token with
-  the `workflow` scope: `GITHUB_TOKEN` is not allowed to write
-  `.github/workflows/**`.
-- **Autonomous Control CI** also separates its checkouts. For pushes or manual
-  runs on `autonomous/lab`, and pull requests targeting it, control-plane tests
-  and policy come from `main`; the queue and workflow YAML come from the exact
-  event revision. Other events test the control plane at their own event SHA,
-  so a pull request into `main` cannot pass by testing the old `main` scripts.
-- All queue writers share `autonomous-lab-queue` with `queue: max` and
-  `cancel-in-progress: false`: scheduled dispatch, replenishment, merge completion,
-  the loop switch and the entire main-sync candidate gate serialize instead of
-  overwriting each other's snapshots.
-  GitHub permits up to 100 pending runs with this setting. `actionlint` 1.7.12
-  does not yet recognize this documented key; do not replace it with single-slot
-  pending cancellation to silence that outdated schema.
+After a saved terminal Jules outcome, the controller may delete that attempt's
+starting ref only if its SHA is unchanged and no open PR uses it as base or head.
+Deletion also carries an exact SHA lease; active, unknown or modified refs are
+retained. A saved cleanup receipt prevents repeated checks of released refs.
+
+The lab must carry the trusted event entry points `autonomous_evidence_gate.yml`,
+`autonomous_next_task.yml` and `autonomous_control_ci.yml`. Loop Switch copies
+these exact files from `main`; their scripts and policy still come from `main`.
+This setup update needs a workflow-capable token and does not rewrite history.
+PR checks also subscribe to base edits, so retargeting the exact Jules proposal
+from its attempt ref to lab can run the evidence gate. Control CI tests trusted
+`main` scripts for lab events and the proposed control-plane revision for a PR
+into `main`.
 
 ## Invariants enforced by code
 
-1. **One revision, end to end.** `autonomous_automerge.yml` acts on the commit
-   the Quality Gate actually verified (`CI_SHA`). It aborts if the pull request
-   head has moved, reads the changed files of that pull request, evaluates scope
-   for that list, and merges with `--match-head-commit "${CI_SHA}"`. The
-   CI-verified SHA, the reviewed SHA and the merged SHA are the same commit or
-   nothing merges.
-2. **A decision is worth no more than the diff it saw.** The file list comes
-   from `/pulls/{number}/files` with pagination - the compare endpoint stops at
-   300 files and `--paginate` does not extend it - including `previous_filename`,
-   so a rename is checked under both its old and its new name. The list is
-   cross-checked against the file count GitHub reports for the pull request. A
-   list that cannot be proven complete, or a diff above
-   `merge_gate.max_changed_files`, goes to you instead of being checked against a
-   fragment of itself.
-   Owner approval cannot waive a missing, duplicate, malformed or truncated file
-   list: unseen paths could contain a hard scope violation.
-3. **A fix must prove it fixes something.** `autonomous_evidence_gate.yml` runs
-   the touched tests at the merge base with the source change reverted (it must
-   **fail**) and again with the change applied (it must **pass**). Automerge
-   reads that check run by name and refuses to merge without it. Changes it
-   cannot prove offline - Rust, config, anything outside the TypeScript test
-   runner - are failed on purpose and routed to you.
-4. **A crash is not a failing test.** `vitest_proof.py` reads the Vitest JSON
-   report rather than the exit code: an import error, a missing module, a config
-   error or a run that collected zero tests proves nothing. The "before" run
-   must contain an assertion failure, not merely a failing hook or runtime
-   exception; the "after" run must pass all collected tests, without substituting
-   skips. JSON/NUL paths and literal Git pathspecs preserve spaces and glob
-   characters, and both sides of a rename are restored.
-5. **"Still running" is not a verdict.** Quality and evidence results are read
-   for `CI_SHA` as `passed | pending | failed | missing`. While a gate is pending
-   the pull request is skipped and left unlabelled so the next gate completion
-   can decide again; only a real negative result gets the `human-review` label.
-   A missing evidence check is also left pending; a later completion can retry.
-   `skipped` and `neutral` do not substitute for a successful gate.
-6. **An approval belongs to a revision, not to a branch.** The
-   `approved-by-owner` label survives a force-push, so a label is never accepted
-   as approval. Only the owner's latest decisive review, approving `CI_SHA`,
-   releases manual review. A later `CHANGES_REQUESTED` or dismissal revokes the
-   earlier approval. Approval never releases a scope violation or an unread diff.
-7. **Tasks have a lifecycle.** `todo -> in_progress -> done | blocked`, owned by
-   `task_lifecycle.py`. A merged or closed pull request closes its task; a
-   session that finished without changes closes it as `no_change` and the task is
-   done, not retried. Active sessions are polled even when the selector reports
-   `work_in_progress`. A completed session that produced a PR waits for its API
-   outcome, not `no_change`. Repeated delivery of the same session/result does
-   not spend attempts; failures get a new dispatch key on retry, and reaching
-   `lifecycle.max_attempts` blocks the task. Confirmed active sessions and open
-   PRs are not reclaimed as abandoned work. Only automation writes the queue.
-8. **Nothing is closed by guesswork, and nothing waits for an event that never
-   arrives.** A pull request must identify the current dispatch key or its
-   recorded PR number; contradictory or stale markers are rejected. A task-id
-   marker alone is accepted only for legacy first attempts with no dispatch key.
-   There is no "only task in progress" fallback. A `GITHUB_TOKEN` merge starts
-   no further workflow run, so completion/import runs directly after automerge,
-   and `--action sweep` reconciles the full paginated PR history on each scheduled
-   run. Each retry has a new dispatch key, so a retry cannot rediscover the
-   previous finished session and stall.
-9. **Research yields to concrete eligible work.** `research_cycle.py` creates one
-   scoped investigation only when no eligible task or active session remains.
-   Research is read-only and returns its report in the completed session, without
-   a fictitious PR. `complete_jules_task.py` binds the exact session/dispatch,
-   reads every activity page, selects the latest agent report and persists its
-   findings with its outcome as one validated transaction. Repeated completion
-   does not duplicate tasks. API failures leave the queue unchanged. A malformed
-   report parks the completed attempt as `blocked / awaiting_report / report_invalid`;
-   it never becomes `no_change` or starts another research session just to repair
-   packaging. An unmarked or malformed newest message cannot resurrect an older
-   valid report.
-   Findings in older merged PRs still use the same bounded importer and exact
-   attempt matching; malformed PR JSON prevents partial completion/import.
-10. **Scope is checked, not trusted.** `check_change_scope.py` rejects anything
-    outside `product.editable_globs` and anything in `product.excluded`.
-11. **Sensitive paths need you.** Files in `product.manual_review_paths` (the
-    client updater, its hooks, notices and their tests - ten paths) may be
-    proposed by the loop but never merged unattended: the pull request is
-    labelled `human-review` and stops there.
-12. **Nothing releases.** `verify_policy.py` rejects release automation, protects
-    all control-plane exclusions and the full updater surface, and requires the
-    exact Linux/Windows and evidence check names. Autonomous Control CI executes
-    regressions and parses workflows; source-text matches are not proof that a
-    workflow enforces these contracts.
-13. **New work uses accepted main.** `autonomous_sync.yml` prepares a real merge
-    in a disposable detached worktree, preserving the lab queue's Git blob exactly.
-    Only that queue may be resolved automatically; every other conflict stops the
-    sync without changing the live branch. Windows and Linux verify the exact
-    candidate SHA through the existing Quality Gate, without inherited secrets.
-    Publication requires unchanged main/lab heads, both ancestors, identical queue
-    blobs and a freshly enabled switch. Only then does an ordinary fast-forward
-    push advance the lab. New tasks wait while main is missing from lab ancestry;
-    existing bound sessions may still be polled and collected.
+1. **No product automerge.** `proposal_review.py` emits `blocked`, `manual_review`
+   or `ready_for_review`, always with `acceptance: manual`. Readiness is evidence
+   for a human/Main decision, never a merge instruction.
+2. **Identity comes from the worker API.** A saved dispatch key and exact Jules
+   session must match its repository, starting branch and `outputs.pullRequest`.
+   The receipt pins PR number, URL, repository and head ref. Owner-authored Jules
+   PRs are supported; a matching author, copied title/body marker or foreign PR
+   cannot bind or close a task, occupy the worker slot or inject backlog.
+3. **Intent is durable before POST.** The controller persists the attempt before
+   CreateSession. Restarts only reconcile that intent; an ambiguous timeout or
+   server reply never causes a second POST for the same attempt. A definite
+   non-transient rejection closes that attempt under the bounded retry policy.
+   Failed state persistence stops further external actions. Before POST the
+   controller rechecks the switch and pinned main/lab heads.
+4. **Stopping retains uncertainty.** An old or unknown session is quarantined,
+   not declared cancelled or recycled. Its key, session and attempt survive.
+   Only a verified terminal outcome can release it safely. A completed session
+   with a PR becomes `blocked / awaiting_review / review_required`; it frees the
+   worker slot. Merge resolves the same task; close without merge permanently
+   declines it. An active session cannot free its slot merely by opening a PR.
+5. **Reports are imported transactionally.** Research collection reads all
+   activity pages from the saved completed session, chooses the latest agent
+   report, and binds its content hash and activity identity to the import. The
+   complete validated queue update is saved together. Repeated completion does
+   not duplicate tasks. API failure or an unmarked newest report cannot revive
+   an older valid message. Malformed output becomes
+   `blocked / awaiting_report / report_invalid`, not `no_change` or another
+   worker; unrelated research can proceed. Editable PR bodies are never imported.
+6. **One reviewed revision and one current base.** The review workflow pins
+   `ci_sha`, the complete file list and current `lab_sha`, and verifies lab
+   ancestry from the exact compare endpoint. Historical REST `pr.base.sha` is
+   not the live lab tip. Head/base races before or after publishing withdraw the
+   ready claim; the old artifact remains explicitly historical.
+7. **No partial-diff approval.** `/pulls/{number}/files` is paginated and checked
+   against the advertised count; the compare API's 300-file listing is not used
+   as a complete diff. Both names of a rename are checked. Missing, duplicate,
+   malformed or incomplete files and excluded paths cannot be approved away.
+8. **Checks must be trusted and exact.** Required check names and GitHub Actions
+   app identity must match the reviewed SHA. Missing, pending, skipped, neutral
+   or foreign results cannot produce readiness. A green quality suite is not
+   failing-first proof. Missing proof, test-only changes, unsupported changes,
+   updater paths and large diffs retain an explicit owner-review requirement.
+9. **A crash is not a failing test.** `vitest_proof.py` requires an executed
+   assertion failure without the source fix, then passing collected tests with
+   it. Import errors, failing hooks, runtime exceptions, zero tests and substituted
+   skips are not proof. Tests-only changes cannot establish source-fix evidence.
+   JSON/NUL paths, literal Git pathspecs and both sides of renames are preserved.
+10. **Approval belongs to a SHA.** Only the owner's latest decisive review of the
+    reviewed commit counts. A later changes-request or dismissal revokes it;
+    labels such as `approved-by-owner` are hints, never authorization. Approval
+    cannot waive identity, incomplete-diff or missing-check blockers.
+11. **Research yields to concrete work.** The planner creates a scoped read-only
+    investigation when there is no eligible concrete task or active worker.
+    Observed findings become implementation tasks, not fictitious research PRs.
+    Waiting human decisions do not stop discovery or main synchronization.
+12. **New work uses accepted main.** Sync prepares a real merge in a disposable
+    worktree, preserving lab's legacy queue blob. Non-queue conflicts stop it.
+    Linux/Windows check the exact candidate without inherited secrets; unchanged
+    live heads, both ancestors and an enabled switch are required before a
+    fast-forward publication. Bound proposals are then refreshed through
+    `update-branch` with `expected_head_sha`, never merged or force-pushed. Their
+    new heads need new checks. Conflicts remain visible for manual resolution.
 
 ## Research cadence and saved results
 
@@ -177,44 +148,34 @@ acceptance criteria and exclusion reason; they are visible but never dispatched.
 `researched` means findings were recorded; `no_change` requires real observations
 and an empty findings list. Neither is proof that a release is verified.
 
-The seed queue is empty; the planner creates the first scoped investigation.
-Preparing the lab preserves an existing queue and its history rather than
-replacing them with the seed. Prior reports survive controller restarts.
+On a new lab the seed is empty; the planner creates the first investigation.
+An existing lab queue is migrated byte-for-byte into `autonomous/state`, never
+replaced with a fresh seed. Reports and pending proposals survive restarts.
 
 ## One-time owner setup
 
-1. Install the **Jules GitHub app** on `Omnividente/omp-desktop` and allow it to
-   open pull requests.
-2. Add repository secrets: `JULES_API_KEY`, optionally `JULES_API_KEY_BACKUP`
-   (used only when the primary key fails), and `PAT` - a token with the `repo`
-   **and `workflow`** scopes. The loop switch needs it to write the
-   `JULES_LOOP_ENABLED` Actions variable and to publish the entry-point
-   workflows onto `autonomous/lab`; `GITHUB_TOKEN` cannot write
-   `.github/workflows/**`. Trusted queue-persistence steps also use this token:
-   their service commits have no product checks, so its owner must be allowed
-   to bypass the lab ruleset. It is never used to merge product pull requests.
-3. Merge the control plane into `main`. Until these workflow files are on the
-   default branch, `workflow_run`-triggered automerge does not exist yet.
-4. **Protect `autonomous/lab`** and require these check runs _by name_:
-   `Checks (ubuntu-latest)`, `Checks (windows-latest)` - both produced by the
-   `Quality Gate` workflow, and the required-checks list takes check-run names,
-   not workflow names - plus `Autonomous Evidence Gate`. The same names are in
-   `merge_gate.required_check_names`, which is what automerge reads. Allow only
-   the owner's administrator role to bypass this lab ruleset for setup, queue
-   commits and the trusted, exact-SHA gated main-sync publisher. Do not grant Jules
-   a bypass. Ordinary product PRs still require their evidence and quality checks.
-   The built-in GitHub Actions app cannot be added as a ruleset bypass actor;
-   automerge keeps using its ordinary
-   `GITHUB_TOKEN`, so GitHub enforces the product checks at merge time too.
-5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It first disables
-   new dispatches, then creates/seeds the branch and publishes entry points,
-   and only then enables the variable. A publication failure leaves the loop
-   off and preserves the existing queue. With preparation disabled, every entry
-   point must already match `main` or enabling fails.
+1. Install the Jules GitHub app for `Omnividente/omp-desktop` with PR access.
+2. Configure `JULES_API_KEY`, optional `JULES_API_KEY_BACKUP`, and the existing
+   controller `PAT` with repository and workflow access. The trusted controller
+   uses it for the switch, state/attempt refs, entry-point publication and PR
+   retarget/refresh. Product diagnostics and candidate checks run in separate
+   jobs without that credential. The token is not used to accept product PRs.
+3. Publish the reviewed control plane to `main` before using its workflows.
+   Keep worker writes away from the trusted state branch and control paths.
+4. Protect `autonomous/lab`: require `Checks (ubuntu-latest)`,
+   `Checks (windows-latest)` and `Autonomous Evidence Gate`, not workflow names.
+   Keep the existing narrow owner bypass for setup and the exact-SHA checked
+   sync publisher; do not grant Jules a bypass. Unsupported proof remains a
+   conscious owner decision, not a green assertion. Protect `autonomous/state`
+   as controller-owned metadata rather than requiring product checks on it.
+5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It disables new
+   dispatch first, prepares lab if absent, migrates state and preserves active
+   identities in quarantine, verifies entry points, then enables the flag.
+   A preparation failure leaves the flag off. With preparation disabled, the
+   entry points must already match `main`.
 
-Until step 5 no new workers or sync publications run. Explicit report recovery
-may read and record a previously completed attempt while the loop is disabled;
-it cannot dispatch a worker.
+No new worker or sync publication runs while disabled. Explicit report recovery
+may read a previously completed session and save its result without dispatching.
 
 ## Day-to-day
 
@@ -236,17 +197,19 @@ it cannot dispatch a worker.
   completion did not wake this loop during live verification. Ordinary reads
   still use the read-only `GITHUB_TOKEN`; cadence, queued-run checks and the live
   switch bound the repeated work instead of relying on GitHub's recursion guard.
-- **Autonomous Sync Main** runs on main pushes or explicit dispatch. Active
-  workers and non-parked PRs defer it. After those finish, continuation requests
-  the pending sync before any new research can use an obsolete product base.
+- **Autonomous Sync Main** runs on main pushes or explicit dispatch. Legacy
+  workers, including quarantined ones, are reconciled before moving their source.
+  Immutable-attempt workers and pending human proposals do not block sync. It
+  refreshes verified proposal branches and reports per-PR conflicts.
 - **Autonomous Replenish** (every 6h) remains an additional source of concrete
   ESLint/TypeScript diagnostic tasks, not the only reason the lab may do work.
 
 ### Recovering a completed research report
 
-Open the NextTask run's `research-report-diagnostics-<run>-<attempt>` artifact.
-It contains the exact task/session/dispatch binding, parser status and precise
-rejection reason, plus a redacted report excerpt of at most 24,000 characters.
+Open the NextTask run's `laboratory-result-<run>-<attempt>` artifact. Its
+`research-diagnostics.json` contains the exact task/session/dispatch binding,
+parser status and rejection reason, plus a redacted report excerpt of at most
+24,000 characters. `lab-result.json` records the last confirmed state revision.
 Redaction occurs before truncation; artifacts are retained for 14 days. Ordinary
 health reports do not include worker prose or dispatch keys.
 
@@ -256,8 +219,9 @@ re-read a repaired report from the same completed session, run **Autonomous Next
 Task** on `main` with `task_id` and `recover_report = true`. The collector verifies
 the stored binding and the live COMPLETED state; it never starts a worker or
 charges an extra attempt. Repeated invalid recovery leaves queue bytes unchanged.
-The equivalent CLI is `complete_jules_task.py --retry-report` with the existing
-manifest/config/task/session arguments and optional `--diagnostics` path.
+For local administration use `lab_controller.py --recover-report --task-id ID`
+with its repo/config/manifest/revision-file/out arguments, so the independent
+state is saved with CAS. Calling the collector alone only modifies its input file.
 
 ### Resolving a failed main synchronization
 
@@ -274,23 +238,29 @@ candidate cannot create an endless build loop; a new main revision or a successf
 manual sync releases that condition. No branch protection is weakened, no force
 push is used, and no installer, version or release is produced.
 
-### Accepting something the loop cannot merge alone
+### Accepting or declining a proposal
 
-A draft PR or a PR with a configured blocking label (`human-review`, `hold`,
-`do-not-merge`, `wip`) is parked as `blocked / awaiting_review / review_required`.
-It remains available for later inspection while unrelated work continues. Its
-eventual merge or close resolves the same attempt without charging another one.
-Review it and merge it yourself when appropriate; do not remove the label or
-weaken the evidence gate just to make automation accept it.
+Every completed implementation PR waits as
+`blocked / awaiting_review / review_required`, even with green checks. Read the
+**Autonomous Proposal Review** comment or artifact for its pinned head/lab SHAs,
+scope, exact checks, proof and remaining risks. `ready_for_review` still requires
+your or Main AI's usefulness review and explicit acceptance. New commits or a
+moved lab base require a fresh report. Labels do not approve a revision.
+
+Merge the PR manually when appropriate; close it without merge to decline it
+permanently. The controller reconciles that same attempt on a later tick. Do not
+remove blocking labels or weaken checks merely to make the lab act: it has no
+product acceptance path. Other work proceeds while the decision is pending.
 
 ### Inspecting results and deciding on a release
 
 Run **Autonomous Release Review** with its default `run_quality_gate = false`
 for a lightweight on-demand report: investigations, observations, deferred
-proposals, linked task/PR outcomes and the accumulated product diff. The queue is
-read from `agent_tasks.json` in the exact reviewed Git commit, never from a moving
-worktree. The report bounds and escapes worker prose; the full history remains
-in that commit's queue. Inspection does not stop the lab or publish anything.
+proposals, linked task/PR outcomes and the accumulated product diff. Code and
+state are pinned independently: `head_sha` identifies the reviewed product,
+`state_sha` its queue snapshot. The report bounds and escapes worker prose; full
+history remains in that state commit. Before migration it explicitly identifies
+the legacy seed instead. Inspection does not stop the lab or publish anything.
 
 For release-readiness review, enable `run_quality_gate`. The existing Quality
 Gate must verify exactly the pinned SHA. If the branch moves, a green result for
@@ -303,34 +273,28 @@ your decision, your version bump.
 
 ## Stopping
 
-Run **Autonomous Loop Switch** with `loop_enabled = false`. It stops all
-dispatching and releases any task left in flight back into the queue.
+Run **Autonomous Loop Switch** with `loop_enabled = false`. The flag is cleared
+before waiting for the queue lock. In-flight identities are then quarantined,
+not returned to `todo`. A saved or ambiguous dispatch remains bound to that
+same attempt across restart; the next enabled tick reconciles it first.
 
-**It does not cancel a worker session that is already running** - the worker API
-documents no cancel operation. Stop such a session in the Jules UI if you need it
-stopped immediately. Any pull request it still opens will sit unmerged while the
-loop is off.
+**This does not cancel a running Jules session.** Use the Jules UI if immediate
+termination is required. There is an unavoidable race with an already accepted
+external request: the controller can retain and reconcile it, not unsend it.
+Re-enabling is not permission to duplicate uncertain work. Proposals are never
+accepted by the controller, whether the loop is on or off.
 
 ## Known limits
 
-- **Rust and non-TypeScript changes cannot be proven offline.** The evidence gate
-  fails them deliberately; they become owner decisions.
-- **The updater is not untouchable, it is manual.** The loop may propose changes
-  to `src/clientUpdater.ts`, `src/useClientUpdater.ts` and the related update
-  notices, but they can only land with your review. (An earlier note claiming the
-  updater is never touched was wrong.)
-- **Very large pull requests.** The file list is paginated and cross-checked
-  against the count GitHub reports, but a diff above
-  `merge_gate.max_changed_files` (200) is handed to you rather than checked
-  mechanically.
-- **A merge event is not a guaranteed wakeup.** A merge performed with
-  `GITHUB_TOKEN` starts no ordinary follow-up event, so automerge records completion
-  directly. The trusted continuation workflow explicitly dispatches the next
-  controller tick; the scheduled API sweep remains a fallback, not a timing SLA.
-- **A fallback API key is only used when the primary key fails**, not for load
-  balancing.
-- **Findings are bounded** at 10 new tasks per report/PR. Missing fields or an
-  overflow are not accepted as successful partial research. Prior-report context
-  is capped at three reports and 24,000 JSON characters; full reports remain in
-  queue history. Research quality still depends on the worker's actual evidence;
-  orchestration cannot itself guarantee a useful product improvement.
+- Rust and non-TypeScript work cannot establish the offline Vitest proof;
+  evidence fails deliberately and the owner decides with the recorded risks.
+- Updater changes and diffs above `merge_gate.max_changed_files` (200) require
+  explicit owner review. A missing full diff remains blocked regardless.
+- Scheduled reconciliation is a fallback, not a timing SLA; an absent callback
+  cannot justify duplicate dispatch. Old paused, inaccessible or ambiguous
+  workers remain visible in quarantine until terminal identity can be verified.
+- The fallback Jules key is used after primary-key failure, not for load balancing.
+- Findings are bounded at ten tasks per research report. Prior context is capped
+  at three reports and 24,000 JSON characters; the full queue has Git history.
+  Research quality still depends on actual worker evidence: orchestration alone
+  cannot guarantee useful improvements.

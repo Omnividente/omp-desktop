@@ -25,6 +25,7 @@ LAB = "b" * 40
 def settings():
     return {
         "default_branch": "main", "risk_ceiling": "medium",
+        "repository": "owner/repo",
         "automation": {"blocking_labels": ["human-review", "hold"]},
         "product": {"editable_globs": ["src/**"], "excluded": [], "manual_review_paths": []},
         "research": {
@@ -46,6 +47,20 @@ def task(**overrides):
               "evidence": {"source": "reproduction", "detail": "Isolated fixture loses a session"}}
     result.update(overrides)
     return result
+
+
+def proposal():
+    pr = {"number": 9, "html_url": "https://github.com/owner/repo/pull/9", "state": "open",
+          "updated_at": NOW.isoformat(), "base": {"ref": "autonomous/lab", "sha": LAB, "repo": {"full_name": "owner/repo"}},
+          "head": {"ref": "fix-proposal", "sha": "d" * 40, "repo": {"full_name": "owner/repo"}}}
+    execution = {"state": "awaiting_review", "outcome": "review_required", "session_id": "123",
+                 "dispatch_key": "attempt-one", "attempts": 1, "pull_request": 9,
+                 "started_at": NOW.isoformat(), "finished_at": NOW.isoformat()}
+    execution["provenance"] = {"session_id": "123", "dispatch_key": "attempt-one", "pull_request": 9,
+                               "url": pr["html_url"], "repository": "owner/repo", "base_branch": "autonomous/lab",
+                               "head_repository": "owner/repo", "head_ref": "fix-proposal", "head_sha": "d" * 40,
+                               "verified_at": NOW.isoformat()}
+    return task(status="blocked", execution=execution), pr
 
 
 def run(at=NOW, **overrides):
@@ -99,13 +114,17 @@ class DecisionTest(unittest.TestCase):
         config["research"]["max_sessions_per_day"] = 1
         self.assertEqual(health(data, config)["reason"], "daily_cap")
 
-    def test_open_pr_idles_while_parked_pr_does_not_block_sync(self):
-        pr = {"number": 9, "state": "open", "labels": [], "draft": False}
-        result = health(queue(task()), pull_requests=[pr], main_is_ancestor=False, runs=[])
-        self.assertEqual((result["health"], result["action"], result["reason"]), ("ok", "none", "open_pull_request"))
-        pr["labels"] = [{"name": "human-review"}]
-        result = health(queue(task()), pull_requests=[pr], main_is_ancestor=False)
-        self.assertEqual((result["action"], result["reason"]), ("sync", "sync_required"))
+    def test_waiting_proposal_and_foreign_pr_do_not_block_sync_or_research(self):
+        pending, pr = proposal()
+        data = queue(pending)
+        result = health(data, pull_requests=[pr], main_is_ancestor=False, runs=[])
+        self.assertEqual(result["action"], "sync")
+        self.assertTrue(result["proposals"][0]["awaiting_human"])
+        self.assertEqual(health(data, pull_requests=[pr])["action"], "next_task")
+        pr["head"]["repo"]["full_name"] = "foreign/repo"
+        result = health(data, pull_requests=[pr], main_is_ancestor=False)
+        self.assertEqual(result["action"], "sync")
+        self.assertEqual(result["proposals"], [])
 
     def test_active_bound_worker_polls_old_base_without_dispatching_new_attempt(self):
         data = queue(task(status="in_progress", execution={"state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1, "started_at": NOW.isoformat()}))
@@ -116,8 +135,29 @@ class DecisionTest(unittest.TestCase):
                          ("attention", "next_task", "active_polling", 90))
         self.assertEqual(data, before)
         data["tasks"][0]["execution"].pop("session_id")
-        self.assertEqual(health(data)["action"], "none")
-        self.assertEqual(health(data)["reason"], "active_session_unbound")
+        self.assertEqual(health(data)["action"], "next_task")
+
+    def test_immutable_worker_can_sync_and_quarantine_never_launches_a_new_worker(self):
+        execution = {"state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one",
+                     "attempts": 1, "started_at": NOW.isoformat(), "base_sha": LAB,
+                     "starting_branch": "autonomous/attempt-attempt-one"}
+        data = queue(task(status="in_progress", execution=execution))
+        self.assertEqual(health(data, main_is_ancestor=False)["action"], "sync")
+        data["tasks"][0]["status"] = "blocked"
+        execution.update(state="quarantined", outcome="stale")
+        data["tasks"].append(task(id="other"))
+        result = health(data)
+        self.assertEqual((result["health"], result["action"]), ("attention", "none"))
+        self.assertEqual(health(data, main_is_ancestor=False)["action"], "sync")
+
+    def test_migrated_legacy_quarantine_is_reconciled_before_sync(self):
+        data = queue(task(status="blocked", execution={"state": "quarantined", "session_id": "123",
+                     "dispatch_key": "legacy-attempt", "attempts": 1, "started_at": NOW.isoformat(), "outcome": "stale"}))
+        before = copy.deepcopy(data)
+        result = health(data, main_is_ancestor=False)
+        self.assertEqual((result["action"], result["reason"], result["delay_seconds"]),
+                         ("next_task", "legacy_worker_reconciliation", 90))
+        self.assertEqual(data, before)
 
     def test_live_controller_runs_make_wakeups_idempotent(self):
         for status in ("queued", "in_progress", "pending", "waiting", "requested"):
@@ -157,12 +197,25 @@ class DecisionTest(unittest.TestCase):
         self.assertNotIn("attempt-one", json.dumps(result))
         self.assertNotIn("never-print", json.dumps(result))
 
-    def test_completed_pr_requires_reconciliation_without_mutating_queue(self):
-        data = queue(task(status="in_progress", execution={"state": "dispatched", "attempts": 1, "session_id": "123", "pull_request": 9}))
+    def test_completed_verified_pr_requires_reconciliation_without_mutating_queue(self):
+        pending, pr = proposal()
+        data = queue(pending)
         before = copy.deepcopy(data)
-        result = health(data, main_is_ancestor=False, pull_requests=[{"number": 9, "state": "closed", "merged_at": NOW.isoformat()}])
+        pr.update(state="closed", merged_at=NOW.isoformat())
+        result = health(data, main_is_ancestor=False, pull_requests=[pr])
         self.assertEqual((result["action"], result["reason"]), ("next_task", "reconciliation_due"))
         self.assertEqual(data, before)
+
+    def test_machine_outcome_and_stale_proposal_are_not_masked_by_green_runs(self):
+        pending, pr = proposal()
+        pr["mergeable"] = False
+        result = health(queue(pending, task(id="other")), pull_requests=[pr], state_sha="e" * 40,
+                        sync_result={"main_sha": MAIN, "status": "prepared", "publication": "published",
+                                     "refresh": {"outcome": "attention", "proposals": [{"pull_request": 9, "outcome": "refresh_conflict"}]}})
+        self.assertEqual((result["health"], result["action"]), ("attention", "next_task"))
+        self.assertEqual((result["code_sha"], result["state_sha"]), (LAB, "e" * 40))
+        self.assertIn("proposal_conflict", {entry["reason"] for entry in result["attention"]})
+        self.assertIn("proposal_refresh_attention", {entry["reason"] for entry in result["attention"]})
 
     def test_workflow_runs_accepts_rest_envelope_and_array(self):
         self.assertEqual(health(runs=workflow_runs({"workflow_runs": [run()]}))["action"], "next_task")

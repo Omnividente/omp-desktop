@@ -10,10 +10,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sync_main import main, prepare_sync  # noqa: E402
+from refresh_proposals import refresh
+from task_lifecycle import reserve
 
 CONFIG = {"automation": {"blocking_labels": ["hold", "human-review", "wip", "do-not-merge"]}}
 QUEUE = b'{\r\n  "version": 2, "tasks": [], "history": ["lab-owned"]\r\n}\r\n'
@@ -35,6 +38,10 @@ class SyncMainTest(unittest.TestCase):
         self.base = self.sha()
         self.git("branch", "autonomous/lab")
         self.git("update-ref", "refs/remotes/origin/main", self.base)
+        self.manifest = self.root / "queue.json"
+        self.state_revision = self.root / "revision.json"
+        self.manifest.write_text(json.dumps({"version": 2, "autonomous_loop_policy": {}, "tasks": []}), encoding="utf-8")
+        self.state_revision.write_text(json.dumps({"state_sha": "e" * 40}), encoding="utf-8")
 
     def git(self, *args, check=True):
         return subprocess.run(
@@ -78,7 +85,7 @@ class SyncMainTest(unittest.TestCase):
     def prepare(self, main_sha, *, prs=None, lab_sha=""):
         before = self.snapshot()
         result = prepare_sync(
-            self.repo, main_sha, self.repo / "agent_tasks.json",
+            self.repo, main_sha, self.manifest,
             prs or [], CONFIG, lab_sha=lab_sha,
         )
         self.assertEqual(self.snapshot(), before, "Preparing must not move or dirty the lab")
@@ -155,27 +162,43 @@ class SyncMainTest(unittest.TestCase):
         self.assertEqual(result["candidate_sha"], "")
         self.assertFalse((self.repo / ".git" / "MERGE_HEAD").exists())
 
-    def test_active_worker_blocks_sync_without_mutating_bound_attempt(self):
+    def test_immutable_worker_allows_sync_without_mutating_bound_attempt(self):
         accepted = self.advance_main()
-        bound = {"tasks": [{"status": "in_progress", "execution": {
-            "attempts": 2, "session_id": "bound-session", "dispatch_key": "same-attempt",
-        }}]}
-        self.commit({"agent_tasks.json": json.dumps(bound).encode()})
-        result = self.prepare(accepted)
-        self.assertEqual((result["status"], result["reason"]), ("busy", "active_task"))
-        self.assertEqual(result["candidate_sha"], "")
+        task = {"id": "fix", "title": "Fix", "task_type": "bugfix", "status": "todo",
+                "risk": "low", "priority": 40, "focus": ["quality"],
+                "evidence": {"source": "reproduction", "detail": "Observed lost state"}}
+        data = {"version": 2, "autonomous_loop_policy": {}, "tasks": [task]}
+        reserve(data, "fix", "attempt-one", base_sha=self.base, starting_branch="autonomous/attempt-attempt-one")
+        self.manifest.write_text(json.dumps(data), encoding="utf-8")
+        before = self.manifest.read_bytes()
+        self.assert_candidate(self.prepare(accepted), accepted, self.sha())
+        self.assertEqual(self.manifest.read_bytes(), before)
+        data["tasks"][0]["execution"].pop("starting_branch")
+        data["tasks"][0]["execution"].pop("base_sha")
+        data["tasks"][0]["execution"].update(state="dispatched", session_id="legacy-session")
+        self.manifest.write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(self.prepare(accepted)["status"], "busy")
+        data["tasks"][0]["status"] = "blocked"
+        data["tasks"][0]["execution"].update(state="quarantined", outcome="stale")
+        self.manifest.write_text(json.dumps(data), encoding="utf-8")
+        before_head = self.sha()
+        self.assertEqual((self.prepare(accepted)["status"], self.sha()), ("busy", before_head))
 
-    def test_active_pr_blocks_but_parked_prs_do_not(self):
+    def test_open_human_and_foreign_prs_never_block_sync(self):
         accepted = self.advance_main()
-        result = self.prepare(accepted, prs=[{"state": "open", "draft": False, "labels": []}])
-        self.assertEqual((result["status"], result["reason"]), ("busy", "active_pull_request"))
-        parked = [
-            {"state": "open", "draft": True},
-            {"state": "open", "labels": [{"name": "human-review"}]},
-            {"state": "open", "labels": ["hold"]},
-            {"state": "closed", "labels": []},
-        ]
-        self.assert_candidate(self.prepare(accepted, prs=parked), accepted, self.sha())
+        prs = [{"state": "open", "draft": False, "labels": []},
+               {"state": "open", "labels": [{"name": "human-review"}]},
+               {"state": "open", "labels": ["hold"]}]
+        self.assert_candidate(self.prepare(accepted, prs=prs), accepted, self.sha())
+
+    def test_external_state_is_authoritative_not_legacy_product_queue(self):
+        accepted = self.advance_main()
+        self.commit({"agent_tasks.json": b"immutable legacy content\n"})
+        before = self.manifest.read_bytes()
+        self.assert_candidate(self.prepare(accepted), accepted, self.sha())
+        self.assertEqual(self.manifest.read_bytes(), before)
+        self.manifest.write_text('{"tasks": []}', encoding="utf-8")
+        self.assertEqual(self.prepare(accepted)["status"], "conflict")
 
     def test_stale_main_pin_refuses_merge(self):
         self.advance_main()
@@ -217,7 +240,7 @@ class SyncMainTest(unittest.TestCase):
         with contextlib.redirect_stdout(stdout):
             code = main([
                 "--repo", str(self.repo), "--main-sha", accepted,
-                "--manifest", str(self.repo / "agent_tasks.json"),
+                "--manifest", str(self.manifest), "--state-revision", str(self.state_revision),
                 "--pull-requests", str(pulls), "--config", str(config), "--out", str(output),
             ])
         self.assertEqual(code, 1)
@@ -225,6 +248,63 @@ class SyncMainTest(unittest.TestCase):
         self.assertEqual(json.loads(stdout.getvalue()), result)
         self.assertEqual((result["status"], result["conflicts"]), ("conflict", ["product.txt"]))
         self.assertEqual(self.snapshot(), before)
+
+
+class ProposalRefreshTest(unittest.TestCase):
+    def setUp(self):
+        self.head = "d" * 40
+        self.base = "b" * 40
+        self.pr = {"number": 9, "html_url": "https://github.com/owner/repo/pull/9", "state": "open",
+                   "base": {"ref": "autonomous/lab", "sha": "c" * 40, "repo": {"full_name": "owner/repo"}},
+                   "head": {"ref": "fix-proposal", "sha": self.head, "repo": {"full_name": "owner/repo"}}}
+        execution = {"state": "awaiting_review", "outcome": "review_required", "attempts": 1,
+                     "session_id": "123", "dispatch_key": "attempt-one", "pull_request": 9,
+                     "started_at": "2026-09-13T12:00:00Z"}
+        execution["provenance"] = {"session_id": "123", "dispatch_key": "attempt-one", "pull_request": 9,
+                                   "url": self.pr["html_url"], "repository": "owner/repo", "base_branch": "autonomous/lab",
+                                   "head_repository": "owner/repo", "head_ref": "fix-proposal", "head_sha": self.head,
+                                   "verified_at": "2026-09-13T12:00:00Z"}
+        self.data = {"version": 2, "autonomous_loop_policy": {}, "tasks": [{
+            "id": "fix", "title": "Fix", "task_type": "bugfix", "status": "blocked", "risk": "low",
+            "priority": 40, "focus": ["quality"], "evidence": {"source": "reproduction", "detail": "Observed lost state"},
+            "execution": execution}]}
+
+    def test_stale_proposal_updates_only_expected_head_and_requires_new_checks(self):
+        request = Mock(side_effect=[(200, self.pr), (200, {"status": "diverged"}), (202, {})])
+        result = refresh(self.data, "owner/repo", self.base, request=request)
+        self.assertEqual(request.call_args_list[1].args, ("GET", f"/repos/owner/repo/compare/{self.base}...{self.head}"))
+        self.assertEqual(result["proposals"][0]["outcome"], "refresh_requested")
+        self.assertEqual(request.call_args.args, ("PUT", "/repos/owner/repo/pulls/9/update-branch", {"expected_head_sha": self.head}))
+        self.assertEqual(result["proposals"][0]["checks"], "new_head_required")
+
+    def test_current_proposal_with_historical_rest_base_needs_no_update(self):
+        for status in ("ahead", "identical"):
+            with self.subTest(status=status):
+                request = Mock(side_effect=[(200, self.pr), (200, {"status": status})])
+                result = refresh(self.data, "owner/repo", self.base, request=request)
+                self.assertEqual(result["proposals"][0]["outcome"], "current")
+                self.assertEqual([call.args for call in request.call_args_list], [
+                    ("GET", "/repos/owner/repo/pulls/9"),
+                    ("GET", f"/repos/owner/repo/compare/{self.base}...{self.head}"),
+                ])
+
+    def test_foreign_head_and_failed_read_never_request_branch_write(self):
+        self.pr["head"]["repo"]["full_name"] = "foreign/repo"
+        request = Mock(return_value=(200, self.pr))
+        result = refresh(self.data, "owner/repo", self.base, request=request)
+        self.assertEqual(result["proposals"][0]["outcome"], "untrusted_skipped")
+        self.assertEqual([call.args[0] for call in request.call_args_list], ["GET"])
+        request = Mock(return_value=(503, {}))
+        result = refresh(self.data, "owner/repo", self.base, request=request)
+        self.assertEqual(result["outcome"], "attention")
+        self.assertEqual([call.args[0] for call in request.call_args_list], ["GET"])
+
+    def test_head_race_is_attention_not_overwrite_or_retry(self):
+        request = Mock(side_effect=[(200, self.pr), (200, {"status": "behind"}), (422, {})])
+        result = refresh(self.data, "owner/repo", self.base, request=request)
+        self.assertEqual(result["outcome"], "attention")
+        self.assertEqual(result["proposals"][0]["outcome"], "refresh_conflict")
+        self.assertEqual(request.call_count, 3)
 
 
 if __name__ == "__main__":
