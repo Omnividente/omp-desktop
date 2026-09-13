@@ -150,6 +150,15 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual((result["health"], result["action"]), ("attention", "none"))
         self.assertEqual(health(data, main_is_ancestor=False)["action"], "sync")
 
+    def test_migrated_legacy_quarantine_is_reconciled_before_sync(self):
+        data = queue(task(status="blocked", execution={"state": "quarantined", "session_id": "123",
+                     "dispatch_key": "legacy-attempt", "attempts": 1, "started_at": NOW.isoformat(), "outcome": "stale"}))
+        before = copy.deepcopy(data)
+        result = health(data, main_is_ancestor=False)
+        self.assertEqual((result["action"], result["reason"], result["delay_seconds"]),
+                         ("next_task", "legacy_worker_reconciliation", 90))
+        self.assertEqual(data, before)
+
     def test_live_controller_runs_make_wakeups_idempotent(self):
         for status in ("queued", "in_progress", "pending", "waiting", "requested"):
             with self.subTest(status=status):

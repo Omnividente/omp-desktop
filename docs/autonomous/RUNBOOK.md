@@ -197,9 +197,10 @@ may read a previously completed session and save its result without dispatching.
   completion did not wake this loop during live verification. Ordinary reads
   still use the read-only `GITHUB_TOKEN`; cadence, queued-run checks and the live
   switch bound the repeated work instead of relying on GitHub's recursion guard.
-- **Autonomous Sync Main** runs on main pushes or explicit dispatch. Active or
-  quarantined workers defer it; pending human proposals do not. It refreshes
-  verified proposal branches after lab moves and reports per-PR conflicts.
+- **Autonomous Sync Main** runs on main pushes or explicit dispatch. Legacy
+  workers, including quarantined ones, are reconciled before moving their source.
+  Immutable-attempt workers and pending human proposals do not block sync. It
+  refreshes verified proposal branches and reports per-PR conflicts.
 - **Autonomous Replenish** (every 6h) remains an additional source of concrete
   ESLint/TypeScript diagnostic tasks, not the only reason the lab may do work.
 

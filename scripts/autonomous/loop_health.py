@@ -150,7 +150,10 @@ def assess_health(
     reconciled = sweep(data, pull_requests, config=config, now=now)
     if reconciled["changed"]:
         return decision("reconciliation_due", "next_task", due=True)
-    if not main_is_ancestor and not failed_sync and not busy_reason(data, [], config):
+    sync_blocker = busy_reason(data, [], config)
+    if sync_blocker and any((task.get("execution") or {}).get("state") == "quarantined" for task in data["tasks"]):
+        return decision("legacy_worker_reconciliation", "next_task", due=True, delay=POLL_DELAY_SECONDS)
+    if not main_is_ancestor and not failed_sync and not sync_blocker:
         return decision("sync_required", "sync")
     active_tasks = [task for task in data["tasks"] if task["status"] == "in_progress"]
     if active_tasks:

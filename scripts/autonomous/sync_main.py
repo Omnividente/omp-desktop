@@ -33,9 +33,9 @@ def busy_reason(manifest: Mapping[str, Any], pull_requests: list, config: Mappin
     # New workers use immutable starting refs; legacy workers on lab must finish
     # before moving their source. Human proposals and foreign PRs never block.
     for task in manifest["tasks"]:
-        if task.get("status") != "in_progress":
-            continue
         execution = task.get("execution") or {}
+        if task.get("status") != "in_progress" and execution.get("state") != "quarantined":
+            continue
         key = execution.get("dispatch_key")
         if (not key or execution.get("starting_branch") != "autonomous/attempt-" + key
                 or not SHA.fullmatch(str(execution.get("base_sha", "")))):

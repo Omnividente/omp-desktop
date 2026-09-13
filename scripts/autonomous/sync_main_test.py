@@ -178,6 +178,11 @@ class SyncMainTest(unittest.TestCase):
         data["tasks"][0]["execution"].update(state="dispatched", session_id="legacy-session")
         self.manifest.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(self.prepare(accepted)["status"], "busy")
+        data["tasks"][0]["status"] = "blocked"
+        data["tasks"][0]["execution"].update(state="quarantined", outcome="stale")
+        self.manifest.write_text(json.dumps(data), encoding="utf-8")
+        before_head = self.sha()
+        self.assertEqual((self.prepare(accepted)["status"], self.sha()), ("busy", before_head))
 
     def test_open_human_and_foreign_prs_never_block_sync(self):
         accepted = self.advance_main()
