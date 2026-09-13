@@ -14,8 +14,8 @@ name: Autonomous Evidence Gate
 # imports - crashes without asserting anything, and a crash is not evidence that
 # a defect existed.
 #
-# A change that cannot be proven this way is not silently blocked: automerge
-# routes it to manual review, so a human decides.
+# A change that cannot be proven is reported honestly for human acceptance.
+# Test-only changes are not before/after proof and require owner review.
 
 on:
   pull_request:
@@ -23,6 +23,8 @@ on:
       - opened
       - synchronize
       - reopened
+      - edited
+      - ready_for_review
     branches:
       - autonomous/lab
 
@@ -73,8 +75,8 @@ jobs:
       - name: Nothing to prove
         if: ${{ steps.plan.outputs.mode == 'no_source_change' }}
         run: |
-          echo "No product source changed in this pull request, so there is no regression claim to prove."
-          echo "### Autonomous Evidence Gate: nothing to prove" >> "${GITHUB_STEP_SUMMARY}"
+          echo "No product source or tests changed; no regression proof was performed."
+          echo "### Autonomous Evidence Gate: no proof performed (${HEAD_SHA})" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Refuse a change that cannot be proven
         if: ${{ steps.plan.outputs.mode != 'no_source_change' && steps.plan.outputs.proof_supported != 'true' }}
@@ -91,7 +93,7 @@ jobs:
             cat plan.txt
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
-          echo "::error::This pull request changes product source without a reproducible proof that the defect existed first. A human has to accept it."
+          echo "::error::No reproducible failing-first proof is available for this revision. Explicit owner review is required; quality success alone is not fix evidence."
           exit 1
 
       - name: Set up Node
