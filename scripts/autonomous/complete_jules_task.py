@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import re
@@ -60,8 +61,11 @@ def configured_secrets(config: Mapping[str, Any], keys) -> list[str]:
 def redact(text: str, secrets) -> str:
     # Redact before truncation so credential prefixes cannot survive the bound.
     for secret in secrets:
+        if not secret:
+            continue
         for encoded in (secret, json.dumps(secret, ensure_ascii=False)[1:-1], quote(secret, safe=""), quote_plus(secret)):
-            text = text.replace(encoded, "[REDACTED]")
+            if encoded:
+                text = text.replace(encoded, "[REDACTED]")
     text = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)",
                   "[REDACTED PRIVATE KEY]", text, flags=re.S)
     text = re.sub(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+",
@@ -75,7 +79,7 @@ def redact(text: str, secrets) -> str:
     return text
 
 
-def latest_report(activities: list) -> str:
+def latest_report(activities: list) -> tuple[str, dict]:
     reports = []
     for activity in activities:
         message = activity.get("agentMessaged")
@@ -96,14 +100,17 @@ def latest_report(activities: list) -> str:
             stamp = parse_iso(activity.get("createTime"))
             if stamp is None:
                 raise InvalidReport("report activity lacks a valid createTime", "report_timestamp", text)
-            reports.append((stamp, text))
+            name = str(activity.get("name") or "")
+            reports.append((stamp, text, name))
     if not reports:
         raise InvalidReport("completed discovery has no worker report", "report_absent")
-    newest = max(stamp for stamp, _text in reports)
-    latest = {text for stamp, text in reports if stamp == newest}
+    newest = max(stamp for stamp, _text, _name in reports)
+    latest = {(text, name) for stamp, text, name in reports if stamp == newest}
     if len(latest) != 1:
-        raise InvalidReport("conflicting reports have the same createTime", "report_ambiguous", "\n\n".join(sorted(latest)))
-    return next(iter(latest))
+        raise InvalidReport("conflicting reports have the same createTime", "report_ambiguous", "\n\n".join(sorted({text for text, _name in latest})))
+    text, name = next(iter(latest))
+    return text, {"activity_id": name, "report_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                  "activity_created_at": iso(newest)}
 
 
 def research_report(text: str, *, completed_at: str) -> dict:
@@ -164,7 +171,8 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     if retry_report and (not recovering or task.get("task_type") != "project_discovery"
                          or session_state(snapshot) != "COMPLETED"):
         raise ValueError("report retry requires the stored completed research attempt")
-    if not recovering and (task.get("status") != "in_progress" or execution.get("outcome")):
+    quarantined = task.get("status") == "blocked" and execution.get("state") == "quarantined"
+    if not recovering and not quarantined and (task.get("status") != "in_progress" or execution.get("outcome")):
         return {"changed": False, "reason": "attempt_already_resolved", "task_id": task_id,
                 "imported_count": 0}
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
@@ -172,6 +180,10 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
         raise RuntimeError("no Jules API key is configured")
     session = get_session(transport, api_base, ring, resource)
     bound_session(session, execution, resource)
+    from jules_provenance import session_pull_request
+    repository = config.get("repository") or (config.get("project") or {}).get("repository", "")
+    if repository:
+        session_pull_request(session, execution, repository)
     if session_state(session) != "COMPLETED":
         return {"changed": False, "reason": "session_not_completed", "task_id": task_id,
                 "imported_count": 0}
@@ -187,6 +199,9 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     staged = copy.deepcopy(manifest)
     staged_task = find_task(staged, task_id)
     imported = {"added": [], "duplicates": [], "skipped": []}
+    if quarantined:
+        staged_task["status"] = "in_progress"
+        staged_task["execution"].update(state="dispatched", outcome="")
     report = None
     secrets = configured_secrets(config, ring.keys)
     diagnostic = {"task_id": task_id, "session_id": str(execution.get("session_id") or ""),
@@ -200,7 +215,9 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     try:
         if task.get("task_type") == "project_discovery":
             # Finish all API reads before any mutation, even for invalid output.
-            text = latest_report(list_activities(transport, api_base, ring, resource))
+            text, source = latest_report(list_activities(transport, api_base, ring, resource))
+            source.update(session_id=str(execution["session_id"]), dispatch_key=str(execution["dispatch_key"]))
+            diagnostic["source"] = source
             diagnostic["selection"] = {"status": "ok", "detail": "latest worker report selected"}
             block = parse_block(text)
             diagnostic["tasks_parser"] = {key: block[key] for key in ("status", "detail")}
@@ -212,10 +229,10 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
             diagnostic["research_parser"] = {"status": "ok", "detail": "valid observation report"}
             if block["status"] not in (STATUS_OK, STATUS_ABSENT):
                 raise InvalidReport(block["detail"], "tasks_" + block["status"])
+            report["source"] = source
+            staged_task["research_result"] = report
             imported = import_tasks(staged, text, config=config, max_new=max_new, now=iso(moment),
-                                    origin={"task_id": task_id,
-                                            "session_id": str(execution["session_id"]),
-                                            "dispatch_key": str(execution["dispatch_key"])})
+                                    origin={"task_id": task_id, **source})
             diagnostic["findings_parser"] = {key: imported[key] for key in ("status", "detail")}
             if imported["status"] not in (STATUS_OK, STATUS_ABSENT):
                 reasons = sorted({item["reason"] for item in imported["skipped"]})
@@ -224,7 +241,6 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                 raise InvalidReport(detail, "findings_invalid")
             report["proposed_task_ids"] = list(dict.fromkeys(imported["added"] + imported["duplicates"]))
             report["deferred_findings"] = imported["deferred"]
-            staged_task["research_result"] = report
         useful = bool(imported["added"] or imported["duplicates"] or imported.get("deferred"))
         result = complete(staged, task_id, outcome="researched" if useful else "no_change",
                           note="completed Jules session without a pull request", now=moment,
@@ -237,6 +253,10 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
             raise InvalidReport("; ".join(errors), "queue_invalid")
     except InvalidReport as exc:
         staged = copy.deepcopy(manifest)
+        if quarantined:
+            pending = find_task(staged, task_id)
+            pending["status"] = "in_progress"
+            pending["execution"].update(state="dispatched", outcome="")
         text = exc.text or text
         if diagnostic["selection"]["status"] == "not_checked":
             diagnostic["selection"] = {"status": exc.code, "detail": str(exc)}

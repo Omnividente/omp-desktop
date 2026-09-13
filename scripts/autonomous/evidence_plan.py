@@ -5,7 +5,8 @@ The prompt asks the AI worker for a failing-first regression test, but a prompt
 is not a guarantee. This module decides, from the diff alone, what a proof run
 must do:
 
-* ``no_source_change``    - only tests or non-product files moved; nothing to prove.
+* ``no_source_change``    - no product source or tests changed; no proof performed.
+* ``test_only``           - tests changed without source; explicit human review.
 * ``missing_test``        - product source changed with no accompanying test: unprovable.
 * ``proof_required_ts``   - TypeScript source plus TypeScript tests: the gate reverts
                             the source to the base revision and requires the new test
@@ -14,8 +15,8 @@ must do:
                             (for example Rust sources), so it falls through to
                             explicit human approval instead of silently passing.
 
-The gate never reports success for a diff it did not actually prove. Automerge
-treats anything other than a proven pass as "needs a human".
+The gate never reports a regression proof for a diff it did not actually prove.
+The proposal report preserves this limitation even when quality checks pass.
 """
 from __future__ import annotations
 
@@ -35,11 +36,12 @@ TS_TEST_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 TS_SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css")
 
 MODE_NO_SOURCE = "no_source_change"
+MODE_TEST_ONLY = "test_only"
 MODE_MISSING_TEST = "missing_test"
 MODE_PROOF_TS = "proof_required_ts"
 MODE_UNSUPPORTED = "proof_unsupported"
 
-PROVABLE_MODES = (MODE_NO_SOURCE, MODE_PROOF_TS)
+PROVABLE_MODES = (MODE_PROOF_TS,)
 
 
 def plan(config: Mapping[str, Any], changed: Iterable[str]) -> dict:
@@ -58,10 +60,10 @@ def plan(config: Mapping[str, Any], changed: Iterable[str]) -> dict:
     non_ts_source = [p for p in source if not p.endswith(TS_SOURCE_SUFFIXES)]
 
     if not source:
-        mode = MODE_NO_SOURCE
+        mode = MODE_TEST_ONLY if tests else MODE_NO_SOURCE
     elif not tests:
         mode = MODE_MISSING_TEST
-    elif non_ts_source or not ts_tests:
+    elif non_ts_source or non_ts_tests or not ts_tests:
         mode = MODE_UNSUPPORTED
     else:
         mode = MODE_PROOF_TS
@@ -80,6 +82,12 @@ def explain(result: Mapping[str, Any]) -> str:
     mode = str(result.get("mode"))
     if mode == MODE_NO_SOURCE:
         return "No product source changed, so there is no regression to reproduce."
+    if mode == MODE_TEST_ONLY:
+        return (
+            "Only tests changed: reverting product source cannot establish failing-first "
+            "evidence. Review the assertions and coverage with explicit owner approval "
+            "of this exact revision; passing tests alone are not proof of a fix."
+        )
     if mode == MODE_MISSING_TEST:
         return (
             "Product source changed without any accompanying test, so the claim that a "

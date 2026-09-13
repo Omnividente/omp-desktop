@@ -1,9 +1,12 @@
 # Autonomous product investigation
 
-Investigate `{{PROJECT_REPO}}` on `{{INTEGRATION_BRANCH}}` at `{{BASE_COMMIT}}`.
+Investigate `{{PROJECT_REPO}}` from immutable `{{STARTING_BRANCH}}` at
+`{{BASE_COMMIT}}`, a snapshot of the laboratory `{{INTEGRATION_BRANCH}}`.
 This is the autonomous lab's research phase, **not an implementation task**.
 Do not commit changes or open a pull request just to deliver a report. The
-controller reads your final session message and queues actionable findings.
+controller reads your exact saved session's final activity and queues actionable
+findings. Accepted reports retain their session, activity identity and SHA-256;
+editable pull request descriptions are not a backlog source.
 Never target `main`, change the task queue, publish, release or bump versions.
 
 - Focus: `{{FOCUS}}`
@@ -100,7 +103,8 @@ State the observed problem, expected benefit and how to verify the change. At
 most ten concrete tasks per report; additional unconfirmed directions belong in
 `next_hypotheses`. Do not propose more discovery tasks or repeat prior findings.
 
-The next worker implements one concrete task separately. Existing exact-revision
-quality and evidence gates still decide whether its change can enter the lab.
-Work that cannot be accepted automatically remains visible for later human
-review; it does not require a fake proof and must not stop unrelated research.
+The next worker implements one concrete task separately. Exact-revision quality
+and evidence gates inform a human review report; they never accept the change.
+Every implementation PR waits for a human or Main AI to accept or decline it.
+Missing proof must be stated honestly, not replaced with a fake proof. Waiting
+for that decision does not stop unrelated research.

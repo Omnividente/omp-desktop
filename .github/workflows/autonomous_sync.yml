@@ -22,7 +22,7 @@ permissions:
 
 # Hold the writer lock across preparation, both platform gates and publication.
 concurrency:
-  group: autonomous-lab-queue
+  group: autonomous-lab-sync
   queue: max
   cancel-in-progress: false
 
@@ -101,13 +101,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$(jq -r .status sync-result.json)" = disabled ]; then exit 0; fi
-          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" \
-            -f base=autonomous/lab -f state=open -f per_page=100 \
-            --jq '.[] | {state, draft, labels: [.labels[]?.name]}' | jq -s '.' > pull-requests.json
+          printf '[]\n' > pull-requests.json
           python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
-          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+          python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
+          python3 control/scripts/autonomous/validate_tasks.py queue.json
           python3 control/scripts/autonomous/sync_main.py --repo lab --main-sha "${EXPECTED_MAIN}" \
-            --lab-sha "$(jq -r .lab_sha sync-result.json)" --manifest lab/agent_tasks.json \
+            --lab-sha "$(jq -r .lab_sha sync-result.json)" --manifest queue.json --state-revision queue-revision.json \
             --pull-requests pull-requests.json --config control/autonomous-project.json --out sync-result.json
 
       - name: Publish only the isolated candidate ref
@@ -227,6 +226,26 @@ jobs:
             push origin "${CANDIDATE_SHA}:refs/heads/autonomous/lab" || fail publish_rejected
           jq '.publication="published" | .reason="verified_fast_forward"' sync-result.json > sync-updated.json
           mv sync-updated.json sync-result.json
+
+      - name: Refresh verified proposal branches against the new base
+        run: |
+          set -euo pipefail
+          publication=$(jq -r .publication sync-result.json)
+          status=$(jq -r .status sync-result.json)
+          if [ "${publication}" != published ] && [ "${status}" != up_to_date ]; then exit 0; fi
+          enabled=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/variables/JULES_LOOP_ENABLED" --jq '.value')
+          if [ "${enabled}" != true ]; then exit 0; fi
+          git -C verify fetch origin autonomous/lab
+          lab_sha=$(git -C verify rev-parse refs/remotes/origin/autonomous/lab)
+          git -C verify show "${lab_sha}:agent_tasks.json" > legacy-seed.json
+          python3 verify/scripts/autonomous/state_store.py --action load --repo verify --manifest queue.json --revision-file queue-revision.json --seed legacy-seed.json
+          refresh_status=0
+          python3 verify/scripts/autonomous/refresh_proposals.py --manifest queue.json --repository "${GITHUB_REPOSITORY}" --lab-sha "${lab_sha}" --out refresh-result.json || refresh_status=$?
+          jq --slurpfile refresh refresh-result.json --slurpfile revision queue-revision.json \
+            '. + {refresh:$refresh[0],refresh_state_sha:$revision[0].state_sha}' sync-result.json > sync-updated.json
+          mv sync-updated.json sync-result.json
+          # A conflict needs human attention, not repeated global sync retries.
+          if [ "${refresh_status}" != 0 ]; then echo '::warning::Some proposals require refresh attention; unrelated work remains eligible.'; fi
 
       - name: Remove only this run's owned candidate ref
         if: always()

@@ -34,27 +34,38 @@ class DownloadedReportTest(unittest.TestCase):
         (cls.repo / "change.txt").write_text("before\n", encoding="utf-8")
         cls.base = commit("Baseline")
         (cls.repo / "change.txt").write_text("after\n", encoding="utf-8")
-        (cls.repo / "agent_tasks.json").write_text(json.dumps({"tasks": [
+        state = {"version": 2, "autonomous_loop_policy": {}, "tasks": [
             {"id": "research-1", "status": "done", "task_type": "project_discovery",
              "execution": {"state": "completed", "outcome": "researched"}, "research_result": {
+                 "completed_at": "2026-09-13T12:00:00Z",
                  "summary": "Observed <unsafe>\nline", "observations": [{"scenario": "x", "evidence": "<b>bad</b>", "result": "no-change"}],
                  "next_hypotheses": ["[fake](https://example.invalid) @owner"], "proposed_task_ids": ["proposal-1"]}},
             {"id": "proposal-1", "status": "blocked", "task_type": "bugfix",
              "execution": {"state": "awaiting_review", "outcome": "review_required", "pull_request": 42}, "title": "proposal"},
             {"id": "nothing-1", "status": "done", "task_type": "project_discovery",
              "execution": {"state": "completed", "outcome": "no_change"}},
-        ]}), encoding="utf-8")
+        ]}
+        for task in state["tasks"]:
+            task.update(title=task.get("title", task["id"]), risk="low", priority=40,
+                        focus=["quality"], evidence={"source": "reproduction", "detail": "Isolated state fixture"})
+        cls.state = state
+        (cls.repo / "agent_tasks.json").write_text('{"legacy": true}', encoding="utf-8")
         cls.head = commit("Reviewed change")
         git("checkout", "--orphan", "unrelated", "--quiet")
         (cls.repo / "change.txt").write_text("unrelated\n", encoding="utf-8")
         cls.unrelated = commit("Unrelated history")
         
+        cls.manifest = cls.repo / "queue.json"
+        cls.manifest.write_text(json.dumps(cls.state), encoding="utf-8")
+        cls.state_revision = cls.repo / "revision.json"
+        cls.state_revision.write_text(json.dumps({"state_sha": "e" * 40}), encoding="utf-8")
 
     def report(self, *extra):
         output = self.repo / "release-review.md"
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--base", "main", "--head", "main",
              "--base-sha", self.base, "--head-sha", self.head,
+             "--manifest", str(self.manifest), "--state-revision", str(self.state_revision),
              "--out", str(output), *extra],
             cwd=self.repo, text=True, capture_output=True, check=False,
         )
@@ -63,25 +74,31 @@ class DownloadedReportTest(unittest.TestCase):
     def assert_unverified(self, report):
         self.assertIn("NOT VERIFIED", report)
         self.assertNotIn("- [x]", report)
-    def test_lab_is_read_from_reviewed_sha_and_text_is_safe(self):
+    def test_lab_is_read_from_external_state_and_text_is_safe(self):
         (self.repo / "agent_tasks.json").write_text('{"tasks":[{"id":"working-tree","status":"done"}]}', encoding="utf-8")
         result, report = self.report()
         self.assertEqual(result.returncode, 0)
         self.assertIn("research-1", report)
+        self.assertIn("e" * 40, report)
         self.assertNotIn("working-tree", report)
-        self.assertIn("review&#95;required", report)
         self.assertNotIn("<b>bad</b>", report)
         self.assertIn("&lt;b&gt;bad&lt;/b&gt;", report)
         self.assertIn("Pull request: #42", report)
-        self.assertIn("Linked task: proposal-1", report)
         self.assertNotIn("[fake](", report)
         self.assertNotIn("@owner", report)
 
-    def test_legacy_review_without_queue_is_explicit(self):
+    def test_code_without_legacy_queue_still_reports_current_external_state(self):
         result, report = self.report("--head-sha", self.base)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("agent_tasks.json", report)
-        self.assertIn("absent", report)
+        self.assertIn("research-1", report)
+        self.assertIn("e" * 40, report)
+
+    def test_unreadable_state_never_reuses_green_report(self):
+        self.report("--verify-result", "success", "--verified-sha", self.head)
+        result, report = self.report("--manifest", str(self.repo / "missing-state.json"),
+                                     "--verify-result", "success", "--verified-sha", self.head)
+        self.assertNotEqual(result.returncode, 0)
+        self.assert_unverified(report)
 
     def test_only_success_on_the_exact_reviewed_commit_checks_verification(self):
         result, report = self.report("--verify-result", "success", "--verified-sha", self.head)

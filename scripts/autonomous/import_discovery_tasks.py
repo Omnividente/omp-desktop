@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import a discovery backlog from a pull request body into agent_tasks.json.
+"""Import discovery findings only from an accepted immutable session report.
 
 A discovery run that only *describes* follow-up work is wasted effort: nothing
 reads the prose, so the loop rediscovers the same findings next tick. The
@@ -38,7 +38,7 @@ from validate_tasks import (  # noqa: E402
     VALID_RISKS, VALID_TASK_TYPES, validate,
 )
 from check_change_scope import evaluate as evaluate_scope  # noqa: E402
-from task_lifecycle import find_task, match_task  # noqa: E402
+from task_lifecycle import find_task  # noqa: E402
 
 BEGIN = "AUTONOMOUS_TASKS_BEGIN"
 END = "AUTONOMOUS_TASKS_END"
@@ -208,6 +208,19 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
                  now: str | None = None, config: Mapping[str, Any] | None = None,
                  origin: Mapping[str, str] | None = None) -> dict:
     stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if not isinstance(origin, Mapping):
+        raise ValueError("discovery import requires an accepted session report origin")
+    source = find_task(manifest, origin.get("task_id"))
+    execution = (source or {}).get("execution") or {}
+    accepted = (source or {}).get("research_result", {}).get("source")
+    stored = str(execution.get("session_id") or "")
+    resource = stored if stored.startswith("sessions/") else "sessions/" + stored
+    if (not source or not stored or not execution.get("dispatch_key")
+            or not isinstance(accepted, Mapping) or dict(origin) != {"task_id": source["id"], **accepted}
+            or any(origin.get(field) != execution.get(field) for field in ("session_id", "dispatch_key"))
+            or not re.fullmatch(re.escape(resource) + r"/activities/[^/]+", str(origin.get("activity_id") or ""))
+            or origin.get("report_sha256") != hashlib.sha256(body.encode("utf-8")).hexdigest()):
+        raise ValueError("discovery origin does not identify the accepted session report")
     block = parse_block(body)
     tasks = manifest.get("tasks", [])
     known_ids = {str(t.get("id")): t for t in tasks if isinstance(t, dict)}
@@ -285,17 +298,17 @@ def main(argv=None) -> int:
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
-    source = (find_task(manifest, args.source_task_id) if args.source_task_id
-              else match_task(manifest, body=body)[0])
-    if args.source_task_id and source is None:
-        print("::error::discovery source task was not found", file=sys.stderr)
+    source = find_task(manifest, args.source_task_id)
+    report_source = (source or {}).get("research_result", {}).get("source")
+    if not isinstance(report_source, dict):
+        print("::error::import requires a previously accepted immutable session report", file=sys.stderr)
         return 1
-    origin = None
-    if source is not None:
-        execution = source.get("execution") or {}
-        origin = {"task_id": source["id"], "session_id": str(execution.get("session_id") or ""),
-                  "dispatch_key": str(execution.get("dispatch_key") or "")}
-    result = import_tasks(manifest, body, max_new=args.max_new, config=config, origin=origin)
+    origin = {"task_id": source["id"], **report_source}
+    try:
+        result = import_tasks(manifest, body, max_new=args.max_new, config=config, origin=origin)
+    except ValueError as exc:
+        print("::error::" + str(exc), file=sys.stderr)
+        return 1
 
     if result["changed"]:
         errors = validate(manifest)

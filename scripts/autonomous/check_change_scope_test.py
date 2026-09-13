@@ -113,6 +113,8 @@ class RealConfigTest(unittest.TestCase):
             "src/UpdateNotices.test.tsx",
             "src/updateReminder.ts",
             "src/updateReminder.test.ts",
+            "src-tauri/src/update.rs",
+            "src-tauri/tests/update.rs",
         ]
         hits = manual_review_hits(self.config, updater_files)
         self.assertEqual(sorted(hits), sorted(updater_files))

@@ -5,15 +5,11 @@ The queue is the loop's memory. If a transition is lost, the loop either keeps
 working on something already finished or keeps waiting for a worker that died.
 Four lessons are baked into this module:
 
-* **Completion may not depend on an event.** GitHub starts no workflow run for
-  an event caused by the loop's own token, so a pull request the loop merged
-  itself delivers no ``pull_request: closed``. ``sweep()`` therefore reconciles
-  the queue against the pull requests as the API reports them, and
-  ``close_from_pr()`` is idempotent, so both paths can run.
-* **Only an identified pull request may close a task.** An earlier version fell
-  back to "the single task in progress" when no marker was found, and a
-  hand-written pull request closed live autonomous work. There is no fallback
-  now: no marker, no match.
+* **Human acceptance is observed, never performed here.** ``sweep()`` and
+  ``close_from_pr()`` reconcile trusted proposals idempotently, but a closed PR
+  cannot release a worker whose session is still active or unknown.
+* **Only an identified pull request may close a task.** A persisted receipt
+  from the exact session output is required; public markers are not authority.
 * **"Nothing to change" is an answer.** ``no_change`` is terminal. Re-queuing it
   made the loop ask the same question for ever.
 * **A dead session still costs an attempt.** If a failure is recorded for a task
@@ -32,6 +28,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from jules_dispatch import session_is_active
 
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_STALE_HOURS = 6
@@ -56,11 +54,8 @@ VALID_OUTCOMES = (
 )
 # Outcomes that answer the question the task asked. Failed worker attempts retry
 # within budget; defective report packaging is parked separately without retry.
-TERMINAL_OUTCOMES = (OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED)
+TERMINAL_OUTCOMES = (OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED, OUTCOME_CLOSED)
 
-TASK_ID_RE = re.compile(r"AUTONOMOUS_TASK_ID:[ \t]*([^\s<>`]+)")
-DISPATCH_KEY_RE = re.compile(r"\[dispatch:([^\]\s]+)\]")
-DISPATCH_MARKER_RE = re.compile(r"AUTONOMOUS_DISPATCH_KEY:[ \t]*([^\s<>`]+)")
 
 
 def utcnow() -> datetime:
@@ -198,6 +193,58 @@ def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
             "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
 
 
+def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
+            starting_branch: str, now: datetime | None = None) -> dict:
+    """Persist one attempt before its single permitted CreateSession call."""
+    task = find_task(manifest, task_id)
+    if task is None:
+        raise ValueError("task not found")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", dispatch_key or ""):
+        raise ValueError("invalid dispatch key")
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha or "") or starting_branch != "autonomous/attempt-" + dispatch_key:
+        raise ValueError("reservation requires the immutable attempt ref and base SHA")
+    block = task.get("execution") or {}
+    if block.get("dispatch_key") == dispatch_key:
+        if block.get("base_sha") != base_sha or block.get("starting_branch") != starting_branch:
+            raise ValueError("reservation identity conflicts with the stored attempt")
+        return {"changed": False, "reason": "already_reserved", "task_id": task_id,
+                "attempts": attempts_of(task)}
+    if task.get("status") != STATUS_TODO or attempts_of(task) >= limits(manifest)[0] or block.get("outcome") == OUTCOME_CLOSED:
+        raise ValueError("task is not available for reservation")
+    if any(isinstance(other, Mapping) and other is not task and (
+        other.get("status") == STATUS_IN_PROGRESS or
+        (other.get("execution") or {}).get("state") == "quarantined"
+    ) for other in tasks_of(manifest)):
+        raise ValueError("another worker is active or quarantined")
+    block = _execution(task)
+    block.update(attempts=attempts_of(task) + 1, state="dispatching", session_id="",
+                 dispatch_key=dispatch_key, base_sha=base_sha, starting_branch=starting_branch,
+                 started_at=iso(now or utcnow()), finished_at="", pull_request=0,
+                 outcome="", note="")
+    block.pop("provenance", None)
+    block.pop("session_state", None)
+    task["status"] = STATUS_IN_PROGRESS
+    return {"changed": True, "reason": "reserved", "task_id": task_id,
+            "status": STATUS_IN_PROGRESS, "attempts": block["attempts"]}
+
+
+def quarantine(manifest: dict, task_id: str, *, reason: str, now: datetime | None = None) -> dict:
+    """Retain uncertain external identity; never turn uncertainty into a retry."""
+    task = find_task(manifest, task_id)
+    if task is None:
+        raise ValueError("task not found")
+    block = _execution(task)
+    if task.get("status") == STATUS_DONE or awaiting_review(task) or awaiting_report(task):
+        return {"changed": False, "reason": "attempt_already_resolved", "task_id": task_id}
+    changed = block.get("state") != "quarantined"
+    if changed:
+        task["status"] = STATUS_BLOCKED
+        block.update(state="quarantined", outcome=OUTCOME_STALE, note=reason,
+                     quarantined_at=iso(now or utcnow()))
+    return {"changed": changed, "reason": "quarantined", "task_id": task_id,
+            "status": task.get("status"), "attempts": attempts_of(task)}
+
+
 def start(
     manifest: dict,
     task_id: Any,
@@ -215,13 +262,25 @@ def start(
     dispatch_key = str(dispatch_key or "")
     same_session = bool(session_id and str(block.get("session_id") or "") == session_id)
     same_key = bool(dispatch_key and str(block.get("dispatch_key") or "") == dispatch_key)
+    if same_session and dispatch_key and not same_key:
+        raise ValueError("stored session belongs to a different dispatch key")
+    if same_key and session_id and block.get("session_id") and not same_session:
+        raise ValueError("dispatch attempt already has a different session")
+    if same_key and session_id and not block.get("session_id"):
+        if block.get("state") not in ("dispatching", "quarantined", "dispatched"):
+            raise ValueError("attempt is not waiting for its session")
+        block["session_id"] = session_id
+        if block.get("state") != "quarantined":
+            block["state"] = "dispatched"
+        return {"changed": True, "reason": "dispatched", "task_id": str(task_id),
+                "status": task.get("status"), "attempts": attempts_of(task)}
     if same_session or same_key:
         return {
             "changed": False, "reason": "already_dispatched",
             "task_id": str(task.get("id") or ""),
             "status": str(task.get("status") or ""), "attempts": attempts_of(task),
         }
-    if str(task.get("status") or "") != STATUS_TODO:
+    if str(task.get("status") or "") != STATUS_TODO or block.get("outcome") == OUTCOME_CLOSED:
         raise ValueError("task is not available for a new attempt")
     max_attempts, _stale_hours = limits(manifest)
     if attempts_of(task) >= max_attempts:
@@ -239,6 +298,8 @@ def start(
     block["pull_request"] = 0
     block["outcome"] = ""
     block["note"] = ""
+    block.pop("provenance", None)
+    block.pop("session_state", None)
     task["status"] = STATUS_IN_PROGRESS
     return {
         "changed": True,
@@ -270,7 +331,8 @@ def _finish(
     recovering = retry_report and awaiting_report(task) and outcome in (OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED)
     if retry_report and not recovering:
         raise ValueError("report recovery requires a parked report and a valid research outcome")
-    parked = recovering or (awaiting_review(task) and outcome in (OUTCOME_MERGED, OUTCOME_CLOSED))
+    resolved_quarantine = block.get("state") == "quarantined" and outcome in (*TERMINAL_OUTCOMES, OUTCOME_FAILED)
+    parked = recovering or resolved_quarantine or (awaiting_review(task) and outcome in (OUTCOME_MERGED, OUTCOME_CLOSED))
     if not parked and (block.get("outcome") or previous_status not in OPEN_STATUSES):
         return {
             "changed": False, "reason": "task_already_closed",
@@ -329,76 +391,43 @@ def complete(
     task = find_task(manifest, task_id)
     if task is None:
         return {"changed": False, "reason": "task_not_found", "task_id": str(task_id or "")}
+    if outcome == OUTCOME_STALE:
+        return quarantine(manifest, str(task_id), reason=note or "worker outcome unknown", now=now)
     return _finish(
         manifest, task, outcome=outcome, note=note, pull_request=pull_request, now=now,
         retry_report=retry_report,
     )
 
 
-def match_task(
-    manifest: Mapping[str, Any],
-    *,
-    title: str = "",
-    body: str = "",
-    pull_request: Any = 0,
-) -> tuple:
-    """Find the task a pull request belongs to, or nothing.
-
-    There is deliberately no "probably this one" fallback: an unidentified pull
-    request closed live autonomous work once already.
-    """
-    text = str(title or "") + "\n" + str(body or "")
-    ids = set(TASK_ID_RE.findall(text))
-    keys = set(DISPATCH_KEY_RE.findall(text)) | set(DISPATCH_MARKER_RE.findall(text))
-    if len(ids) > 1 or len(keys) > 1:
-        return None, "ambiguous_markers"
-
-    tasks = [task for task in tasks_of(manifest) if isinstance(task, dict)]
-    candidates = tasks
-    how = "unmatched"
-    if ids:
-        candidates = [task for task in candidates if str(task.get("id") or "") in ids]
-        how = "task_id_marker"
-    if keys:
-        candidates = [
-            task for task in candidates
-            if str((task.get("execution") or {}).get("dispatch_key") or "") in keys
-        ]
-        how = "dispatch_key"
-
-    number = _int(pull_request)
-    recorded = [task for task in tasks if number and recorded_pull_request(task) == number]
-    if recorded:
-        candidates = [task for task in candidates if any(task is item for item in recorded)]
-        how = "recorded_pull_request"
-    elif not keys:
-        # A task ID identifies work, not an attempt. Only legacy first attempts
-        # without a dispatch key can safely use it on its own.
-        candidates = [
-            task for task in candidates if ids and attempts_of(task) <= 1
-            and not (task.get("execution") or {}).get("dispatch_key")
-        ]
-    if len(candidates) != 1:
+def match_task(manifest: Mapping[str, Any], *, pull_request: Any = 0,
+               pr: Mapping | None = None, repository: str = "",
+               integration_branch: str = "autonomous/lab") -> tuple:
+    """Only an exact controller receipt can identify an external PR."""
+    from jules_provenance import trusted_pull_request
+    if not isinstance(pr, Mapping) or not repository:
         return None, "unmatched"
-    task = candidates[0]
-    if number and recorded_pull_request(task) not in (0, number):
+    if pull_request and _int(pull_request) != pr.get("number"):
         return None, "conflicting_pull_request"
-    return task, how
+    candidates = [task for task in tasks_of(manifest) if isinstance(task, Mapping)
+                  and trusted_pull_request(task, pr, repository, integration_branch)]
+    return (candidates[0], "session_provenance") if len(candidates) == 1 else (None, "unmatched")
 
 
 def close_from_pr(
     manifest: dict,
     *,
     pull_request: Any,
-    title: str = "",
-    body: str = "",
     merged: bool = False,
     note: str = "",
     now: datetime | None = None,
+    pr: Mapping | None = None,
+    repository: str = "",
+    integration_branch: str = "autonomous/lab",
 ) -> dict:
     """Close the task a finished pull request belongs to. Safe to run twice."""
     number = _int(pull_request)
-    task, how = match_task(manifest, title=title, body=body, pull_request=number)
+    task, how = match_task(manifest, pull_request=number, pr=pr, repository=repository,
+                           integration_branch=integration_branch)
     if task is None:
         return {
             "changed": False,
@@ -408,7 +437,8 @@ def close_from_pr(
             "pull_request": number,
         }
     status = str(task.get("status") or "")
-    if status not in OPEN_STATUSES and not awaiting_review(task):
+    execution = task.get("execution") or {}
+    if status not in OPEN_STATUSES and not awaiting_review(task) and execution.get("state") != "quarantined":
         return {
             "changed": False,
             "reason": "task_already_closed",
@@ -417,6 +447,9 @@ def close_from_pr(
             "status": status,
             "pull_request": number,
         }
+    if not awaiting_review(task) and session_is_active({"state": execution.get("session_state")}):
+        return {"changed": False, "reason": "session_not_terminal", "matched_by": how,
+                "task_id": str(task.get("id") or ""), "status": status, "pull_request": number}
     outcome = OUTCOME_MERGED if merged else OUTCOME_CLOSED
     default_note = (
         "pull request #" + str(number) + (" was merged" if merged else " was closed without merging")
@@ -430,144 +463,63 @@ def close_from_pr(
     return result
 
 
-def sweep(
-    manifest: dict,
-    pull_requests: Sequence[Any],
-    *,
-    now: datetime | None = None,
-    config: Mapping[str, Any] | None = None,
-) -> dict:
-    """Reconcile in-flight tasks against the pull requests the API reports.
-
-    GitHub does not start a workflow run for an event triggered by the loop's
-    own token, so completion can never depend on receiving one. This reads the
-    current state instead and is safe to run on every tick.
-    """
-    changes: list = []
-    linked: list = []
-    matches: dict[int, list] = {}
-    blocking_labels = set((config or {}).get("automation", {}).get(
-        "blocking_labels", ["human-review", "hold", "do-not-merge", "wip"],
-    ))
-    for entry in pull_requests or []:
-        if not isinstance(entry, Mapping) or not _int(entry.get("number")):
-            continue
-        task, _how = match_task(
-            manifest, title=str(entry.get("title") or ""),
-            body=str(entry.get("body") or ""), pull_request=entry.get("number"),
-        )
-        if task is not None:
-            matches.setdefault(id(task), []).append(_int(entry.get("number")))
+def sweep(manifest: dict, pull_requests: Sequence[Any], *, now: datetime | None = None,
+          config: Mapping[str, Any] | None = None, repository: str = "") -> dict:
+    """Observe trusted proposals; only session completion frees an active worker."""
+    config = config or {}
+    project = config.get("project") or {}
+    repository = repository or config.get("repository") or (project.get("repository", "") if isinstance(project, Mapping) else "")
+    branch = config.get("automation", {}).get("integration_branch", "autonomous/lab")
+    changes = []
     for entry in pull_requests or []:
         if not isinstance(entry, Mapping):
             continue
-        number = _int(entry.get("number"))
-        if not number:
+        task, how = match_task(manifest, pr=entry, repository=repository, integration_branch=branch)
+        execution = (task or {}).get("execution") or {}
+        if task is None or (task.get("status") != STATUS_IN_PROGRESS and not awaiting_review(task)
+                            and execution.get("state") != "quarantined"):
+            continue
+        if not awaiting_review(task) and session_is_active({"state": execution.get("session_state")}):
             continue
         state = str(entry.get("state") or "").upper()
-        # gh reports state MERGED; the REST API reports state closed plus a
-        # merged_at timestamp. Both shapes must mean merged, or a merge read
-        # through the API would be recorded as "closed without merging".
-        merged = (
-            bool(entry.get("merged"))
-            or bool(entry.get("mergedAt"))
-            or bool(entry.get("merged_at"))
-            or state == "MERGED"
-        )
-        task, how = match_task(
-            manifest,
-            title=str(entry.get("title") or ""),
-            body=str(entry.get("body") or ""),
-            pull_request=number,
-        )
-        if task is None:
-            continue
-        if len(set(matches.get(id(task), []))) != 1:
-            continue
-        if str(task.get("status") or "") != STATUS_IN_PROGRESS and not awaiting_review(task):
-            continue
-
+        merged = entry.get("merged") is True or bool(entry.get("merged_at")) or bool(entry.get("mergedAt")) or state == "MERGED"
         if merged or state == "CLOSED":
-            outcome = OUTCOME_MERGED if merged else OUTCOME_CLOSED
-            note = (
-                "pull request #" + str(number)
-                + (" was merged" if merged else " was closed without merging")
-                + " (reconciled through the API, not from an event)"
-            )
-            result = _finish(
-                manifest, task, outcome=outcome, note=note, pull_request=number, now=now,
-            )
-            result["matched_by"] = how
-            result["pull_request"] = number
-            changes.append(result)
-            continue
-        if state != "OPEN":
-            continue
-        labels = {
-            str(label.get("name") or "") if isinstance(label, Mapping) else str(label)
-            for label in entry.get("labels", [])
-        }
-        paused = bool(entry.get("draft") or entry.get("isDraft") or labels & blocking_labels)
-        if paused and not awaiting_review(task):
-            changes.append(defer_review(task, number))
-            continue
-
-
-        # The pull request is still open: remember it so the task can be closed
-        # later even if its description is edited.
-        if recorded_pull_request(task) != number:
-            _execution(task)["pull_request"] = number
-            linked.append({"task_id": str(task.get("id") or ""), "pull_request": number})
-
-    if changes:
-        reason = "swept"
-        task_id = str(changes[0].get("task_id") or "")
-    elif linked:
-        reason = "linked"
-        task_id = str(linked[0].get("task_id") or "")
-    else:
-        reason = "nothing_to_sweep"
-        task_id = ""
-    return {
-        "changed": bool(changes or linked),
-        "reason": reason,
-        "changes": changes,
-        "linked": linked,
-        "task_id": task_id,
-    }
+            result = _finish(manifest, task, outcome=OUTCOME_MERGED if merged else OUTCOME_CLOSED,
+                             pull_request=entry["number"], now=now,
+                             note="trusted proposal merged" if merged else "proposal declined; no automatic retry")
+            result.update(matched_by=how, pull_request=entry["number"])
+            if result["changed"]:
+                changes.append(result)
+        elif state == "OPEN" and not awaiting_review(task):
+            changes.append(defer_review(task, entry["number"]))
+    return {"changed": bool(changes), "reason": "swept" if changes else "nothing_to_sweep",
+            "changes": changes, "linked": [], "task_id": changes[0]["task_id"] if changes else ""}
 
 
 def reconcile(manifest: dict, *, now: datetime | None = None) -> dict:
-    """Release tasks whose worker session never reported anything."""
+    """Normalize local state before API reads without inventing worker outcomes."""
     moment = now or utcnow()
-    _max_attempts, stale_hours = limits(manifest)
+    max_attempts, stale_hours = limits(manifest)
     cutoff = moment - timedelta(hours=stale_hours)
-    released: list = []
+    released = []
     for task in tasks_of(manifest):
         if not isinstance(task, dict):
             continue
-        if str(task.get("status") or "") != STATUS_IN_PROGRESS:
-            continue
-        if recorded_pull_request(task):
-            # GitHub sweep, not elapsed worker time, owns a linked PR's result.
-            continue
-        block = task.get("execution")
-        started = parse_iso((block or {}).get("started_at")) if isinstance(block, Mapping) else None
-        if started is not None and started > cutoff:
-            continue
-        result = _finish(
-            manifest, task, outcome=OUTCOME_STALE,
-            note="no result within " + str(stale_hours) + "h", now=moment,
-        )
-        released.append(result)
-    if not released:
-        return {"changed": False, "reason": "nothing_stale", "released": [], "task_id": ""}
-    return {
-        "changed": True,
-        "reason": "released_stale",
-        "released": released,
-        "task_id": str(released[0].get("task_id") or ""),
-    }
+        block = task.get("execution") or {}
+        if task.get("status") == STATUS_TODO and block.get("outcome") == OUTCOME_CLOSED:
+            task["status"] = STATUS_DONE
+            block["state"] = "completed"
+            released.append({"changed": True, "reason": OUTCOME_CLOSED, "task_id": task["id"]})
+        elif task.get("status") == STATUS_TODO and attempts_of(task) >= max_attempts:
+            task["status"] = STATUS_BLOCKED
+            block["state"] = "exhausted"
+            released.append({"changed": True, "reason": "exhausted", "task_id": task["id"]})
+        elif task.get("status") == STATUS_IN_PROGRESS:
+            started = parse_iso(block.get("started_at"))
+            if started is None or started <= cutoff:
+                released.append(quarantine(manifest, task["id"], reason="worker outcome unknown after " + str(stale_hours) + "h", now=moment))
+    return {"changed": bool(released), "reason": "reconciled" if released else "nothing_stale",
+            "released": released, "task_id": released[0]["task_id"] if released else ""}
 
 
 def counts(manifest: Mapping[str, Any]) -> dict:
@@ -581,13 +533,6 @@ def counts(manifest: Mapping[str, Any]) -> dict:
     return out
 
 
-def _read_text(path: Path | None) -> str:
-    if not path:
-        return ""
-    try:
-        return Path(path).read_text(encoding="utf-8")
-    except OSError:
-        return ""
 
 
 def main(argv=None) -> int:
@@ -596,21 +541,22 @@ def main(argv=None) -> int:
     parser.add_argument("--config", type=Path)
     parser.add_argument(
         "--action", required=True,
-        choices=("start", "complete", "close-from-pr", "sweep", "reconcile"),
+        choices=("reserve", "quarantine", "start", "complete", "close-from-pr", "sweep", "reconcile"),
     )
     parser.add_argument("--task-id", default="")
     parser.add_argument("--session-id", default="")
     parser.add_argument("--dispatch-key", default="")
+    parser.add_argument("--base-sha", default="")
+    parser.add_argument("--starting-branch", default="")
+    parser.add_argument("--repository", default="")
+    parser.add_argument("--pr-json", type=Path)
     parser.add_argument("--outcome", default="")
     parser.add_argument("--note", default="")
     parser.add_argument("--pull-request", default="0")
-    parser.add_argument("--title", default="")
-    parser.add_argument("--body", default="")
-    parser.add_argument("--body-file", type=Path)
     parser.add_argument("--merged", default="false")
     parser.add_argument(
         "--pull-requests", default="",
-        help="JSON array of pull requests (number, state, title, body) to reconcile against",
+        help="JSON array of REST pull requests with repository, base and head identity",
     )
     parser.add_argument("--out", type=Path, help="write the manifest here instead of in place")
     parser.add_argument("--github-output", type=Path)
@@ -622,10 +568,13 @@ def main(argv=None) -> int:
         print("::error::cannot read the task manifest: " + str(exc), file=sys.stderr)
         return 1
 
-    body = args.body or _read_text(args.body_file)
-
     try:
-        if args.action == "start":
+        if args.action == "reserve":
+            result = reserve(manifest, args.task_id, args.dispatch_key,
+                             base_sha=args.base_sha, starting_branch=args.starting_branch)
+        elif args.action == "quarantine":
+            result = quarantine(manifest, args.task_id, reason=args.note)
+        elif args.action == "start":
             result = start(
                 manifest, args.task_id,
                 session_id=args.session_id, dispatch_key=args.dispatch_key,
@@ -637,8 +586,10 @@ def main(argv=None) -> int:
             )
         elif args.action == "close-from-pr":
             result = close_from_pr(
-                manifest, pull_request=args.pull_request, title=args.title, body=body,
+                manifest, pull_request=args.pull_request,
                 merged=_truthy(args.merged), note=args.note,
+                pr=json.loads(args.pr_json.read_text(encoding="utf-8")) if args.pr_json else None,
+                repository=args.repository,
             )
         elif args.action == "sweep":
             raw = args.pull_requests or "[]"
@@ -649,7 +600,7 @@ def main(argv=None) -> int:
                 print("::error::--pull-requests must be a JSON array", file=sys.stderr)
                 return 2
             config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
-            result = sweep(manifest, entries, config=config)
+            result = sweep(manifest, entries, config=config, repository=args.repository)
         else:
             result = reconcile(manifest)
     except (OSError, ValueError) as exc:
