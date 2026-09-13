@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
@@ -14,7 +14,7 @@ import {
 import { ModelPicker } from "./ModelPicker"
 import type {
   AppSettings,
-  BootstrapPayload,
+  SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
   OmpCredentialInfo,
@@ -28,8 +28,7 @@ interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
   onClose: () => void
-  onSaved: (payload: BootstrapPayload) => void
-  onConfigSaved?: (snapshot: OmpConfigSnapshot) => void
+  onSaved: (payload: SettingsSavePayload) => void
   onError: (message: string) => void
 }
 
@@ -230,7 +229,6 @@ export function SettingsPanel({
   runtime,
   onClose,
   onSaved,
-  onConfigSaved,
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
@@ -266,6 +264,10 @@ export function SettingsPanel({
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
+  const configGenerationRef = useRef(0)
+  const disposedRef = useRef(false)
+  const configRuntimeRef = useRef<RuntimeInfo | null>(null)
+  const invalidateConfig = useCallback(() => ++configGenerationRef.current, [])
   const [configError, setConfigError] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
@@ -310,12 +312,31 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const refreshConfig = async (forceUsage = false) => {
-    if (!runtime.ompAvailable) {
-      return
-    }
-    setLoadingConfig(true)
+  const acceptConfig = (snapshot: OmpConfigSnapshot | null) => {
+    setOmpConfig(snapshot)
+    setOperationDrafts({})
+    const drafts: Record<string, string> = {}
+    for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
+    setRoleDrafts(drafts)
+    setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
+    setAutoResume(snapshot?.autoResume ?? false)
+    setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
+    setModelFallbackEnabled(snapshot?.modelFallbackEnabled ?? true)
+    setFallbackChains(fallbackDraftsFromSnapshot(snapshot?.fallbackChains ?? {}))
+    setProxyProviders(snapshot?.proxyProviders ?? [])
+    setDisabledProviders(snapshot?.disabledProviders ?? [])
+    setRemovedCustomProviders([])
+    setClockNow(Date.now())
+  }
+
+  const refreshConfig = async (forceUsage = false, requestRuntime = runtime) => {
+    const generation = invalidateConfig()
+    const isCurrent = () => !disposedRef.current && generation === configGenerationRef.current
+    configRuntimeRef.current = requestRuntime
+    if (disposedRef.current) return
     setConfigError(null)
+    setLoadingConfig(requestRuntime.ompAvailable)
+    if (!requestRuntime.ompAvailable) return
     if (forceUsage) {
       const requestedAt = Date.now()
       setClockNow(requestedAt)
@@ -323,36 +344,38 @@ export function SettingsPanel({
     }
     try {
       const snapshot = forceUsage ? await refreshOmpConfig() : await loadOmpConfig()
-      const loadedAt = Date.now()
-      setOmpConfig(snapshot)
-      setOperationDrafts({})
-      const drafts: Record<string, string> = {}
-      for (const role of snapshot.roles) {
-        drafts[role.role] = role.selector
-      }
-      setRoleDrafts(drafts)
-      setAdvisorEnabled(snapshot.advisorEnabled)
-      setAutoResume(snapshot.autoResume)
-      setThinkingLevel(snapshot.defaultThinkingLevel ?? "medium")
-      setModelFallbackEnabled(snapshot.modelFallbackEnabled)
-      setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
-      setProxyProviders(snapshot.proxyProviders)
-      setDisabledProviders(snapshot.disabledProviders)
-      setRemovedCustomProviders([])
-      setClockNow(loadedAt)
+      if (isCurrent()) acceptConfig(snapshot)
     } catch (error) {
+      if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
       onError(message)
     } finally {
-      setLoadingConfig(false)
+      if (isCurrent()) setLoadingConfig(false)
     }
   }
 
+  useLayoutEffect(() => {
+    disposedRef.current = false
+    return () => {
+      disposedRef.current = true
+      invalidateConfig()
+      configRuntimeRef.current = null
+    }
+  }, [invalidateConfig])
+
   useEffect(() => {
-    void refreshConfig()
+    const previous = configRuntimeRef.current
+    if (
+      previous?.ompAvailable === runtime.ompAvailable &&
+      previous.ompExecutable === runtime.ompExecutable &&
+      previous.ompVersion === runtime.ompVersion
+    )
+      return
+    acceptConfig(null)
+    void refreshConfig(false, runtime)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtime.ompAvailable])
+  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
 
   useEffect(() => {
     setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
@@ -621,6 +644,8 @@ export function SettingsPanel({
   ])
 
   const save = async () => {
+    invalidateConfig()
+    setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
     try {
@@ -712,35 +737,30 @@ export function SettingsPanel({
             }
           : null,
       })
+      invalidateConfig()
+      configRuntimeRef.current = result.bootstrap.runtime
+      onSaved(result)
+      if (disposedRef.current) return
+      setConfigError(null)
+      setLoadingConfig(false)
+      acceptConfig(result.ompConfig)
       if (result.ompConfig) {
-        const savedRoleDrafts: Record<string, string> = {}
-        for (const role of result.ompConfig.roles) savedRoleDrafts[role.role] = role.selector
-        setOmpConfig(result.ompConfig)
-        setOperationDrafts({})
-        setRoleDrafts(savedRoleDrafts)
-        setAdvisorEnabled(result.ompConfig.advisorEnabled)
-        setAutoResume(result.ompConfig.autoResume)
-        setThinkingLevel(result.ompConfig.defaultThinkingLevel ?? "medium")
-        setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
-        setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
-        setProxyProviders(result.ompConfig.proxyProviders)
-        setDisabledProviders(result.ompConfig.disabledProviders)
-        setRemovedCustomProviders([])
         setCustomProviderId("")
         setCustomProviderUrl("")
         setCustomProviderKey("")
-        onConfigSaved?.(result.ompConfig)
+      } else {
+        void refreshConfig(false, result.bootstrap.runtime)
       }
       setProviderEnv((current) =>
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
-      onSaved(result.bootstrap)
     } catch (error) {
+      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
       setSaveError(message)
       onError(message)
     } finally {
-      setSaving(false)
+      if (!disposedRef.current) setSaving(false)
     }
   }
 

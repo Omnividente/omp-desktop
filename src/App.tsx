@@ -96,6 +96,7 @@ import type {
   OmpConfigSnapshot,
   SessionSummary,
   SettingsUnavailableDetails,
+  SettingsSavePayload,
   SingleInstanceEvent,
   TerminalTab,
   WorkspaceSummary,
@@ -249,6 +250,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(true)
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
+  const launchingRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
@@ -469,14 +471,21 @@ function App() {
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
+    isInstalling: isInstallingClientUpdate,
     checking: checkingClientUpdate,
     checkNow: checkClientUpdateNow,
     remindLater: remindClientUpdateLater,
     install: installAvailableClientUpdate,
-  } = useClientUpdater(lang, showError, showNotice, {
-    runningTerminalCount: tabs.reduce((count, tab) => count + Number(tab.status === "running"), 0),
-    launching: launching !== null,
-  })
+  } = useClientUpdater(lang, showError, showNotice, () => ({
+    runningTerminalCount: tabsRef.current.reduce(
+      (count, tab) => count + Number(tab.status === "running"),
+      0,
+    ),
+    launching:
+      launchingRef.current ||
+      restartingTerminalIdsRef.current.size > 0 ||
+      tabsRef.current.some((tab) => tab.primaryProviderPinPending),
+  }))
   const sendPendingInitialInput = useCallback(
     async (terminalId: string) => {
       const initialInput = pendingInitialInputRef.current.get(terminalId)
@@ -555,6 +564,22 @@ function App() {
       )
     },
     [showNotice],
+  )
+
+  const handleSettingsSaved = useCallback(
+    (result: SettingsSavePayload) => {
+      if (result.ompConfig) {
+        acceptOmpConfig(result.ompConfig)
+      } else {
+        ++ompConfigRequestRef.current
+        setOmpConfig(null)
+        setOmpConfigError(null)
+        setOmpConfigLoading(result.bootstrap.runtime.ompAvailable)
+        setOmpConfigAttempt((attempt) => attempt + 1)
+      }
+      applyPayload(result.bootstrap)
+    },
+    [acceptOmpConfig, applyPayload],
   )
 
   const changeRailMode = useCallback(
@@ -1131,7 +1156,7 @@ function App() {
 
   const launchSession = useCallback(
     async (session?: SessionLaunchTarget, initialInput?: string) => {
-      if (!payload || launching !== null || installingClientUpdate) return
+      if (!payload || launchingRef.current || isInstallingClientUpdate()) return
       const cwd = session?.cwd ?? selectedWorkspace?.path
       if (!cwd) {
         showError(t(lang, "requireProjectDir"))
@@ -1154,6 +1179,7 @@ function App() {
         }
       }
       const launchKey = session?.id ?? "new"
+      launchingRef.current = true
       setLaunching(launchKey)
       try {
         const started = await runWithSessionLeaseReclaim(
@@ -1211,14 +1237,14 @@ function App() {
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        launchingRef.current = false
         setLaunching(null)
       }
     },
     [
       focusTab,
       lang,
-      installingClientUpdate,
-      launching,
+      isInstallingClientUpdate,
       ompConfig,
       payload,
       queueInitialInput,
@@ -1241,8 +1267,8 @@ function App() {
     if (
       !payload?.runtime.ompAvailable ||
       !selectedWorkspace?.path ||
-      launching !== null ||
-      installingClientUpdate
+      launchingRef.current ||
+      isInstallingClientUpdate()
     )
       return
     const sourceTab =
@@ -1250,6 +1276,7 @@ function App() {
       tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
       null
     pendingUpdateRestartRef.current = null
+    launchingRef.current = true
     setLaunching("update")
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"])
@@ -1281,12 +1308,12 @@ function App() {
     } catch (error) {
       showError(errorMessage(error, lang))
     } finally {
+      launchingRef.current = false
       setLaunching(null)
     }
   }, [
-    installingClientUpdate,
+    isInstallingClientUpdate,
     lang,
-    launching,
     payload?.runtime.ompAvailable,
     selectedWorkspace?.path,
     showError,
@@ -1544,6 +1571,8 @@ function App() {
     async (terminalId: string, pinned: boolean) => {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       if (
+        isInstallingClientUpdate() ||
+        restartingTerminalIdsRef.current.has(terminalId) ||
         !tab ||
         tab.kind !== "agent" ||
         tab.status !== "running" ||
@@ -1634,7 +1663,7 @@ function App() {
         showError(errorMessage(error, langRef.current))
       }
     },
-    [refresh, showError],
+    [isInstallingClientUpdate, refresh, showError],
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
@@ -2138,6 +2167,7 @@ function App() {
           terminalFontFamily={payload.settings.terminalFontFamily}
           terminalFontSize={payload.settings.terminalFontSize}
           launching={installingClientUpdate ? "desktop-update" : launching}
+          installingDesktopUpdate={installingClientUpdate}
           ompConfig={ompConfig}
           onDiscardSwitchRecovery={(terminalId) => void discardRecoveredSwitchInput(terminalId)}
           onCloseTab={closeTab}
@@ -2189,9 +2219,8 @@ function App() {
       {settingsOpen && (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
-          onConfigSaved={acceptOmpConfig}
           onError={showError}
-          onSaved={applyPayload}
+          onSaved={handleSettingsSaved}
           runtime={payload.runtime}
           settings={payload.settings}
         />

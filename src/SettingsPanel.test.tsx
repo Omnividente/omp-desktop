@@ -2,9 +2,9 @@
 
 import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
-import type { AppSettings, OmpConfigSnapshot, RuntimeInfo } from "./types"
+import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSavePayload } from "./types"
 import type * as Api from "./api"
 
 const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(
@@ -243,7 +243,7 @@ describe("SettingsPanel Save state", () => {
     saveSettingsBundleMock
       .mockRejectedValueOnce({ code: "settings_save_failed", details: failureReason })
       .mockResolvedValueOnce({
-        bootstrap: { settings },
+        bootstrap: { settings, runtime },
         ompConfig: {
           ...ompConfig,
           credentials: [
@@ -295,6 +295,266 @@ describe("SettingsPanel Save state", () => {
       ),
     ).toContain("private-gateway")
     expect(save.disabled).toBe(true)
+  })
+})
+
+describe("SettingsPanel configuration generations", () => {
+  let container: HTMLDivElement
+  let root: Root
+  let onError: Mock<(message: string) => void>
+  let onSaved: Mock<(result: SettingsSavePayload) => void>
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+  }
+
+  function saveResult(
+    snapshot: OmpConfigSnapshot | null,
+    nextRuntime = runtime,
+    nextSettings = settings,
+  ): SettingsSavePayload {
+    return {
+      bootstrap: {
+        settings: nextSettings,
+        runtime: nextRuntime,
+        workspaces: [],
+        sessions: [],
+        sessionWarnings: [],
+      },
+      ompConfig: snapshot,
+    }
+  }
+
+  async function renderPanel(nextRuntime = runtime, nextSettings = settings, strict = false) {
+    await act(async () => {
+      const panel = (
+        <SettingsPanel
+          onClose={() => root.render(null)}
+          onError={onError}
+          onSaved={onSaved}
+          runtime={nextRuntime}
+          settings={nextSettings}
+        />
+      )
+      root.render(strict ? <StrictMode>{panel}</StrictMode> : panel)
+    })
+  }
+
+  function changeExecutable(value: string) {
+    act(() => {
+      const input = container.querySelector<HTMLInputElement>("#omp-executable")!
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        value,
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+
+  function expectAdvisorDraft(enabled: boolean) {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-behavior")!.click())
+    expect(container.querySelector<HTMLInputElement>(".settings-options input")!.checked).toBe(
+      enabled,
+    )
+  }
+
+  beforeEach(() => {
+    loadOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
+    refreshOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
+    saveSettingsBundleMock.mockReset()
+    onError = vi.fn()
+    onSaved = vi.fn()
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it.each(["resolve", "reject"] as const)(
+    "keeps the post-save draft when the pre-save initial load later %ss",
+    async (settlement) => {
+      const initial = deferred<OmpConfigSnapshot>()
+      const fresh = deferred<OmpConfigSnapshot>()
+      loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(fresh.promise)
+      const nextRuntime = { ...runtime, ompExecutable: "new-omp.exe" }
+      const nextSettings = { ...settings, ompExecutable: "new-omp.exe" }
+      const result = saveResult(null, nextRuntime, nextSettings)
+      saveSettingsBundleMock.mockResolvedValue(result)
+      await renderPanel()
+      changeExecutable("new-omp.exe")
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledWith(
+        expect.objectContaining({ ompConfig: null }),
+      )
+      expect(onSaved).toHaveBeenCalledWith(result)
+      await renderPanel(nextRuntime, nextSettings)
+      await act(async () => fresh.resolve({ ...ompConfig, advisorEnabled: true }))
+      expectAdvisorDraft(true)
+      expect(save.disabled).toBe(true)
+
+      await act(async () => {
+        if (settlement === "resolve") initial.resolve(ompConfig)
+        else initial.reject(new Error("obsolete initial load"))
+      })
+      expectAdvisorDraft(true)
+      expect(save.disabled).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+      expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    },
+  )
+
+  it.each(["resolve", "reject"] as const)(
+    "keeps a returned save snapshot when a pending refresh later %ss",
+    async (settlement) => {
+      const refresh = deferred<OmpConfigSnapshot>()
+      refreshOmpConfigMock.mockReturnValueOnce(refresh.promise)
+      const result = saveResult({ ...ompConfig, advisorEnabled: true })
+      saveSettingsBundleMock.mockResolvedValue(result)
+      await renderPanel()
+      expectAdvisorDraft(false)
+      act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+      act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+      )
+      expect(onSaved).toHaveBeenCalledWith(result)
+      expectAdvisorDraft(true)
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+
+      await act(async () => {
+        if (settlement === "resolve") refresh.resolve(ompConfig)
+        else refresh.reject(new Error("obsolete refresh"))
+      })
+      expectAdvisorDraft(true)
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["initial", "refresh"] as const)(
+    "ignores a rejected %s request after closing the panel",
+    async (request) => {
+      const pending = deferred<OmpConfigSnapshot>()
+      if (request === "initial") loadOmpConfigMock.mockReturnValueOnce(pending.promise)
+      else refreshOmpConfigMock.mockReturnValueOnce(pending.promise)
+      await renderPanel()
+      if (request === "refresh") {
+        act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+      }
+      act(() => container.querySelector<HTMLButtonElement>(".settings-header button")!.click())
+      await act(async () => pending.reject(new Error("request completed after close")))
+      expect(container.querySelector('[role="dialog"]')).toBeNull()
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["resolve", "reject"] as const)(
+    "notifies the parent only of a successful save after closing (%s)",
+    async (settlement) => {
+      const pending = deferred<SettingsSavePayload>()
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      await renderPanel()
+      changeExecutable("saved-omp.exe")
+      act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
+      act(() => container.querySelector<HTMLButtonElement>(".settings-header button")!.click())
+      const result = saveResult(null)
+      await act(async () => {
+        if (settlement === "resolve") pending.resolve(result)
+        else pending.reject(new Error("save failed after close"))
+      })
+      expect(container.querySelector('[role="dialog"]')).toBeNull()
+      if (settlement === "resolve") expect(onSaved).toHaveBeenCalledWith(result)
+      else expect(onSaved).not.toHaveBeenCalled()
+      expect(onError).not.toHaveBeenCalled()
+      expect(loadOmpConfigMock).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("loads the returned runtime when Save makes OMP available", async () => {
+    const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
+    const fresh = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(fresh.promise)
+    const nextSettings = { ...settings, ompExecutable: "omp.exe" }
+    const result = saveResult(null, runtime, nextSettings)
+    saveSettingsBundleMock.mockResolvedValue(result)
+    await renderPanel(unavailable)
+    changeExecutable("omp.exe")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+    await renderPanel(runtime, nextSettings)
+    await act(async () => fresh.resolve({ ...ompConfig, advisorEnabled: true }))
+    expectAdvisorDraft(true)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+  })
+
+  it("clears the old draft without reading when Save removes the runtime", async () => {
+    loadOmpConfigMock.mockResolvedValue({ ...ompConfig, advisorEnabled: true })
+    const refresh = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refresh.promise)
+    const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
+    const nextSettings = { ...settings, ompExecutable: "missing-omp.exe" }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(null, unavailable, nextSettings))
+    await renderPanel()
+    changeExecutable("missing-omp.exe")
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    await renderPanel(unavailable, nextSettings)
+    await act(async () => refresh.resolve({ ...ompConfig, advisorEnabled: true }))
+    expectAdvisorDraft(false)
+    expect(container.querySelector(".runtime-card button")).toBeNull()
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    expect(loadOmpConfigMock).toHaveBeenCalledTimes(1)
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { ...runtime, ompExecutable: "replacement-omp.exe" },
+    { ...runtime, ompVersion: "omp/19.0.0" },
+  ])("discards the old runtime request on a runtime identity change: %j", async (nextRuntime) => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const fresh = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(fresh.promise)
+    await renderPanel()
+    await renderPanel(nextRuntime)
+    await act(async () => fresh.resolve({ ...ompConfig, advisorEnabled: true }))
+    await act(async () => initial.resolve(ompConfig))
+    expectAdvisorDraft(true)
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it("ignores the StrictMode cleanup request without hiding the replayed load", async () => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const replayed = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(replayed.promise)
+    await renderPanel(runtime, settings, true)
+    await act(async () => initial.reject(new Error("discarded StrictMode request")))
+    expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+    expect(onError).not.toHaveBeenCalled()
+    await act(async () => replayed.resolve({ ...ompConfig, advisorEnabled: true }))
+    expectAdvisorDraft(true)
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 })
 

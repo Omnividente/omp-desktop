@@ -28,8 +28,8 @@
 - Несколько одновременно работающих терминальных вкладок.
 - Настоящий нативный PTY с изменением размера, прерыванием и корректным завершением процессов.
 - Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты. «Настройки → Основное → Масштаб текста интерфейса» увеличивает текст приложения от 100% до 200%, сохраняется между запусками и не меняет независимый размер шрифта терминала.
-- «Настройки» удерживают клавиатурный фокус: `Tab` / `Shift+Tab` обходят доступные элементы внутри окна, `Escape` учитывает вложенные элементы управления, а закрытие возвращает фокус к кнопке открытия.
-- Сбой начальной загрузки конфигурации OMP виден в основном окне с кнопкой повторного чтения. Экран восстановления настроек Desktop открывает их папку, даже когда сам `settings.json` недоступен.
+- «Настройки» удерживают клавиатурный фокус: `Tab` / `Shift+Tab` обходят доступные элементы внутри окна, `Escape` учитывает вложенные элементы управления, а закрытие возвращает фокус к кнопке открытия. Пока фокус на нативном выпадающем списке, `Escape` не закрывает «Настройки», даже если список уже свёрнут: сначала перейдите `Tab` к другому типу элемента или используйте кнопку закрытия.
+- Сбой начальной загрузки конфигурации OMP виден в основном окне с кнопкой повторного чтения. Сохранение настроек делает прежние ответы загрузки неактуальными и в основном окне, и в «Настройках»; если сохранение не вернуло снимок OMP, оба экрана запрашивают свежий. Экран восстановления настроек Desktop открывает их папку, даже когда сам `settings.json` недоступен.
 - Раздел «Работа OMP» показывает поддержанные установленным runtime числовые, логические и перечислимые настройки: поиск, категории, только изменённые поля и возврат к значению схемы OMP. Сохранение проверяет конфликты; проектные настройки сохраняют приоритет, работающие процессы не перезапускаются.
 - Монитор системных ресурсов показывает доступную RAM, swap pressure, свободное место для сессий, проекта и временных файлов, а также RSS Desktop и прямых процессов OMP. Он ничего не завершает и не удаляет автоматически.
 - Боковая панель имеет сохраняемые режимы «развёрнута», «компактная» и «автоскрытие» (`Ctrl+B`).
@@ -38,7 +38,7 @@
 - В текущем вводе OMP `Ctrl+Z` отменяет редактирование, `Ctrl+Backspace` / `Ctrl+Delete` удаляют слово, `Shift+Enter` добавляет строку, а `Ctrl+Enter` отправляет follow-up. `Ctrl+C` копирует выделенный текст или прерывает работу без выделения; `Ctrl+V` использует штатную вставку OMP, включая изображения, а `Ctrl+Shift+V` вставляет текст без сворачивания. `Ctrl+Y` сохраняет значение OMP yank, а не redo; обычные поля интерфейса используют стандартные сочетания WebView.
 - Межпроцессное владение session JSONL защищено OS lease: активные resume/discovered/delete операции удерживают lock, а stale metadata требует явного reclaim. После сбоя старые данные сохраняются в bounded quarantine; автоматического silent takeover нет.
 - Второй запуск с `--project <path>`, `-p <path>` или позиционным путём передаёт workspace в уже открытое окно.
-- Нажатие версии Desktop запускает ручную проверку обновления. Уведомления OMP и Desktop используют общий стек без взаимного перекрытия; фоновые предложения обновиться не закрывают кнопки модальных окон. Установка при работающих терминалах требует подтверждения до загрузки; отмена сохраняет их работу. На время подтверждения и установки запуск новых терминалов заблокирован.
+- Нажатие версии Desktop запускает ручную проверку обновления. Уведомления OMP и Desktop используют общий стек без взаимного перекрытия; фоновые предложения обновиться не закрывают кнопки модальных окон. Установка при работающих терминалах требует подтверждения до загрузки; отмена сохраняет их работу. На время подтверждения и установки заблокированы новые запуски терминалов и перезапуск для смены фиксации провайдера. Установка не начинается при незавершённом запуске или перезапуске терминала; отмена и ошибка установки освобождают блокировку.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -89,8 +89,8 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Multiple concurrent terminal tabs.
 - A real native PTY with resize, interrupt, and reliable process cleanup.
 - Configurable OMP executable, session root, models, language, and fonts. Settings → General → Interface text scale enlarges application text from 100% to 200%, persists across restarts, and does not change the independent terminal font size.
-- Settings contains keyboard focus: `Tab` / `Shift+Tab` cycle through available controls, `Escape` respects nested controls, and closing restores focus to the opener.
-- Initial OMP configuration failures appear in the main window with a retry action. Desktop settings recovery can open the settings folder even when `settings.json` itself is inaccessible.
+- Settings contains keyboard focus: `Tab` / `Shift+Tab` cycle through available controls, `Escape` respects nested controls, and closing restores focus to the opener. While a native select has focus, `Escape` does not close Settings, even when its popup is already closed: first `Tab` to a different control type or use the close button.
+- Initial OMP configuration failures appear in the main window with a retry action. Saving settings invalidates older configuration responses in both the main window and Settings; if the save returns no OMP snapshot, both views request a fresh one. Desktop settings recovery can open the settings folder even when `settings.json` itself is inaccessible.
 - OMP operation exposes numeric, boolean and enum settings supported by the installed runtime: search, categories, changed-only filtering and reset to the OMP schema default. Saving checks conflicts; project settings retain precedence and running processes are not restarted.
 - The resource monitor reports available RAM, swap pressure, free space for sessions, the workspace and temporary files, plus RSS for Desktop and direct OMP processes. It never terminates processes or deletes data automatically.
 - The project sidebar has persisted expanded, compact and auto-hide modes (`Ctrl+B`).
@@ -99,7 +99,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - In the current OMP input, `Ctrl+Z` undoes an edit, `Ctrl+Backspace` / `Ctrl+Delete` delete a word, `Shift+Enter` adds a line, and `Ctrl+Enter` submits a follow-up. `Ctrl+C` copies selected text or interrupts when nothing is selected; `Ctrl+V` uses OMP's native clipboard handling, including images, while `Ctrl+Shift+V` pastes uncollapsed text. `Ctrl+Y` retains OMP yank semantics rather than redo; ordinary interface fields keep standard WebView shortcuts.
 - Cross-process ownership of session JSONL uses an OS lease: active resume/discovered/delete operations hold the lock, and stale metadata requires explicit reclaim. Crash remnants are retained in bounded quarantine; silent automatic takeover is not performed.
 - A second launch with `--project <path>`, `-p <path>`, or a positional path forwards the workspace to the existing window.
-- Clicking the Desktop version starts a manual update check. OMP and Desktop update notices share a non-overlapping stack; background update offers do not cover modal controls. Installation with running terminals requires confirmation before downloading; cancellation leaves them running. Starting new terminals is blocked during confirmation and installation.
+- Clicking the Desktop version starts a manual update check. OMP and Desktop update notices share a non-overlapping stack; background update offers do not cover modal controls. Installation with running terminals requires confirmation before downloading; cancellation leaves them running. New terminal launches and provider-pin restarts are blocked during confirmation and installation. Installation cannot start while a terminal launch or restart is pending; cancellation and installation failure release the gate.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation

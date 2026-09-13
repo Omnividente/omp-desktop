@@ -9,9 +9,10 @@ import {
   UPDATE_REMINDER_SNOOZE_MS,
 } from "./updateReminder"
 
-interface ClientUpdaterState {
+export interface ClientUpdaterState {
   update: ClientUpdateInfo | null
   installing: boolean
+  isInstalling: () => boolean
   checking: boolean
   checkNow: () => void
   remindLater: () => void
@@ -22,7 +23,7 @@ export function useClientUpdater(
   language: Lang,
   showError: (message: string) => void,
   showNotice: (message: string) => void,
-  safety: { runningTerminalCount: number; launching: boolean },
+  safety: () => { runningTerminalCount: number; launching: boolean },
 ): ClientUpdaterState {
   const checkingRef = useRef(false)
   const manualCheckRef = useRef(false)
@@ -31,6 +32,7 @@ export function useClientUpdater(
   const [availableUpdate, setAvailableUpdate] = useState<ClientUpdateInfo | null>(null)
   const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
   const [installing, setInstalling] = useState(false)
+  const isInstalling = useCallback(() => installingRef.current, [])
 
   const checkForUpdate = useCallback(
     async (manual = false) => {
@@ -92,18 +94,19 @@ export function useClientUpdater(
 
   const install = useCallback(async () => {
     if (installingRef.current || checkingRef.current) return
-    if (safety.launching) {
+    const currentSafety = safety()
+    if (currentSafety.launching) {
       showNotice(t(language, "desktopUpdateWaitForLaunch"))
       return
     }
     installingRef.current = true
     setInstalling(true)
     try {
-      if (safety.runningTerminalCount > 0) {
+      if (currentSafety.runningTerminalCount > 0) {
         const accepted = await confirm(
           t(language, "desktopUpdateRunningConfirm").replace(
             "{count}",
-            String(safety.runningTerminalCount),
+            String(currentSafety.runningTerminalCount),
           ),
           { title: t(language, "desktopUpdateInstall"), kind: "warning" },
         )
@@ -116,13 +119,14 @@ export function useClientUpdater(
       installingRef.current = false
       setInstalling(false)
     }
-  }, [language, safety.launching, safety.runningTerminalCount, showError, showNotice])
+  }, [language, safety, showError, showNotice])
 
   return {
     update: snoozedUntil === 0 ? availableUpdate : null,
     checking,
     checkNow: () => void checkForUpdate(true),
     installing,
+    isInstalling,
     remindLater,
     install: () => void install(),
   }

@@ -15,6 +15,7 @@ interface SessionControlsProps {
   ompConfig: OmpConfigSnapshot | null
   lang: Lang
   runtimeStatus: RuntimeHealthStatus
+  installingDesktopUpdate: boolean
   onDiscardSwitchRecovery: (tabId: string) => void
   onSendSwitchRecovery: (tabId: string) => void
   onSwitch: (tabId: string, model: string, thinking: string | null) => void
@@ -28,6 +29,7 @@ export function SessionControls({
   onDiscardSwitchRecovery,
   onSendSwitchRecovery,
   runtimeStatus,
+  installingDesktopUpdate,
   onSwitch,
   onTogglePrimaryProviderPin,
 }: SessionControlsProps) {
@@ -156,6 +158,7 @@ export function SessionControls({
         aria-label={`${t(lang, "primaryProvider")}: ${providerPinState}. ${providerPinTitle}`}
         className={`primary-provider-pin${tab.primaryProviderPinned ? " is-active" : ""}${tab.primaryProviderPinPending ? " is-pending" : ""}`}
         disabled={
+          installingDesktopUpdate ||
           tab.sessionPath === null ||
           tab.activity === "thinking" ||
           tab.switching ||

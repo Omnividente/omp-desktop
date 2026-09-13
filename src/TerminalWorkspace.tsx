@@ -22,6 +22,7 @@ interface TerminalWorkspaceProps {
   terminalFontFamily: string
   terminalFontSize: number
   launching: string | null
+  installingDesktopUpdate: boolean
   ompConfig: OmpConfigSnapshot | null
   runtime: RuntimeInfo
   runtimeStatusByTerminal: Record<string, RuntimeHealthStatus>
@@ -52,6 +53,7 @@ export function TerminalWorkspace({
   terminalFontFamily,
   terminalFontSize,
   launching,
+  installingDesktopUpdate,
   ompConfig,
   runtime,
   runtimeStatusByTerminal,
@@ -212,6 +214,7 @@ export function TerminalWorkspace({
               <SessionControls
                 key={activeTab.id}
                 lang={language}
+                installingDesktopUpdate={installingDesktopUpdate}
                 ompConfig={ompConfig}
                 onDiscardSwitchRecovery={onDiscardSwitchRecovery}
                 onSendSwitchRecovery={onSendSwitchRecovery}
