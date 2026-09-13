@@ -1,0 +1,123 @@
+name: Autonomous Monitor
+
+# Read-only health report for the parallel loop. Changes nothing.
+#
+# It reports the lifecycle of the queue, not just how many runs happened, so a
+# loop that keeps starting work without finishing any is visible immediately.
+#
+# It also reports whether the workflows that must exist on the integration
+# branch itself are still identical to the default branch. It only reports:
+# a monitor that repaired them would be a monitor that can rewrite workflows.
+
+on:
+  schedule:
+    - cron: "7 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  monitor:
+    name: Report loop health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      DEFAULT_BRANCH: main
+      GH_TOKEN: ${{ github.token }}
+      LOOP_ENABLED: ${{ vars.JULES_LOOP_ENABLED }}
+    steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 0
+          path: lab
+
+      - name: Validate control plane
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+
+      - name: Report drift in the loop entry points on the integration branch
+        id: drift
+        env:
+          ENTRY_WORKFLOWS: ".github/workflows/autonomous_evidence_gate.yml .github/workflows/autonomous_next_task.yml .github/workflows/autonomous_control_ci.yml"
+        run: |
+          set -euo pipefail
+          # GitHub resolves a pull_request workflow from the ref of the event, so
+          # these files have to be on the integration branch or pull requests
+          # into it silently run without an evidence gate.
+          drift=0
+          {
+            echo "### Loop entry points on ${INTEGRATION_BRANCH}"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+          for path in ${ENTRY_WORKFLOWS}; do
+            if [ ! -f "lab/${path}" ]; then
+              echo "- \`${path}\`: **missing on the branch**, so pull requests into it never run it" >> "${GITHUB_STEP_SUMMARY}"
+              drift=$((drift + 1))
+            elif cmp -s "control/${path}" "lab/${path}"; then
+              echo "- \`${path}\`: identical to ${DEFAULT_BRANCH}" >> "${GITHUB_STEP_SUMMARY}"
+            else
+              echo "- \`${path}\`: **differs from ${DEFAULT_BRANCH}**" >> "${GITHUB_STEP_SUMMARY}"
+              drift=$((drift + 1))
+            fi
+          done
+          echo "drift=${drift}" >> "${GITHUB_OUTPUT}"
+          if [ "${drift}" != "0" ]; then
+            {
+              echo ""
+              echo "Run **Autonomous Sync Main** to validate and synchronize the accepted control plane at an idle boundary. This monitor never writes workflow files itself."
+              echo ""
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "::warning::${drift} loop entry point(s) on ${INTEGRATION_BRANCH} are missing or out of date, so its pull requests may run without an evidence gate."
+          fi
+
+      - name: Report observed readiness and attention
+        env:
+          ENTRY_DRIFT: ${{ steps.drift.outputs.drift }}
+        run: |
+          set -euo pipefail
+          git -C lab fetch --no-tags origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number,state,title,body,merged_at,labels:[.labels[]?.name],draft}' | jq -s '.' > pull-requests.json
+          enabled=false
+          if [ "${LOOP_ENABLED}" = "true" ]; then enabled=true; fi
+          # Read-only: neither the planner's prospective task nor lifecycle
+          # reconciliation is written back to the integration queue.
+          status=0
+          python3 control/scripts/autonomous/loop_health.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
+          {
+            echo '### Autonomous loop health'
+            echo ''
+            echo "- Loop entry points out of date: ${ENTRY_DRIFT:-unknown}"
+            echo '- Releases: disabled by policy, human-gated'
+            echo ''
+            echo 'Observed controller decision (no action taken):'
+            echo '```json'
+            cat health.json
+            echo '```'
+            echo ''
+            echo 'report_invalid: inspect the stored diagnostics and reharvest the same completed session with retry_report; do not launch another AI attempt.'
+            echo 'sync_failed: inspect the failed candidate checks, repair the cause and explicitly run Autonomous Sync Main. Automatic retries of that main revision are paused.'
+            echo 'next_task_stalled: due work has no NextTask activity within 90 minutes; inspect continuation and the enabled switch.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          health=$(jq -r '.health' health.json)
+          attention=$(jq '.attention // [] | length' health.json)
+          if [ "${status}" != 0 ] || [ "${health}" = stalled ] || [ "${health}" = attention ] || [ "${attention}" -gt 0 ]; then
+            echo '::error::Autonomous loop needs attention; see observed timestamps and reason codes in the job summary.'
+            exit 1
+          fi

@@ -1,0 +1,268 @@
+name: Autonomous Sync Main
+run-name: Sync main ${{ inputs.main_sha || github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      main_sha:
+        description: Expected current main SHA (optional)
+        type: string
+        default: ""
+      lab_sha:
+        description: Expected current autonomous/lab SHA (optional)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Hold the writer lock across preparation, both platform gates and publication.
+concurrency:
+  group: autonomous-lab-queue
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.result.outputs.status }}
+      main_sha: ${{ steps.result.outputs.main_sha }}
+      lab_sha: ${{ steps.result.outputs.lab_sha }}
+      candidate_sha: ${{ steps.result.outputs.candidate_sha }}
+      candidate_branch: ${{ steps.result.outputs.candidate_branch }}
+      queue_blob: ${{ steps.result.outputs.queue_blob }}
+      candidate_owned: ${{ steps.candidate.outputs.owned }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN: ${{ inputs.main_sha || github.sha }}
+      EXPECTED_LAB: ${{ inputs.lab_sha }}
+      CANDIDATE_BRANCH: autonomous/sync-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Initialize safe result
+        run: |
+          jq -n --arg main "${EXPECTED_MAIN}" --arg branch "${CANDIDATE_BRANCH}" \
+            '{status:"conflict",reason:"preparation_failed",main_sha:$main,lab_sha:"",candidate_sha:"",conflicts:[],queue_blob:"",candidate_branch:$branch,publication:"not_published"}' > sync-result.json
+
+      - name: Check out the trusted controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+
+      - name: Check out the integration history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          path: lab
+          fetch-depth: 0
+
+      - name: Pin fresh heads and check the switch
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          update_reason() {
+            jq --arg reason "$1" '.reason=$reason' sync-result.json > sync-updated.json
+            mv sync-updated.json sync-result.json
+          }
+          if [[ ! "${EXPECTED_MAIN}" =~ ^[0-9a-f]{40}$ ]] || { [ -n "${EXPECTED_LAB}" ] && [[ ! "${EXPECTED_LAB}" =~ ^[0-9a-f]{40}$ ]]; }; then
+            update_reason invalid_pin
+            exit 1
+          fi
+          test -n "${GH_TOKEN}"
+          git -C lab fetch origin main autonomous/lab
+          main=$(git -C lab rev-parse refs/remotes/origin/main)
+          lab=$(git -C lab rev-parse refs/remotes/origin/autonomous/lab)
+          jq --arg lab "${lab}" '.lab_sha=$lab' sync-result.json > sync-updated.json
+          mv sync-updated.json sync-result.json
+          if [ "${main}" != "${EXPECTED_MAIN}" ]; then
+            update_reason stale_main
+            exit 1
+          fi
+          if [ "$(git -C lab rev-parse HEAD)" != "${lab}" ] || { [ -n "${EXPECTED_LAB}" ] && [ "${EXPECTED_LAB}" != "${lab}" ]; }; then
+            update_reason stale_lab
+            exit 1
+          fi
+          enabled=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/variables/JULES_LOOP_ENABLED" --jq '.value')
+          if [ "${enabled}" != true ]; then
+            jq '.status="disabled" | .reason="loop_disabled"' sync-result.json > sync-updated.json
+            mv sync-updated.json sync-result.json
+          fi
+
+      - name: Prepare the isolated three-way merge
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r .status sync-result.json)" = disabled ]; then exit 0; fi
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" \
+            -f base=autonomous/lab -f state=open -f per_page=100 \
+            --jq '.[] | {state, draft, labels: [.labels[]?.name]}' | jq -s '.' > pull-requests.json
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
+          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+          python3 control/scripts/autonomous/sync_main.py --repo lab --main-sha "${EXPECTED_MAIN}" \
+            --lab-sha "$(jq -r .lab_sha sync-result.json)" --manifest lab/agent_tasks.json \
+            --pull-requests pull-requests.json --config control/autonomous-project.json --out sync-result.json
+
+      - name: Publish only the isolated candidate ref
+        id: candidate
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r .status sync-result.json)" != prepared ]; then exit 0; fi
+          # No lab ref moves here. This branch is unique to this trusted run;
+          # candidate code receives neither this PAT nor any inherited secrets.
+          candidate=$(jq -r .candidate_sha sync-result.json)
+          if [ -n "$(git -C lab ls-remote --heads origin "refs/heads/${CANDIDATE_BRANCH}")" ]; then
+            jq '.status="conflict" | .reason="candidate_ref_exists"' sync-result.json > sync-updated.json
+            mv sync-updated.json sync-result.json
+            exit 1
+          fi
+          git -C lab -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "${candidate}:refs/heads/${CANDIDATE_BRANCH}"
+          echo 'owned=true' >> "${GITHUB_OUTPUT}"
+
+      - name: Export preparation result
+        id: result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CANDIDATE_OWNED: ${{ steps.candidate.outputs.owned }}
+        run: |
+          set -euo pipefail
+          jq --arg branch "${CANDIDATE_BRANCH}" --arg job "${JOB_STATUS}" --arg owned "${CANDIDATE_OWNED}" \
+            '. + {candidate_branch:$branch, candidate_owned:($owned == "true"), preparation:$job, publication:"not_published"}' sync-result.json > sync-updated.json
+          mv sync-updated.json sync-result.json
+          jq -r 'to_entries[] | select(.key == "status" or .key == "main_sha" or .key == "lab_sha" or .key == "candidate_sha" or .key == "candidate_branch" or .key == "queue_blob") | "\(.key)=\(.value)"' sync-result.json >> "${GITHUB_OUTPUT}"
+          { echo '### Main → autonomous/lab preparation'; echo '```json'; cat sync-result.json; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Save safe preparation metadata
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: autonomous-sync-preparation-${{ github.run_attempt }}
+          path: sync-result.json
+          if-no-files-found: error
+          retention-days: 14
+
+  checks:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.status == 'prepared' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pr.yml
+    with:
+      ref: ${{ needs.prepare.outputs.candidate_sha }}
+
+  finalize:
+    needs: [prepare, checks]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      PREPARATION: ${{ needs.prepare.result }}
+      GATES: ${{ needs.checks.result }}
+      EXPECTED_MAIN: ${{ needs.prepare.outputs.main_sha }}
+      EXPECTED_LAB: ${{ needs.prepare.outputs.lab_sha }}
+      CANDIDATE_SHA: ${{ needs.prepare.outputs.candidate_sha }}
+      CANDIDATE_OWNED: ${{ needs.prepare.outputs.candidate_owned }}
+      CANDIDATE_BRANCH: autonomous/sync-${{ github.run_id }}-${{ github.run_attempt }}
+      QUEUE_BLOB: ${{ needs.prepare.outputs.queue_blob }}
+    steps:
+      - name: Recover safe preparation metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: autonomous-sync-preparation-${{ github.run_attempt }}
+
+      - name: Check out trusted history for verification only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: verify
+
+      - name: Verify unchanged heads and publish the checked candidate fast-forward
+        run: |
+          set -euo pipefail
+          fail() {
+            jq --arg reason "$1" '.publication="blocked" | .reason=$reason' sync-result.json > sync-updated.json
+            mv sync-updated.json sync-result.json
+            echo "::error::Sync publication blocked: $1"
+            exit 1
+          }
+          [ "${PREPARATION}" = success ] || fail "$(jq -r '.reason // "preparation_failed"' sync-result.json)"
+          status=$(jq -r .status sync-result.json)
+          if [ "${status}" != prepared ]; then exit 0; fi
+          [ "${GATES}" = success ] || fail quality_gate_failed
+          git -C verify fetch origin main autonomous/lab
+          git -C verify fetch origin "refs/heads/${CANDIDATE_BRANCH}"
+          [ "$(git -C verify rev-parse refs/remotes/origin/main)" = "${EXPECTED_MAIN}" ] || fail stale_main
+          [ "$(git -C verify rev-parse refs/remotes/origin/autonomous/lab)" = "${EXPECTED_LAB}" ] || fail stale_lab
+          [ "$(git -C verify rev-parse FETCH_HEAD)" = "${CANDIDATE_SHA}" ] || fail candidate_ref_changed
+          git -C verify merge-base --is-ancestor "${EXPECTED_MAIN}" "${CANDIDATE_SHA}" || fail missing_main_ancestry
+          git -C verify merge-base --is-ancestor "${EXPECTED_LAB}" "${CANDIDATE_SHA}" || fail non_fast_forward
+          [ "$(git -C verify rev-parse "${CANDIDATE_SHA}:agent_tasks.json")" = "${QUEUE_BLOB}" ] || fail candidate_queue_changed
+          [ "$(git -C verify rev-parse "${EXPECTED_LAB}:agent_tasks.json")" = "${QUEUE_BLOB}" ] || fail lab_queue_changed
+          enabled=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/variables/JULES_LOOP_ENABLED" --jq '.value')
+          if [ "${enabled}" != true ]; then
+            jq '.publication="disabled" | .reason="loop_disabled_before_publish"' sync-result.json > sync-updated.json
+            mv sync-updated.json sync-result.json
+            exit 0
+          fi
+          # Recheck server heads immediately before the non-forced push. A
+          # concurrent lab writer is also rejected by Git's fast-forward rule.
+          [ "$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" = "${EXPECTED_MAIN}" ] || fail stale_main
+          [ "$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/autonomous/lab" --jq '.object.sha')" = "${EXPECTED_LAB}" ] || fail stale_lab
+          git -C verify -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "${CANDIDATE_SHA}:refs/heads/autonomous/lab" || fail publish_rejected
+          jq '.publication="published" | .reason="verified_fast_forward"' sync-result.json > sync-updated.json
+          mv sync-updated.json sync-result.json
+
+      - name: Remove only this run's owned candidate ref
+        if: always()
+        run: |
+          set -euo pipefail
+          # Never delete a branch whose identity no longer matches our candidate.
+          [ "${CANDIDATE_OWNED}" = true ] || exit 0
+          [ -n "${CANDIDATE_SHA}" ] || exit 0
+          remote=$(gh api "/repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/${CANDIDATE_BRANCH}" \
+            --jq ".[] | select(.ref == \"refs/heads/${CANDIDATE_BRANCH}\") | .object.sha")
+          [ -n "${remote}" ] || exit 0
+          if [ "${remote}" != "${CANDIDATE_SHA}" ]; then
+            echo '::error::Candidate ownership changed; refusing cleanup.'
+            exit 1
+          fi
+          gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/heads/${CANDIDATE_BRANCH}"
+
+      - name: Record final machine-readable outcome
+        if: always()
+        env:
+          FINALIZATION: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [ ! -f sync-result.json ]; then
+            jq -n '{status:"conflict",reason:"missing_preparation_result",main_sha:"",lab_sha:"",candidate_sha:"",conflicts:[],queue_blob:"",publication:"not_published"}' > sync-result.json
+          fi
+          jq --arg gates "${GATES}" --arg result "${FINALIZATION}" \
+            '. + {quality_gate:$gates,finalization:$result}' sync-result.json > sync-updated.json
+          mv sync-updated.json sync-result.json
+          { echo '### Main → autonomous/lab outcome'; echo '```json'; cat sync-result.json; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Save safe final metadata
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: autonomous-sync-result-${{ github.run_attempt }}
+          path: sync-result.json
+          if-no-files-found: error
+          retention-days: 14

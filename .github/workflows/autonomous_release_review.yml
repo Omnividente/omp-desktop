@@ -1,0 +1,194 @@
+name: Autonomous Release Review
+
+# Inspect accumulated research, proposals and changes whenever needed. Enable
+# the optional Quality Gate for a release-readiness review. Inspection itself
+# only produces a report; it never bumps versions, tags or publishes anything.
+#
+# Everything in this workflow is pinned to one commit. The revision is resolved
+# once, the Quality Gate run is required to have executed on exactly that
+# commit, and the report states which commit it describes. A report about the
+# lab branch can no longer be paired with a green run of a different branch.
+#
+# The report also states what verification actually did. The verified commit is
+# published only after the run finished green, and the artifact itself opens with
+# NOT VERIFIED when it did not, because a release decision is made from the file
+# a human downloads - not from a job summary nobody opens.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Baseline branch or commit to compare against
+        type: string
+        default: main
+      head:
+        description: Lab branch or commit to inspect
+        type: string
+        default: autonomous/lab
+      run_quality_gate:
+        description: Also verify release readiness with the Quality Gate
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Pin the revision under review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      base_sha: ${{ steps.pin.outputs.base_sha }}
+      head_sha: ${{ steps.pin.outputs.head_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_REF: ${{ inputs.base }}
+      HEAD_REF: ${{ inputs.head }}
+    steps:
+      - name: Resolve both refs to commits
+        id: pin
+        run: |
+          set -euo pipefail
+          base_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${BASE_REF}" --jq '.sha')
+          head_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${HEAD_REF}" --jq '.sha')
+          echo "base_sha=${base_sha}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${head_sha}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Revision under review"
+            echo ""
+            echo "- Reviewed commit (${HEAD_REF}): ${head_sha}"
+            echo "- Compared against (${BASE_REF}): ${base_sha}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  verify:
+    name: Quality Gate on the reviewed commit
+    needs: resolve
+    if: ${{ inputs.run_quality_gate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      verified_sha: ${{ steps.watch.outputs.verified_sha }}
+      verify_run_url: ${{ steps.watch.outputs.verify_run_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_REF: ${{ inputs.head }}
+      HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+    steps:
+      - name: Run the existing Quality Gate and bind it to the pinned commit
+        id: watch
+        run: |
+          set -euo pipefail
+          # The Quality Gate workflow is reused as-is; nothing is duplicated here.
+          # A workflow_dispatch can only target a branch, so the run that comes
+          # back is checked against the pinned commit and rejected on mismatch.
+          started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run pr.yml --repo "${GITHUB_REPOSITORY}" --ref "${HEAD_REF}"
+          run_id=""
+          for _ in $(seq 1 20); do
+            sleep 15
+            run_id=$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow pr.yml --branch "${HEAD_REF}" --event workflow_dispatch --limit 10 --json databaseId,headSha,createdAt --jq "[.[] | select(.headSha == \"${HEAD_SHA}\") | select(.createdAt >= \"${started}\")] | sort_by(.createdAt) | last | .databaseId // empty")
+            if [ -n "${run_id}" ]; then
+              break
+            fi
+            echo "Waiting for the Quality Gate run on ${HEAD_SHA}..."
+          done
+          if [ -z "${run_id}" ]; then
+            echo "::error::No Quality Gate run appeared for ${HEAD_SHA}. The branch most likely moved after the revision was pinned; re-run this review."
+            exit 1
+          fi
+          echo "Quality Gate run ${run_id} is verifying ${HEAD_SHA}."
+          echo "verify_run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" >> "${GITHUB_OUTPUT}"
+          # verified_sha is published only after the run has actually finished
+          # green. Writing it before the wait meant the report could name a
+          # commit as verified by a run that was still going - or that failed.
+          gh run watch "${run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          echo "verified_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Quality Gate"
+            echo ""
+            echo "- Verified commit: ${HEAD_SHA}"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  report:
+    name: Build the lab findings and release decision report
+    needs:
+      - resolve
+      - verify
+    if: ${{ always() && needs.resolve.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_REF: ${{ inputs.base }}
+      HEAD_REF: ${{ inputs.head }}
+      BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+      HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+      VERIFIED_SHA: ${{ needs.verify.outputs.verified_sha }}
+      VERIFY_RESULT: ${{ needs.verify.result }}
+      VERIFY_RUN_URL: ${{ needs.verify.outputs.verify_run_url }}
+    steps:
+      - name: Check out the control plane from the default branch
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch both pinned commits
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${BASE_SHA}" "${HEAD_SHA}"
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+
+      - name: Build the report for the pinned commit
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/autonomous/release_review.py \
+            --base "${BASE_REF}" \
+            --head "${HEAD_REF}" \
+            --base-sha "${BASE_SHA}" \
+            --head-sha "${HEAD_SHA}" \
+            --verified-sha "${VERIFIED_SHA}" \
+            --verify-result "${VERIFY_RESULT}" \
+            --verify-run-url "${VERIFY_RUN_URL}" \
+            --out release-review.md
+          cat release-review.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Record the verification outcome
+        run: |
+          {
+            echo ""
+            echo "## Verification"
+            echo ""
+            echo "- Quality Gate job: ${VERIFY_RESULT}"
+            echo "- Verified commit: ${VERIFIED_SHA:-none}"
+            echo "- Reviewed commit: ${HEAD_SHA}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${VERIFY_RESULT}" != "success" ] || [ "${VERIFIED_SHA}" != "${HEAD_SHA}" ]; then
+            echo "::warning::This report was produced without a green Quality Gate on ${HEAD_SHA}. The downloadable release-review.md opens with NOT VERIFIED for exactly this reason, so the decision cannot be made on a summary nobody read."
+          fi
+
+      - name: List autonomous pull requests merged into the integration branch
+        run: |
+          set -euo pipefail
+          {
+            echo ""
+            echo "## Autonomous pull requests merged into ${HEAD_REF}"
+            echo ""
+            gh pr list --repo "${GITHUB_REPOSITORY}" --base "${HEAD_REF}" --state merged --limit 50 --json number,title,mergedAt,author --jq '.[] | "- #\(.number) \(.title) (\(.author.login), \(.mergedAt))"'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the report
+        if: ${{ always() && hashFiles('release-review.md') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-review
+          path: release-review.md
+          if-no-files-found: error
