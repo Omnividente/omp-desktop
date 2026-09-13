@@ -172,8 +172,12 @@ export function readSessionTranscript(path: string): Promise<SessionTranscript> 
   return invoke("read_session_transcript", { path })
 }
 
-export function openContentLink(uri: string, sessionPath: string | null): Promise<void> {
-  return invoke("open_content_link", { request: { uri, sessionPath } })
+export function openContentLink(
+  uri: string,
+  sessionPath?: string | null,
+  action: "open" | "reveal" = "open",
+): Promise<void> {
+  return invoke("open_content_link", { request: { uri, sessionPath, action } })
 }
 
 export function importSessions(requests: ImportSessionRequest[]): Promise<ImportBatchPayload> {

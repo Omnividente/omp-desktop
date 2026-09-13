@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { checkClientUpdate, installClientUpdate, type ClientUpdateInfo } from "./clientUpdater"
-import type { Lang } from "./i18n"
+import { t, type Lang } from "./i18n"
 import { errorMessage } from "./api"
 import {
   persistClientUpdateReminderSnooze,
@@ -11,6 +11,8 @@ import {
 interface ClientUpdaterState {
   update: ClientUpdateInfo | null
   installing: boolean
+  checking: boolean
+  checkNow: () => void
   remindLater: () => void
   install: () => void
 }
@@ -18,23 +20,42 @@ interface ClientUpdaterState {
 export function useClientUpdater(
   language: Lang,
   showError: (message: string) => void,
+  showNotice: (message: string) => void,
 ): ClientUpdaterState {
   const checkingRef = useRef(false)
+  const manualCheckRef = useRef(false)
+  const installingRef = useRef(false)
+  const [checking, setChecking] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<ClientUpdateInfo | null>(null)
   const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
   const [installing, setInstalling] = useState(false)
 
-  const checkForUpdate = useCallback(async () => {
-    if (checkingRef.current) return
-    checkingRef.current = true
-    try {
-      setAvailableUpdate(await checkClientUpdate())
-    } catch {
-      // The updater is optional while running a browser preview or offline.
-    } finally {
-      checkingRef.current = false
-    }
-  }, [])
+  const checkForUpdate = useCallback(
+    async (manual = false) => {
+      if (installingRef.current) return
+      if (manual) manualCheckRef.current = true
+      if (checkingRef.current) return
+      checkingRef.current = true
+      setChecking(true)
+      try {
+        const update = await checkClientUpdate()
+        setAvailableUpdate(update)
+        if (manualCheckRef.current) {
+          persistClientUpdateReminderSnooze(0)
+          setSnoozedUntil(0)
+          if (!update) showNotice(t(language, "desktopUpdateCurrent"))
+        }
+      } catch (error) {
+        // Background checks stay quiet offline; a requested check must report failure.
+        if (manualCheckRef.current) showError(errorMessage(error, language))
+      } finally {
+        checkingRef.current = false
+        manualCheckRef.current = false
+        setChecking(false)
+      }
+    },
+    [language, showError, showNotice],
+  )
 
   useEffect(() => {
     void checkForUpdate()
@@ -68,18 +89,23 @@ export function useClientUpdater(
   }, [])
 
   const install = useCallback(async () => {
+    if (installingRef.current || checkingRef.current) return
+    installingRef.current = true
     setInstalling(true)
     try {
       await installClientUpdate()
     } catch (error) {
       showError(errorMessage(error, language))
     } finally {
+      installingRef.current = false
       setInstalling(false)
     }
   }, [language, showError])
 
   return {
     update: snoozedUntil === 0 ? availableUpdate : null,
+    checking,
+    checkNow: () => void checkForUpdate(true),
     installing,
     remindLater,
     install: () => void install(),

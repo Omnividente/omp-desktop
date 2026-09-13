@@ -18,11 +18,22 @@ use url::Url;
 pub(crate) struct OpenContentLinkRequest {
     uri: String,
     session_path: Option<String>,
+    #[serde(default)]
+    action: ContentLinkAction,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum ContentLinkAction {
+    #[default]
+    Open,
+    Reveal,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum ContentTarget {
     External(String),
+    Open(PathBuf),
     Reveal(PathBuf),
 }
 
@@ -31,19 +42,44 @@ struct SessionHeader {
     #[serde(rename = "type")]
     kind: String,
     id: String,
-    cwd: String,
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 fn session_header(session: &Path) -> Result<SessionHeader, String> {
-    // Only the header is needed; never load conversation content or global session indexes.
+    // Runtime session-title-slot.ts writes an optional title record before the
+    // logical session header. Read at most these two metadata records, not chat.
     let file = fs::File::open(session).map_err(|_| "Не удалось прочитать заголовок сессии")?;
+    let mut reader = BufReader::new(file.take(64 * 1024));
     let mut line = String::new();
-    BufReader::new(file.take(64 * 1024))
+    reader
         .read_line(&mut line)
         .map_err(|_| "Не удалось прочитать заголовок сессии")?;
+    let value: serde_json::Value =
+        serde_json::from_str(&line).map_err(|_| "Некорректные метаданные сессии OMP")?;
+    let value = if value.get("type").and_then(serde_json::Value::as_str) == Some("title") {
+        if value.get("v").and_then(serde_json::Value::as_u64) != Some(1)
+            || ["title", "updatedAt", "pad"]
+                .iter()
+                .any(|key| !value.get(key).is_some_and(serde_json::Value::is_string))
+            || value
+                .get("source")
+                .is_some_and(|source| !matches!(source.as_str(), Some("auto" | "user")))
+        {
+            return Err("Некорректная запись заголовка названия сессии OMP".to_owned());
+        }
+        line.clear();
+        reader
+            .read_line(&mut line)
+            .map_err(|_| "Не удалось прочитать заголовок сессии")?;
+        serde_json::from_str(&line)
+            .map_err(|_| "После названия отсутствует корректный заголовок сессии OMP")?
+    } else {
+        value
+    };
     let header: SessionHeader =
-        serde_json::from_str(&line).map_err(|_| "Некорректный заголовок сессии OMP")?;
-    if header.kind != "session" || header.id.is_empty() || header.cwd.is_empty() {
+        serde_json::from_value(value).map_err(|_| "Некорректный заголовок сессии OMP")?;
+    if header.kind != "session" || header.id.is_empty() {
         return Err("Некорректный заголовок сессии OMP".to_owned());
     }
     Ok(header)
@@ -114,10 +150,11 @@ fn sidecar_root(session: &Path) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn local_root(session: &Path, header: &SessionHeader) -> Result<PathBuf, String> {
+fn local_root(session: &Path) -> Result<PathBuf, String> {
     let candidate = session.with_extension("").join("local");
     let expected = if cfg!(windows) && candidate.to_string_lossy().encode_utf16().count() >= 180 {
         // Match runtime resolveLocalRoot/safeSessionId for Windows long paths.
+        let header = session_header(session)?;
         let id: String = header
             .id
             .encode_utf16()
@@ -152,7 +189,10 @@ fn artifact_path(session: &Path, value: &str) -> Result<PathBuf, String> {
         {
             let entry = entry.map_err(|_| "Не удалось прочитать папку артефактов")?;
             let name = entry.file_name();
-            if name.to_str().is_some_and(|name| name.starts_with(&prefix)) {
+            if name
+                .to_str()
+                .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".log"))
+            {
                 if found.is_some() {
                     return Err(
                         "Идентификатор артефакта неоднозначен; укажите полное имя файла".to_owned(),
@@ -168,6 +208,128 @@ fn artifact_path(session: &Path, value: &str) -> Result<PathBuf, String> {
     }
 }
 
+fn is_line_selector(value: &str) -> bool {
+    fn number(value: &str) -> Option<u64> {
+        let value = value.strip_prefix(['L', 'l']).unwrap_or(value);
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        value.parse().ok().filter(|value| *value > 0)
+    }
+    value.split(',').all(|range| {
+        if let Some(rest) = range.strip_prefix('-') {
+            return number(rest).is_some();
+        }
+        if let Some((start, count)) = range.split_once('+') {
+            return number(start)
+                .zip(number(count))
+                .is_some_and(|(start, count)| start.checked_add(count - 1).is_some());
+        }
+        if let Some((start, end)) = range.split_once("..").or_else(|| range.split_once('-')) {
+            return number(start).is_some_and(|start| {
+                end.is_empty() || number(end).is_some_and(|end| end >= start)
+            });
+        }
+        number(range).is_some()
+    })
+}
+
+// Native associations cannot honor line/render selectors. Open their underlying
+// file, without interpreting encoded colons (which may be ADS or literal names).
+fn without_selector(value: &str) -> &str {
+    let Some((path, selector)) = value.rsplit_once(':') else {
+        return value;
+    };
+    if selector.eq_ignore_ascii_case("raw") || is_line_selector(selector) {
+        if let Some((base, previous)) = path.rsplit_once(':') {
+            if (selector.eq_ignore_ascii_case("raw") && is_line_selector(previous))
+                || (is_line_selector(selector) && previous.eq_ignore_ascii_case("raw"))
+            {
+                return base;
+            }
+        }
+        return path;
+    }
+    if selector.eq_ignore_ascii_case("img") || selector.eq_ignore_ascii_case("conflicts") {
+        return path;
+    }
+    value
+}
+
+fn opens_as_document(path: &Path) -> Result<bool, String> {
+    // Unknown associations, programs, scripts, shortcuts and macro-enabled Office
+    // files are reveal-only. An extension allowlist avoids an incomplete denylist.
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(
+        extension.as_str(),
+        "txt"
+            | "md"
+            | "markdown"
+            | "log"
+            | "csv"
+            | "tsv"
+            | "json"
+            | "jsonl"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "xml"
+            | "ini"
+            | "cfg"
+            | "pdf"
+            | "rtf"
+            | "docx"
+            | "xlsx"
+            | "pptx"
+            | "odt"
+            | "ods"
+            | "odp"
+            | "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "webp"
+            | "bmp"
+            | "ico"
+            | "svg"
+            | "html"
+            | "htm"
+            | "mp3"
+            | "wav"
+            | "ogg"
+            | "mp4"
+            | "webm"
+            | "mov"
+    ) {
+        return Ok(false);
+    }
+    let mut file = fs::File::open(path).map_err(|_| "Не удалось проверить тип файла ссылки")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if file
+            .metadata()
+            .map_err(|_| "Не удалось проверить права файла")?
+            .permissions()
+            .mode()
+            & 0o111
+            != 0
+        {
+            return Ok(false);
+        }
+    }
+    let mut prefix = [0; 4];
+    let count = file
+        .read(&mut prefix)
+        .map_err(|_| "Не удалось проверить тип файла ссылки")?;
+    let prefix = &prefix[..count];
+    Ok(!prefix.starts_with(b"#!") && !prefix.starts_with(b"MZ") && !prefix.starts_with(b"\x7fELF"))
+}
+
 fn resolve_content_link(
     request: &OpenContentLinkRequest,
     session_root: &Path,
@@ -176,92 +338,133 @@ fn resolve_content_link(
     if uri.is_empty() || request.uri.chars().any(char::is_control) {
         return Err("Ссылка пуста или содержит управляющие символы".to_owned());
     }
-    let parsed = Url::parse(uri).ok();
-    if let Some(url) = &parsed {
-        match url.scheme() {
-            "http" | "https" if url.host_str().is_some() => {
+    let scheme = uri.split_once("://").map(|(scheme, _)| scheme);
+    let internal = scheme.is_some_and(|scheme| {
+        scheme.eq_ignore_ascii_case("local") || scheme.eq_ignore_ascii_case("artifact")
+    });
+    let file = scheme.is_some_and(|scheme| scheme.eq_ignore_ascii_case("file"));
+    if !internal && !file {
+        if let Ok(url) = Url::parse(uri) {
+            if matches!(url.scheme(), "http" | "https" | "mailto") {
+                if request.action == ContentLinkAction::Reveal {
+                    return Err("Показать в папке можно только файловую ссылку".to_owned());
+                }
+                if url.scheme() == "mailto" {
+                    decode_path(uri)?;
+                    if url.path().is_empty() {
+                        return Err("Пустой адрес почты".to_owned());
+                    }
+                } else if url.host_str().is_none() {
+                    return Err("В ссылке отсутствует адрес сервера".to_owned());
+                }
                 return Ok(ContentTarget::External(url.as_str().to_owned()));
             }
-            "mailto" if !url.path().is_empty() => {
-                decode_path(uri)?;
-                return Ok(ContentTarget::External(url.as_str().to_owned()));
+            // A filename such as report.md:raw looks like a URL scheme to Url.
+            // Bare protocol names must still be rejected before selector removal.
+            if !url.scheme().contains('.') {
+                return Err("Этот протокол ссылки не поддерживается".to_owned());
             }
-            "local" | "artifact" | "file" => {}
-            _ => return Err("Этот протокол ссылки не поддерживается".to_owned()),
         }
     }
-    let session = validated_session_file(
-        request
-            .session_path
-            .as_deref()
-            .ok_or("Для файловой ссылки нужна сохранённая сессия OMP")?,
-        session_root,
-    )
-    .map_err(|_| "Разрешена только существующая сессия JSONL из настроенной папки OMP")?;
-    let header = session_header(&session)?;
-    let target = match parsed.as_ref().map(Url::scheme) {
-        Some("local" | "artifact") => {
-            // Preserve raw case and dot segments: URL normalization must not erase traversal.
-            let (scheme, value) = uri
-                .split_once("://")
-                .ok_or("Некорректная внутренняя ссылка")?;
-            if value.contains(['?', '#']) {
-                return Err(
-                    "Селекторы внутренних ресурсов не поддерживаются; откройте ссылку на файл"
-                        .to_owned(),
-                );
-            }
-            if scheme.eq_ignore_ascii_case("local") {
-                let relative = relative_path(value)?;
-                let root = local_root(&session, &header)?;
-                contained(&root.join(relative), &root)?
+    let uri = without_selector(uri);
+    let session = || {
+        validated_session_file(
+            request
+                .session_path
+                .as_deref()
+                .ok_or("Для этой ссылки нужна сохранённая сессия OMP")?,
+            session_root,
+        )
+        .map_err(|_| {
+            "Разрешена только существующая сессия JSONL из настроенной папки OMP".to_owned()
+        })
+    };
+    let target = if internal {
+        // Keep raw case/dot segments: URL normalization must not erase traversal.
+        let (scheme, value) = uri
+            .split_once("://")
+            .ok_or("Некорректная внутренняя ссылка")?;
+        if value.contains(['?', '#']) {
+            return Err("Параметры и фрагменты файловых ссылок не поддерживаются; символы имени кодируйте percent-кодированием".to_owned());
+        }
+        let session = session()?;
+        if scheme.eq_ignore_ascii_case("local") {
+            // The runtime accepts an empty host and a single root slash too.
+            let value = value.strip_prefix('/').unwrap_or(value);
+            let root = local_root(&session)?;
+            if value.is_empty() {
+                root
             } else {
-                artifact_path(&session, value)?
+                contained(&root.join(relative_path(value)?), &root)?
             }
+        } else if value.is_empty() {
+            sidecar_root(&session)?
+        } else {
+            artifact_path(&session, value)?
         }
-        Some("file") => {
-            let url = parsed.as_ref().expect("file URL was parsed");
-            if url
-                .host_str()
-                .is_some_and(|host| !host.eq_ignore_ascii_case("localhost"))
-                || url.query().is_some()
-                || url.fragment().is_some()
-            {
-                return Err("Разрешены только локальные file:// ссылки без селекторов".to_owned());
-            }
-            let raw = decode_path(uri)?.replace('\\', "/");
-            if raw.split('/').any(|part| part == "..") {
-                return Err("Переход к родительской папке в ссылке запрещён".to_owned());
-            }
-            let path = url
-                .to_file_path()
-                .map_err(|_| "Некорректная file:// ссылка")?;
-            let text = path.to_string_lossy();
-            if text.starts_with("\\\\") || text.starts_with("//")
-                || path.components().any(|part| matches!(part, Component::Normal(value) if value.to_string_lossy().contains(':')))
-            {
-                return Err("Сетевые, служебные пути и альтернативные потоки запрещены".to_owned());
-            }
-            canonical(&path)?
+    } else if file {
+        // A fully qualified file URL needs neither a session nor its metadata.
+        let url = Url::parse(uri).map_err(|_| "Некорректная file:// ссылка")?;
+        if url
+            .host_str()
+            .is_some_and(|host| !host.eq_ignore_ascii_case("localhost"))
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err(
+                "Разрешены только локальные file:// ссылки без параметров и фрагментов".to_owned(),
+            );
         }
-        None => {
-            let relative = relative_path(uri)?;
-            let cwd = Path::new(&header.cwd);
-            if !cwd.is_absolute() {
-                return Err("Рабочая папка сессии недоступна".to_owned());
-            }
-            let root = canonical(cwd)?;
-            contained(&root.join(relative), &root)?
+        let raw = decode_path(uri)?.replace('\\', "/");
+        if raw.split('/').any(|part| part == "..") {
+            return Err("Переход к родительской папке в ссылке запрещён".to_owned());
         }
-        _ => return Err("Этот протокол ссылки не поддерживается".to_owned()),
+        let path = url
+            .to_file_path()
+            .map_err(|_| "Некорректная file:// ссылка")?;
+        let text = path.to_string_lossy();
+        if text.starts_with("\\\\") || text.starts_with("//")
+            || path.components().any(|part| matches!(part, Component::Normal(value) if value.to_string_lossy().contains(':')))
+        {
+            return Err("Сетевые, служебные пути и альтернативные потоки запрещены".to_owned());
+        }
+        canonical(&path)?
+    } else {
+        if Url::parse(uri).is_ok() {
+            return Err("Этот протокол ссылки не поддерживается".to_owned());
+        }
+        if uri.contains(['?', '#']) {
+            return Err("Параметры и фрагменты файловых ссылок не поддерживаются".to_owned());
+        }
+        let relative = relative_path(uri)?;
+        let header = session_header(&session()?)?;
+        let cwd = Path::new(
+            header
+                .cwd
+                .as_deref()
+                .filter(|cwd| !cwd.is_empty())
+                .ok_or("В заголовке сессии отсутствует рабочая папка")?,
+        );
+        if !cwd.is_absolute() {
+            return Err("Рабочая папка сессии должна быть абсолютным путём".to_owned());
+        }
+        let root = canonical(cwd)?;
+        contained(&root.join(relative), &root)?
     };
     if target.to_string_lossy().starts_with("\\\\") || target.to_string_lossy().starts_with("//") {
         return Err("Сетевые файловые ссылки не поддерживаются".to_owned());
     }
-    if !target.is_file() && !target.is_dir() {
+    if target.is_dir() {
+        return Ok(ContentTarget::Open(target));
+    }
+    if !target.is_file() {
         return Err("Ссылка не указывает на обычный файл или папку".to_owned());
     }
-    Ok(ContentTarget::Reveal(target))
+    if request.action == ContentLinkAction::Reveal || !opens_as_document(&target)? {
+        Ok(ContentTarget::Reveal(target))
+    } else {
+        Ok(ContentTarget::Open(target))
+    }
 }
 
 #[tauri::command]
@@ -284,11 +487,21 @@ pub(crate) async fn open_content_link(
                     .opener()
                     .open_url(uri, None::<&str>)
                     .map_err(|_| "Системное приложение не смогло открыть ссылку".to_owned()),
-                // Reveal every file type, including executables, scripts, shortcuts and HTML.
-                // Never invoke a file association that can execute response-provided content.
+                ContentTarget::Open(path) => app
+                    .opener()
+                    .open_path(path.to_string_lossy(), None::<&str>)
+                    .map_err(|_| {
+                        "Системное приложение не смогло открыть файл или папку".to_owned()
+                    }),
                 ContentTarget::Reveal(path) => app
                     .opener()
-                    .reveal_item_in_dir(path)
+                    .reveal_item_in_dir(&path)
+                    .or_else(|error| match path.parent() {
+                        Some(parent) => app
+                            .opener()
+                            .open_path(parent.to_string_lossy(), None::<&str>),
+                        None => Err(error),
+                    })
                     .map_err(|_| "Файловый менеджер не смог показать файл".to_owned()),
             }
         },
@@ -345,6 +558,7 @@ mod tests {
                 &OpenContentLinkRequest {
                     uri: uri.to_owned(),
                     session_path: Some(self.session.to_string_lossy().into_owned()),
+                    action: ContentLinkAction::Open,
                 },
                 &self.sessions,
             )
@@ -371,13 +585,16 @@ mod tests {
             ("local://%D0%9E%D1%82%D1%87%D1%91%D1%82%20%D0%B7%D0%B0%20%D0%B4%D0%B5%D0%BD%D1%8C.md", &local),
             ("artifact://12", &artifact),
             ("artifact://12.bash.log", &artifact),
-            ("не%20запускать.cmd", &script),
         ] {
-            assert_eq!(fixture.resolve(uri).unwrap(), ContentTarget::Reveal(canonical(path).unwrap()));
+            assert_eq!(fixture.resolve(uri).unwrap(), ContentTarget::Open(canonical(path).unwrap()));
         }
         let url = Url::from_file_path(&script).unwrap();
         assert_eq!(
             fixture.resolve(url.as_str()).unwrap(),
+            ContentTarget::Reveal(canonical(&script).unwrap())
+        );
+        assert_eq!(
+            fixture.resolve("не%20запускать.cmd").unwrap(),
             ContentTarget::Reveal(canonical(&script).unwrap())
         );
         assert!(fixture.resolve("artifact://13").is_err());
@@ -397,6 +614,13 @@ mod tests {
             "local://doc%00.md",
             "local://doc%ZZ.md",
             "local://C%3A/file",
+            "local://doc.md%3Asecret",
+            "local://doc.md:secret",
+            "local://doc.md:0",
+            "local://doc.md:8-2",
+            "local://doc.md?query=1",
+            "local://%5c%5cserver/share",
+            "file:///tmp/file.txt%3Asecret",
             "javascript:alert(1)",
             "data:text/html,test",
             "powershell://run",
@@ -411,6 +635,7 @@ mod tests {
             &OpenContentLinkRequest {
                 uri: "local://file.md".to_owned(),
                 session_path: Some(outside.to_string_lossy().into_owned()),
+                action: ContentLinkAction::Open,
             },
             &fixture.sessions,
         );
@@ -429,6 +654,7 @@ mod tests {
                     &OpenContentLinkRequest {
                         uri: uri.to_owned(),
                         session_path: None,
+                        action: ContentLinkAction::Open,
                     },
                     Path::new("missing-session-root")
                 )
@@ -436,6 +662,154 @@ mod tests {
                 ContentTarget::External(uri.to_owned())
             );
         }
+    }
+
+    #[test]
+    fn resolves_project_documents_after_runtime_fixed_width_title_slot() {
+        let fixture = Fixture::new();
+        let header = fs::read_to_string(&fixture.session).unwrap();
+        let mut slot = serde_json::json!({
+            "type": "title", "v": 1, "title": "Синтетический заголовок", "source": "user",
+            "updatedAt": "2026-09-13T00:00:00Z", "pad": "",
+        });
+        slot["pad"] = " ".repeat(256 - slot.to_string().len() - 1).into();
+        fs::write(
+            &fixture.session,
+            format!("{slot}\n{header}not a chat record\n"),
+        )
+        .unwrap();
+        let document = fixture.project.join("Отчёт за день.md");
+        fs::write(&document, "synthetic document").unwrap();
+        for uri in [
+            "Отчёт%20за%20день.md",
+            "Отчёт%20за%20день.md:raw:2-4",
+            "Отчёт%20за%20день.md:5-16,960-973",
+        ] {
+            assert_eq!(
+                fixture.resolve(uri).unwrap(),
+                ContentTarget::Open(canonical(&document).unwrap())
+            );
+        }
+        // Invalid metadata must not be treated as an absent optional title slot.
+        slot["v"] = 2.into();
+        fs::write(&fixture.session, format!("{slot}\n{header}")).unwrap();
+        assert!(fixture.resolve("Отчёт%20за%20день.md").is_err());
+        fs::write(
+            &fixture.session,
+            "{\"type\":\"session\",\"id\":\"fixture\"}\n",
+        )
+        .unwrap();
+        assert!(fixture.resolve("Отчёт%20за%20день.md").is_err());
+    }
+
+    #[test]
+    fn independent_paths_do_not_parse_unrelated_session_metadata() {
+        let fixture = Fixture::new();
+        fs::write(&fixture.session, "invalid metadata\n").unwrap();
+        let sidecar = fixture.session.with_extension("");
+        let artifact = sidecar.join("7.bash.log");
+        let local = sidecar.join("local/документ.md");
+        fs::write(&artifact, "synthetic output").unwrap();
+        fs::write(&local, "synthetic document").unwrap();
+        assert_eq!(
+            fixture.resolve("artifact://7:raw:1-3").unwrap(),
+            ContentTarget::Open(canonical(&artifact).unwrap())
+        );
+        // This fixture has a short path on Windows, so local derives only from the sidecar.
+        assert_eq!(
+            fixture.resolve("local://документ.md:raw").unwrap(),
+            ContentTarget::Open(canonical(&local).unwrap())
+        );
+        assert_eq!(
+            fixture.resolve("local:///документ.md:raw").unwrap(),
+            ContentTarget::Open(canonical(&local).unwrap())
+        );
+        let request = OpenContentLinkRequest {
+            uri: Url::from_file_path(&local).unwrap().to_string(),
+            session_path: None,
+            action: ContentLinkAction::Open,
+        };
+        assert_eq!(
+            resolve_content_link(&request, Path::new("missing-root")).unwrap(),
+            ContentTarget::Open(canonical(&local).unwrap())
+        );
+        assert!(fixture.resolve("project.md").is_err());
+    }
+
+    #[test]
+    fn explicit_reveal_and_programs_never_use_document_associations() {
+        let fixture = Fixture::new();
+        let document = fixture.project.join("document.md");
+        fs::write(&document, "synthetic document").unwrap();
+        let request = OpenContentLinkRequest {
+            uri: "document.md".to_owned(),
+            session_path: Some(fixture.session.to_string_lossy().into_owned()),
+            action: ContentLinkAction::Reveal,
+        };
+        assert_eq!(
+            resolve_content_link(&request, &fixture.sessions).unwrap(),
+            ContentTarget::Reveal(canonical(&document).unwrap())
+        );
+        for (name, body) in [
+            ("run.exe", "program"),
+            ("run.desktop", "[Desktop Entry]"),
+            ("run.py", "print('never')"),
+            ("disguised.md", "#!/bin/sh\nexit 1"),
+            ("binary.txt", "MZfake"),
+        ] {
+            let path = fixture.project.join(name);
+            fs::write(&path, body).unwrap();
+            assert_eq!(
+                fixture.resolve(name).unwrap(),
+                ContentTarget::Reveal(canonical(&path).unwrap())
+            );
+        }
+        let folder = fixture.project.join("folder");
+        fs::create_dir(&folder).unwrap();
+        assert_eq!(
+            fixture.resolve("folder/").unwrap(),
+            ContentTarget::Open(canonical(&folder).unwrap())
+        );
+        assert_eq!(
+            resolve_content_link(
+                &OpenContentLinkRequest {
+                    uri: "folder/".to_owned(),
+                    ..request
+                },
+                &fixture.sessions
+            )
+            .unwrap(),
+            ContentTarget::Open(canonical(&folder).unwrap())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_long_local_root_uses_header_id_not_session_filename() {
+        let fixture = Fixture::new();
+        let nested = fixture.sessions.join("nested-".repeat(15));
+        fs::create_dir(&nested).unwrap();
+        let session = nested.join(format!("{}.jsonl", "long-".repeat(8)));
+        let id = format!(
+            "omp-links-short-{}",
+            fixture.directory.file_name().unwrap().to_string_lossy()
+        );
+        let root = std::env::temp_dir().join("omp-local").join(&id);
+        fs::create_dir_all(&root).unwrap();
+        let document = root.join("report.md");
+        fs::write(&document, "synthetic document").unwrap();
+        fs::write(&session, format!("{{\"type\":\"title\",\"v\":1,\"title\":\"\",\"updatedAt\":\"\",\"pad\":\"\"}}\n{}\n", serde_json::json!({"type":"session", "id":id}))).unwrap();
+        let result = resolve_content_link(
+            &OpenContentLinkRequest {
+                uri: "local://report.md".to_owned(),
+                session_path: Some(session.to_string_lossy().into_owned()),
+                action: ContentLinkAction::Open,
+            },
+            &fixture.sessions,
+        );
+        let expected = canonical(&document).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(result.unwrap(), ContentTarget::Open(expected));
     }
 
     #[cfg(unix)]
