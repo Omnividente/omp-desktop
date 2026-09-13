@@ -162,7 +162,7 @@ export function TerminalView({
     }
     const activateLink = (event: MouseEvent, uri: string) => {
       event.preventDefault()
-      event.stopPropagation()
+      // xterm ends selection dragging on document mouseup; let this release reach it.
       if (terminal.hasSelection() || (event.button !== 0 && event.button !== 1)) return
       if (!isContentLink(uri)) {
         onErrorRef.current(t(languageRef.current, "contentLinkUnsupported"))
