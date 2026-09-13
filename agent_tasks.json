@@ -127,7 +127,7 @@
       "id": "research-terminal-input-reliability-1",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "todo",
       "focus": [
         "quality",
         "bugfix",
@@ -157,15 +157,15 @@
         "previous_reports": []
       },
       "execution": {
-        "state": "dispatched",
+        "state": "retry",
         "session_id": "8273921387898488588",
         "dispatch_key": "4c204080c72a24154d679a04",
         "attempts": 1,
         "started_at": "2026-09-12T23:02:33Z",
-        "finished_at": "",
+        "finished_at": "2026-09-13T01:13:31Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": ""
+        "outcome": "failed",
+        "note": "completed discovery lacks a valid task array"
       }
     }
   ]
