@@ -528,6 +528,25 @@ pub struct OmpAccountUsageInfo {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OmpOperationalSetting {
+    pub key: String,
+    pub category: String,
+    pub r#type: String,
+    pub description: String,
+    pub value: serde_json::Value,
+    pub choices: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OmpOperationalChange {
+    pub expected_value: serde_json::Value,
+    pub value: serde_json::Value,
+    pub reset: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
@@ -545,6 +564,7 @@ pub struct OmpConfigSnapshot {
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
+    pub operational_settings: Vec<OmpOperationalSetting>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -572,6 +592,8 @@ pub struct OmpConfigSaveRequest {
     #[serde(default)]
     pub removed_custom_providers: Vec<String>,
     pub provider_env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub operational_changes: BTreeMap<String, OmpOperationalChange>,
 }
 
 #[derive(Clone, Deserialize)]

@@ -6,6 +6,7 @@ use crate::{
         OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
+    operational_config::{self, OperationalTransaction},
     provider_config,
     settings::{resolve_omp, SettingsTransaction},
     update,
@@ -104,6 +105,8 @@ pub fn load_config_snapshot(
         &usage.providers,
         &disabled_providers,
     );
+    let operational_settings =
+        operational_config::load_catalog(&omp.executable, &app_settings.provider_env, &raw)?;
 
     Ok(OmpConfigSnapshot {
         roles,
@@ -124,6 +127,7 @@ pub fn load_config_snapshot(
             .collect(),
         credentials,
         warnings,
+        operational_settings,
     })
 }
 
@@ -464,6 +468,18 @@ pub fn save_config(
         .map(normalize_disabled_providers)
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
+    operational_config::validate_changes(
+        &previous_config.operational_settings,
+        &request.operational_changes,
+    )?;
+    let mut operational_transaction = if request.operational_changes.is_empty() {
+        None
+    } else {
+        Some(OperationalTransaction::prepare(
+            &omp.executable,
+            &app_settings.provider_env,
+        )?)
+    };
     let custom_changes_requested =
         !request.custom_provider_upserts.is_empty() || !request.removed_custom_providers.is_empty();
     let mut provider_file_mutation = if custom_changes_requested {
@@ -642,8 +658,18 @@ pub fn save_config(
                 OmpOperation::Models,
             )?;
         }
+        if let Some(transaction) = operational_transaction.as_mut() {
+            transaction.apply(
+                &omp.executable,
+                &app_settings.provider_env,
+                &request.operational_changes,
+            )?;
+        }
         let mut snapshot = load_config_snapshot(app, &app_settings)?;
         snapshot.warnings.extend(proxy_provider_warnings);
+        if let Some(transaction) = operational_transaction.as_ref() {
+            transaction.verify(&snapshot.operational_settings)?;
+        }
         verify_saved_config(
             &snapshot,
             SavedConfigExpectation {
@@ -668,7 +694,11 @@ pub fn save_config(
     })();
 
     let result = crate::settings::resolve_transaction(transaction_result, || {
-        let mut rollback_errors = rollback_omp_config(
+        let mut rollback_errors = operational_transaction
+            .as_ref()
+            .map(OperationalTransaction::rollback)
+            .unwrap_or_default();
+        rollback_errors.extend(rollback_omp_config(
             &omp.executable,
             &app_settings.provider_env,
             &previous_config,
@@ -679,7 +709,7 @@ pub fn save_config(
             expected_model_fallback.is_some(),
             expected_fallback_chains.is_some(),
             expected_disabled_providers.is_some(),
-        );
+        ));
         if models_file_applied {
             if let Some(mutation) = provider_file_mutation.as_ref() {
                 if let Err(rollback_error) = mutation.rollback() {
@@ -2319,7 +2349,7 @@ fn set_omp_config(
     .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))
 }
 
-fn run_omp_json(
+pub(crate) fn run_omp_json(
     executable: &str,
     args: &[&str],
     env_map: &HashMap<String, String>,
@@ -2335,7 +2365,7 @@ fn run_omp_json(
     })
 }
 
-fn run_omp_text(
+pub(crate) fn run_omp_text(
     executable: &str,
     args: &[&str],
     env_map: &HashMap<String, String>,

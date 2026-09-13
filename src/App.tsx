@@ -38,7 +38,6 @@ import {
   writeTerminal,
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
-import { ClientUpdateNotice } from "./ClientUpdateNotice"
 import { IncidentCenter } from "./IncidentCenter"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
@@ -441,9 +440,11 @@ function App() {
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
+    checking: checkingClientUpdate,
+    checkNow: checkClientUpdateNow,
     remindLater: remindClientUpdateLater,
     install: installAvailableClientUpdate,
-  } = useClientUpdater(lang, showError)
+  } = useClientUpdater(lang, showError, showNotice)
   const sendPendingInitialInput = useCallback(
     async (terminalId: string) => {
       const initialInput = pendingInitialInputRef.current.get(terminalId)
@@ -1951,6 +1952,9 @@ function App() {
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}
+        checkingDesktopUpdate={checkingClientUpdate}
+        installingDesktopUpdate={installingClientUpdate}
+        onCheckDesktopUpdate={checkClientUpdateNow}
         incidentActiveTerminalCount={activeRuntimeTerminals}
         incidentCenterOpen={incidentCenterOpen}
         incidentTriggerRef={incidentCenterTriggerRef}
@@ -2144,34 +2148,45 @@ function App() {
         />
       )}
 
-      {updateNoticeVisible && updateInfo?.hasUpdate && (
-        <UpdateNotice
-          disabled={launching !== null}
-          info={updateInfo}
-          language={lang}
-          onDismissSession={updateSourceTerminalId ? dismissUpdateForSession : undefined}
-          onRemindLater={remindUpdateLater}
-          onViewChanges={
-            updateInfo.latestVersion
-              ? () => openReleaseNotes(OMP_RELEASE_NOTES_URL, updateInfo.latestVersion ?? "")
-              : undefined
-          }
-          onUpdate={() => void launchUpdate()}
-        />
-      )}
+      <div className="notification-stack">
+        {updateNoticeVisible && updateInfo?.hasUpdate && (
+          <UpdateNotice
+            disabled={launching !== null}
+            title={t(lang, "updateToastTitle")}
+            message={t(lang, "updateToastBody")
+              .replace("{current}", updateInfo.currentVersion ?? t(lang, "notFound"))
+              .replace("{latest}", updateInfo.latestVersion ?? t(lang, "updateAvailable"))}
+            actionLabel={t(lang, "updateNow")}
+            language={lang}
+            onDismissSession={updateSourceTerminalId ? dismissUpdateForSession : undefined}
+            onRemindLater={remindUpdateLater}
+            onViewChanges={
+              updateInfo.latestVersion
+                ? () => openReleaseNotes(OMP_RELEASE_NOTES_URL, updateInfo.latestVersion ?? "")
+                : undefined
+            }
+            onUpdate={() => void launchUpdate()}
+          />
+        )}
 
-      {clientUpdate && (
-        <ClientUpdateNotice
-          info={clientUpdate}
-          installing={installingClientUpdate}
-          language={lang}
-          onRemindLater={remindClientUpdateLater}
-          onInstall={() => void installAvailableClientUpdate()}
-          onViewChanges={() => openReleaseNotes(DESKTOP_RELEASE_NOTES_URL, clientUpdate.version)}
-        />
-      )}
+        {clientUpdate && (
+          <UpdateNotice
+            title={t(lang, "desktopUpdateAvailable")}
+            message={t(lang, "desktopUpdateVersion").replace("{version}", clientUpdate.version)}
+            actionLabel={t(
+              lang,
+              installingClientUpdate ? "desktopUpdateInstalling" : "desktopUpdateInstall",
+            )}
+            disabled={installingClientUpdate || checkingClientUpdate}
+            language={lang}
+            onRemindLater={remindClientUpdateLater}
+            onUpdate={installAvailableClientUpdate}
+            onViewChanges={() => openReleaseNotes(DESKTOP_RELEASE_NOTES_URL, clientUpdate.version)}
+          />
+        )}
 
-      <ToastContainer language={lang} onDismiss={dismissToast} toasts={toastState.items} />
+        <ToastContainer language={lang} onDismiss={dismissToast} toasts={toastState.items} />
+      </div>
     </div>
   )
 }

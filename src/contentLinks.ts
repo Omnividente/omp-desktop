@@ -5,17 +5,32 @@ export interface ContentLink {
   uri: string
 }
 
+const LINE_SELECTOR = String.raw`(?:-?\d+|L?\d+(?:(?:-|\+|\.\.)L?\d*)?)(?:,L?\d+(?:(?:-|\+|\.\.)L?\d*)?)*`
+const CONTENT_SELECTOR = new RegExp(
+  `:(?:raw(?::${LINE_SELECTOR})?|${LINE_SELECTOR}(?::raw)?|img|conflicts)$`,
+  "i",
+)
+
 // The backend is the authority for paths, containment and protocol validation.
 // This allowlist prevents rendering executable URLs as active DOM anchors.
 export function isContentLink(uri: string): boolean {
-  if (!uri || uri.startsWith("\\\\")) return false
+  if (!uri.trim() || uri.startsWith("\\\\")) return false
   for (let index = 0; index < uri.length; index++) {
     const code = uri.charCodeAt(index)
     if (code < 32 || code === 127) return false
   }
   if (/^(?:https?:\/\/|mailto:|file:\/\/|local:\/\/|artifact:\/\/)/i.test(uri)) return true
-  if (/^[a-z][a-z\d+.-]*:/i.test(uri) || uri.startsWith("//") || uri.startsWith("#")) return false
-  return !uri.startsWith("/") && /[^/]+\.[^/]+$/.test(uri)
+  // A selector on a labelled document is not a URI scheme. Keep it intact for
+  // the backend; only remove its recognized shape for frontend classification.
+  const path = uri.replace(CONTENT_SELECTOR, "")
+  if (/^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith("//") || path.startsWith("#"))
+    return false
+  if (path !== uri && !/[/.]/.test(path)) return false
+  return !path.startsWith("/") && !path.includes(":") && !path.includes("?") && !path.includes("#")
+}
+
+export function isFileContentLink(uri: string): boolean {
+  return isContentLink(uri) && !/^(?:https?:\/\/|mailto:)/i.test(uri)
 }
 
 // xterm's addon handles wrapped lines and Unicode cell positions. Use the same
