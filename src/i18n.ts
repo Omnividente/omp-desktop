@@ -45,6 +45,18 @@ export const UI_TEXT = {
     desktopUpdateInstalling: "Устанавливаем…",
     desktopUpdateCheck: "Проверить обновления OMP Desktop",
     desktopUpdateCurrent: "Установлена актуальная версия OMP Desktop",
+    desktopUpdateRunningConfirm:
+      "Работающих терминалов: {count}. Установка завершит их процессы и прервёт незавершённую работу. Продолжить?",
+    desktopUpdateWaitForLaunch:
+      "Дождитесь завершения запуска терминала, затем повторите установку.",
+    ompConfigLoading: "Загружаем конфигурацию OMP…",
+    ompConfigLoadError: "Не удалось загрузить конфигурацию OMP",
+    sessionScanWarnings: "Часть истории недоступна: {count}",
+    sessionScanWarningsHelp: "Файлы не изменялись. Проверьте указанные пути и повторите чтение.",
+    transcriptMalformedRecords:
+      "Не удалось разобрать записей в прочитанной части: {count}. Остальные записи показаны.",
+    transcriptIncompleteLastRecord:
+      "Последнюю строку не удалось прочитать. Возможно, она ещё записывается; обновите просмотр позже.",
     copySelection: "Копировать",
     contentLinkOpen: "Открыть",
     contentLinkReveal: "Показать в папке",
@@ -566,6 +578,18 @@ export const UI_TEXT = {
     desktopUpdateInstalling: "Installing…",
     desktopUpdateCheck: "Check for OMP Desktop updates",
     desktopUpdateCurrent: "OMP Desktop is up to date",
+    desktopUpdateRunningConfirm:
+      "Running terminals: {count}. Installing will stop their processes and interrupt unfinished work. Continue?",
+    desktopUpdateWaitForLaunch:
+      "Wait for the terminal to finish starting, then retry the installation.",
+    ompConfigLoading: "Loading OMP configuration…",
+    ompConfigLoadError: "Could not load OMP configuration",
+    sessionScanWarnings: "Some history could not be read: {count}",
+    sessionScanWarningsHelp: "No files were changed. Check the listed paths and retry reading.",
+    transcriptMalformedRecords:
+      "Records that could not be parsed in the read portion: {count}. Other records are shown.",
+    transcriptIncompleteLastRecord:
+      "The last line could not be read. It may still be being written; refresh the view later.",
     copySelection: "Copy",
     contentLinkOpen: "Open",
     contentLinkReveal: "Show in folder",

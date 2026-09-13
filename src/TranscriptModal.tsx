@@ -245,6 +245,23 @@ export function TranscriptModal({
             <span>{t(lang, "transcriptTruncated")}</span>
           </div>
         )}
+        {transcript && transcript.malformedRecords > 0 && (
+          <div className="transcript-truncated" role="status">
+            <Icon name="alert" size={14} />
+            <span>
+              {t(lang, "transcriptMalformedRecords").replace(
+                "{count}",
+                String(transcript.malformedRecords),
+              )}
+            </span>
+          </div>
+        )}
+        {transcript?.incompleteLastRecord && (
+          <div className="transcript-truncated" role="status">
+            <Icon name="alert" size={14} />
+            <span>{t(lang, "transcriptIncompleteLastRecord")}</span>
+          </div>
+        )}
 
         {transcript && transcript.entries.length > 0 && (
           <div className="transcript-toolbar">

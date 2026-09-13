@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
@@ -14,7 +14,7 @@ import {
 import { ModelPicker } from "./ModelPicker"
 import type {
   AppSettings,
-  BootstrapPayload,
+  SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
   OmpCredentialInfo,
@@ -28,8 +28,7 @@ interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
   onClose: () => void
-  onSaved: (payload: BootstrapPayload) => void
-  onConfigSaved?: (snapshot: OmpConfigSnapshot) => void
+  onSaved: (payload: SettingsSavePayload) => void
   onError: (message: string) => void
 }
 
@@ -211,15 +210,52 @@ function accountReasonLabel(language: Lang, reason: string): string {
   return reason
 }
 
+function settingsControlAvailable(element: HTMLElement): boolean {
+  if (element.matches(":disabled") || element.closest("[hidden], [inert]")) return false
+  const visibility = window.getComputedStyle(element).visibility
+  if (visibility === "hidden" || visibility === "collapse") return false
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    if (window.getComputedStyle(ancestor).display === "none") return false
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
+      const summary = ancestor.querySelector(":scope > summary")
+      if (!summary?.contains(element)) return false
+    }
+  }
+  return true
+}
+
 export function SettingsPanel({
   settings,
   runtime,
   onClose,
   onSaved,
-  onConfigSaved,
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
+  const panelRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const previous = document.activeElement
+    panelRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true })
+      }
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    const active = document.activeElement
+    if (
+      panel &&
+      (!panel.contains(active) ||
+        (active instanceof HTMLElement && !settingsControlAvailable(active)))
+    ) {
+      panel.focus({ preventScroll: true })
+    }
+  })
+
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
@@ -228,6 +264,10 @@ export function SettingsPanel({
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
+  const configGenerationRef = useRef(0)
+  const disposedRef = useRef(false)
+  const configRuntimeRef = useRef<RuntimeInfo | null>(null)
+  const invalidateConfig = useCallback(() => ++configGenerationRef.current, [])
   const [configError, setConfigError] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
@@ -272,12 +312,31 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const refreshConfig = async (forceUsage = false) => {
-    if (!runtime.ompAvailable) {
-      return
-    }
-    setLoadingConfig(true)
+  const acceptConfig = (snapshot: OmpConfigSnapshot | null) => {
+    setOmpConfig(snapshot)
+    setOperationDrafts({})
+    const drafts: Record<string, string> = {}
+    for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
+    setRoleDrafts(drafts)
+    setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
+    setAutoResume(snapshot?.autoResume ?? false)
+    setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
+    setModelFallbackEnabled(snapshot?.modelFallbackEnabled ?? true)
+    setFallbackChains(fallbackDraftsFromSnapshot(snapshot?.fallbackChains ?? {}))
+    setProxyProviders(snapshot?.proxyProviders ?? [])
+    setDisabledProviders(snapshot?.disabledProviders ?? [])
+    setRemovedCustomProviders([])
+    setClockNow(Date.now())
+  }
+
+  const refreshConfig = async (forceUsage = false, requestRuntime = runtime) => {
+    const generation = invalidateConfig()
+    const isCurrent = () => !disposedRef.current && generation === configGenerationRef.current
+    configRuntimeRef.current = requestRuntime
+    if (disposedRef.current) return
     setConfigError(null)
+    setLoadingConfig(requestRuntime.ompAvailable)
+    if (!requestRuntime.ompAvailable) return
     if (forceUsage) {
       const requestedAt = Date.now()
       setClockNow(requestedAt)
@@ -285,36 +344,38 @@ export function SettingsPanel({
     }
     try {
       const snapshot = forceUsage ? await refreshOmpConfig() : await loadOmpConfig()
-      const loadedAt = Date.now()
-      setOmpConfig(snapshot)
-      setOperationDrafts({})
-      const drafts: Record<string, string> = {}
-      for (const role of snapshot.roles) {
-        drafts[role.role] = role.selector
-      }
-      setRoleDrafts(drafts)
-      setAdvisorEnabled(snapshot.advisorEnabled)
-      setAutoResume(snapshot.autoResume)
-      setThinkingLevel(snapshot.defaultThinkingLevel ?? "medium")
-      setModelFallbackEnabled(snapshot.modelFallbackEnabled)
-      setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
-      setProxyProviders(snapshot.proxyProviders)
-      setDisabledProviders(snapshot.disabledProviders)
-      setRemovedCustomProviders([])
-      setClockNow(loadedAt)
+      if (isCurrent()) acceptConfig(snapshot)
     } catch (error) {
+      if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
       onError(message)
     } finally {
-      setLoadingConfig(false)
+      if (isCurrent()) setLoadingConfig(false)
     }
   }
 
+  useLayoutEffect(() => {
+    disposedRef.current = false
+    return () => {
+      disposedRef.current = true
+      invalidateConfig()
+      configRuntimeRef.current = null
+    }
+  }, [invalidateConfig])
+
   useEffect(() => {
-    void refreshConfig()
+    const previous = configRuntimeRef.current
+    if (
+      previous?.ompAvailable === runtime.ompAvailable &&
+      previous.ompExecutable === runtime.ompExecutable &&
+      previous.ompVersion === runtime.ompVersion
+    )
+      return
+    acceptConfig(null)
+    void refreshConfig(false, runtime)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtime.ompAvailable])
+  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
 
   useEffect(() => {
     setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
@@ -583,6 +644,9 @@ export function SettingsPanel({
   ])
 
   const save = async () => {
+    const reloadConfigOnFailure = loadingConfig && ompConfig === null
+    const generation = invalidateConfig()
+    setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
     try {
@@ -674,35 +738,33 @@ export function SettingsPanel({
             }
           : null,
       })
+      invalidateConfig()
+      configRuntimeRef.current = result.bootstrap.runtime
+      onSaved(result)
+      if (disposedRef.current) return
+      setConfigError(null)
+      setLoadingConfig(false)
+      acceptConfig(result.ompConfig)
       if (result.ompConfig) {
-        const savedRoleDrafts: Record<string, string> = {}
-        for (const role of result.ompConfig.roles) savedRoleDrafts[role.role] = role.selector
-        setOmpConfig(result.ompConfig)
-        setOperationDrafts({})
-        setRoleDrafts(savedRoleDrafts)
-        setAdvisorEnabled(result.ompConfig.advisorEnabled)
-        setAutoResume(result.ompConfig.autoResume)
-        setThinkingLevel(result.ompConfig.defaultThinkingLevel ?? "medium")
-        setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
-        setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
-        setProxyProviders(result.ompConfig.proxyProviders)
-        setDisabledProviders(result.ompConfig.disabledProviders)
-        setRemovedCustomProviders([])
         setCustomProviderId("")
         setCustomProviderUrl("")
         setCustomProviderKey("")
-        onConfigSaved?.(result.ompConfig)
+      } else {
+        void refreshConfig(false, result.bootstrap.runtime)
       }
       setProviderEnv((current) =>
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
-      onSaved(result.bootstrap)
     } catch (error) {
+      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
       setSaveError(message)
       onError(message)
+      if (reloadConfigOnFailure && generation === configGenerationRef.current) {
+        void refreshConfig(false, configRuntimeRef.current ?? runtime)
+      }
     } finally {
-      setSaving(false)
+      if (!disposedRef.current) setSaving(false)
     }
   }
 
@@ -712,6 +774,34 @@ export function SettingsPanel({
         aria-labelledby="settings-title"
         aria-modal="true"
         className="settings-panel"
+        ref={panelRef}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229)
+            return
+          if (event.key === "Escape") {
+            // Native selects own Escape while navigating their platform popup.
+            if (event.target instanceof HTMLSelectElement) return
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+          } else if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            const panel = event.currentTarget
+            const controls = [
+              ...panel.querySelectorAll<HTMLElement>(
+                "button, input, select, textarea, a[href], summary, [tabindex], [contenteditable='true']",
+              ),
+            ].filter((element) => element.tabIndex >= 0 && settingsControlAvailable(element))
+            const first = controls[0]
+            const last = controls[controls.length - 1]
+            const active = document.activeElement
+            if (!first || active === panel || active === (event.shiftKey ? first : last)) {
+              event.preventDefault()
+              ;(event.shiftKey ? last : first)?.focus({ preventScroll: true })
+              if (!first) panel.focus({ preventScroll: true })
+            }
+          }
+        }}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >

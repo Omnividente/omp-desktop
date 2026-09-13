@@ -1,9 +1,9 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
 import {
   isPermissionGranted,
   requestPermission,
@@ -21,6 +21,7 @@ import {
   importSessions,
   listCodexSessions,
   loadOmpConfig,
+  openSettingsFolder,
   removeWorkspace as removeWorkspaceFromList,
   renameWorkspace,
   sampleResourceHealth,
@@ -95,6 +96,7 @@ import type {
   OmpConfigSnapshot,
   SessionSummary,
   SettingsUnavailableDetails,
+  SettingsSavePayload,
   SingleInstanceEvent,
   TerminalTab,
   WorkspaceSummary,
@@ -140,14 +142,6 @@ type SessionLaunchTarget = Pick<
   | "primaryProviderPinned"
 >
 const MAX_ENDED_RUNTIME_TERMINALS = 256
-
-function settingsDirectory(path: string): string {
-  const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
-  if (separator < 0) return "."
-  if (separator === 0) return path.slice(0, 1)
-  if (separator === 2 && path[1] === ":") return path.slice(0, 3)
-  return path.slice(0, separator)
-}
 
 async function runWithSessionLeaseReclaim<T>(
   language: Lang,
@@ -234,6 +228,13 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const unpublishedTerminalIdsRef = useRef(new Set<string>())
+  useLayoutEffect(() => {
+    const unpublished = unpublishedTerminalIdsRef.current
+    if (unpublished.size === 0) return
+    // A spawned process remains guarded until its tab reaches the committed tree.
+    for (const tab of tabs) unpublished.delete(tab.id)
+  }, [tabs])
   const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
     createRuntimeIncidentState(Date.now()),
   )
@@ -256,6 +257,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(true)
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
+  const launchingRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
@@ -294,11 +296,16 @@ function App() {
   const [railModeSaving, setRailModeSaving] = useState(false)
 
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
-
-  useEffect(() => {
-    if (!payload?.runtime.ompAvailable) return
-    void loadOmpConfig().then(setOmpConfig).catch(console.error)
-  }, [payload?.runtime.ompAvailable])
+  const [ompConfigError, setOmpConfigError] = useState<string | null>(null)
+  const [ompConfigLoading, setOmpConfigLoading] = useState(false)
+  const [ompConfigAttempt, setOmpConfigAttempt] = useState(0)
+  const ompConfigRequestRef = useRef(0)
+  const acceptOmpConfig = useCallback((snapshot: OmpConfigSnapshot) => {
+    ++ompConfigRequestRef.current
+    setOmpConfig(snapshot)
+    setOmpConfigError(null)
+    setOmpConfigLoading(false)
+  }, [])
 
   const appFontSize = payload?.settings.appFontSize
   useEffect(() => {
@@ -316,6 +323,37 @@ function App() {
   langRef.current = lang
   const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
   ompVersionRef.current = payload?.runtime.ompVersion ?? null
+
+  useEffect(() => {
+    const request = ++ompConfigRequestRef.current
+    let disposed = false
+    const current = () => !disposed && request === ompConfigRequestRef.current
+    setOmpConfigError(null)
+    setOmpConfig(null)
+    setOmpConfigLoading(Boolean(payload?.runtime.ompAvailable))
+    if (!payload?.runtime.ompAvailable) {
+      return
+    }
+    void loadOmpConfig()
+      .then((snapshot) => {
+        if (current()) acceptOmpConfig(snapshot)
+      })
+      .catch((error) => {
+        if (current()) setOmpConfigError(errorMessage(error, langRef.current))
+      })
+      .finally(() => {
+        if (current()) setOmpConfigLoading(false)
+      })
+    return () => {
+      disposed = true
+    }
+  }, [
+    acceptOmpConfig,
+    ompConfigAttempt,
+    payload?.runtime.ompAvailable,
+    payload?.runtime.ompExecutable,
+    payload?.runtime.ompVersion,
+  ])
   const railMode = payload?.settings.railMode ?? "expanded"
   const {
     transcriptSession,
@@ -440,11 +478,22 @@ function App() {
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
+    isInstalling: isInstallingClientUpdate,
     checking: checkingClientUpdate,
     checkNow: checkClientUpdateNow,
     remindLater: remindClientUpdateLater,
     install: installAvailableClientUpdate,
-  } = useClientUpdater(lang, showError, showNotice)
+  } = useClientUpdater(lang, showError, showNotice, () => ({
+    runningTerminalCount: tabsRef.current.reduce(
+      (count, tab) => count + Number(tab.status === "running"),
+      0,
+    ),
+    launching:
+      launchingRef.current ||
+      unpublishedTerminalIdsRef.current.size > 0 ||
+      restartingTerminalIdsRef.current.size > 0 ||
+      tabsRef.current.some((tab) => tab.primaryProviderPinPending),
+  }))
   const sendPendingInitialInput = useCallback(
     async (terminalId: string) => {
       const initialInput = pendingInitialInputRef.current.get(terminalId)
@@ -523,6 +572,22 @@ function App() {
       )
     },
     [showNotice],
+  )
+
+  const handleSettingsSaved = useCallback(
+    (result: SettingsSavePayload) => {
+      if (result.ompConfig) {
+        acceptOmpConfig(result.ompConfig)
+      } else {
+        ++ompConfigRequestRef.current
+        setOmpConfig(null)
+        setOmpConfigError(null)
+        setOmpConfigLoading(result.bootstrap.runtime.ompAvailable)
+        setOmpConfigAttempt((attempt) => attempt + 1)
+      }
+      applyPayload(result.bootstrap)
+    },
+    [acceptOmpConfig, applyPayload],
   )
 
   const changeRailMode = useCallback(
@@ -637,7 +702,7 @@ function App() {
   const openSettingsRecoveryFolder = useCallback(async () => {
     if (!settingsRecovery) return
     try {
-      await openPath(settingsDirectory(settingsRecovery.settingsPath))
+      await openSettingsFolder()
     } catch (error) {
       showError(errorMessage(error, lang))
     }
@@ -1099,7 +1164,7 @@ function App() {
 
   const launchSession = useCallback(
     async (session?: SessionLaunchTarget, initialInput?: string) => {
-      if (!payload || launching !== null) return
+      if (!payload || launchingRef.current || isInstallingClientUpdate()) return
       const cwd = session?.cwd ?? selectedWorkspace?.path
       if (!cwd) {
         showError(t(lang, "requireProjectDir"))
@@ -1122,6 +1187,7 @@ function App() {
         }
       }
       const launchKey = session?.id ?? "new"
+      launchingRef.current = true
       setLaunching(launchKey)
       try {
         const started = await runWithSessionLeaseReclaim(
@@ -1174,18 +1240,20 @@ function App() {
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
+        unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
         setActiveTabId(tab.id)
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        launchingRef.current = false
         setLaunching(null)
       }
     },
     [
       focusTab,
       lang,
-      launching,
+      isInstallingClientUpdate,
       ompConfig,
       payload,
       queueInitialInput,
@@ -1205,12 +1273,19 @@ function App() {
   )
 
   const launchUpdate = useCallback(async () => {
-    if (!payload?.runtime.ompAvailable || !selectedWorkspace?.path || launching !== null) return
+    if (
+      !payload?.runtime.ompAvailable ||
+      !selectedWorkspace?.path ||
+      launchingRef.current ||
+      isInstallingClientUpdate()
+    )
+      return
     const sourceTab =
       tabs.find((tab) => tab.id === updateSourceTerminalId && tab.status === "running") ??
       tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
       null
     pendingUpdateRestartRef.current = null
+    launchingRef.current = true
     setLaunching("update")
     try {
       const started = await startTerminal(selectedWorkspace.path, null, 120, 36, ["update"])
@@ -1237,16 +1312,18 @@ function App() {
         primaryProviderPinned: false,
         primaryProviderPinPending: false,
       }
+      unpublishedTerminalIdsRef.current.add(tab.id)
       setTabs((current) => [...current, tab])
       setActiveTabId(tab.id)
     } catch (error) {
       showError(errorMessage(error, lang))
     } finally {
+      launchingRef.current = false
       setLaunching(null)
     }
   }, [
+    isInstallingClientUpdate,
     lang,
-    launching,
     payload?.runtime.ompAvailable,
     selectedWorkspace?.path,
     showError,
@@ -1504,6 +1581,8 @@ function App() {
     async (terminalId: string, pinned: boolean) => {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       if (
+        isInstallingClientUpdate() ||
+        restartingTerminalIdsRef.current.has(terminalId) ||
         !tab ||
         tab.kind !== "agent" ||
         tab.status !== "running" ||
@@ -1594,7 +1673,7 @@ function App() {
         showError(errorMessage(error, langRef.current))
       }
     },
-    [refresh, showError],
+    [isInstallingClientUpdate, refresh, showError],
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
@@ -1973,6 +2052,68 @@ function App() {
         updateInfo={updateInfo}
       />
 
+      <div className="app-notices">
+        {(ompConfigLoading || ompConfigError) && (
+          <div
+            className="transcript-truncated app-notice"
+            role={ompConfigError ? "alert" : "status"}
+          >
+            <Icon name={ompConfigError ? "alert" : "refresh"} size={16} />
+            <div className="app-notice-text">
+              <strong>{t(lang, ompConfigError ? "ompConfigLoadError" : "ompConfigLoading")}</strong>
+              {ompConfigError && <span>{ompConfigError}</span>}
+            </div>
+            {ompConfigError && (
+              <button
+                className="button secondary"
+                onClick={() => setOmpConfigAttempt((value) => value + 1)}
+                type="button"
+              >
+                <Icon name="refresh" size={14} /> {t(lang, "retry")}
+              </button>
+            )}
+          </div>
+        )}
+        {payload.sessionWarnings.length > 0 && (
+          <details className="transcript-truncated app-notice app-session-warnings">
+            <summary>
+              {t(lang, "sessionScanWarnings").replace(
+                "{count}",
+                String(payload.sessionWarnings.length),
+              )}
+            </summary>
+            <div className="app-warning-actions">
+              <span>{t(lang, "sessionScanWarningsHelp")}</span>
+              <button
+                className="button secondary"
+                disabled={refreshing}
+                onClick={() => void refresh()}
+                type="button"
+              >
+                <Icon name="refresh" size={14} /> {t(lang, "retry")}
+              </button>
+            </div>
+            <ul>
+              {payload.sessionWarnings.map((warning, index) => (
+                <li key={`${warning.path}-${index}`}>
+                  <div className="app-notice-text">
+                    <strong>{warning.path}</strong>
+                    <span>{warning.message}</span>
+                  </div>
+                  <button
+                    className="button secondary"
+                    onClick={() => reveal(warning.path)}
+                    type="button"
+                  >
+                    <Icon name="folderOpen" size={14} /> {t(lang, "showInExplorer")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+
       <div className={`workbench rail-${railMode === "autoHide" ? "auto-hide" : railMode}`}>
         <ProjectRail
           autoOpen={railAutoOpen}
@@ -1996,7 +2137,7 @@ function App() {
           onWorkspaceNameChange={setWorkspaceNameValue}
           onWorkspaceRenameKeyDown={handleWorkspaceRenameKeyDown}
           sessionList={{
-            canLaunch: payload.runtime.ompAvailable,
+            canLaunch: payload.runtime.ompAvailable && !installingClientUpdate,
             allSessions: workspaceSessions,
             deletingSessionId,
             lang,
@@ -2035,7 +2176,8 @@ function App() {
           language={lang}
           terminalFontFamily={payload.settings.terminalFontFamily}
           terminalFontSize={payload.settings.terminalFontSize}
-          launching={launching}
+          launching={installingClientUpdate ? "desktop-update" : launching}
+          installingDesktopUpdate={installingClientUpdate}
           ompConfig={ompConfig}
           onDiscardSwitchRecovery={(terminalId) => void discardRecoveredSwitchInput(terminalId)}
           onCloseTab={closeTab}
@@ -2087,9 +2229,8 @@ function App() {
       {settingsOpen && (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
-          onConfigSaved={setOmpConfig}
           onError={showError}
-          onSaved={applyPayload}
+          onSaved={handleSettingsSaved}
           runtime={payload.runtime}
           settings={payload.settings}
         />
@@ -2106,7 +2247,7 @@ function App() {
           onRefresh={() => void loadTranscript(transcriptSession)}
           onReread={() => void openAndRereadSession(transcriptSession)}
           onSearchChange={setTranscriptSearch}
-          runtimeAvailable={payload.runtime.ompAvailable}
+          runtimeAvailable={payload.runtime.ompAvailable && !installingClientUpdate}
           transcript={transcript}
           transcriptError={transcriptError}
           transcriptLoading={transcriptLoading}
@@ -2177,7 +2318,7 @@ function App() {
               lang,
               installingClientUpdate ? "desktopUpdateInstalling" : "desktopUpdateInstall",
             )}
-            disabled={installingClientUpdate || checkingClientUpdate}
+            disabled={installingClientUpdate || checkingClientUpdate || launching !== null}
             language={lang}
             onRemindLater={remindClientUpdateLater}
             onUpdate={installAvailableClientUpdate}

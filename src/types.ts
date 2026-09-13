@@ -118,6 +118,8 @@ export interface SessionTranscript {
   entries: TranscriptEntry[]
   updatedAt: number
   truncated: boolean
+  malformedRecords: number
+  incompleteLastRecord: boolean
 }
 
 export interface WorkspaceSummary {
@@ -129,11 +131,17 @@ export interface WorkspaceSummary {
   pinned: boolean
 }
 
+export interface SessionScanWarning {
+  path: string
+  message: string
+}
+
 export interface BootstrapPayload {
   settings: AppSettings
   runtime: RuntimeInfo
   workspaces: WorkspaceSummary[]
   sessions: SessionSummary[]
+  sessionWarnings: SessionScanWarning[]
 }
 
 export type ImportMode = "skip" | "update" | "copy"

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { confirm } from "@tauri-apps/plugin-dialog"
 import { checkClientUpdate, installClientUpdate, type ClientUpdateInfo } from "./clientUpdater"
 import { t, type Lang } from "./i18n"
 import { errorMessage } from "./api"
@@ -8,9 +9,10 @@ import {
   UPDATE_REMINDER_SNOOZE_MS,
 } from "./updateReminder"
 
-interface ClientUpdaterState {
+export interface ClientUpdaterState {
   update: ClientUpdateInfo | null
   installing: boolean
+  isInstalling: () => boolean
   checking: boolean
   checkNow: () => void
   remindLater: () => void
@@ -21,6 +23,7 @@ export function useClientUpdater(
   language: Lang,
   showError: (message: string) => void,
   showNotice: (message: string) => void,
+  safety: () => { runningTerminalCount: number; launching: boolean },
 ): ClientUpdaterState {
   const checkingRef = useRef(false)
   const manualCheckRef = useRef(false)
@@ -29,6 +32,7 @@ export function useClientUpdater(
   const [availableUpdate, setAvailableUpdate] = useState<ClientUpdateInfo | null>(null)
   const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
   const [installing, setInstalling] = useState(false)
+  const isInstalling = useCallback(() => installingRef.current, [])
 
   const checkForUpdate = useCallback(
     async (manual = false) => {
@@ -90,9 +94,24 @@ export function useClientUpdater(
 
   const install = useCallback(async () => {
     if (installingRef.current || checkingRef.current) return
+    const currentSafety = safety()
+    if (currentSafety.launching) {
+      showNotice(t(language, "desktopUpdateWaitForLaunch"))
+      return
+    }
     installingRef.current = true
     setInstalling(true)
     try {
+      if (currentSafety.runningTerminalCount > 0) {
+        const accepted = await confirm(
+          t(language, "desktopUpdateRunningConfirm").replace(
+            "{count}",
+            String(currentSafety.runningTerminalCount),
+          ),
+          { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+        )
+        if (!accepted) return
+      }
       await installClientUpdate()
     } catch (error) {
       showError(errorMessage(error, language))
@@ -100,13 +119,14 @@ export function useClientUpdater(
       installingRef.current = false
       setInstalling(false)
     }
-  }, [language, showError])
+  }, [language, safety, showError, showNotice])
 
   return {
     update: snoozedUntil === 0 ? availableUpdate : null,
     checking,
     checkNow: () => void checkForUpdate(true),
     installing,
+    isInstalling,
     remindLater,
     install: () => void install(),
   }

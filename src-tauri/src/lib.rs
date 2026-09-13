@@ -31,6 +31,7 @@ use settings::{
 };
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 use terminal::TerminalState;
 
 const SINGLE_INSTANCE_EVENT: &str = "single-instance";
@@ -146,6 +147,30 @@ async fn bootstrap(app: AppHandle) -> Result<BootstrapPayload, AppError> {
             let settings = app.state::<SettingsState>();
             let snapshot = settings_snapshot(&app, &settings)?;
             build_bootstrap(&app, &snapshot)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+async fn open_settings_folder(app: AppHandle) -> Result<(), AppError> {
+    run_blocking(
+        "открытия папки настроек",
+        "settings_folder_open_failed",
+        "Не удалось открыть папку настроек",
+        move || {
+            // Recovery must work without loading settings or accepting an arbitrary IPC path.
+            let directory = app
+                .path()
+                .app_config_dir()
+                .map_err(|error| format!("Не удалось определить папку настроек: {error}"))?;
+            let existing = directory
+                .ancestors()
+                .find(|path| path.is_dir())
+                .ok_or_else(|| "Не найден существующий каталог настроек".to_owned())?;
+            app.opener()
+                .open_path(existing.to_string_lossy(), None::<&str>)
+                .map_err(|error| format!("Файловый менеджер не смог открыть папку: {error}"))
         },
     )
     .await
@@ -652,6 +677,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            open_settings_folder,
             add_workspace,
             rename_workspace,
             remove_workspace,

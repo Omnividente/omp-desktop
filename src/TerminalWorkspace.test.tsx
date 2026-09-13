@@ -52,6 +52,7 @@ function Harness() {
       terminalFontFamily="monospace"
       terminalFontSize={14}
       launching={null}
+      installingDesktopUpdate={false}
       ompConfig={null}
       runtime={{
         platform: "windows",

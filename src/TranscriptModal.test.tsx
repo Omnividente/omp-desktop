@@ -137,6 +137,8 @@ beforeEach(async () => {
     session,
     updatedAt: 1,
     truncated: false,
+    malformedRecords: 0,
+    incompleteLastRecord: false,
     entries: Array.from({ length: 180 }, (_, index) => ({
       id: `entry-${index}`,
       timestamp: "2026-01-01",

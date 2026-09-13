@@ -393,11 +393,19 @@ pub struct WorkspaceSummary {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionScanWarning {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
     pub settings: AppSettings,
     pub runtime: RuntimeInfo,
     pub workspaces: Vec<WorkspaceSummary>,
     pub sessions: Vec<SessionSummary>,
+    pub session_warnings: Vec<SessionScanWarning>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -660,6 +668,8 @@ pub struct SessionTranscript {
     pub entries: Vec<TranscriptEntry>,
     pub updated_at: u64,
     pub truncated: bool,
+    pub malformed_records: usize,
+    pub incomplete_last_record: bool,
 }
 
 #[cfg(test)]
