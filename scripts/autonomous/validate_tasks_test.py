@@ -154,6 +154,25 @@ class LifecycleTest(unittest.TestCase):
 
 
 class ResearchSchemaTest(unittest.TestCase):
+    def test_report_recovery_requires_bound_research_and_truthful_parked_state(self):
+        execution = {"state": "awaiting_report", "outcome": "report_invalid", "attempts": 1,
+                     "session_id": "7", "dispatch_key": "first", "pull_request": 0,
+                     "report_error": {"code": "research_json", "detail": "invalid JSON",
+                                      "reported_at": "2026-09-13T12:00:00Z"}}
+        entry = task(task_type="project_discovery", status="blocked", execution=execution)
+        self.assertEqual(validate(manifest(entry)), [])
+        for field, value in (("session_id", ""), ("dispatch_key", ""), ("attempts", 0),
+                             ("pull_request", 53), ("state", "retry"), ("outcome", "failed"),
+                             ("report_error", {"code": "research_json"})):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(entry)
+                invalid["execution"][field] = value
+                self.assertTrue(validate(manifest(invalid)))
+        for field, value in (("status", "todo"), ("task_type", "bugfix")):
+            invalid = copy.deepcopy(entry)
+            invalid[field] = value
+            self.assertTrue(validate(manifest(invalid)))
+
     def research_task(self):
         return task(
             task_type="project_discovery", status="done",

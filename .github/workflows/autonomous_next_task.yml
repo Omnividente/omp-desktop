@@ -20,6 +20,10 @@ on:
         description: Dispatch one specific task id (optional)
         type: string
         default: ""
+      recover_report:
+        description: Re-read the completed report for task_id without starting another worker
+        type: boolean
+        default: false
       focus:
         description: Comma-separated focus filter (optional)
         type: string
@@ -41,6 +45,7 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  actions: read
 
 concurrency:
   group: autonomous-lab-queue
@@ -148,7 +153,7 @@ jobs:
 
   dispatch:
     name: Dispatch the next autonomous task
-    if: ${{ github.event_name != 'pull_request' && vars.JULES_LOOP_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -169,7 +174,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
-          fetch-depth: 1
+          fetch-depth: 0
           path: lab
 
       - name: Verify release automation is still disabled
@@ -211,9 +216,55 @@ jobs:
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
           echo "Active pull requests into ${INTEGRATION_BRANCH}: ${count} (deferred proposals do not block research)"
 
+      - name: Recover a parked report without another AI attempt
+        id: recover_report
+        if: ${{ inputs.recover_report == true }}
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TASK_ID}" ]; then
+            echo "::error::task_id is required to recover a completed report."
+            exit 1
+          fi
+          jq -e --arg id "${TASK_ID}" '.tasks[] | select(.id == $id) | .execution | select((.session_id | type == "string" and length > 0) and (.dispatch_key | type == "string" and length > 0)) | {name: (if (.session_id | startswith("sessions/")) then .session_id else ("sessions/" + .session_id) end), state: "COMPLETED", title: ("[dispatch:" + .dispatch_key + "]")}' lab/agent_tasks.json > recovery-session.json
+          python3 control/scripts/autonomous/complete_jules_task.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --task-id "${TASK_ID}" \
+            --session-file recovery-session.json \
+            --retry-report \
+            --diagnostics recovered-report-diagnostics.json \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Check product freshness and dispatch readiness
+        id: readiness
+        run: |
+          set -euo pipefail
+          git -C lab fetch --no-tags origin main:refs/remotes/origin/main
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" \
+            | jq --arg current "${GITHUB_RUN_ID}" '.workflow_runs | map(select((.id | tostring) != $current))' > next-runs.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" > sync-runs.json
+          python3 control/scripts/autonomous/loop_health.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --repo lab \
+            --runs next-runs.json \
+            --sync-runs sync-runs.json \
+            --pull-requests pull-requests.json \
+            --enabled true > loop-readiness.json
+          cat loop-readiness.json
+          echo "action=$(jq -r '.action' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          echo "reason=$(jq -r '.reason' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          echo "main_is_ancestor=$(jq -r '.main_is_ancestor' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          if [ "$(jq -r '.health' loop-readiness.json)" = "attention" ]; then
+            echo "::warning::The lab needs attention; see the readiness report. No stale-base task will be dispatched."
+          fi
+
       - name: Plan the next product investigation when concrete work runs out
         id: research
-        if: steps.open_prs.outputs.count == '0'
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && steps.readiness.outputs.main_is_ancestor == 'true' && inputs.recover_report != true }}
         run: |
           set -euo pipefail
           python3 control/scripts/autonomous/research_cycle.py \
@@ -227,10 +278,22 @@ jobs:
 
       - name: Select the next task
         id: select
-        if: steps.open_prs.outputs.count == '0'
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && inputs.recover_report != true }}
+        env:
+          MAIN_IS_ANCESTOR: ${{ steps.readiness.outputs.main_is_ancestor }}
         run: |
           set -euo pipefail
-          python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --task-id "${TASK_ID}" --github-output "${GITHUB_OUTPUT}"
+          if [ "${MAIN_IS_ANCESTOR}" != "true" ]; then
+            # Only reconcile an existing attempt until accepted main is synchronized.
+            active=$(jq -r '[.tasks[] | select(.status == "in_progress") | .id] | if length == 1 then .[0] else "" end' lab/agent_tasks.json)
+            if [ -z "${active}" ]; then
+              echo "The lab is stale; no new task will be selected."
+              exit 0
+            fi
+            python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --task-id "${active}" --github-output "${GITHUB_OUTPUT}"
+          else
+            python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --task-id "${TASK_ID}" --github-output "${GITHUB_OUTPUT}"
+          fi
 
       - name: Build the AI worker request
         id: build
@@ -246,6 +309,7 @@ jobs:
           fi
           base_sha=$(git -C lab rev-parse HEAD)
           python3 control/scripts/autonomous/build_jules_request.py --manifest lab/agent_tasks.json --template "${template}" --task-id "${SELECTED_TASK_ID}" --repo "${GITHUB_REPOSITORY}" --branch "${INTEGRATION_BRANCH}" --base-sha "${base_sha}" --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --out jules-request.json --github-output "${GITHUB_OUTPUT}"
+          python3 -c 'import json; from pathlib import Path; data=json.loads(Path("loop-readiness.json").read_text()); print("Research/execution base:", data["lab_sha"], "accepted main:", data["main_sha"])'
 
       - name: Dispatch the AI worker session
         id: jules
@@ -253,7 +317,30 @@ jobs:
         env:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
-        run: python3 control/scripts/autonomous/jules_dispatch.py --request-body jules-request.json --response jules-response.json --github-output "${GITHUB_OUTPUT}"
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SELECTION_REASON: ${{ steps.select.outputs.reason_code }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh variable get JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}")" != "true" ]; then
+            echo "Loop was disabled after selection; leaving this attempt untouched."
+            echo "dispatch_result=deferred" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          extra=()
+          if [ "${SELECTION_REASON}" = "work_in_progress" ]; then
+            stored=$(jq -er --arg id "${SELECTED_TASK_ID}" '.tasks[] | select(.id == $id) | .execution.session_id | select(type == "string" and length > 0)' lab/agent_tasks.json)
+            extra=(--session-id "${stored}")
+          else
+            current_main=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+            current_lab=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
+            if [ "${current_main}" != "$(jq -r '.main_sha' loop-readiness.json)" ] || [ "${current_lab}" != "$(jq -r '.lab_sha' loop-readiness.json)" ]; then
+              echo "The product base moved after selection; a fresh tick must re-evaluate it."
+              echo "dispatch_result=deferred" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          python3 control/scripts/autonomous/jules_dispatch.py --request-body jules-request.json --response jules-response.json --github-output "${GITHUB_OUTPUT}" "${extra[@]}"
 
       - name: Mark the task as in progress
         id: start
@@ -286,6 +373,7 @@ jobs:
             --config control/autonomous-project.json \
             --task-id "${SELECTED_TASK_ID}" \
             --session-file jules-response.json \
+            --diagnostics session-report-diagnostics.json \
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Record a task whose worker session failed
@@ -308,7 +396,7 @@ jobs:
 
       - name: Release tasks abandoned by a dead session
         id: reconcile
-        if: ${{ steps.open_prs.outputs.count == '0' && steps.jules.outputs.dispatch_result == '' }}
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && steps.jules.outputs.dispatch_result == '' && inputs.recover_report != true }}
         run: python3 control/scripts/autonomous/task_lifecycle.py --manifest lab/agent_tasks.json --action reconcile --github-output "${GITHUB_OUTPUT}"
       - name: Commit the queue back to the integration branch
         if: always()
@@ -330,6 +418,25 @@ jobs:
             -c 'credential.https://github.com.helper=!gh auth git-credential' \
             push origin "HEAD:${INTEGRATION_BRANCH}"
 
+      - name: Preserve redacted completion diagnostics
+        if: ${{ always() && (hashFiles('session-report-diagnostics.json') != '' || hashFiles('recovered-report-diagnostics.json') != '') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: research-report-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            session-report-diagnostics.json
+            recovered-report-diagnostics.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Preserve dispatch readiness
+        if: ${{ always() && hashFiles('loop-readiness.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: loop-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: loop-readiness.json
+          retention-days: 14
+
       - name: Summary
         if: always()
         env:
@@ -350,6 +457,9 @@ jobs:
           DISPATCH_RESULT: ${{ steps.jules.outputs.dispatch_result }}
           SESSION_ID: ${{ steps.jules.outputs.session_id }}
           SESSION_STATE: ${{ steps.jules.outputs.session_state }}
+          READINESS_ACTION: ${{ steps.readiness.outputs.action }}
+          READINESS_REASON: ${{ steps.readiness.outputs.reason }}
+          RECOVERED_REPORT: ${{ steps.recover_report.outputs.lifecycle_reason }}
         run: |
           {
             echo "### Autonomous next task"
@@ -367,5 +477,8 @@ jobs:
             echo "- Next eligible investigation: ${RESEARCH_NEXT_AT:-now or existing work first}"
             echo "- Completed session: ${COMPLETION_REASON:-none}; findings imported: ${IMPORTED_COUNT:-0}"
             echo "- Worker dispatch: ${DISPATCH_RESULT:-none} (session ${SESSION_ID:-none}, state ${SESSION_STATE:-none})"
+            echo "- Product/dispatch readiness: ${READINESS_ACTION:-not checked} (${READINESS_REASON:-none})"
+            echo "- Same-attempt report recovery: ${RECOVERED_REPORT:-not requested}"
+            echo "- Readiness and redacted report diagnostics are attached as artifacts when available."
             echo "- Releases: disabled by policy, human-gated"
           } >> "${GITHUB_STEP_SUMMARY}"

@@ -268,6 +268,7 @@ def dispatch(
     api_base: str,
     api_keys: Sequence[str] | KeyRing,
     request_body: Mapping[str, Any],
+    stored_session: str = "",
     max_attempts: int = 3,
     base_delay: float = 3.0,
     sleeper: Callable = time.sleep,
@@ -281,6 +282,16 @@ def dispatch(
         raise RuntimeError("request prompt is missing the AUTONOMOUS_DISPATCH_KEY marker")
     if not session_matches(request_body, key):
         raise RuntimeError("request contains contradictory dispatch markers")
+
+    if stored_session:
+        resource = session_resource(stored_session)
+        current = get_session(transport, api_base, ring, resource)
+        if (session_id(current) != resource.split("/", 1)[1]
+                or current.get("name", resource) != resource
+                or not session_matches(current, key)):
+            raise RuntimeError("stored Jules session does not match this attempt")
+        return _result(RESULT_RECONCILED if session_is_active(current)
+                       else terminal_result(current), current)
 
     active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
     if active:
@@ -326,6 +337,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--request-body", required=True, type=Path)
     parser.add_argument("--response", type=Path, default=Path("jules-response.json"))
+    parser.add_argument("--session-id", default="", help="Read only this stored attempt; never create a replacement")
     parser.add_argument("--api-base", default=os.environ.get("JULES_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
     args = parser.parse_args(argv)
@@ -341,9 +353,10 @@ def main(argv=None) -> int:
     request_body = json.loads(args.request_body.read_text(encoding="utf-8"))
     try:
         result = dispatch(
-            urllib_transport, api_base=args.api_base, api_keys=ring, request_body=request_body
+            urllib_transport, api_base=args.api_base, api_keys=ring, request_body=request_body,
+            stored_session=args.session_id,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print("ERROR: " + str(exc), file=sys.stderr)
         return 1
 

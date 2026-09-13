@@ -5,13 +5,17 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import tempfile
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from unittest.mock import patch
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from complete_jules_task import harvest
+from complete_jules_task import MAX_REPORT_CHARS, harvest, main
 from jules_dispatch import Response
 from task_lifecycle import start
 from validate_tasks import validate
@@ -113,29 +117,27 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(len(api.requests), requests)
         self.assertEqual(validate(data), [])
 
-    def test_latest_malformed_report_never_falls_back_and_failure_is_bounded(self):
+    def test_latest_malformed_report_parks_same_attempt_without_older_fallback(self):
         data = manifest()
+        identity = copy.deepcopy(data["tasks"][0]["execution"])
         bad = activity("AUTONOMOUS_RESEARCH_BEGIN {broken", 4)
         api = API([[bad], [activity(report([FINDING]), 2)]])
         result = run(data, api)
-        self.assertEqual(result["reason"], "failed")
-        self.assertEqual(data["tasks"][0]["status"], "todo")
+        self.assertEqual(result["reason"], "report_invalid")
+        self.assertEqual(data["tasks"][0]["status"], "blocked")
+        self.assertEqual(data["tasks"][0]["execution"]["state"], "awaiting_report")
         self.assertEqual(result["imported_count"], 0)
         self.assertNotIn("research_result", data["tasks"][0])
         self.assertEqual(len(data["tasks"]), 1)
+        for field in ("attempts", "session_id", "dispatch_key", "started_at", "finished_at"):
+            self.assertEqual(data["tasks"][0]["execution"][field], identity[field])
+        before = copy.deepcopy(data)
         self.assertFalse(run(data, api)["changed"])
-        start(data, "research-clock", session_id="8", dispatch_key="second", now=NOW)
-        # A real retry has a different session and dispatch marker.
-        second = dict(SESSION, id="8", name="sessions/8", title="[dispatch:second]")
-        def retry_transport(method, url, headers, payload):
-            if "/activities?" not in url:
-                return Response(200, second)
-            return Response(200, {"activities": []})
-        outcome = harvest(data, CONFIG, "research-clock", second, transport=retry_transport,
-                          api_keys=["test-only"], now=NOW)
-        self.assertEqual(outcome["reason"], "failed")
-        self.assertEqual(data["tasks"][0]["status"], "blocked")
-        self.assertEqual(data["tasks"][0]["execution"]["attempts"], 2)
+        self.assertFalse(run(data, api, retry_report=True)["changed"])
+        self.assertEqual(data, before)
+        with self.assertRaises(ValueError):
+            start(data, "research-clock", session_id="8", dispatch_key="second", now=NOW)
+        self.assertEqual(validate(data), [])
 
     def test_empty_backlog_requires_real_observations(self):
         data = manifest()
@@ -146,7 +148,7 @@ class CompletionTest(unittest.TestCase):
                      report(observations=[{"scenario": "resume", "result": "ok"}])):
             with self.subTest(text=text):
                 data = manifest()
-                self.assertEqual(run(data, API([[activity(text)]]))["reason"], "failed")
+                self.assertEqual(run(data, API([[activity(text)]]))["reason"], "report_invalid")
                 self.assertNotIn("research_result", data["tasks"][0])
 
     def test_nullable_optional_outputs_do_not_hide_completed_research(self):
@@ -196,10 +198,10 @@ class CompletionTest(unittest.TestCase):
         data = manifest()
         findings = [FINDING, dict(FINDING, id="fix-other", title="Fix another clock")]
         result = run(data, API([[activity(report(findings))]]), max_new=1)
-        self.assertEqual(result["reason"], "failed")
+        self.assertEqual(result["reason"], "report_invalid")
         self.assertEqual(result["imported_count"], 0)
         self.assertEqual(len(data["tasks"]), 1)
-        self.assertIn("max_new_reached", data["tasks"][0]["execution"]["note"])
+        self.assertIn("max_new_reached", data["tasks"][0]["execution"]["report_error"]["detail"])
 
     def test_duplicate_findings_record_existing_task_not_false_no_change(self):
         data = manifest()
@@ -215,9 +217,9 @@ class CompletionTest(unittest.TestCase):
         missing = dict(FINDING, id="missing", title="Missing contract")
         missing.pop("acceptance")
         result = run(data, API([[activity(report([FINDING, missing]))]]))
-        self.assertEqual(result["reason"], "failed")
+        self.assertEqual(result["reason"], "report_invalid")
         self.assertEqual(len(data["tasks"]), 1)
-        self.assertIn("missing_acceptance", data["tasks"][0]["execution"]["note"])
+        self.assertIn("missing_acceptance", data["tasks"][0]["execution"]["report_error"]["detail"])
 
     def test_unsafe_findings_cannot_expand_scope_or_spawn_research_children(self):
         data = manifest()
@@ -243,11 +245,11 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(stored["deferred_findings"][0]["reason"], "unsafe_product_scope")
         self.assertEqual(validate(data), [])
 
-    def test_wrong_finding_shape_spends_attempt_without_partial_import(self):
+    def test_wrong_finding_shape_parks_attempt_without_partial_import(self):
         data = manifest()
         finding = dict(FINDING, acceptance=42)
         result = run(data, API([[activity(report([finding]))]]))
-        self.assertEqual(result["reason"], "failed")
+        self.assertEqual(result["reason"], "report_invalid")
         self.assertEqual(result["imported_count"], 0)
         self.assertEqual(data["tasks"][0]["execution"]["attempts"], 1)
         self.assertFalse(run(data, API())["changed"])
@@ -268,6 +270,108 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(run(data, api)["reason"], "no_change")
         self.assertEqual(data["tasks"][0]["status"], "done")
         self.assertEqual(len(api.requests), 1)
+
+    def test_absent_findings_require_valid_research_but_present_malformed_is_not_empty(self):
+        research = report().split("AUTONOMOUS_TASKS_BEGIN")[0]
+        data = manifest()
+        self.assertEqual(run(data, API([[activity(research)]]))["reason"], "no_change")
+        self.assertEqual(data["tasks"][0]["research_result"]["proposed_task_ids"], [])
+        for suffix in ("AUTONOMOUS_TASKS_BEGIN", "AUTONOMOUS_TASKS_END",
+                       "AUTONOMOUS_TASKS_BEGIN {} AUTONOMOUS_TASKS_END",
+                       "AUTONOMOUS_TASKS_BEGIN [broken] AUTONOMOUS_TASKS_END"):
+            with self.subTest(suffix=suffix):
+                data = manifest()
+                self.assertEqual(run(data, API([[activity(research + suffix)]]))["reason"], "report_invalid")
+                self.assertNotIn("research_result", data["tasks"][0])
+                self.assertEqual(data["tasks"][0]["execution"]["report_error"]["code"], "tasks_malformed_block")
+
+    def test_unmarked_latest_agent_output_cannot_resurrect_an_older_report(self):
+        data = manifest()
+        result = run(data, API([[activity(report([FINDING])), activity("Final report: {broken", 2)]]))
+        self.assertEqual(result["reason"], "report_invalid")
+        self.assertEqual(len(data["tasks"]), 1)
+
+    def test_explicit_reharvest_recovers_without_dispatch_or_history_reset(self):
+        data = manifest()
+        data["tasks"][0]["execution"]["history"] = [{"session_id": "older", "outcome": "failed"}]
+        run(data, API([[activity("AUTONOMOUS_RESEARCH_BEGIN {broken")]]))
+        original = copy.deepcopy(data["tasks"][0]["execution"])
+        api = API([[activity(report([FINDING]))]])
+        self.assertFalse(run(data, api)["changed"])
+        self.assertEqual(api.requests, [])
+        self.assertEqual(run(data, api, retry_report=True)["reason"], "researched")
+        execution = data["tasks"][0]["execution"]
+        for field in ("attempts", "session_id", "dispatch_key", "started_at", "history"):
+            self.assertEqual(execution[field], original[field])
+        self.assertEqual(data["tasks"][0]["status"], "done")
+        self.assertNotIn("report_error", execution)
+        self.assertEqual(data["tasks"][0]["research_result"]["proposed_task_ids"], ["fix-clock"])
+        before = copy.deepcopy(data)
+        self.assertFalse(run(data, api, retry_report=True)["changed"])
+        self.assertEqual(data, before)
+        self.assertEqual(validate(data), [])
+
+    def test_retry_rejects_foreign_or_noncompleted_snapshot_without_reads(self):
+        data = manifest()
+        run(data, API([[activity("AUTONOMOUS_RESEARCH_BEGIN {broken")]]))
+        before = copy.deepcopy(data)
+        for snapshot in (dict(SESSION, id="8", name="sessions/8"),
+                         dict(SESSION, title="[dispatch:other]"), dict(SESSION, state="IN_PROGRESS")):
+            api = API()
+            with self.assertRaises(ValueError):
+                run(data, api, snapshot=snapshot, retry_report=True)
+            self.assertEqual(api.requests, [])
+            self.assertEqual(data, before)
+
+    def test_invalid_diagnostics_preserve_parser_reason_and_redact_before_bounding(self):
+        secrets = ["test-only", "configured-value/with?punct", "ghp_" + "a" * 36,
+                   "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature", "password123", "url-secret"]
+        text = (report().split("AUTONOMOUS_TASKS_BEGIN")[0]
+                + "AUTONOMOUS_TASKS_BEGIN [broken] AUTONOMOUS_TASKS_END\n"
+                + "\n".join(secrets[:4]) + "\nAuthorization: Bearer password123\n"
+                + "https://user:url-secret@example.com/path?access_token=url-secret#url-secret\n"
+                + "x" * MAX_REPORT_CHARS + secrets[1])
+        data = manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "diagnostics.json"
+            with patch.dict("os.environ", {"CUSTOM_SECRET": secrets[1]}):
+                result = run(data, API([[activity(text)]]), diagnostics=path)
+            raw = path.read_text(encoding="utf-8")
+            diagnostic = json.loads(raw)
+        self.assertEqual(result["reason"], "report_invalid")
+        for secret in secrets:
+            self.assertNotIn(secret, raw)
+        self.assertEqual(diagnostic["task_id"], "research-clock")
+        self.assertEqual(diagnostic["session_id"], "7")
+        self.assertEqual(diagnostic["dispatch_key"], "first")
+        self.assertEqual(diagnostic["tasks_parser"]["status"], "malformed_block")
+        self.assertIn("line 1 column 2", diagnostic["tasks_parser"]["detail"])
+        self.assertEqual(diagnostic["research_parser"]["status"], "ok")
+        self.assertTrue(diagnostic["report_truncated"])
+        self.assertLessEqual(len(diagnostic["worker_report"]), MAX_REPORT_CHARS)
+
+    def test_retry_transport_failure_preserves_manifest_and_diagnostics_bytes_without_error_body(self):
+        data = manifest()
+        run(data, API([[activity("AUTONOMOUS_RESEARCH_BEGIN {broken")]]))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            queue, config, snapshot, diagnostics = (root / name for name in
+                                                    ("queue.json", "config.json", "session.json", "diagnostics.json"))
+            original = json.dumps(data, indent=4).encode() + b"\n\n"
+            queue.write_bytes(original)
+            config.write_text(json.dumps(CONFIG), encoding="utf-8")
+            snapshot.write_text(json.dumps(SESSION), encoding="utf-8")
+            diagnostics.write_bytes(b"previous diagnostic\n")
+            stdout, stderr = StringIO(), StringIO()
+            with patch("complete_jules_task.get_session", side_effect=RuntimeError("PRIVATE_UPSTREAM_BODY")), \
+                    patch.dict("os.environ", {"JULES_API_KEY": "test-only"}), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                result = main(["--manifest", str(queue), "--config", str(config), "--task-id", "research-clock",
+                               "--session-file", str(snapshot), "--diagnostics", str(diagnostics), "--retry-report"])
+            self.assertEqual(result, 1)
+            self.assertEqual(queue.read_bytes(), original)
+            self.assertEqual(diagnostics.read_bytes(), b"previous diagnostic\n")
+            self.assertNotIn("PRIVATE_UPSTREAM_BODY", stdout.getvalue() + stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ OUTCOME_MERGED = "merged"
 OUTCOME_NO_CHANGE = "no_change"
 OUTCOME_RESEARCHED = "researched"
 OUTCOME_REVIEW_REQUIRED = "review_required"
+OUTCOME_REPORT_INVALID = "report_invalid"
 OUTCOME_CLOSED = "closed_unmerged"
 OUTCOME_FAILED = "failed"
 OUTCOME_STALE = "stale"
@@ -53,8 +54,8 @@ VALID_OUTCOMES = (
     OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED,
     OUTCOME_CLOSED, OUTCOME_FAILED, OUTCOME_STALE,
 )
-# Outcomes that answer the question the task asked. Anything else is retried
-# while the attempt budget lasts.
+# Outcomes that answer the question the task asked. Failed worker attempts retry
+# within budget; defective report packaging is parked separately without retry.
 TERMINAL_OUTCOMES = (OUTCOME_MERGED, OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED)
 
 TASK_ID_RE = re.compile(r"AUTONOMOUS_TASK_ID:[ \t]*([^\s<>`]+)")
@@ -165,6 +166,38 @@ def defer_review(task: dict, pull_request: int) -> dict:
             "pull_request": pull_request, "attempts": attempts_of(task)}
 
 
+def awaiting_report(task: Mapping[str, Any]) -> bool:
+    block = task.get("execution") or {}
+    return (task.get("status") == STATUS_BLOCKED
+            and block.get("state") == "awaiting_report"
+            and block.get("outcome") == OUTCOME_REPORT_INVALID)
+
+
+def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
+                now: datetime | None = None) -> dict:
+    """Retain a completed worker's identity until its report can be reharvested."""
+    task = find_task(manifest, task_id)
+    if task is None:
+        raise ValueError("task not found")
+    block = _execution(task)
+    if task.get("task_type") != "project_discovery" or not (
+        block.get("session_id") and block.get("dispatch_key") and attempts_of(task) > 0
+    ):
+        raise ValueError("report recovery requires a bound research attempt")
+    if awaiting_report(task):
+        return {"changed": False, "reason": OUTCOME_REPORT_INVALID, "task_id": task_id,
+                "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
+    if task.get("status") != STATUS_IN_PROGRESS or block.get("outcome"):
+        raise ValueError("only an active attempt can await its report")
+    task["status"] = STATUS_BLOCKED
+    block["state"] = "awaiting_report"
+    block["outcome"] = OUTCOME_REPORT_INVALID
+    block["report_error"] = {"code": code, "detail": detail, "reported_at": iso(now or utcnow())}
+    block["note"] = "completed worker report requires inspection: " + code
+    return {"changed": True, "reason": OUTCOME_REPORT_INVALID, "task_id": task_id,
+            "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
+
+
 def start(
     manifest: dict,
     task_id: Any,
@@ -224,6 +257,7 @@ def _finish(
     note: str = "",
     pull_request: Any = 0,
     now: datetime | None = None,
+    retry_report: bool = False,
 ) -> dict:
     if outcome not in VALID_OUTCOMES:
         raise ValueError(
@@ -233,7 +267,10 @@ def _finish(
     max_attempts, _stale_hours = limits(manifest)
     block = _execution(task)
     previous_status = str(task.get("status") or "")
-    parked = awaiting_review(task) and outcome in (OUTCOME_MERGED, OUTCOME_CLOSED)
+    recovering = retry_report and awaiting_report(task) and outcome in (OUTCOME_NO_CHANGE, OUTCOME_RESEARCHED)
+    if retry_report and not recovering:
+        raise ValueError("report recovery requires a parked report and a valid research outcome")
+    parked = recovering or (awaiting_review(task) and outcome in (OUTCOME_MERGED, OUTCOME_CLOSED))
     if not parked and (block.get("outcome") or previous_status not in OPEN_STATUSES):
         return {
             "changed": False, "reason": "task_already_closed",
@@ -247,6 +284,8 @@ def _finish(
     block["outcome"] = outcome
     block["note"] = str(note or "")
     block["finished_at"] = iso(moment)
+    if recovering:
+        block.pop("report_error", None)
     number = _int(pull_request)
     if number:
         block["pull_request"] = number
@@ -280,6 +319,7 @@ def complete(
     note: str = "",
     pull_request: Any = 0,
     now: datetime | None = None,
+    retry_report: bool = False,
 ) -> dict:
     """Record the result a worker session reported for a task."""
     if outcome not in VALID_OUTCOMES:
@@ -291,6 +331,7 @@ def complete(
         return {"changed": False, "reason": "task_not_found", "task_id": str(task_id or "")}
     return _finish(
         manifest, task, outcome=outcome, note=note, pull_request=pull_request, now=now,
+        retry_report=retry_report,
     )
 
 

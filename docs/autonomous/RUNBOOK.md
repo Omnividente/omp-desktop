@@ -47,8 +47,9 @@ Consequences worth knowing:
   event revision. Other events test the control plane at their own event SHA,
   so a pull request into `main` cannot pass by testing the old `main` scripts.
 - All queue writers share `autonomous-lab-queue` with `queue: max` and
-  `cancel-in-progress: false`: scheduled dispatch, replenishment, merge completion
-  and the loop switch serialize instead of overwriting each other's snapshots.
+  `cancel-in-progress: false`: scheduled dispatch, replenishment, merge completion,
+  the loop switch and the entire main-sync candidate gate serialize instead of
+  overwriting each other's snapshots.
   GitHub permits up to 100 pending runs with this setting. `actionlint` 1.7.12
   does not yet recognize this documented key; do not replace it with single-slot
   pending cancellation to silence that outdated schema.
@@ -117,10 +118,13 @@ Consequences worth knowing:
    scoped investigation only when no eligible task or active session remains.
    Research is read-only and returns its report in the completed session, without
    a fictitious PR. `complete_jules_task.py` binds the exact session/dispatch,
-   reads every activity page, selects the latest marked report and persists its
+   reads every activity page, selects the latest agent report and persists its
    findings with its outcome as one validated transaction. Repeated completion
-   does not duplicate tasks. API failures leave the queue unchanged; malformed
-   reports consume a bounded attempt, never pretend to be `no_change`.
+   does not duplicate tasks. API failures leave the queue unchanged. A malformed
+   report parks the completed attempt as `blocked / awaiting_report / report_invalid`;
+   it never becomes `no_change` or starts another research session just to repair
+   packaging. An unmarked or malformed newest message cannot resurrect an older
+   valid report.
    Findings in older merged PRs still use the same bounded importer and exact
    attempt matching; malformed PR JSON prevents partial completion/import.
 10. **Scope is checked, not trusted.** `check_change_scope.py` rejects anything
@@ -134,6 +138,15 @@ Consequences worth knowing:
     exact Linux/Windows and evidence check names. Autonomous Control CI executes
     regressions and parses workflows; source-text matches are not proof that a
     workflow enforces these contracts.
+13. **New work uses accepted main.** `autonomous_sync.yml` prepares a real merge
+    in a disposable detached worktree, preserving the lab queue's Git blob exactly.
+    Only that queue may be resolved automatically; every other conflict stops the
+    sync without changing the live branch. Windows and Linux verify the exact
+    candidate SHA through the existing Quality Gate, without inherited secrets.
+    Publication requires unchanged main/lab heads, both ancestors, identical queue
+    blobs and a freshly enabled switch. Only then does an ordinary fast-forward
+    push advance the lab. New tasks wait while main is missing from lab ancestry;
+    existing bound sessions may still be polled and collected.
 
 ## Research cadence and saved results
 
@@ -155,7 +168,10 @@ throttling. The planner reports the next eligible time instead of filling a quot
 
 Each investigation keeps `research` (area, perspective, fingerprint, cycle and
 bounded previous reports) and `research_result` (summary, scenario/evidence/result
-observations, next hypotheses, linked task IDs and completion time). Findings
+observations, next hypotheses, linked task IDs and completion time). The three
+most recent reports from the same area are shared across perspectives; reports
+from other areas are excluded. Rotation, cooldown and quota still use the
+area/perspective pair, not the broader shared context. Findings
 outside the execution boundary remain `deferred_findings` with their paths,
 acceptance criteria and exclusion reason; they are visible but never dispatched.
 `researched` means findings were recorded; `no_change` requires real observations
@@ -184,9 +200,11 @@ replacing them with the seed. Prior reports survive controller restarts.
    `Quality Gate` workflow, and the required-checks list takes check-run names,
    not workflow names - plus `Autonomous Evidence Gate`. The same names are in
    `merge_gate.required_check_names`, which is what automerge reads. Allow only
-   the owner's administrator role to bypass this lab ruleset for setup and
-   queue commits. Do not grant Jules a bypass. The built-in GitHub Actions app
-   cannot be added as a ruleset bypass actor; automerge keeps using its ordinary
+   the owner's administrator role to bypass this lab ruleset for setup, queue
+   commits and the trusted, exact-SHA gated main-sync publisher. Do not grant Jules
+   a bypass. Ordinary product PRs still require their evidence and quality checks.
+   The built-in GitHub Actions app cannot be added as a ruleset bypass actor;
+   automerge keeps using its ordinary
    `GITHUB_TOKEN`, so GitHub enforces the product checks at merge time too.
 5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It first disables
    new dispatches, then creates/seeds the branch and publishes entry points,
@@ -194,18 +212,64 @@ replacing them with the seed. Prior reports survive controller restarts.
    off and preserves the existing queue. With preparation disabled, every entry
    point must already match `main` or enabling fails.
 
-Until step 5 the loop is completely inert: every scheduled job is gated on
-`vars.JULES_LOOP_ENABLED == 'true'`.
+Until step 5 no new workers or sync publications run. Explicit report recovery
+may read and record a previously completed attempt while the loop is disabled;
+it cannot dispatch a worker.
 
 ## Day-to-day
 
-- **Autonomous Monitor** (every 3h, or on demand) reports queue lifecycle, PRs,
-  branch/entry-point drift and the planner's next decision in read-only preview.
-- **Autonomous Next Task** (every 30 min) reconciles PR outcomes, plans research
-  when concrete work runs out and starts or polls one worker. Draft PRs and PRs
-  carrying a configured blocking label do not occupy the active-work slot.
+- **Autonomous Monitor** (every 3h, or on demand) reports real NextTask timestamps,
+  branch/entry-point drift and read-only readiness. Due work without a tick for
+  90 minutes, invalid parked reports and failed synchronization are visible as a
+  failed monitor job, not a green claim of progress.
+- **Autonomous Next Task** (30-minute fallback and event-driven wakeups) reconciles
+  PR outcomes, plans research when concrete work runs out and starts or polls one
+  worker. Stored attempts use GetSession directly; a missing session never causes
+  a replacement CreateSession. Draft or blocking-labelled PRs do not occupy the
+  active-work slot.
+- **Autonomous Continue** runs after successful trusted controller workflows and
+  main pushes. It takes two live snapshots, waits at most 90 seconds for an active
+  worker poll, rechecks the switch and existing queued/running controller jobs,
+  and dispatches at most one NextTask or Sync run. Explicit `workflow_dispatch`
+  with `GITHUB_TOKEN` starts a fresh chain instead of depending solely on cron or
+  exceeding GitHub's three-level `workflow_run` chain limit.
+- **Autonomous Sync Main** runs on main pushes or explicit dispatch. Active
+  workers and non-parked PRs defer it. After those finish, continuation requests
+  the pending sync before any new research can use an obsolete product base.
 - **Autonomous Replenish** (every 6h) remains an additional source of concrete
   ESLint/TypeScript diagnostic tasks, not the only reason the lab may do work.
+
+### Recovering a completed research report
+
+Open the NextTask run's `research-report-diagnostics-<run>-<attempt>` artifact.
+It contains the exact task/session/dispatch binding, parser status and precise
+rejection reason, plus a redacted report excerpt of at most 24,000 characters.
+Redaction occurs before truncation; artifacts are retained for 14 days. Ordinary
+health reports do not include worker prose or dispatch keys.
+
+A valid observation report may omit the optional findings array when there are
+no tasks. A present but malformed array is an error, never an empty list. To
+re-read a repaired report from the same completed session, run **Autonomous Next
+Task** on `main` with `task_id` and `recover_report = true`. The collector verifies
+the stored binding and the live COMPLETED state; it never starts a worker or
+charges an extra attempt. Repeated invalid recovery leaves queue bytes unchanged.
+The equivalent CLI is `complete_jules_task.py --retry-report` with the existing
+manifest/config/task/session arguments and optional `--diagnostics` path.
+
+### Resolving a failed main synchronization
+
+Inspect **Autonomous Sync Main** and its `autonomous-sync-preparation-<attempt>` /
+`autonomous-sync-result-<attempt>` artifacts. The candidate branch is unique to
+the run; cleanup only deletes that owned ref if its SHA still matches. A conflict,
+failed gate or moved head leaves live lab unchanged. Disabling the loop during
+verification also prevents publication.
+
+Fix the reported conflict or failing check, then explicitly rerun the sync on
+`main`. Optional `main_sha` and `lab_sha` pin the expected current heads. A failed
+sync suppresses automatic retries for the same main revision, so a failing
+candidate cannot create an endless build loop; a new main revision or a successful
+manual sync releases that condition. No branch protection is weakened, no force
+push is used, and no installer, version or release is produced.
 
 ### Accepting something the loop cannot merge alone
 
@@ -256,10 +320,10 @@ loop is off.
   against the count GitHub reports, but a diff above
   `merge_gate.max_changed_files` (200) is handed to you rather than checked
   mechanically.
-- **A merge by the loop does not trigger the loop.** Events caused by
-  `GITHUB_TOKEN` start no further workflow run, so a merged pull request is
-  completed directly after automerge; the scheduled API sweep is the recovery
-  path if that transaction did not finish, within 30 minutes.
+- **A merge event is not a guaranteed wakeup.** A merge performed with
+  `GITHUB_TOKEN` starts no ordinary follow-up event, so automerge records completion
+  directly. The trusted continuation workflow explicitly dispatches the next
+  controller tick; the scheduled API sweep remains a fallback, not a timing SLA.
 - **A fallback API key is only used when the primary key fails**, not for load
   balancing.
 - **Findings are bounded** at 10 new tasks per report/PR. Missing fields or an

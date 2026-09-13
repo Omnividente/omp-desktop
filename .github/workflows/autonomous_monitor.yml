@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 jobs:
   monitor:
@@ -78,54 +79,45 @@ jobs:
           if [ "${drift}" != "0" ]; then
             {
               echo ""
-              echo "Run **Autonomous Loop Switch** with *prepare integration branch* enabled to republish them from ${DEFAULT_BRANCH}. This monitor never writes workflow files itself."
+              echo "Run **Autonomous Sync Main** to validate and synchronize the accepted control plane at an idle boundary. This monitor never writes workflow files itself."
               echo ""
             } >> "${GITHUB_STEP_SUMMARY}"
             echo "::warning::${drift} loop entry point(s) on ${INTEGRATION_BRANCH} are missing or out of date, so its pull requests may run without an evidence gate."
           fi
 
-      - name: Report
+      - name: Report observed readiness and attention
         env:
           ENTRY_DRIFT: ${{ steps.drift.outputs.drift }}
         run: |
           set -euo pipefail
           git -C lab fetch --no-tags origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
-          ahead=$(git -C lab rev-list --count "origin/${DEFAULT_BRANCH}..HEAD")
-          open_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --json number --jq 'length')
-          merged_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state merged --json number --jq 'length')
-          review_prs=$(gh pr list --repo "${GITHUB_REPOSITORY}" --base "${INTEGRATION_BRANCH}" --state open --label human-review --json number --jq 'length' || echo 0)
-          todo=$(jq '[.tasks[] | select(.status == "todo")] | length' lab/agent_tasks.json)
-          in_progress=$(jq '[.tasks[] | select(.status == "in_progress")] | length' lab/agent_tasks.json)
-          finished=$(jq '[.tasks[] | select(.status == "done")] | length' lab/agent_tasks.json)
-          blocked=$(jq '[.tasks[] | select(.status == "blocked")] | length' lab/agent_tasks.json)
-          python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --json > selection.json
-          python3 control/scripts/autonomous/research_cycle.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --dry-run > research-preview.json
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number,state,title,body,merged_at,labels:[.labels[]?.name],draft}' | jq -s '.' > pull-requests.json
+          enabled=false
+          if [ "${LOOP_ENABLED}" = "true" ]; then enabled=true; fi
+          # Read-only: neither the planner's prospective task nor lifecycle
+          # reconciliation is written back to the integration queue.
+          status=0
+          python3 control/scripts/autonomous/loop_health.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
           {
-            echo "### Autonomous loop health"
-            echo ""
-            echo "- Loop enabled: ${LOOP_ENABLED:-unset}"
-            echo "- Queue: ${todo} todo, ${in_progress} in progress, ${finished} done, ${blocked} blocked"
-            echo "- Open autonomous pull requests: ${open_prs} (waiting for a human: ${review_prs})"
-            echo "- Merged into ${INTEGRATION_BRANCH} so far: ${merged_prs}"
-            echo "- Commits on ${INTEGRATION_BRANCH} ahead of ${DEFAULT_BRANCH}: ${ahead}"
-            echo "- Loop entry points out of date on ${INTEGRATION_BRANCH}: ${ENTRY_DRIFT:-unknown}"
-            echo "- Releases: disabled by policy, human-gated"
-            echo ""
-            echo "Next selection:"
-            echo ""
+            echo '### Autonomous loop health'
+            echo ''
+            echo "- Loop entry points out of date: ${ENTRY_DRIFT:-unknown}"
+            echo '- Releases: disabled by policy, human-gated'
+            echo ''
+            echo 'Observed controller decision (no action taken):'
             echo '```json'
-            cat selection.json
+            cat health.json
             echo '```'
-            echo ""
-            echo "Next research decision (preview only; this monitor does not change the queue):"
-            echo ""
-            echo '```json'
-            cat research-preview.json
-            echo '```'
-            echo ""
-            if [ "${finished}" = "0" ] && [ "${merged_prs}" != "0" ]; then
-              echo "**Warning:** pull requests have merged but no task is marked done. The lifecycle is not closing tasks."
-              echo ""
-            fi
-            echo "Run **Autonomous Release Review** to inspect accumulated lab findings and proposals. Quality Gate verification is optional for inspection and required before accepting release readiness."
+            echo ''
+            echo 'report_invalid: inspect the stored diagnostics and reharvest the same completed session with retry_report; do not launch another AI attempt.'
+            echo 'sync_failed: inspect the failed candidate checks, repair the cause and explicitly run Autonomous Sync Main. Automatic retries of that main revision are paused.'
+            echo 'next_task_stalled: due work has no NextTask activity within 90 minutes; inspect continuation and the enabled switch.'
           } >> "${GITHUB_STEP_SUMMARY}"
+          health=$(jq -r '.health' health.json)
+          attention=$(jq '.attention // [] | length' health.json)
+          if [ "${status}" != 0 ] || [ "${health}" = stalled ] || [ "${health}" = attention ] || [ "${attention}" -gt 0 ]; then
+            echo '::error::Autonomous loop needs attention; see observed timestamps and reason codes in the job summary.'
+            exit 1
+          fi

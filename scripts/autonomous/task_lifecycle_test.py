@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from task_lifecycle import (  # noqa: E402
     OUTCOME_CLOSED, OUTCOME_FAILED, OUTCOME_MERGED, OUTCOME_NO_CHANGE,
     attempts_of, close_from_pr, complete, counts, find_task,
-    main, match_task, reconcile, start, sweep,
+    main, match_task, park_report, reconcile, start, sweep,
 )
 from select_task import select
 
@@ -262,6 +262,27 @@ class CloseFromPullRequestTest(unittest.TestCase):
 
 
 class CompleteTest(unittest.TestCase):
+    def test_report_parking_prevents_redispatch_and_requires_explicit_completion(self):
+        data = manifest(task(task_type="project_discovery"), max_attempts=1)
+        start(data, TASK_ID, session_id="7", dispatch_key="first", now=NOW)
+        park_report(data, TASK_ID, code="research_json", detail="invalid JSON", now=NOW)
+        before = copy.deepcopy(data)
+        self.assertFalse(reconcile(data, now=NOW + timedelta(days=1))["changed"])
+        self.assertFalse(complete(data, TASK_ID, outcome=OUTCOME_NO_CHANGE, now=NOW)["changed"])
+        self.assertFalse(park_report(data, TASK_ID, code="research_schema", detail="still invalid",
+                                    now=NOW + timedelta(days=1))["changed"])
+        self.assertEqual(data, before)
+        with self.assertRaises(ValueError):
+            start(data, TASK_ID, session_id="8", dispatch_key="second", now=NOW)
+        with self.assertRaises(ValueError):
+            complete(data, TASK_ID, outcome=OUTCOME_FAILED, retry_report=True, now=NOW)
+        result = complete(data, TASK_ID, outcome=OUTCOME_NO_CHANGE, retry_report=True, now=NOW)
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(execution(data)["attempts"], 1)
+        self.assertEqual(execution(data)["session_id"], "7")
+        self.assertEqual(execution(data)["dispatch_key"], "first")
+        self.assertNotIn("report_error", execution(data))
+
     def test_merged_is_terminal(self):
         data = manifest(task(status="in_progress", execution={"attempts": 1}))
         result = complete(data, TASK_ID, outcome=OUTCOME_MERGED, pull_request=5, now=NOW)

@@ -111,6 +111,36 @@ class RotationTest(unittest.TestCase):
         data, _ = plan(data, settings, now=NOW + timedelta(hours=50))
         self.assertEqual(data["tasks"][-1]["research"]["perspective_id"], "behavior")
 
+    def test_reliability_receives_behavior_report_without_other_area_findings(self):
+        settings = config(perspectives=("behavior", "reliability"))
+        other, _ = plan(manifest(), config(areas=("sessions",)), now=NOW - timedelta(hours=1))
+        finish(other, NOW - timedelta(hours=1))
+        other["tasks"][0]["research_result"]["summary"] = "Sessions-only finding"
+        data, _ = plan(other, settings)
+        self.assertEqual(data["tasks"][-1]["research"]["area_id"], "terminal")
+        finish(data)
+        behavior_report = copy.deepcopy(data["tasks"][-1]["research_result"])
+        before = copy.deepcopy(data)
+        reliability, _ = plan(data, settings, now=NOW + timedelta(minutes=1))
+        metadata = reliability["tasks"][-1]["research"]
+        self.assertEqual((metadata["area_id"], metadata["perspective_id"]), ("terminal", "reliability"))
+        self.assertEqual(metadata["cycle"], 1)
+        self.assertEqual(metadata["previous_reports"], [behavior_report])
+        self.assertEqual(data, before)
+
+    def test_cross_perspective_context_keeps_only_three_recent_reports(self):
+        settings = config(areas=("terminal",), perspectives=("behavior", "reliability"))
+        data = manifest()
+        for index in range(5):
+            at = NOW + timedelta(days=index)
+            data, _ = plan(data, settings, now=at)
+            finish(data, at)
+            data["tasks"][-1]["research_result"]["summary"] = "Finding " + str(index)
+        revisit, _ = plan(data, settings, now=NOW + timedelta(days=5))
+        reports = revisit["tasks"][-1]["research"]["previous_reports"]
+        self.assertEqual([report["summary"] for report in reports], ["Finding 2", "Finding 3", "Finding 4"])
+        self.assertLessEqual(len(json.dumps(reports, ensure_ascii=False)), 24000)
+
     def test_changed_scope_is_eligible_without_waiting_for_success_cooldown(self):
         settings = config(areas=("terminal",))
         data, _ = plan(manifest(), settings)
