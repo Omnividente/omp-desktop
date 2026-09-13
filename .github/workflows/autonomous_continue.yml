@@ -1,7 +1,7 @@
 name: Autonomous Continue
 
-# Explicit workflow_dispatch with GITHUB_TOKEN starts a fresh workflow chain;
-# unlike a pure workflow_run chain, it is not cut off after three levels.
+# Use the existing owner token only for dispatches that must emit another
+# workflow_run completion; GITHUB_TOKEN can start the child but suppress its wakeup.
 on:
   workflow_run:
     workflows:
@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  actions: write
+  actions: read
 
 # Wakeups must never hold the queue writer lock while waiting for a worker.
 concurrency:
@@ -38,8 +38,8 @@ jobs:
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
-      # The existing Loop Switch PAT can read the live Actions variable.
-      # Dispatch itself uses only the actions:write GITHUB_TOKEN.
+      # The existing Loop Switch PAT reads the live variable and starts child
+      # runs whose completion must wake this controller again.
       VARIABLE_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
     steps:
       - name: Check out the trusted control plane
@@ -98,12 +98,12 @@ jobs:
           fi
           case "${action}" in
             next_task)
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/dispatches" -f ref=main
+              GH_TOKEN="${VARIABLE_TOKEN}" gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/dispatches" -f ref=main
               ;;
             sync)
               main_sha=$(jq -r '.main_sha' health.json)
               lab_sha=$(jq -r '.lab_sha' health.json)
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/dispatches" -f ref=main -f "inputs[main_sha]=${main_sha}" -f "inputs[lab_sha]=${lab_sha}"
+              GH_TOKEN="${VARIABLE_TOKEN}" gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/dispatches" -f ref=main -f "inputs[main_sha]=${main_sha}" -f "inputs[lab_sha]=${lab_sha}"
               ;;
             *) echo '::error::Unknown health action'; exit 1 ;;
           esac
