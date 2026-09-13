@@ -127,7 +127,7 @@
       "id": "research-terminal-input-reliability-1",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -157,20 +157,69 @@
         "previous_reports": []
       },
       "execution": {
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "10120695647573451296",
         "dispatch_key": "fe76a63916c206fed06bc774",
         "attempts": 2,
         "started_at": "2026-09-13T06:23:01Z",
-        "finished_at": "",
+        "finished_at": "2026-09-13T07:32:02Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: tasks_malformed_block",
-        "report_error": {
-          "code": "tasks_malformed_block",
-          "detail": "task acceptance must be an array",
-          "reported_at": "2026-09-13T07:10:38Z"
-        }
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input continuity and failure recovery, identifying a defect in how frontend handles generation changes during deferred output processing.",
+        "observations": [
+          {
+            "scenario": "Terminal process crashes and restarts, generating a new process generation ID.",
+            "evidence": "Tested using isolated synthetic experiments invoking `applyTerminalOutputEvent` with a new generation ID when `outputReady` is still true (before frontend completes re-attachment). Found that `TerminalView.tsx` receives `pty-output` with the new generation and fatals due to `decision.generationChanged` triggering `onErrorRef.current`.",
+            "result": "Establishes that the frontend improperly considers generation changes on output events as fatal errors, preventing seamless failure recovery if an output event arrives slightly before the attachment resolves. This confirms a defect."
+          },
+          {
+            "scenario": "Processing terminal attachment on new generation (restart) with buffered initial output.",
+            "evidence": "Inspected `applyTerminalAttachment` in `src/terminalContinuity.ts`. The `lastSeq` was computed using `previous.lastSeq` fallback without considering `attachment.nextSeq - 1` properly when `attachment.lastSeq` is null. We created an experiment that proved the logic drops subsequent valid `pty-output` events.",
+            "result": "Establishes that terminal continuity baseline tracking does not properly establish a new baseline sequence during failure recovery (reset=true)."
+          }
+        ],
+        "next_hypotheses": [
+          "Check if terminal shortcuts or input handlers correctly handle queued inputs during switching/re-attaching (the SwitchInputRecovery state)"
+        ],
+        "proposed_task_ids": [
+          "discovery-5640a0d5b2031811"
+        ],
+        "completed_at": "2026-09-13T07:32:02Z",
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-5640a0d5b2031811",
+      "title": "Fix terminal continuity generation changes during failure recovery",
+      "task_type": "bugfix",
+      "status": "todo",
+      "priority": 10,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "created_at": "2026-09-13T07:32:02Z",
+      "acceptance": [
+        "Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTerminalAttachment` when a new generation starts."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is null, leading to dropped outputs."
+      },
+      "target_paths": [
+        "src/terminalContinuity.ts",
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-reliability-1",
+        "session_id": "10120695647573451296",
+        "dispatch_key": "fe76a63916c206fed06bc774"
       }
     }
   ]
