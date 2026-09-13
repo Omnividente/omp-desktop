@@ -49,6 +49,10 @@ export function startWithDefaults(): Promise<BootstrapPayload> {
   return invoke("start_with_defaults")
 }
 
+export function openSettingsFolder(): Promise<void> {
+  return invoke("open_settings_folder")
+}
+
 export function addWorkspace(path: string): Promise<BootstrapPayload> {
   return invoke("add_workspace", { path })
 }

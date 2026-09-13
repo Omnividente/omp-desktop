@@ -16,18 +16,20 @@
 ### Возможности
 
 - Проекты и недавние рабочие папки в боковой панели.
-- Автоматическое обнаружение стандартных JSONL-сессий OMP.
+- Автоматическое обнаружение стандартных JSONL-сессий OMP. Нечитаемые файлы и нераспознаваемые заголовки показываются отдельным предупреждением с путями и повторным чтением; остальные сессии остаются доступны.
 - Поиск, открытие и возобновление существующих сессий.
 - Handoff-переходы отслеживаются без перезапуска: текущая сессия остаётся в корне раскрываемой группы, архивные предшественники вложены под ней, а поиск сохраняет полную цепочку.
 - Фиксация основного провайдера хранится для конкретной сессии: переключение в состоянии idle перезапускает её через точный `--resume` с локальным overlay без model/usage fallback и переносится на активное продолжение после handoff.
 - Desktop Proxy Mode включается отдельно для каждого провайдера в настройках: новые и перезапущенные сессии получают локальный overlay, который удерживает fallback внутри выбранного провайдера и отключает OpenAI WebSocket transport. Уже работающие сессии не изменяются до перезапуска.
 - Экран «Провайдеры» показывает отдельные аккаунты из `omp usage`, лимиты по семействам моделей, окна и время сброса, отключённые credentials и оценку доступности маршрутов. Здесь же можно временно отключать любые провайдеры через `disabledProviders`, удалять custom providers и добавлять OpenAI- или Anthropic-совместимые API с автоматическим `/models` discovery. Форматы Chat Completions, Responses API и Anthropic Messages снабжены пояснениями; новые Provider IDs нормализуются в нижний регистр. Идентификаторы аккаунтов маскируются в backend; API keys используют защищённое хранилище Desktop, не записываются в `models.yml` и не возвращаются в снимках настроек.
 - Идемпотентный импорт OMP и Codex JSONL с режимами «пропустить», «обновить» и «создать копию»: JSONL ограничен 256 MiB, связанные артефакты копируются транзакционно без ссылок и ограничены 512 MiB, 10 000 записей и глубиной 16 каталогов.
-- Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину.
+- Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину. Повреждённые записи в прочитанной части и незавершённая последняя строка отмечаются отдельно; чтение не изменяет исходный файл.
 - Поиск в просмотре переписки проходит по всему загруженному тексту выбранного режима, а не только по строкам на экране: `Ctrl+F`, счётчик отдельных совпадений, переходы вперёд/назад и подсветка, включая подписи ссылок. Пропущенная при ограниченном чтении середина файла в поиск не входит.
 - Несколько одновременно работающих терминальных вкладок.
 - Настоящий нативный PTY с изменением размера, прерыванием и корректным завершением процессов.
 - Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты. «Настройки → Основное → Масштаб текста интерфейса» увеличивает текст приложения от 100% до 200%, сохраняется между запусками и не меняет независимый размер шрифта терминала.
+- «Настройки» удерживают клавиатурный фокус: `Tab` / `Shift+Tab` обходят доступные элементы внутри окна, `Escape` учитывает вложенные элементы управления, а закрытие возвращает фокус к кнопке открытия.
+- Сбой начальной загрузки конфигурации OMP виден в основном окне с кнопкой повторного чтения. Экран восстановления настроек Desktop открывает их папку, даже когда сам `settings.json` недоступен.
 - Раздел «Работа OMP» показывает поддержанные установленным runtime числовые, логические и перечислимые настройки: поиск, категории, только изменённые поля и возврат к значению схемы OMP. Сохранение проверяет конфликты; проектные настройки сохраняют приоритет, работающие процессы не перезапускаются.
 - Монитор системных ресурсов показывает доступную RAM, swap pressure, свободное место для сессий, проекта и временных файлов, а также RSS Desktop и прямых процессов OMP. Он ничего не завершает и не удаляет автоматически.
 - Боковая панель имеет сохраняемые режимы «развёрнута», «компактная» и «автоскрытие» (`Ctrl+B`).
@@ -36,7 +38,7 @@
 - В текущем вводе OMP `Ctrl+Z` отменяет редактирование, `Ctrl+Backspace` / `Ctrl+Delete` удаляют слово, `Shift+Enter` добавляет строку, а `Ctrl+Enter` отправляет follow-up. `Ctrl+C` копирует выделенный текст или прерывает работу без выделения; `Ctrl+V` использует штатную вставку OMP, включая изображения, а `Ctrl+Shift+V` вставляет текст без сворачивания. `Ctrl+Y` сохраняет значение OMP yank, а не redo; обычные поля интерфейса используют стандартные сочетания WebView.
 - Межпроцессное владение session JSONL защищено OS lease: активные resume/discovered/delete операции удерживают lock, а stale metadata требует явного reclaim. После сбоя старые данные сохраняются в bounded quarantine; автоматического silent takeover нет.
 - Второй запуск с `--project <path>`, `-p <path>` или позиционным путём передаёт workspace в уже открытое окно.
-- Нажатие версии Desktop запускает ручную проверку обновления. Уведомления OMP и Desktop используют общий стек без взаимного перекрытия; фоновые предложения обновиться не закрывают кнопки модальных окон.
+- Нажатие версии Desktop запускает ручную проверку обновления. Уведомления OMP и Desktop используют общий стек без взаимного перекрытия; фоновые предложения обновиться не закрывают кнопки модальных окон. Установка при работающих терминалах требует подтверждения до загрузки; отмена сохраняет их работу. На время подтверждения и установки запуск новых терминалов заблокирован.
 - Единая кодовая база и установщики для Windows и Linux.
 
 ### Установка
@@ -75,18 +77,20 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ### Features
 
 - Project sidebar with persisted recent workspaces.
-- Automatic discovery of standard OMP JSONL sessions.
+- Automatic discovery of standard OMP JSONL sessions. Unreadable files and unrecognized headers appear in a separate warning with paths and a retry action; other sessions remain available.
 - Search, open, and resume existing sessions.
 - Handoff transitions are tracked without restarting: the current session stays at the root of an expandable group, archived predecessors are nested below it, and search preserves the full lineage.
 - Primary-provider pinning is stored per session: toggling it while idle restarts the exact `--resume` target with a local no-model/usage-fallback overlay and transfers the pin to the active continuation after handoff.
 - Desktop Proxy Mode is enabled per provider in Settings: new and restarted sessions receive a local overlay that keeps fallback within the selected provider and disables the OpenAI WebSocket transport. Already-running sessions are unchanged until restart.
 - The Providers screen shows individual accounts from `omp usage`, per-model-family limits, reset windows, disabled credentials, and estimated route availability. The same screen can temporarily disable any provider through `disabledProviders`, delete custom providers, and add OpenAI- or Anthropic-compatible APIs with automatic `/models` discovery. Chat Completions, Responses API, and Anthropic Messages include protocol explanations; new provider IDs are normalized to lowercase. Account identifiers are masked in the backend; API keys use Desktop's protected credential storage, are not written to `models.yml`, and are not returned in settings snapshots.
 - Idempotent OMP and Codex JSONL import with skip, update, and copy modes: JSONL is capped at 256 MiB; related artifacts are copied transactionally without links and capped at 512 MiB, 10,000 entries, and 16 directory levels.
-- Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle.
+- Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle. Malformed records in the read portion and an incomplete final line are reported separately; reading never changes the source file.
 - Transcript search scans all loaded text in the selected mode, not just onscreen rows: `Ctrl+F`, an occurrence counter, next/previous navigation and highlights including link labels. The middle omitted by bounded file reads is not searched.
 - Multiple concurrent terminal tabs.
 - A real native PTY with resize, interrupt, and reliable process cleanup.
 - Configurable OMP executable, session root, models, language, and fonts. Settings → General → Interface text scale enlarges application text from 100% to 200%, persists across restarts, and does not change the independent terminal font size.
+- Settings contains keyboard focus: `Tab` / `Shift+Tab` cycle through available controls, `Escape` respects nested controls, and closing restores focus to the opener.
+- Initial OMP configuration failures appear in the main window with a retry action. Desktop settings recovery can open the settings folder even when `settings.json` itself is inaccessible.
 - OMP operation exposes numeric, boolean and enum settings supported by the installed runtime: search, categories, changed-only filtering and reset to the OMP schema default. Saving checks conflicts; project settings retain precedence and running processes are not restarted.
 - The resource monitor reports available RAM, swap pressure, free space for sessions, the workspace and temporary files, plus RSS for Desktop and direct OMP processes. It never terminates processes or deletes data automatically.
 - The project sidebar has persisted expanded, compact and auto-hide modes (`Ctrl+B`).
@@ -95,7 +99,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - In the current OMP input, `Ctrl+Z` undoes an edit, `Ctrl+Backspace` / `Ctrl+Delete` delete a word, `Shift+Enter` adds a line, and `Ctrl+Enter` submits a follow-up. `Ctrl+C` copies selected text or interrupts when nothing is selected; `Ctrl+V` uses OMP's native clipboard handling, including images, while `Ctrl+Shift+V` pastes uncollapsed text. `Ctrl+Y` retains OMP yank semantics rather than redo; ordinary interface fields keep standard WebView shortcuts.
 - Cross-process ownership of session JSONL uses an OS lease: active resume/discovered/delete operations hold the lock, and stale metadata requires explicit reclaim. Crash remnants are retained in bounded quarantine; silent automatic takeover is not performed.
 - A second launch with `--project <path>`, `-p <path>`, or a positional path forwards the workspace to the existing window.
-- Clicking the Desktop version starts a manual update check. OMP and Desktop update notices share a non-overlapping stack; background update offers do not cover modal controls.
+- Clicking the Desktop version starts a manual update check. OMP and Desktop update notices share a non-overlapping stack; background update offers do not cover modal controls. Installation with running terminals requires confirmation before downloading; cancellation leaves them running. Starting new terminals is blocked during confirmation and installation.
 - One codebase and installable packages for Windows and Linux.
 
 ### Installation

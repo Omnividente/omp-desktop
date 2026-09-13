@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { confirm } from "@tauri-apps/plugin-dialog"
 import { checkClientUpdate, installClientUpdate, type ClientUpdateInfo } from "./clientUpdater"
 import { t, type Lang } from "./i18n"
 import { errorMessage } from "./api"
@@ -21,6 +22,7 @@ export function useClientUpdater(
   language: Lang,
   showError: (message: string) => void,
   showNotice: (message: string) => void,
+  safety: { runningTerminalCount: number; launching: boolean },
 ): ClientUpdaterState {
   const checkingRef = useRef(false)
   const manualCheckRef = useRef(false)
@@ -90,9 +92,23 @@ export function useClientUpdater(
 
   const install = useCallback(async () => {
     if (installingRef.current || checkingRef.current) return
+    if (safety.launching) {
+      showNotice(t(language, "desktopUpdateWaitForLaunch"))
+      return
+    }
     installingRef.current = true
     setInstalling(true)
     try {
+      if (safety.runningTerminalCount > 0) {
+        const accepted = await confirm(
+          t(language, "desktopUpdateRunningConfirm").replace(
+            "{count}",
+            String(safety.runningTerminalCount),
+          ),
+          { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+        )
+        if (!accepted) return
+      }
       await installClientUpdate()
     } catch (error) {
       showError(errorMessage(error, language))
@@ -100,7 +116,7 @@ export function useClientUpdater(
       installingRef.current = false
       setInstalling(false)
     }
-  }, [language, showError])
+  }, [language, safety.launching, safety.runningTerminalCount, showError, showNotice])
 
   return {
     update: snoozedUntil === 0 ? availableUpdate : null,

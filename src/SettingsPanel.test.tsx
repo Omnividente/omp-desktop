@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act } from "react"
+import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
@@ -295,5 +295,157 @@ describe("SettingsPanel Save state", () => {
       ),
     ).toContain("private-gateway")
     expect(save.disabled).toBe(true)
+  })
+})
+
+describe("SettingsPanel keyboard lifecycle", () => {
+  let container: HTMLDivElement
+  let trigger: HTMLButtonElement
+  let root: Root
+
+  beforeEach(() => {
+    loadOmpConfigMock.mockReset()
+    loadOmpConfigMock.mockResolvedValue(ompConfig)
+    container = document.createElement("div")
+    trigger = document.createElement("button")
+    document.body.append(trigger, container)
+    trigger.focus()
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    trigger.remove()
+  })
+
+  async function renderPanel(onClose = vi.fn()) {
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <SettingsPanel
+            onClose={onClose}
+            onError={vi.fn()}
+            onSaved={vi.fn()}
+            runtime={runtime}
+            settings={settings}
+          />
+        </StrictMode>,
+      )
+    })
+  }
+
+  function press(target: HTMLElement, key: string, init: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key, ...init })
+    act(() => target.dispatchEvent(event))
+    return event
+  }
+
+  it("contains initial focus and wraps Tab around enabled, visible controls", async () => {
+    await renderPanel()
+    const panel = container.querySelector<HTMLElement>('[role="dialog"]')!
+    const close = container.querySelector<HTMLButtonElement>(".settings-header button")!
+    const cancel = container.querySelector<HTMLButtonElement>(".settings-actions .secondary")!
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(panel.contains(document.activeElement)).toBe(true)
+    expect(save.disabled).toBe(true)
+
+    close.focus()
+    press(close, "Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(cancel)
+    press(cancel, "Tab")
+    expect(document.activeElement).toBe(close)
+
+    container.querySelector<HTMLElement>(".settings-header")!.hidden = true
+    cancel.focus()
+    press(cancel, "Tab")
+    expect(document.activeElement).toBe(container.querySelector(".runtime-card button"))
+    press(document.activeElement as HTMLElement, "Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(cancel)
+  })
+
+  it("repairs removed section focus and includes newly enabled controls in the loop", async () => {
+    await renderPanel()
+    const panel = container.querySelector<HTMLElement>('[role="dialog"]')!
+    const oldControl = container.querySelector<HTMLInputElement>(".settings-fields input")!
+    oldControl.focus()
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    expect(oldControl.isConnected).toBe(false)
+    expect(panel.contains(document.activeElement)).toBe(true)
+
+    act(() => container.querySelector<HTMLInputElement>(".provider-proxy-toggle input")!.click())
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    const close = container.querySelector<HTMLButtonElement>(".settings-header button")!
+    expect(save.disabled).toBe(false)
+    close.focus()
+    press(close, "Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(save)
+    press(save, "Tab")
+    expect(document.activeElement).toBe(close)
+  })
+
+  it("uses the current close callback and restores a live trigger after StrictMode cleanup", async () => {
+    const previousClose = vi.fn()
+    await renderPanel(previousClose)
+    const control = container.querySelector<HTMLInputElement>(".settings-fields input")!
+    control.focus()
+    const currentClose = vi.fn(() => root.render(null))
+    await renderPanel(currentClose)
+    expect(document.activeElement).toBe(control)
+    press(control, "Escape")
+    expect(previousClose).not.toHaveBeenCalled()
+    expect(currentClose).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(trigger)
+
+    await renderPanel(currentClose)
+    trigger.remove()
+    press(container.querySelector<HTMLElement>('[role="dialog"]')!, "Escape")
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it("lets the nested model picker consume Escape without closing settings", async () => {
+    loadOmpConfigMock.mockResolvedValue({
+      ...ompConfig,
+      fallbackChains: { default: ["provider/model"] },
+    })
+    const onClose = vi.fn()
+    await renderPanel(onClose)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    const picker = container.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+    act(() => picker.click())
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!
+    listbox.focus()
+    press(listbox, "Escape")
+    expect(onClose).not.toHaveBeenCalled()
+    expect(picker.getAttribute("aria-expanded")).toBe("false")
+    expect(container.querySelector('[role="listbox"]')).toBeNull()
+    expect(container.querySelector('[role="dialog"]')!.contains(document.activeElement)).toBe(true)
+    picker.focus()
+    press(picker, "Escape")
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it("leaves select navigation, composition and stopped child events to their controls", async () => {
+    const onClose = vi.fn()
+    await renderPanel(onClose)
+    const select = container.querySelector<HTMLSelectElement>("select")!
+    select.focus()
+    expect(press(select, "ArrowDown").defaultPrevented).toBe(false)
+    expect(press(select, "Escape").defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(select)
+
+    const input = container.querySelector<HTMLInputElement>(".settings-fields input")!
+    input.focus()
+    expect(press(input, "Escape", { isComposing: true }).defaultPrevented).toBe(false)
+    expect(press(input, "Escape", { keyCode: 229 }).defaultPrevented).toBe(false)
+    expect(press(input, "Enter").defaultPrevented).toBe(false)
+    const stopEscape = (event: KeyboardEvent) => event.stopPropagation()
+    input.addEventListener("keydown", stopEscape)
+    press(input, "Escape")
+    input.removeEventListener("keydown", stopEscape)
+    expect(onClose).not.toHaveBeenCalled()
+    press(input, "Escape")
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
@@ -211,6 +211,20 @@ function accountReasonLabel(language: Lang, reason: string): string {
   return reason
 }
 
+function settingsControlAvailable(element: HTMLElement): boolean {
+  if (element.matches(":disabled") || element.closest("[hidden], [inert]")) return false
+  const visibility = window.getComputedStyle(element).visibility
+  if (visibility === "hidden" || visibility === "collapse") return false
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    if (window.getComputedStyle(ancestor).display === "none") return false
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
+      const summary = ancestor.querySelector(":scope > summary")
+      if (!summary?.contains(element)) return false
+    }
+  }
+  return true
+}
+
 export function SettingsPanel({
   settings,
   runtime,
@@ -220,6 +234,30 @@ export function SettingsPanel({
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
+  const panelRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const previous = document.activeElement
+    panelRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true })
+      }
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    const active = document.activeElement
+    if (
+      panel &&
+      (!panel.contains(active) ||
+        (active instanceof HTMLElement && !settingsControlAvailable(active)))
+    ) {
+      panel.focus({ preventScroll: true })
+    }
+  })
+
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
@@ -712,6 +750,34 @@ export function SettingsPanel({
         aria-labelledby="settings-title"
         aria-modal="true"
         className="settings-panel"
+        ref={panelRef}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229)
+            return
+          if (event.key === "Escape") {
+            // Native selects own Escape while navigating their platform popup.
+            if (event.target instanceof HTMLSelectElement) return
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+          } else if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            const panel = event.currentTarget
+            const controls = [
+              ...panel.querySelectorAll<HTMLElement>(
+                "button, input, select, textarea, a[href], summary, [tabindex], [contenteditable='true']",
+              ),
+            ].filter((element) => element.tabIndex >= 0 && settingsControlAvailable(element))
+            const first = controls[0]
+            const last = controls[controls.length - 1]
+            const active = document.activeElement
+            if (!first || active === panel || active === (event.shiftKey ? first : last)) {
+              event.preventDefault()
+              ;(event.shiftKey ? last : first)?.focus({ preventScroll: true })
+              if (!first) panel.focus({ preventScroll: true })
+            }
+          }
+        }}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
