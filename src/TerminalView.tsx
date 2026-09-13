@@ -411,9 +411,7 @@ export function TerminalView({
     }
     const handleOutputEvent = (event: PtyOutputEvent) => {
       const decision = applyTerminalOutputEvent(event)
-      if (decision.generationChanged) {
-        onErrorRef.current(t(languageRef.current, "terminalOutputGenerationChanged"))
-      } else if (decision.gap) {
+      if (decision.gap) {
         reportOutputGap(decision.expectedSeq, decision.receivedSeq)
       }
       if (decision.accept && event.data) outputBatcher.enqueue(decodeBase64(event.data))
