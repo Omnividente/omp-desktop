@@ -195,7 +195,7 @@
       "id": "discovery-5640a0d5b2031811",
       "title": "Fix terminal continuity generation changes during failure recovery",
       "task_type": "bugfix",
-      "status": "in_progress",
+      "status": "blocked",
       "priority": 10,
       "risk": "medium",
       "focus": [
@@ -222,15 +222,16 @@
         "dispatch_key": "fe76a63916c206fed06bc774"
       },
       "execution": {
-        "state": "dispatched",
+        "state": "quarantined",
         "session_id": "16681333232569685693",
         "dispatch_key": "0ac1d81fb9f819d97c5628f3",
         "attempts": 1,
         "started_at": "2026-09-13T07:46:44Z",
         "finished_at": "",
         "pull_request": 59,
-        "outcome": "",
-        "note": ""
+        "outcome": "stale",
+        "note": "owner_disabled_loop",
+        "quarantined_at": "2026-09-13T20:35:02Z"
       }
     }
   ]
