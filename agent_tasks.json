@@ -247,6 +247,90 @@
           "verified_at": "2026-09-13T20:39:09Z"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-performance-1",
+      "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-14T06:14:09Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "performance",
+        "fingerprint": "268c8cbc64d3e6af89d901d1908d03a9a8e98571b8ff074415b1f168a1c59f99",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified terminal input behaviour, including terminal batching boundary logic, shortcuts execution, and terminal continuity handling.",
+            "observations": [
+              {
+                "scenario": "Writing terminal input over maximum batch sizes in `terminalOutputBatcher.ts`",
+                "evidence": "Manually executed node script importing batch logic showing correct flush triggering at size boundaries (256 * 1024 bytes). Tested vitest terminal input suite verifying cursor inputs and batching logic boundaries.",
+                "result": "The terminal buffer behaves consistently handling chunk boundaries, correctly delaying processing using the 16ms window unless boundaries are met where it synchronously flushes."
+              },
+              {
+                "scenario": "Shortcuts edge conditions mapping correctly inside `terminalShortcuts.ts`",
+                "evidence": "Ran unit tests ensuring shortcuts such as `Ctrl+Z`, `Ctrl+Delete` mapping to PTY sequences correctly (`\\x1f`, `\\x1b[3;3~`). Manual regex inspection validates shortcuts pass unmodified when disabled by `isAgent`.",
+                "result": "Desktop input mappings properly filter out non-agent events and retain layout stability mapping keys properly."
+              },
+              {
+                "scenario": "Terminal output continuity generation validation in `terminalContinuity.ts`",
+                "evidence": "Running `vitest` `src/terminalContinuity.test.ts` validates generation drops and explicit continuity boundaries.",
+                "result": "Identified behavior that properly flags generating gaps and expected next sequences properly tracking truncation intent across restarts."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate input encoding/handling regarding copy/paste buffer and unicode multi-byte inputs interacting with `TerminalInput.ts` limits.",
+              "Investigate `TerminalState` transition boundary conditions where model switching drops recovery on overlapping events in `terminal.rs`."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-12T23:01:29Z",
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal input continuity and failure recovery, identifying a defect in how frontend handles generation changes during deferred output processing.",
+            "observations": [
+              {
+                "scenario": "Terminal process crashes and restarts, generating a new process generation ID.",
+                "evidence": "Tested using isolated synthetic experiments invoking `applyTerminalOutputEvent` with a new generation ID when `outputReady` is still true (before frontend completes re-attachment). Found that `TerminalView.tsx` receives `pty-output` with the new generation and fatals due to `decision.generationChanged` triggering `onErrorRef.current`.",
+                "result": "Establishes that the frontend improperly considers generation changes on output events as fatal errors, preventing seamless failure recovery if an output event arrives slightly before the attachment resolves. This confirms a defect."
+              },
+              {
+                "scenario": "Processing terminal attachment on new generation (restart) with buffered initial output.",
+                "evidence": "Inspected `applyTerminalAttachment` in `src/terminalContinuity.ts`. The `lastSeq` was computed using `previous.lastSeq` fallback without considering `attachment.nextSeq - 1` properly when `attachment.lastSeq` is null. We created an experiment that proved the logic drops subsequent valid `pty-output` events.",
+                "result": "Establishes that terminal continuity baseline tracking does not properly establish a new baseline sequence during failure recovery (reset=true)."
+              }
+            ],
+            "next_hypotheses": [
+              "Check if terminal shortcuts or input handlers correctly handle queued inputs during switching/re-attaching (the SwitchInputRecovery state)"
+            ],
+            "proposed_task_ids": [
+              "discovery-5640a0d5b2031811"
+            ],
+            "completed_at": "2026-09-13T07:32:02Z",
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
