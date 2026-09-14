@@ -386,7 +386,7 @@
       "id": "research-terminal-input-ux-1",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "a11y",
         "i18n",
@@ -499,6 +499,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "5b68f40585ff19e227be93c4",
+        "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
+        "starting_branch": "autonomous/attempt-5b68f40585ff19e227be93c4",
+        "started_at": "2026-09-14T06:30:28Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
