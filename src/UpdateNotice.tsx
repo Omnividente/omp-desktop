@@ -1,9 +1,10 @@
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
-import type { OmpUpdateInfo } from "./types"
 
 interface UpdateNoticeProps {
-  info: OmpUpdateInfo
+  title: string
+  message: string
+  actionLabel: string
   language: Lang
   disabled: boolean
   onRemindLater: () => void
@@ -13,7 +14,9 @@ interface UpdateNoticeProps {
 }
 
 export function UpdateNotice({
-  info,
+  title,
+  message,
+  actionLabel,
   language,
   disabled,
   onRemindLater,
@@ -22,15 +25,11 @@ export function UpdateNotice({
   onViewChanges,
 }: UpdateNoticeProps) {
   return (
-    <div className="update-toast" role="status">
+    <aside className="update-toast" role="status">
       <Icon name="spark" size={18} />
-      <div>
-        <strong>{t(language, "updateToastTitle")}</strong>
-        <span>
-          {t(language, "updateToastBody")
-            .replace("{current}", info.currentVersion ?? t(language, "notFound"))
-            .replace("{latest}", info.latestVersion ?? t(language, "updateAvailable"))}
-        </span>
+      <div className="update-toast-content">
+        <strong>{title}</strong>
+        <span>{message}</span>
         {onViewChanges && (
           <button className="release-notes-link" onClick={onViewChanges} type="button">
             {t(language, "viewChanges")}
@@ -38,26 +37,29 @@ export function UpdateNotice({
           </button>
         )}
       </div>
-      <button className="button primary" disabled={disabled} onClick={onUpdate} type="button">
-        {t(language, "updateNow")}
-      </button>
-      <button
-        className="button secondary"
-        disabled={disabled}
-        onClick={onRemindLater}
-        type="button"
-      >
-        {t(language, "updateRemindLater")}
-      </button>
+      <div className="update-toast-actions">
+        <button className="button primary" disabled={disabled} onClick={onUpdate} type="button">
+          {actionLabel}
+        </button>
+        <button
+          className="button secondary"
+          disabled={disabled}
+          onClick={onRemindLater}
+          type="button"
+        >
+          {t(language, "updateRemindLater")}
+        </button>
+      </div>
       <button
         aria-label={t(language, onDismissSession ? "updateDismissSession" : "close")}
         className="update-toast-close"
         onClick={onDismissSession ?? onRemindLater}
+        disabled={disabled}
         title={t(language, onDismissSession ? "updateDismissSession" : "close")}
         type="button"
       >
         <Icon name="close" size={14} />
       </button>
-    </div>
+    </aside>
   )
 }

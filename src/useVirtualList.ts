@@ -30,6 +30,7 @@ export interface UseVirtualResult<T> {
   virtualItems: VirtualItem<T>[]
   totalHeight: number
   measureElement: RefCallback<HTMLElement>
+  scrollToIndex: (index: number) => void
 }
 
 interface VirtualLayout {
@@ -280,10 +281,29 @@ export function useVirtualList<T>(
     }
   }, [containerRef])
 
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      const container = containerRef.current
+      if (!container || index < 0 || index >= items.length) return
+      const next = Math.max(
+        0,
+        Math.min(
+          layout.offsets[index],
+          layout.totalHeight - (container.clientHeight || DEFAULT_VIEWPORT_HEIGHT),
+        ),
+      )
+      container.scrollTop = next
+      // Publish synchronously: browser scroll events arrive after the next paint.
+      setScrollTop(next)
+    },
+    [containerRef, items.length, layout.offsets, layout.totalHeight],
+  )
+
   return {
     virtualItems,
     totalHeight: layout.totalHeight,
     measureElement,
+    scrollToIndex,
   }
 }
 
