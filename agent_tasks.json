@@ -386,7 +386,7 @@
       "id": "research-terminal-input-ux-1",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -502,18 +502,77 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9879402967937041838",
         "dispatch_key": "5b68f40585ff19e227be93c4",
         "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
         "starting_branch": "autonomous/attempt-5b68f40585ff19e227be93c4",
         "started_at": "2026-09-14T06:30:28Z",
-        "finished_at": "",
+        "finished_at": "2026-09-14T06:48:34Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-14T06:46:22Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-14T06:48:34Z"
+      },
+      "research_result": {
+        "summary": "Investigated the boundary condition between ordinary terminal input and failed switch recovery, confirming a chronological continuity defect.",
+        "observations": [
+          {
+            "scenario": "User types new input while a SwitchInputRecovery is pending (failedSend or pending state).",
+            "evidence": "Inspected terminalInputBlocked in src/terminalInput.ts and write_bytes in src-tauri/src/terminal.rs. The frontend explicitly unblocks input during recovery, allowing writeTerminal. The backend write_bytes enqueues this new input immediately to the PTY without clearing the pending switch_recovery state. If the user subsequently clicks Retry, send_switch_input_recovery enqueues the older recovery buffer after the newer typed input.",
+            "result": "Establishes that the system breaks chronological input continuity. Because ordinary input is intentionally unblocked but does not automatically clear the stale recovery state or queue behind it, the user can accidentally interleave past and current inputs out of order."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize.",
+          "Examine if the custom decodeBase64 correctly handles multi-byte characters split across PtyOutputEvent chunk boundaries."
+        ],
+        "proposed_task_ids": [
+          "discovery-d47c6c8c6e6f2995"
+        ],
+        "completed_at": "2026-09-14T06:48:34Z",
+        "source": {
+          "activity_id": "sessions/9879402967937041838/activities/982f779bd9be4393b0d46eacbeadfd9b",
+          "report_sha256": "a1439ed564f4e91dc7dce39a1fce760eb1493678da60c64668ef773f9d81edae",
+          "activity_created_at": "2026-09-14T06:40:51Z",
+          "session_id": "9879402967937041838",
+          "dispatch_key": "5b68f40585ff19e227be93c4"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-d47c6c8c6e6f2995",
+      "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
+      "task_type": "bugfix",
+      "status": "todo",
+      "priority": 40,
+      "risk": "medium",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-14T06:48:34Z",
+      "acceptance": [
+        "When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.",
+        "A test confirms that write_bytes removes switch_recovery if new input is sent."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order."
+      },
+      "target_paths": [
+        "src-tauri/src/terminal.rs",
+        "src/terminalInput.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-ux-1",
+        "activity_id": "sessions/9879402967937041838/activities/982f779bd9be4393b0d46eacbeadfd9b",
+        "report_sha256": "a1439ed564f4e91dc7dce39a1fce760eb1493678da60c64668ef773f9d81edae",
+        "activity_created_at": "2026-09-14T06:40:51Z",
+        "session_id": "9879402967937041838",
+        "dispatch_key": "5b68f40585ff19e227be93c4"
       }
     }
   ]
