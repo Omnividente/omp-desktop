@@ -2,8 +2,8 @@ use crate::{
     diagnostics,
     models::{
         AppSettings, BootstrapPayload, CodexSessionSummary, ImportItemResult, ImportItemStatus,
-        ImportMode, ImportSessionRequest, SessionSummary, SessionTranscript, TranscriptEntry,
-        TranscriptEntryCategory, WorkspaceSummary,
+        ImportMode, ImportSessionRequest, SessionScanWarning, SessionSummary, SessionTranscript,
+        TranscriptEntry, TranscriptEntryCategory, WorkspaceSummary,
     },
     settings::runtime_info,
 };
@@ -94,6 +94,9 @@ fn parse_session_cached(
         .filter(|cached| cached.stamp == stamp && cached.thread_names_stamp == names_stamp)
         .map(|cached| cached.summary.clone())
     {
+        // Metadata remains readable under some sharing locks or permission changes.
+        fs::File::open(path)
+            .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
         return Ok(Some(summary));
     }
 
@@ -129,9 +132,13 @@ pub(crate) fn build_bootstrap_excluding(
     excluded_session_key: Option<&str>,
 ) -> Result<BootstrapPayload, String> {
     let runtime = runtime_info(app, settings)?;
-    let mut sessions = scan_sessions(Path::new(&runtime.session_root))?;
+    let SessionScan {
+        mut sessions,
+        mut warnings,
+    } = scan_sessions(Path::new(&runtime.session_root))?;
     if let Some(excluded) = excluded_session_key {
         sessions.retain(|session| path_key(&session.file_path) != excluded);
+        warnings.retain(|warning| path_key(&warning.path) != excluded);
     }
     for session in &mut sessions {
         apply_session_title_pin(session, &settings.session_title_pins);
@@ -145,6 +152,7 @@ pub(crate) fn build_bootstrap_excluding(
         runtime,
         workspaces,
         sessions,
+        session_warnings: warnings,
     })
 }
 
@@ -994,6 +1002,7 @@ struct TranscriptRegions {
     prefix: Vec<u8>,
     tail: Vec<u8>,
     truncated: bool,
+    tail_reaches_end: bool,
 }
 
 pub fn read_session_transcript(
@@ -1019,14 +1028,26 @@ fn read_session_transcript_with_limits(
     let regions = read_transcript_regions(&path, prefix_limit, tail_limit)?;
     let mut entries = Vec::new();
     let mut line_index = 0_usize;
-    parse_transcript_region(&regions.prefix, &mut line_index, &mut entries);
-    parse_transcript_region(&regions.tail, &mut line_index, &mut entries);
+    let (prefix_malformed, prefix_incomplete) = parse_transcript_region(
+        &regions.prefix,
+        !regions.truncated,
+        &mut line_index,
+        &mut entries,
+    );
+    let (tail_malformed, tail_incomplete) = parse_transcript_region(
+        &regions.tail,
+        regions.tail_reaches_end,
+        &mut line_index,
+        &mut entries,
+    );
 
     Ok(SessionTranscript {
         session,
         entries,
         updated_at: modified_millis(&path),
         truncated: regions.truncated,
+        malformed_records: prefix_malformed + tail_malformed,
+        incomplete_last_record: prefix_incomplete || tail_incomplete,
     })
 }
 
@@ -1064,6 +1085,7 @@ fn read_transcript_regions(
                 prefix: full,
                 tail: Vec::new(),
                 truncated: false,
+                tail_reaches_end: false,
             });
         }
     }
@@ -1082,25 +1104,43 @@ fn read_transcript_regions(
         .map_err(|error| format!("Не удалось обновить метаданные {}: {error}", path.display()))?
         .len()
         .max(declared_size);
-    file.seek(SeekFrom::Start(
-        current_size.saturating_sub(tail_limit as u64),
-    ))
-    .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
-    let mut tail = Vec::with_capacity(tail_limit);
+    // Never overlap the prefix, including when the file shrinks between metadata reads.
+    let tail_start = current_size
+        .saturating_sub(tail_limit as u64)
+        .max(prefix_limit as u64);
+    file.seek(SeekFrom::Start(tail_start - 1))
+        .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
+    let mut preceding_byte = [0_u8; 1];
+    let starts_at_record = file
+        .read(&mut preceding_byte)
+        .map_err(|error| format!("Не удалось прочитать границу {}: {error}", path.display()))?
+        == 1
+        && preceding_byte[0] == b'\n';
+    let mut tail = Vec::with_capacity(tail_limit + 1);
+    // Probe one byte beyond the budget: concurrent append can turn the old EOF into
+    // an artificial boundary. Never report the clipped record as file corruption.
     Read::by_ref(&mut file)
-        .take(tail_limit as u64)
+        .take(tail_limit as u64 + 1)
         .read_to_end(&mut tail)
         .map_err(|error| format!("Не удалось прочитать конец {}: {error}", path.display()))?;
-    if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
-        tail.drain(..=first_newline);
-    } else {
-        tail.clear();
+    let tail_reaches_end = tail.len() <= tail_limit;
+    if !tail_reaches_end {
+        tail.truncate(tail_limit);
+        trim_trailing_partial_line(&mut tail);
+    }
+    if !starts_at_record {
+        if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
+            tail.drain(..=first_newline);
+        } else {
+            tail.clear();
+        }
     }
 
     Ok(TranscriptRegions {
         prefix,
         tail,
         truncated: true,
+        tail_reaches_end,
     })
 }
 
@@ -1117,19 +1157,33 @@ fn trim_trailing_partial_line(bytes: &mut Vec<u8>) {
 
 fn parse_transcript_region(
     region: &[u8],
+    reaches_end: bool,
     line_index: &mut usize,
     entries: &mut Vec<TranscriptEntry>,
-) {
-    for line in region.split(|byte| *byte == b'\n') {
+) -> (usize, bool) {
+    let mut malformed_records = 0;
+    let mut incomplete_last_record = false;
+    for row in region.split_inclusive(|byte| *byte == b'\n') {
         let current_index = *line_index;
         *line_index = line_index.saturating_add(1);
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+        let terminated = row.last() == Some(&b'\n');
+        if !terminated && !reaches_end {
             continue;
-        };
-        if let Some(entry) = transcript_entry_from_value(&value, current_index) {
-            entries.push(entry);
+        }
+        if row.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match serde_json::from_slice::<Value>(row) {
+            Ok(value) => {
+                if let Some(entry) = transcript_entry_from_value(&value, current_index) {
+                    entries.push(entry);
+                }
+            }
+            Err(_) if !terminated => incomplete_last_record = true,
+            Err(_) => malformed_records += 1,
         }
     }
+    (malformed_records, incomplete_last_record)
 }
 
 fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<TranscriptEntry> {
@@ -1326,7 +1380,7 @@ pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
     }
 
     let mut files = Vec::new();
-    collect_jsonl_files(&root, 0, 8, &mut files)?;
+    collect_jsonl_files(&root, 0, 8, &mut files, &mut Vec::new())?;
     let thread_names = load_codex_thread_names();
     let sessions = files
         .into_iter()
@@ -2165,37 +2219,65 @@ fn import_codex_session(
     })
 }
 
-fn scan_sessions(root: &Path) -> Result<Vec<SessionSummary>, String> {
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    if !root.is_dir() {
-        return Err(format!(
-            "Папка сессий не является каталогом: {}",
-            root.display()
-        ));
+#[derive(Default)]
+struct SessionScan {
+    sessions: Vec<SessionSummary>,
+    warnings: Vec<SessionScanWarning>,
+}
+
+fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
+    match fs::metadata(root) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(SessionScan::default());
+        }
+        Err(error) => {
+            return Err(format!(
+                "Не удалось прочитать метаданные {}: {error}",
+                root.display()
+            ));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(format!(
+                "Папка сессий не является каталогом: {}",
+                root.display()
+            ));
+        }
+        Ok(_) => {}
     }
 
+    let mut scan = SessionScan::default();
     let mut files = Vec::new();
-    collect_jsonl_files(root, 0, 3, &mut files)?;
+    collect_jsonl_files(root, 0, 3, &mut files, &mut scan.warnings)?;
     let current_files = files.iter().cloned().collect::<HashSet<_>>();
     let thread_names = load_codex_thread_names();
     let names_stamp = thread_names_stamp(&thread_names);
-    let mut sessions = files
-        .into_iter()
-        .filter_map(|path| {
-            parse_session_cached(&path, &thread_names, names_stamp)
-                .ok()
-                .flatten()
-        })
-        .collect::<Vec<_>>();
+    for path in files {
+        match parse_session_cached(&path, &thread_names, names_stamp) {
+            Ok(Some(session)) => scan.sessions.push(session),
+            result => {
+                let message = match result {
+                    Err(error) => error,
+                    _ => "Не найден распознаваемый заголовок сессии".to_owned(),
+                };
+                scan.warnings.push(SessionScanWarning {
+                    path: path.to_string_lossy().into_owned(),
+                    message,
+                });
+                session_summary_cache()
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .remove(&path);
+            }
+        }
+    }
     session_summary_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .retain(|path, _| current_files.contains(path));
 
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.updated_at));
-    Ok(sessions)
+    scan.sessions
+        .sort_by_key(|session| std::cmp::Reverse(session.updated_at));
+    Ok(scan)
 }
 
 fn collect_jsonl_files(
@@ -2203,25 +2285,42 @@ fn collect_jsonl_files(
     depth: usize,
     max_depth: usize,
     files: &mut Vec<PathBuf>,
+    warnings: &mut Vec<SessionScanWarning>,
 ) -> Result<(), String> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
-        Err(_) if depth > 0 => return Ok(()),
+    let directory_entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
         Err(error) => {
-            return Err(format!(
-                "Не удалось прочитать {}: {error}",
-                directory.display()
-            ))
+            let message = format!("Не удалось прочитать каталог: {error}");
+            if depth == 0 {
+                return Err(format!("{}: {message}", directory.display()));
+            }
+            warnings.push(SessionScanWarning {
+                path: directory.to_string_lossy().into_owned(),
+                message,
+            });
+            return Ok(());
         }
     };
-    // Task and subagent JSONLs live inside the parent session's same-stem artifact directory.
-    // Keep that execution lineage on disk, but expose only the parent discussion in the sidebar.
+    let mut entries = Vec::new();
+    for entry in directory_entries {
+        match entry {
+            Ok(entry) => {
+                let file_type = entry.file_type();
+                entries.push((entry, file_type));
+            }
+            Err(error) => warnings.push(SessionScanWarning {
+                path: directory.to_string_lossy().into_owned(),
+                message: format!("Не удалось прочитать элемент каталога: {error}"),
+            }),
+        }
+    }
+    // Reserve same-stem artifact directories even if the parent file's metadata is unavailable.
+    // Task and subagent JSONLs must never leak into the discussion list on a partial scan.
     let artifact_directory_names = entries
         .iter()
-        .filter_map(|entry| {
-            let file_type = entry.file_type().ok()?;
+        .filter_map(|(entry, file_type)| {
             let path = entry.path();
-            if !file_type.is_file()
+            if file_type.as_ref().is_ok_and(|kind| !kind.is_file())
                 || !path
                     .extension()
                     .and_then(|extension| extension.to_str())
@@ -2233,20 +2332,40 @@ fn collect_jsonl_files(
         })
         .collect::<HashSet<_>>();
 
-    for entry in entries {
+    for (entry, file_type) in entries {
         let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
         let is_import_sidecar = entry
             .file_name()
             .to_str()
             .is_some_and(|name| name.starts_with('.') && name.contains(".artifacts-"));
+        let is_artifact_directory = artifact_directory_names.contains(&entry.file_name());
+        let is_auxiliary = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("__"))
+            && path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"));
+        if is_auxiliary
+            || ((is_import_sidecar || is_artifact_directory)
+                && file_type.as_ref().map_or(true, |kind| kind.is_dir()))
+        {
+            continue;
+        }
+        let file_type = match file_type {
+            Ok(file_type) => file_type,
+            Err(error) => {
+                warnings.push(SessionScanWarning {
+                    path: path.to_string_lossy().into_owned(),
+                    message: format!("Не удалось прочитать тип элемента: {error}"),
+                });
+                continue;
+            }
+        };
 
         if file_type.is_dir() && depth < max_depth {
-            if !is_import_sidecar && !artifact_directory_names.contains(&entry.file_name()) {
-                collect_jsonl_files(&path, depth + 1, max_depth, files)?;
-            }
+            collect_jsonl_files(&path, depth + 1, max_depth, files, warnings)?;
             continue;
         }
 
@@ -2259,13 +2378,7 @@ fn collect_jsonl_files(
             continue;
         }
 
-        let is_auxiliary = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("__"));
-        if !is_auxiliary {
-            files.push(path);
-        }
+        files.push(path);
     }
 
     Ok(())
@@ -2288,60 +2401,6 @@ fn restorable_session_model(
     }
 }
 
-struct SessionSummaryRegions {
-    prefix: Vec<u8>,
-    tail: Vec<u8>,
-    truncated: bool,
-}
-
-fn read_session_summary_regions(path: &Path) -> Result<SessionSummaryRegions, String> {
-    let mut file = fs::File::open(path)
-        .map_err(|error| format!("Не удалось открыть {}: {error}", path.display()))?;
-    let size = file
-        .metadata()
-        .map_err(|error| {
-            format!(
-                "Не удалось прочитать метаданные {}: {error}",
-                path.display()
-            )
-        })?
-        .len();
-    let full_read_limit = (SESSION_SUMMARY_REGION_BYTES * 2) as u64;
-    if size <= full_read_limit {
-        let mut prefix = Vec::with_capacity(size as usize);
-        file.read_to_end(&mut prefix)
-            .map_err(|error| format!("Не удалось прочитать {}: {error}", path.display()))?;
-        return Ok(SessionSummaryRegions {
-            prefix,
-            tail: Vec::new(),
-            truncated: false,
-        });
-    }
-
-    let mut prefix = Vec::with_capacity(SESSION_SUMMARY_REGION_BYTES);
-    Read::by_ref(&mut file)
-        .take(SESSION_SUMMARY_REGION_BYTES as u64)
-        .read_to_end(&mut prefix)
-        .map_err(|error| format!("Не удалось прочитать начало {}: {error}", path.display()))?;
-    file.seek(SeekFrom::Start(
-        size.saturating_sub(SESSION_SUMMARY_REGION_BYTES as u64),
-    ))
-    .map_err(|error| format!("Не удалось перейти к концу {}: {error}", path.display()))?;
-    let mut tail = Vec::with_capacity(SESSION_SUMMARY_REGION_BYTES);
-    file.read_to_end(&mut tail)
-        .map_err(|error| format!("Не удалось прочитать конец {}: {error}", path.display()))?;
-    if let Some(first_newline) = tail.iter().position(|byte| *byte == b'\n') {
-        tail.drain(..=first_newline);
-    } else {
-        tail.clear();
-    }
-    Ok(SessionSummaryRegions {
-        prefix,
-        tail,
-        truncated: true,
-    })
-}
-
 fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
@@ -2352,7 +2411,11 @@ fn parse_session_with_names(
     path: &Path,
     thread_names: &HashMap<String, String>,
 ) -> Result<Option<SessionSummary>, String> {
-    let regions = read_session_summary_regions(path)?;
+    let regions = read_transcript_regions(
+        path,
+        SESSION_SUMMARY_REGION_BYTES,
+        SESSION_SUMMARY_REGION_BYTES,
+    )?;
     let mut line_index = 0_usize;
     let mut id = None;
     let mut cwd = None;
@@ -3386,8 +3449,128 @@ mod tests {
             std::process::id()
         ));
         let mut files = Vec::new();
-        assert!(collect_jsonl_files(&missing, 1, 3, &mut files).is_ok());
-        assert!(collect_jsonl_files(&missing, 0, 3, &mut files).is_err());
+        let mut warnings = Vec::new();
+        collect_jsonl_files(&missing, 1, 3, &mut files, &mut warnings)
+            .expect("nested failure should not abort the scan");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].path, missing.to_string_lossy());
+        assert!(collect_jsonl_files(&missing, 0, 3, &mut files, &mut warnings).is_err());
+    }
+
+    #[test]
+    fn scan_sessions_reports_bad_headers_without_hiding_valid_sessions_and_recovers_on_refresh() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-scan-warnings-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be writable");
+        let good = root.join("good.jsonl");
+        let bad = root.join("bad.jsonl");
+        fs::write(
+            &good,
+            concat!(
+                "{\"type\":\"session\",\"id\":\"good\",\"cwd\":\"/tmp/project\"}\n",
+                "{\"type\":\"message\",broken}\n"
+            ),
+        )
+        .expect("valid header fixture should be writable");
+        let private_record = "private-record-must-not-appear-in-warning";
+        fs::write(&bad, private_record).expect("bad fixture should be writable");
+        fs::write(root.join("__auxiliary.jsonl"), private_record)
+            .expect("auxiliary fixture should be writable");
+        let artifacts = root.join("bad");
+        fs::create_dir_all(&artifacts).expect("artifacts should be writable");
+        fs::write(artifacts.join("TaskWorker.jsonl"), private_record)
+            .expect("task fixture should be writable");
+
+        let scan = scan_sessions(&root).expect("individual corruption must not fail the scan");
+        assert_eq!(
+            scan.sessions
+                .iter()
+                .map(|session| session.id.as_str())
+                .collect::<Vec<_>>(),
+            ["good"]
+        );
+        assert_eq!(scan.warnings.len(), 1);
+        assert_eq!(scan.warnings[0].path, bad.to_string_lossy());
+        assert!(!scan.warnings[0].message.contains(private_record));
+
+        fs::write(
+            &bad,
+            "{\"type\":\"session\",\"id\":\"repaired\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .expect("repaired fixture should be writable");
+        let refreshed = scan_sessions(&root).expect("refresh should reread the repaired file");
+        assert!(refreshed.warnings.is_empty());
+        assert_eq!(
+            refreshed
+                .sessions
+                .iter()
+                .map(|session| session.id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["good", "repaired"])
+        );
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_sessions_reports_inaccessible_files_and_recovers_after_unlock() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-scan-locked-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be writable");
+        let locked = root.join("locked.jsonl");
+        for (path, id) in [
+            (root.join("good.jsonl"), "good"),
+            (locked.clone(), "locked"),
+        ] {
+            fs::write(
+                path,
+                format!("{{\"type\":\"session\",\"id\":\"{id}\",\"cwd\":\"/tmp/project\"}}\n"),
+            )
+            .expect("fixture should be writable");
+        }
+        assert_eq!(
+            scan_sessions(&root)
+                .expect("initial scan should succeed")
+                .sessions
+                .len(),
+            2
+        );
+
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&locked)
+            .expect("fixture should allow an exclusive handle");
+        let scan = scan_sessions(&root).expect("individual access failure must not abort the scan");
+        assert_eq!(
+            scan.sessions
+                .iter()
+                .map(|session| session.id.as_str())
+                .collect::<Vec<_>>(),
+            ["good"]
+        );
+        assert_eq!(scan.warnings.len(), 1);
+        assert_eq!(scan.warnings[0].path, locked.to_string_lossy());
+        drop(lock);
+
+        let refreshed = scan_sessions(&root).expect("refresh after unlock should succeed");
+        assert!(refreshed.warnings.is_empty());
+        assert_eq!(refreshed.sessions.len(), 2);
+        fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 
     #[test]
@@ -3421,7 +3604,9 @@ mod tests {
         fs::write(&legacy, session("legacy", "Independent nested discussion"))
             .expect("legacy fixture should be writable");
 
-        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        let scan = scan_sessions(&root).expect("sessions should be scannable");
+        assert!(scan.warnings.is_empty());
+        let sessions = scan.sessions;
         assert_eq!(sessions.len(), 2);
         assert!(sessions.iter().any(|session| session.id == "parent"));
         assert!(sessions.iter().any(|session| session.id == "legacy"));
@@ -3807,8 +3992,119 @@ mod tests {
             .map(|entry| entry.id.as_str())
             .collect::<Vec<_>>();
         assert!(transcript.truncated);
+        assert_eq!(transcript.malformed_records, 1);
+        assert!(!transcript.incomplete_last_record);
         assert_eq!(ids, ["first", "latest"]);
 
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn transcript_distinguishes_malformed_rows_from_an_incomplete_final_record() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-transcript-corruption-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be writable");
+        let path = root.join("session.jsonl");
+        let mut file = fs::File::create(&path).expect("fixture should be writable");
+        file.write_all(concat!(
+            "{\"type\":\"session\",\"id\":\"diagnostics\",\"cwd\":\"/tmp/project\"}\n",
+            " \t\r\n",
+            "{malformed-complete-record}\n",
+            "{\"type\":\"unknown-future-event\",\"payload\":{}}\n",
+            "{\"type\":\"message\",\"id\":\"first\",\"message\":{\"role\":\"user\",\"content\":\"first\"}}\n"
+        ).as_bytes())
+        .expect("complete records should be writable");
+        file.write_all(&[0xff, b'\n'])
+            .expect("invalid UTF-8 record should be writable");
+        file.write_all(b"{\"type\":\"message\",\"id\":\"last\",\"message\":{\"role\":\"assistant\",\"content\":\"par")
+            .expect("partial final record should be writable");
+        drop(file);
+
+        let partial = read_session_transcript(path.to_string_lossy().as_ref(), &root)
+            .expect("partial transcript should remain readable");
+        assert_eq!(partial.malformed_records, 2);
+        assert!(partial.incomplete_last_record);
+        assert!(!partial.truncated);
+        assert_eq!(
+            partial
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["first"]
+        );
+
+        let mut append = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("fixture should allow append");
+        append
+            .write_all(b"tial\"}}")
+            .expect("final record should be completable without newline");
+        drop(append);
+        let complete = read_session_transcript(path.to_string_lossy().as_ref(), &root)
+            .expect("completed transcript should be readable after refresh");
+        assert_eq!(complete.malformed_records, 2);
+        assert!(!complete.incomplete_last_record);
+        assert_eq!(
+            complete
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "last"]
+        );
+        assert_eq!(complete.entries[1].text, "partial");
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn transcript_budget_boundaries_do_not_create_corruption_warnings() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-transcript-boundaries-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be writable");
+        let path = root.join("session.jsonl");
+        let latest =
+            r#"{"type":"message","id":"latest","message":{"role":"assistant","content":"latest"}}"#;
+        let contents = format!(
+            "{{\"type\":\"session\",\"id\":\"bounded\",\"cwd\":\"/tmp/project\"}}\n{{\"type\":\"message\",\"id\":\"first\",\"message\":{{\"role\":\"user\",\"content\":\"first\"}}}}\n{{\"type\":\"future-event\",\"text\":\"{}\"}}\n{latest}",
+            "x".repeat(1_200)
+        );
+        fs::write(&path, contents).expect("fixture should be writable");
+
+        // One tail begins exactly at a record, the other inside the skipped oversized row.
+        for tail_limit in [latest.len(), latest.len() + 32] {
+            let transcript = read_session_transcript_with_limits(
+                path.to_string_lossy().as_ref(),
+                &root,
+                256,
+                tail_limit,
+            )
+            .expect("bounded transcript should be readable");
+            assert!(transcript.truncated);
+            assert_eq!(transcript.malformed_records, 0);
+            assert!(!transcript.incomplete_last_record);
+            assert_eq!(
+                transcript
+                    .entries
+                    .iter()
+                    .map(|entry| entry.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["first", "latest"]
+            );
+        }
         fs::remove_dir_all(root).expect("fixture root should be removable");
     }
     #[test]
@@ -3854,7 +4150,9 @@ mod tests {
             .expect("untitled_msg fixture should be writable");
         fs::write(&titled, titled_content).expect("titled fixture should be writable");
 
-        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        let sessions = scan_sessions(&root)
+            .expect("sessions should be scannable")
+            .sessions;
         assert_eq!(sessions.len(), 4);
         assert!(sessions.iter().any(|s| s.title == "Real work session"));
         assert!(sessions
@@ -3919,7 +4217,9 @@ mod tests {
             "Roleless custom message must not set has_messages to true"
         );
 
-        let sessions = scan_sessions(&root).expect("sessions should be scannable");
+        let sessions = scan_sessions(&root)
+            .expect("sessions should be scannable")
+            .sessions;
         assert_eq!(
             sessions.len(),
             2,
@@ -4636,7 +4936,7 @@ mod tests {
         .expect_err("invalid artifacts must fail the import");
         assert!(error.contains("Артефакты"));
         let mut imported_files = Vec::new();
-        collect_jsonl_files(&session_root, 0, 3, &mut imported_files)
+        collect_jsonl_files(&session_root, 0, 3, &mut imported_files, &mut Vec::new())
             .expect("empty import destination should remain scannable");
         assert!(imported_files.is_empty());
 
@@ -4822,6 +5122,7 @@ mod tests {
         assert_eq!(
             scan_sessions(&sessions)
                 .expect("cold scan should succeed")
+                .sessions
                 .len(),
             10_000
         );
@@ -4830,6 +5131,7 @@ mod tests {
         assert_eq!(
             scan_sessions(&sessions)
                 .expect("warm scan should succeed")
+                .sessions
                 .len(),
             10_000
         );

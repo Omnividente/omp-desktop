@@ -1,9 +1,11 @@
 # Autonomous task
 
-You are improving `{{PROJECT_REPO}}` inside a **parallel improvement track**.
-Work from branch `{{INTEGRATION_BRANCH}}` at commit `{{BASE_COMMIT}}` and open a
-pull request **into `{{INTEGRATION_BRANCH}}`**. Never target `main`, never
-release anything, never bump a version.
+You are proposing an improvement to `{{PROJECT_REPO}}` for **human acceptance**.
+Start from the immutable branch `{{STARTING_BRANCH}}` at `{{BASE_COMMIT}}`.
+The intended proposal target is `{{INTEGRATION_BRANCH}}`; if Jules opens the PR
+against the starting branch, the controller retargets that exact session output.
+Never push directly to the starting or target branch, merge a PR, target `main`,
+release anything or bump a version. A human or Main AI decides whether to accept.
 
 - Focus filter: `{{FOCUS}}`
 - Highest acceptable risk: `{{RISK_CEILING}}`
@@ -32,12 +34,12 @@ Only these paths:
 - `src-tauri/src/**`
 - `src-tauri/tests/**`
 
-A pull request that touches anything else is rejected automatically. In
-particular do **not** edit:
+A proposal outside this boundary is blocked in the review report; owner approval
+does not waive excluded paths. In particular do **not** edit:
 
 - `.github/workflows/**`, `.github/scripts/**`, `.github/release-notes/**`
 - `scripts/autonomous/**`, `docs/autonomous/**`, `autonomous-project.json`
-- `agent_tasks.json` - the task queue is owned by the automation, not by you
+- `agent_tasks.json` - only the controller writes the queue in `autonomous/state`
 - `package.json`, `package-lock.json` (no dependency changes)
 - `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`,
   `src-tauri/tauri.updater-e2e.conf.json`
@@ -46,16 +48,17 @@ particular do **not** edit:
 
 The auto-update surface (`src/clientUpdater.ts`, `src/useClientUpdater.ts`,
 `src/updateReminder.ts`, the update notices and their tests, `src-tauri` updater
-files) is editable but **always** goes to human review, because a broken updater
-cannot be repaired remotely. Touch it only if the task is really about it, and
-expect a slower acceptance.
+files) is editable but requires explicit revision-bound owner review, because a
+broken updater cannot be repaired remotely. Touch it only if this task requires
+it, and explain the risk. All other proposals also require manual acceptance.
 
 ## Prove the fix with a failing-first test
 
-A merge gate re-runs your work mechanically: it reverts your source changes at
-the merge base, runs the tests you touched (they must **fail**), restores your
-changes and runs them again (they must **pass**). A fix without that evidence is
-never merged unattended.
+The evidence gate checks your TypeScript proof mechanically: it runs the touched
+tests without the source change (they must **fail on an assertion**), then with
+the change (they must **pass**). An import failure or zero executed tests proves
+nothing. Tests-only changes are not failing-first proof. No gate accepts the PR;
+the report describes evidence and remaining risks for the human decision.
 
 So:
 
@@ -98,18 +101,21 @@ AUTONOMOUS_TASK_ID: {{TASK_ID}}
 
 Also copy the **exact `AUTONOMOUS_DISPATCH_KEY` line from the top of this prompt**
 into the pull request body (or preserve the exact `[dispatch:...]` title marker).
-The task id identifies the work; the dispatch key identifies this attempt. Never
-reuse a marker from an older attempt. Then describe, briefly:
+These markers are context for reviewers, not authority to change the queue.
+The controller verifies the saved Jules session and its exact PR output instead
+of trusting the PR author or editable body. Never reuse an old attempt marker.
+Then describe, briefly:
 
 - the observed defect or limitation and the expected user benefit
 - what you changed
 - which test proves it, and that it fails without the fix
 - anything you deliberately left alone
 - reproducible commands/scenarios and any before/after measurements
-- additional concrete findings, if any, in an `AUTONOMOUS_TASKS_BEGIN` / `END`
-  JSON array with title, task_type, risk, priority, focus, target_paths,
-  acceptance and evidence; otherwise omit that block
+- additional observations, if any, as prose for the reviewer; PR body findings
+  are not imported into the queue. Structured backlog import is reserved for
+  accepted reports from a separately assigned research session.
 
-Changes deferred to human review remain proposals for later inspection. Do not
-weaken checks or broaden the change to force acceptance; the lab continues with
-other work while this proposal waits.
+Every change remains a proposal until a human or Main AI accepts it. Do not
+weaken checks or broaden the change to force acceptance. Once your session is
+terminal, other work may proceed while its PR waits. Closing the PR without a
+merge declines this task permanently; the controller does not retry it.

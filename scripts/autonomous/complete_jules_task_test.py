@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -15,13 +16,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from complete_jules_task import MAX_REPORT_CHARS, harvest, main
+from complete_jules_task import MAX_REPORT_CHARS, harvest, main, redact
 from jules_dispatch import Response
 from task_lifecycle import start
 from validate_tasks import validate
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
-CONFIG = {"product": {"editable_globs": ["src/**"], "excluded": ["src/secrets/**"]},
+CONFIG = {"repository": "owner/project", "product": {"editable_globs": ["src/**"], "excluded": ["src/secrets/**"]},
           "risk_ceiling": "medium"}
 FINDING = {"id": "fix-clock", "title": "Fix stale clock after resume", "task_type": "bugfix",
            "risk": "low", "target_paths": ["src/clock.ts"],
@@ -109,7 +110,11 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(child["acceptance"], FINDING["acceptance"])
         self.assertEqual(child["evidence"], FINDING["evidence"])
         self.assertEqual(child["origin"], {"task_id": "research-clock", "session_id": "7",
-                                           "dispatch_key": "first"})
+                                           "dispatch_key": "first",
+                                           "activity_id": "sessions/7/activities/a3",
+                                           "activity_created_at": "2026-09-13T11:03:00Z",
+                                           "report_sha256": hashlib.sha256(report([FINDING]).encode("utf-8")).hexdigest()})
+        self.assertEqual(stored["source"], {key: value for key, value in child["origin"].items() if key != "task_id"})
         before = copy.deepcopy(data)
         requests = len(api.requests)
         self.assertFalse(run(data, api)["changed"])
@@ -172,6 +177,16 @@ class CompletionTest(unittest.TestCase):
                     run(data, API(session=dict(SESSION, **override)))
                 self.assertEqual(data, before)
 
+    def test_exact_get_rejects_wrong_starting_branch_before_importing_reports(self):
+        data = manifest()
+        data["tasks"][0]["execution"].update(base_sha="a" * 40, starting_branch="autonomous/attempt-first")
+        before = copy.deepcopy(data)
+        snapshot = dict(SESSION, sourceContext={"source": "sources/github/owner/project",
+                                               "githubRepoContext": {"startingBranch": "autonomous/lab"}})
+        with self.assertRaises(ValueError):
+            run(data, API([[activity(report([FINDING]))]], session=snapshot))
+        self.assertEqual(data, before)
+
     def test_api_failure_after_first_page_retains_all_queue_state(self):
         data = manifest()
         before = copy.deepcopy(data)
@@ -183,7 +198,7 @@ class CompletionTest(unittest.TestCase):
     def test_prose_completion_is_not_terminal_and_pr_outputs_defer_to_sweep(self):
         for session, reason in (
             (dict(SESSION, state="IN_PROGRESS", description="COMPLETED no changes"), "session_not_completed"),
-            (dict(SESSION, outputs=[{"pullRequest": {"url": "https://github.com/o/r/pull/7"}}]),
+            (dict(SESSION, outputs=[{"pullRequest": {"url": "https://github.com/owner/project/pull/7"}}]),
              "pull_request_pending_sweep"),
         ):
             with self.subTest(reason=reason):
@@ -322,6 +337,10 @@ class CompletionTest(unittest.TestCase):
                 run(data, api, snapshot=snapshot, retry_report=True)
             self.assertEqual(api.requests, [])
             self.assertEqual(data, before)
+
+    def test_empty_credentials_do_not_expand_or_destroy_error_details(self):
+        self.assertEqual(redact("before fixture-value after", ["", "fixture-value"]),
+                         "before [REDACTED] after")
 
     def test_invalid_diagnostics_preserve_parser_reason_and_redact_before_bounding(self):
         secrets = ["test-only", "configured-value/with?punct", "ghp_" + "a" * 36,

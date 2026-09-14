@@ -48,7 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
-          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+          python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
+          python3 control/scripts/autonomous/validate_tasks.py queue.json
 
       - name: Report drift in the loop entry points on the integration branch
         id: drift
@@ -79,7 +80,7 @@ jobs:
           if [ "${drift}" != "0" ]; then
             {
               echo ""
-              echo "Run **Autonomous Sync Main** to validate and synchronize the accepted control plane at an idle boundary. This monitor never writes workflow files itself."
+              echo "Run **Autonomous Sync Main** to validate and synchronize the accepted control plane. Human proposals do not block synchronization. This monitor never writes workflow files itself."
               echo ""
             } >> "${GITHUB_STEP_SUMMARY}"
             echo "::warning::${drift} loop entry point(s) on ${INTEGRATION_BRANCH} are missing or out of date, so its pull requests may run without an evidence gate."
@@ -93,13 +94,34 @@ jobs:
           git -C lab fetch --no-tags origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
           gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
-          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number,state,title,body,merged_at,labels:[.labels[]?.name],draft}' | jq -s '.' > pull-requests.json
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[]' | jq -s '.' > pull-requests.json
+          # The list endpoint omits mergeability; fetch open PRs individually.
+          jq -r '.[] | select(.state == "open") | .number' pull-requests.json > open-pr-numbers.txt
+          while read -r number; do
+            gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > observed-pr.json
+            jq --slurpfile pr observed-pr.json 'map(if .number == $pr[0].number then $pr[0] else . end)' pull-requests.json > updated-prs.json
+            mv updated-prs.json pull-requests.json
+          done < open-pr-numbers.txt
+          # A green job is not proof of publication; inspect its retained outcome.
+          sync_id=$(jq -r '[.[] | select(.head_branch == "main" and .status == "completed")] | max_by(.id) | .id // empty' sync-runs.json)
+          sync_args=()
+          if [ -n "${sync_id}" ]; then
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${sync_id}/artifacts" > sync-artifacts.json
+            artifact=$(jq -r '[.artifacts[] | select(.expired == false and (.name | startswith("autonomous-sync-result-")))] | max_by(.id) | .name // empty' sync-artifacts.json)
+            if [ -n "${artifact}" ]; then
+              gh run download "${sync_id}" --repo "${GITHUB_REPOSITORY}" --name "${artifact}" --dir sync-outcome
+            else
+              mkdir -p sync-outcome
+              jq -n --arg main "$(git -C lab rev-parse refs/remotes/origin/main)" '{main_sha:$main,status:"unknown",reason:"sync_outcome_missing"}' > sync-outcome/sync-result.json
+            fi
+            sync_args=(--sync-result sync-outcome/sync-result.json)
+          fi
           enabled=false
           if [ "${LOOP_ENABLED}" = "true" ]; then enabled=true; fi
           # Read-only: neither the planner's prospective task nor lifecycle
           # reconciliation is written back to the integration queue.
           status=0
-          python3 control/scripts/autonomous/loop_health.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
+          python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json "${sync_args[@]}" --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
           {
             echo '### Autonomous loop health'
             echo ''
@@ -121,3 +143,11 @@ jobs:
             echo '::error::Autonomous loop needs attention; see observed timestamps and reason codes in the job summary.'
             exit 1
           fi
+
+      - name: Retain machine-readable health
+        if: ${{ always() && hashFiles('health.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: autonomous-health
+          path: health.json
+          retention-days: 14

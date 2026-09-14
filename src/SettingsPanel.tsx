@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
 import { Icon } from "./Icon"
@@ -14,11 +14,13 @@ import {
 import { ModelPicker } from "./ModelPicker"
 import type {
   AppSettings,
-  BootstrapPayload,
+  SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
   OmpCredentialInfo,
   OmpCustomProviderRequest,
+  OmpOperationalChange,
+  OmpOperationalSetting,
   RuntimeInfo,
 } from "./types"
 
@@ -26,8 +28,7 @@ interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
   onClose: () => void
-  onSaved: (payload: BootstrapPayload) => void
-  onConfigSaved?: (snapshot: OmpConfigSnapshot) => void
+  onSaved: (payload: SettingsSavePayload) => void
   onError: (message: string) => void
 }
 
@@ -39,7 +40,18 @@ function providerEnvDraft(keys: string[], current: Record<string, string> = {}) 
   return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
 }
 
-type SettingsSection = "general" | "behavior" | "models" | "providers"
+type SettingsSection = "general" | "behavior" | "operations" | "models" | "providers"
+
+type OperationalDraft = { value: string; reset: boolean }
+const OPERATION_CATEGORIES = ["agent", "context", "retry", "tools", "terminal", "tasks"] as const
+const OPERATION_LABELS = {
+  agent: "operationsAgent",
+  context: "operationsContext",
+  retry: "operationsRetry",
+  tools: "operationsTools",
+  terminal: "operationsTerminal",
+  tasks: "operationsTasks",
+} as const
 
 interface FallbackChainDraft {
   id: string
@@ -198,15 +210,52 @@ function accountReasonLabel(language: Lang, reason: string): string {
   return reason
 }
 
+function settingsControlAvailable(element: HTMLElement): boolean {
+  if (element.matches(":disabled") || element.closest("[hidden], [inert]")) return false
+  const visibility = window.getComputedStyle(element).visibility
+  if (visibility === "hidden" || visibility === "collapse") return false
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    if (window.getComputedStyle(ancestor).display === "none") return false
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
+      const summary = ancestor.querySelector(":scope > summary")
+      if (!summary?.contains(element)) return false
+    }
+  }
+  return true
+}
+
 export function SettingsPanel({
   settings,
   runtime,
   onClose,
   onSaved,
-  onConfigSaved,
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
+  const panelRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const previous = document.activeElement
+    panelRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true })
+      }
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    const active = document.activeElement
+    if (
+      panel &&
+      (!panel.contains(active) ||
+        (active instanceof HTMLElement && !settingsControlAvailable(active)))
+    ) {
+      panel.focus({ preventScroll: true })
+    }
+  })
+
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
@@ -215,6 +264,10 @@ export function SettingsPanel({
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
+  const configGenerationRef = useRef(0)
+  const disposedRef = useRef(false)
+  const configRuntimeRef = useRef<RuntimeInfo | null>(null)
+  const invalidateConfig = useCallback(() => ++configGenerationRef.current, [])
   const [configError, setConfigError] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
@@ -246,6 +299,10 @@ export function SettingsPanel({
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY")
   const [newKeyValue, setNewKeyValue] = useState("")
   const [activeSection, setActiveSection] = useState<SettingsSection>("general")
+  const [operationDrafts, setOperationDrafts] = useState<Record<string, OperationalDraft>>({})
+  const [operationSearch, setOperationSearch] = useState("")
+  const [operationCategory, setOperationCategory] = useState("all")
+  const [operationsModifiedOnly, setOperationsModifiedOnly] = useState(false)
 
   const nextFallbackChainId = () => `fallback-chain-${fallbackDraftSequence.current++}`
   const fallbackDraftsFromSnapshot = (chains: Record<string, string[]>) =>
@@ -255,12 +312,31 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const refreshConfig = async (forceUsage = false) => {
-    if (!runtime.ompAvailable) {
-      return
-    }
-    setLoadingConfig(true)
+  const acceptConfig = (snapshot: OmpConfigSnapshot | null) => {
+    setOmpConfig(snapshot)
+    setOperationDrafts({})
+    const drafts: Record<string, string> = {}
+    for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
+    setRoleDrafts(drafts)
+    setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
+    setAutoResume(snapshot?.autoResume ?? false)
+    setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
+    setModelFallbackEnabled(snapshot?.modelFallbackEnabled ?? true)
+    setFallbackChains(fallbackDraftsFromSnapshot(snapshot?.fallbackChains ?? {}))
+    setProxyProviders(snapshot?.proxyProviders ?? [])
+    setDisabledProviders(snapshot?.disabledProviders ?? [])
+    setRemovedCustomProviders([])
+    setClockNow(Date.now())
+  }
+
+  const refreshConfig = async (forceUsage = false, requestRuntime = runtime) => {
+    const generation = invalidateConfig()
+    const isCurrent = () => !disposedRef.current && generation === configGenerationRef.current
+    configRuntimeRef.current = requestRuntime
+    if (disposedRef.current) return
     setConfigError(null)
+    setLoadingConfig(requestRuntime.ompAvailable)
+    if (!requestRuntime.ompAvailable) return
     if (forceUsage) {
       const requestedAt = Date.now()
       setClockNow(requestedAt)
@@ -268,35 +344,38 @@ export function SettingsPanel({
     }
     try {
       const snapshot = forceUsage ? await refreshOmpConfig() : await loadOmpConfig()
-      const loadedAt = Date.now()
-      setOmpConfig(snapshot)
-      const drafts: Record<string, string> = {}
-      for (const role of snapshot.roles) {
-        drafts[role.role] = role.selector
-      }
-      setRoleDrafts(drafts)
-      setAdvisorEnabled(snapshot.advisorEnabled)
-      setAutoResume(snapshot.autoResume)
-      setThinkingLevel(snapshot.defaultThinkingLevel ?? "medium")
-      setModelFallbackEnabled(snapshot.modelFallbackEnabled)
-      setFallbackChains(fallbackDraftsFromSnapshot(snapshot.fallbackChains))
-      setProxyProviders(snapshot.proxyProviders)
-      setDisabledProviders(snapshot.disabledProviders)
-      setRemovedCustomProviders([])
-      setClockNow(loadedAt)
+      if (isCurrent()) acceptConfig(snapshot)
     } catch (error) {
+      if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
       onError(message)
     } finally {
-      setLoadingConfig(false)
+      if (isCurrent()) setLoadingConfig(false)
     }
   }
 
+  useLayoutEffect(() => {
+    disposedRef.current = false
+    return () => {
+      disposedRef.current = true
+      invalidateConfig()
+      configRuntimeRef.current = null
+    }
+  }, [invalidateConfig])
+
   useEffect(() => {
-    void refreshConfig()
+    const previous = configRuntimeRef.current
+    if (
+      previous?.ompAvailable === runtime.ompAvailable &&
+      previous.ompExecutable === runtime.ompExecutable &&
+      previous.ompVersion === runtime.ompVersion
+    )
+      return
+    acceptConfig(null)
+    void refreshConfig(false, runtime)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtime.ompAvailable])
+  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
 
   useEffect(() => {
     setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
@@ -341,6 +420,46 @@ export function SettingsPanel({
       : Math.max(0, clockNow - ompConfig.usageObservedAt)
   const usageIsStale = usageAgeMs !== null && usageAgeMs > USAGE_STALE_MS
   const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
+
+  const operationGroups = useMemo(() => {
+    const query = operationSearch.trim().toLocaleLowerCase()
+    const visible = (ompConfig?.operationalSettings ?? []).filter(
+      (setting) =>
+        (operationCategory === "all" || setting.category === operationCategory) &&
+        (!operationsModifiedOnly || operationDrafts[setting.key] !== undefined) &&
+        (!query ||
+          `${setting.key} ${setting.description} ${t(language, OPERATION_LABELS[setting.category])}`
+            .toLocaleLowerCase()
+            .includes(query)),
+    )
+    return OPERATION_CATEGORIES.map((category) => ({
+      category,
+      settings: visible.filter((setting) => setting.category === category),
+    })).filter((group) => group.settings.length > 0)
+  }, [
+    ompConfig?.operationalSettings,
+    operationSearch,
+    operationCategory,
+    operationsModifiedOnly,
+    operationDrafts,
+    language,
+  ])
+
+  const setOperationValue = (setting: OmpOperationalSetting, value: string) => {
+    setOperationDrafts((current) => {
+      const next = { ...current }
+      if (setting.value !== null && value === String(setting.value)) delete next[setting.key]
+      else next[setting.key] = { value, reset: false }
+      return next
+    })
+  }
+
+  const undoOperation = (key: string) =>
+    setOperationDrafts((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
 
   const updateFallbackChain = (
     chainId: string,
@@ -488,6 +607,7 @@ export function SettingsPanel({
 
     return (
       rolesChanged ||
+      Object.keys(operationDrafts).length > 0 ||
       advisorEnabled !== ompConfig.advisorEnabled ||
       autoResume !== ompConfig.autoResume ||
       thinkingLevel !== (ompConfig.defaultThinkingLevel ?? "medium") ||
@@ -510,6 +630,7 @@ export function SettingsPanel({
     language,
     modelFallbackEnabled,
     ompConfig,
+    operationDrafts,
     providerEnv,
     removedCustomProviders,
     proxyProviders,
@@ -523,6 +644,9 @@ export function SettingsPanel({
   ])
 
   const save = async () => {
+    const reloadConfigOnFailure = loadingConfig && ompConfig === null
+    const generation = invalidateConfig()
+    setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
     try {
@@ -533,6 +657,29 @@ export function SettingsPanel({
       const fallbackConfig = includeOmpConfig
         ? serializeFallbackChains(fallbackChains, language)
         : null
+      const operationalChanges: Record<string, OmpOperationalChange> = {}
+      for (const setting of ompConfig?.operationalSettings ?? []) {
+        const draft = operationDrafts[setting.key]
+        if (!draft) continue
+        if (
+          !draft.reset &&
+          setting.type === "number" &&
+          (draft.value.trim() === "" || !Number.isFinite(Number(draft.value)))
+        ) {
+          throw new Error(t(language, "operationsInvalidNumber").replace("{key}", setting.key))
+        }
+        operationalChanges[setting.key] = {
+          expectedValue: setting.value,
+          reset: draft.reset,
+          value: draft.reset
+            ? null
+            : setting.type === "boolean"
+              ? draft.value === "true"
+              : setting.type === "number"
+                ? Number(draft.value)
+                : draft.value,
+        }
+      }
       const result = await saveSettingsBundle({
         update: {
           ompExecutable: executable.trim() || null,
@@ -547,13 +694,36 @@ export function SettingsPanel({
         ompConfig: includeOmpConfig
           ? {
               roles: roleDrafts,
-              advisorEnabled,
-              autoResume,
-              defaultThinkingLevel: thinkingLevel,
-              modelFallbackEnabled,
-              fallbackChains: fallbackConfig,
-              proxyProviders,
-              disabledProviders,
+              advisorEnabled:
+                advisorEnabled !== ompConfig?.advisorEnabled ? advisorEnabled : undefined,
+              autoResume: autoResume !== ompConfig?.autoResume ? autoResume : undefined,
+              defaultThinkingLevel:
+                thinkingLevel !== (ompConfig?.defaultThinkingLevel ?? "medium")
+                  ? thinkingLevel
+                  : undefined,
+              modelFallbackEnabled:
+                modelFallbackEnabled !== ompConfig?.modelFallbackEnabled
+                  ? modelFallbackEnabled
+                  : undefined,
+              fallbackChains:
+                fallbackConfig &&
+                ompConfig &&
+                !fallbackChainsEqual(fallbackConfig, ompConfig.fallbackChains)
+                  ? fallbackConfig
+                  : undefined,
+              proxyProviders:
+                ompConfig &&
+                [...proxyProviders].sort().join("\u0000") !==
+                  [...ompConfig.proxyProviders].sort().join("\u0000")
+                  ? proxyProviders
+                  : undefined,
+              disabledProviders:
+                ompConfig &&
+                [...disabledProviders].sort().join("\u0000") !==
+                  [...ompConfig.disabledProviders].sort().join("\u0000")
+                  ? disabledProviders
+                  : undefined,
+              operationalChanges,
               customProviderUpserts: customProviderReady
                 ? [
                     {
@@ -568,34 +738,33 @@ export function SettingsPanel({
             }
           : null,
       })
+      invalidateConfig()
+      configRuntimeRef.current = result.bootstrap.runtime
+      onSaved(result)
+      if (disposedRef.current) return
+      setConfigError(null)
+      setLoadingConfig(false)
+      acceptConfig(result.ompConfig)
       if (result.ompConfig) {
-        const savedRoleDrafts: Record<string, string> = {}
-        for (const role of result.ompConfig.roles) savedRoleDrafts[role.role] = role.selector
-        setOmpConfig(result.ompConfig)
-        setRoleDrafts(savedRoleDrafts)
-        setAdvisorEnabled(result.ompConfig.advisorEnabled)
-        setAutoResume(result.ompConfig.autoResume)
-        setThinkingLevel(result.ompConfig.defaultThinkingLevel ?? "medium")
-        setModelFallbackEnabled(result.ompConfig.modelFallbackEnabled)
-        setFallbackChains(fallbackDraftsFromSnapshot(result.ompConfig.fallbackChains))
-        setProxyProviders(result.ompConfig.proxyProviders)
-        setDisabledProviders(result.ompConfig.disabledProviders)
-        setRemovedCustomProviders([])
         setCustomProviderId("")
         setCustomProviderUrl("")
         setCustomProviderKey("")
-        onConfigSaved?.(result.ompConfig)
+      } else {
+        void refreshConfig(false, result.bootstrap.runtime)
       }
       setProviderEnv((current) =>
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
-      onSaved(result.bootstrap)
     } catch (error) {
+      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
       setSaveError(message)
       onError(message)
+      if (reloadConfigOnFailure && generation === configGenerationRef.current) {
+        void refreshConfig(false, configRuntimeRef.current ?? runtime)
+      }
     } finally {
-      setSaving(false)
+      if (!disposedRef.current) setSaving(false)
     }
   }
 
@@ -605,6 +774,34 @@ export function SettingsPanel({
         aria-labelledby="settings-title"
         aria-modal="true"
         className="settings-panel"
+        ref={panelRef}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229)
+            return
+          if (event.key === "Escape") {
+            // Native selects own Escape while navigating their platform popup.
+            if (event.target instanceof HTMLSelectElement) return
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+          } else if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            const panel = event.currentTarget
+            const controls = [
+              ...panel.querySelectorAll<HTMLElement>(
+                "button, input, select, textarea, a[href], summary, [tabindex], [contenteditable='true']",
+              ),
+            ].filter((element) => element.tabIndex >= 0 && settingsControlAvailable(element))
+            const first = controls[0]
+            const last = controls[controls.length - 1]
+            const active = document.activeElement
+            if (!first || active === panel || active === (event.shiftKey ? first : last)) {
+              event.preventDefault()
+              ;(event.shiftKey ? last : first)?.focus({ preventScroll: true })
+              if (!first) panel.focus({ preventScroll: true })
+            }
+          }
+        }}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -727,6 +924,21 @@ export function SettingsPanel({
             >
               <Icon name="command" size={15} />
               <span>{t(language, "settingsBehaviorTab")}</span>
+            </button>
+            <button
+              aria-controls="settings-panel-operations"
+              aria-selected={activeSection === "operations"}
+              className={activeSection === "operations" ? "is-active" : ""}
+              id="settings-tab-operations"
+              onClick={() => {
+                setActiveSection("operations")
+                setOpenRole(null)
+              }}
+              role="tab"
+              type="button"
+            >
+              <Icon name="settings" size={15} />
+              <span>{t(language, "operationsTab")}</span>
             </button>
             <button
               aria-controls="settings-panel-models"
@@ -958,6 +1170,167 @@ export function SettingsPanel({
                     <Icon className="select-chevron" name="chevron" size={14} />
                   </div>
                   <p className="field-help">{t(language, "terminalFontSizeHelp")}</p>
+                </section>
+              )}
+
+              {activeSection === "operations" && (
+                <section className="settings-section settings-operations">
+                  <div className="settings-section-heading">
+                    <div>
+                      <span className="eyebrow">{t(language, "operationsTab")}</span>
+                      <p>{t(language, "operationsHelp")}</p>
+                    </div>
+                    <span className="settings-count">
+                      {ompConfig?.operationalSettings?.length ?? 0}
+                    </span>
+                  </div>
+                  <div className="settings-operation-filters">
+                    <input
+                      aria-label={t(language, "operationsSearch")}
+                      onChange={(event) => setOperationSearch(event.target.value)}
+                      placeholder={t(language, "operationsSearch")}
+                      type="search"
+                      value={operationSearch}
+                    />
+                    <select
+                      aria-label={t(language, "settingsCategories")}
+                      onChange={(event) => setOperationCategory(event.target.value)}
+                      value={operationCategory}
+                    >
+                      <option value="all">{t(language, "operationsAll")}</option>
+                      {OPERATION_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>
+                          {t(language, OPERATION_LABELS[category])}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="toggle-row">
+                      <input
+                        checked={operationsModifiedOnly}
+                        onChange={(event) => setOperationsModifiedOnly(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>{t(language, "operationsModified")}</span>
+                    </label>
+                  </div>
+                  {!ompConfig?.operationalSettings?.length ? (
+                    <p className="field-help" role="status">
+                      {t(language, "operationsUnavailable")}
+                    </p>
+                  ) : operationGroups.length === 0 ? (
+                    <p className="field-help" role="status">
+                      {t(language, "operationsEmpty")}
+                    </p>
+                  ) : (
+                    operationGroups.map((group) => (
+                      <fieldset className="settings-operation-group" key={group.category}>
+                        <legend>
+                          {t(language, OPERATION_LABELS[group.category])} · {group.settings.length}
+                        </legend>
+                        {group.settings.map((setting) => {
+                          const draft = operationDrafts[setting.key]
+                          const value =
+                            draft && !draft.reset
+                              ? draft.value
+                              : setting.value === null
+                                ? ""
+                                : String(setting.value)
+                          const inputId = `operation-${setting.key}`
+                          const descriptionId = `${inputId}-description`
+                          const disabled = saving || loadingConfig || draft?.reset === true
+                          return (
+                            <div
+                              className={`settings-operation-row${draft ? " is-modified" : ""}`}
+                              key={setting.key}
+                            >
+                              <label className="field-label" htmlFor={inputId}>
+                                {setting.key}
+                              </label>
+                              {setting.type === "number" ? (
+                                <input
+                                  aria-describedby={descriptionId}
+                                  disabled={disabled}
+                                  id={inputId}
+                                  onChange={(event) =>
+                                    setOperationValue(setting, event.target.value)
+                                  }
+                                  placeholder={t(language, "operationsUnset")}
+                                  step="any"
+                                  type="number"
+                                  value={value}
+                                />
+                              ) : (
+                                <select
+                                  aria-describedby={descriptionId}
+                                  disabled={disabled}
+                                  id={inputId}
+                                  onChange={(event) =>
+                                    setOperationValue(setting, event.target.value)
+                                  }
+                                  value={value}
+                                >
+                                  {value === "" && (
+                                    <option value="" disabled>
+                                      {t(language, "operationsUnset")}
+                                    </option>
+                                  )}
+                                  {setting.type === "boolean" ? (
+                                    <>
+                                      <option value="true">{t(language, "operationsOn")}</option>
+                                      <option value="false">{t(language, "operationsOff")}</option>
+                                    </>
+                                  ) : (
+                                    setting.choices.map((choice) => (
+                                      <option key={choice} value={choice}>
+                                        {choice}
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+                              )}
+                              <p className="field-help" id={descriptionId}>
+                                {setting.description}
+                              </p>
+                              <small className="settings-operation-effective">
+                                {t(language, "operationsEffective")}:{" "}
+                                {setting.value === null
+                                  ? t(language, "operationsUnset")
+                                  : String(setting.value)}
+                                {draft?.reset && ` · ${t(language, "operationsResetPending")}`}
+                              </small>
+                              <div className="settings-operation-actions">
+                                <button
+                                  className="button secondary"
+                                  disabled={saving || loadingConfig || draft?.reset}
+                                  onClick={() =>
+                                    setOperationDrafts((current) => ({
+                                      ...current,
+                                      [setting.key]: { value: "", reset: true },
+                                    }))
+                                  }
+                                  title={t(language, "operationsResetHelp")}
+                                  type="button"
+                                >
+                                  {t(language, "operationsReset")}
+                                </button>
+                                {draft && (
+                                  <button
+                                    className="button secondary"
+                                    disabled={saving || loadingConfig}
+                                    onClick={() => undoOperation(setting.key)}
+                                    type="button"
+                                  >
+                                    {t(language, "operationsUndo")}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </fieldset>
+                    ))
+                  )}
+                  <p className="field-help">{t(language, "operationsResetHelp")}</p>
                 </section>
               )}
 

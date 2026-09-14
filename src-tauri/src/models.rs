@@ -393,11 +393,19 @@ pub struct WorkspaceSummary {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionScanWarning {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
     pub settings: AppSettings,
     pub runtime: RuntimeInfo,
     pub workspaces: Vec<WorkspaceSummary>,
     pub sessions: Vec<SessionSummary>,
+    pub session_warnings: Vec<SessionScanWarning>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -528,6 +536,25 @@ pub struct OmpAccountUsageInfo {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OmpOperationalSetting {
+    pub key: String,
+    pub category: String,
+    pub r#type: String,
+    pub description: String,
+    pub value: serde_json::Value,
+    pub choices: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OmpOperationalChange {
+    pub expected_value: serde_json::Value,
+    pub value: serde_json::Value,
+    pub reset: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
     pub models: Vec<OmpModelInfo>,
@@ -545,6 +572,7 @@ pub struct OmpConfigSnapshot {
     pub provider_env_keys: Vec<String>,
     pub credentials: Vec<OmpCredentialInfo>,
     pub warnings: Vec<OmpConfigWarning>,
+    pub operational_settings: Vec<OmpOperationalSetting>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -572,6 +600,8 @@ pub struct OmpConfigSaveRequest {
     #[serde(default)]
     pub removed_custom_providers: Vec<String>,
     pub provider_env: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub operational_changes: BTreeMap<String, OmpOperationalChange>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -638,6 +668,8 @@ pub struct SessionTranscript {
     pub entries: Vec<TranscriptEntry>,
     pub updated_at: u64,
     pub truncated: bool,
+    pub malformed_records: usize,
+    pub incomplete_last_record: bool,
 }
 
 #[cfg(test)]

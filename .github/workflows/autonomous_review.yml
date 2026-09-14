@@ -1,0 +1,152 @@
+name: Autonomous Proposal Review
+
+# Read-only product/state access. Only bot-authored, SHA-bound review comments
+# are written; human acceptance remains outside the autonomous loop.
+on:
+  workflow_run:
+    workflows:
+      - Quality Gate
+      - Autonomous Evidence Gate
+    types: [completed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: autonomous-proposal-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: Report proposals for human acceptance
+    if: ${{ vars.JULES_LOOP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
+      REVIEW_PR: ${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the trusted control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+          persist-credentials: false
+
+      - name: Check out the legacy migration seed read-only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+          path: lab
+          persist-credentials: false
+
+      - name: Load the authoritative queue without writing it
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
+          test "$(jq -r .repository control/autonomous-project.json)" = "${GITHUB_REPOSITORY}"
+          git -C lab config credential.helper '!gh auth git-credential'
+          python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
+
+      - name: Collect exact inputs and publish idempotent bot reports
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          if [ -n "${TRIGGER_SHA}" ]; then
+            numbers=$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${TRIGGER_SHA}/pulls?per_page=100" --jq '.[].number')
+          elif [ -n "${REVIEW_PR}" ]; then
+            numbers="${REVIEW_PR}"
+          else
+            numbers=$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls?state=open&base=${INTEGRATION_BRANCH}&per_page=100" --jq '.[].number')
+          fi
+          for number in ${numbers}; do
+            lab_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
+            gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > pr-before.json
+            ci_sha="${TRIGGER_SHA:-$(jq -r .head.sha pr-before.json)}"
+            before_sha=$(jq -r .head.sha pr-before.json)
+            before_base=$(jq -r .base.sha pr-before.json)
+            expected_files=$(jq -r .changed_files pr-before.json)
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls/${number}/files?per_page=100" --jq '.[]' | jq -s '.' > pr-files.json
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls/${number}/reviews?per_page=100" --jq '.[]' | jq -s '.' > approvals.json
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${ci_sha}/check-runs?per_page=100" --jq '.check_runs[]' | jq -s '.' > checks.json
+            # Compare immutable revisions, never REST pr.base.sha as a live tip.
+            if ! gh api "/repos/${GITHUB_REPOSITORY}/compare/${lab_sha}...${ci_sha}" > comparison.json; then
+              printf '{}\n' > comparison.json
+            fi
+            gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > pr.json
+            collected_lab=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
+            files_sha=""
+            if [ "${before_sha}" = "${ci_sha}" ] && [ "$(jq -r .head.sha pr.json)" = "${ci_sha}" ] && [ "$(jq -r .base.sha pr.json)" = "${before_base}" ] && [ "${collected_lab}" = "${lab_sha}" ]; then
+              files_sha="${ci_sha}"
+            fi
+            prefix="reports/proposal-${number}-${ci_sha}-${lab_sha}"
+            python3 control/scripts/autonomous/proposal_review.py \
+              --pr-json pr.json --config control/autonomous-project.json --manifest queue.json \
+              --integration-branch "${INTEGRATION_BRANCH}" --ci-sha "${ci_sha}" --files-sha "${files_sha}" \
+              --lab-sha "${lab_sha}" --comparison-json comparison.json \
+              --pr-files pr-files.json --expected-file-count "${expected_files}" \
+              --checks checks.json --approvals approvals.json \
+              --decision-out "${prefix}.json" --report-out "${prefix}.md"
+            cat "${prefix}.md" >> "${GITHUB_STEP_SUMMARY}"
+            # Unknown PRs are visible in Actions only. Public markers/authors
+            # never grant permission to write a laboratory report to their PR.
+            if [ "$(jq -r .provenance_verified "${prefix}.json")" != "true" ]; then
+              continue
+            fi
+            gh api --paginate "/repos/${GITHUB_REPOSITORY}/issues/${number}/comments?per_page=100" --jq '.[]' | jq -s '.' > comments.json
+            marker="<!-- autonomous-proposal-review:${ci_sha} -->"
+            comment_id=$(jq -r --arg marker "${marker}" '[.[] | select(.user.id == 41898282 and .user.type == "Bot" and ((.body // "") | startswith($marker)))] | first | .id // empty' comments.json)
+            jq -n --rawfile body "${prefix}.md" '{body: $body}' > comment-payload.json
+            # Re-read both live identities after pagination and immediately
+            # before writing. REST base.sha is only a diff snapshot above.
+            gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > pr-publish.json
+            publish_lab=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
+            if [ "$(jq -r .head.sha pr-publish.json)" != "${ci_sha}" ] || [ "${publish_lab}" != "${lab_sha}" ] || [ "$(jq -r .base.ref pr-publish.json)" != "${INTEGRATION_BRANCH}" ] || [ "$(jq -r .state pr-publish.json)" != "open" ]; then
+              echo "- #${number} or lab changed before publication; retained historical report only." >> "${GITHUB_STEP_SUMMARY}"
+              continue
+            fi
+            if [ -n "${comment_id}" ]; then
+              if jq -e --argjson id "${comment_id}" --rawfile body "${prefix}.md" '.[] | select(.id == $id) | .body == $body' comments.json > /dev/null; then
+                continue
+              fi
+              published_id=$(gh api --method PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --input comment-payload.json --jq '.id')
+            else
+              published_id=$(gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/${number}/comments" --input comment-payload.json --jq '.id')
+            fi
+            # GitHub comments have no ref CAS: retract readiness if either ref
+            # raced the write, or if the post-write freshness read failed.
+            published_current=false
+            if gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > pr-after.json && after_lab=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha'); then
+              if [ "$(jq -r .head.sha pr-after.json)" = "${ci_sha}" ] && [ "${after_lab}" = "${lab_sha}" ] && [ "$(jq -r .base.ref pr-after.json)" = "${INTEGRATION_BRANCH}" ] && [ "$(jq -r .state pr-after.json)" = "open" ]; then
+                published_current=true
+              fi
+            fi
+            if [ "${published_current}" != true ]; then
+              jq -n --arg marker "${marker}" --arg head "${ci_sha}" --arg lab "${lab_sha}" \
+                --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+                '{body:($marker + "\n## Autonomous proposal review: blocked\n\nThe proposal or laboratory changed during publication, or its freshness could not be confirmed. No current readiness is established.\n\nHistorical pins: proposal `" + $head + "`, lab `" + $lab + "`. The original report is retained in [Actions artifacts](" + $run + "). Recollect inputs against both current revisions.")}' > stale-payload.json
+              gh api --method PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${published_id}" --input stale-payload.json > /dev/null
+              echo "- #${number} freshness changed during publication; readiness withdrawn, historical artifact retained." >> "${GITHUB_STEP_SUMMARY}"
+            fi
+          done
+
+      - name: Retain revision-bound review reports
+        if: ${{ always() && hashFiles('reports/*.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: autonomous-proposal-reviews-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/
+          retention-days: 30
+          if-no-files-found: error
+          include-hidden-files: false

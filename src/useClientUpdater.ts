@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { confirm } from "@tauri-apps/plugin-dialog"
 import { checkClientUpdate, installClientUpdate, type ClientUpdateInfo } from "./clientUpdater"
-import type { Lang } from "./i18n"
+import { t, type Lang } from "./i18n"
 import { errorMessage } from "./api"
 import {
   persistClientUpdateReminderSnooze,
@@ -8,9 +9,12 @@ import {
   UPDATE_REMINDER_SNOOZE_MS,
 } from "./updateReminder"
 
-interface ClientUpdaterState {
+export interface ClientUpdaterState {
   update: ClientUpdateInfo | null
   installing: boolean
+  isInstalling: () => boolean
+  checking: boolean
+  checkNow: () => void
   remindLater: () => void
   install: () => void
 }
@@ -18,23 +22,44 @@ interface ClientUpdaterState {
 export function useClientUpdater(
   language: Lang,
   showError: (message: string) => void,
+  showNotice: (message: string) => void,
+  safety: () => { runningTerminalCount: number; launching: boolean },
 ): ClientUpdaterState {
   const checkingRef = useRef(false)
+  const manualCheckRef = useRef(false)
+  const installingRef = useRef(false)
+  const [checking, setChecking] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<ClientUpdateInfo | null>(null)
   const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
   const [installing, setInstalling] = useState(false)
+  const isInstalling = useCallback(() => installingRef.current, [])
 
-  const checkForUpdate = useCallback(async () => {
-    if (checkingRef.current) return
-    checkingRef.current = true
-    try {
-      setAvailableUpdate(await checkClientUpdate())
-    } catch {
-      // The updater is optional while running a browser preview or offline.
-    } finally {
-      checkingRef.current = false
-    }
-  }, [])
+  const checkForUpdate = useCallback(
+    async (manual = false) => {
+      if (installingRef.current) return
+      if (manual) manualCheckRef.current = true
+      if (checkingRef.current) return
+      checkingRef.current = true
+      setChecking(true)
+      try {
+        const update = await checkClientUpdate()
+        setAvailableUpdate(update)
+        if (manualCheckRef.current) {
+          persistClientUpdateReminderSnooze(0)
+          setSnoozedUntil(0)
+          if (!update) showNotice(t(language, "desktopUpdateCurrent"))
+        }
+      } catch (error) {
+        // Background checks stay quiet offline; a requested check must report failure.
+        if (manualCheckRef.current) showError(errorMessage(error, language))
+      } finally {
+        checkingRef.current = false
+        manualCheckRef.current = false
+        setChecking(false)
+      }
+    },
+    [language, showError, showNotice],
+  )
 
   useEffect(() => {
     void checkForUpdate()
@@ -68,19 +93,40 @@ export function useClientUpdater(
   }, [])
 
   const install = useCallback(async () => {
+    if (installingRef.current || checkingRef.current) return
+    const currentSafety = safety()
+    if (currentSafety.launching) {
+      showNotice(t(language, "desktopUpdateWaitForLaunch"))
+      return
+    }
+    installingRef.current = true
     setInstalling(true)
     try {
+      if (currentSafety.runningTerminalCount > 0) {
+        const accepted = await confirm(
+          t(language, "desktopUpdateRunningConfirm").replace(
+            "{count}",
+            String(currentSafety.runningTerminalCount),
+          ),
+          { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+        )
+        if (!accepted) return
+      }
       await installClientUpdate()
     } catch (error) {
       showError(errorMessage(error, language))
     } finally {
+      installingRef.current = false
       setInstalling(false)
     }
-  }, [language, showError])
+  }, [language, safety, showError, showNotice])
 
   return {
     update: snoozedUntil === 0 ? availableUpdate : null,
+    checking,
+    checkNow: () => void checkForUpdate(true),
     installing,
+    isInstalling,
     remindLater,
     install: () => void install(),
   }
