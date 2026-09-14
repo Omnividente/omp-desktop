@@ -7,13 +7,24 @@
 
 **[Русский](#русский) · [English](#english)**
 
-![OMP Desktop interface](docs/omp-desktop.png)
-
 ## Русский
 
 **OMP Desktop** — кроссплатформенный графический клиент для [Oh My Pi](https://github.com/can1357/oh-my-pi). Он объединяет проекты, историю сессий и живые терминалы OMP в одном нативном приложении для Windows и Linux.
 
+![OMP Desktop interface](docs/omp-desktop.png)
+
+**[Установка](#установка) · [Последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+
 ### Возможности
+
+- **Проекты и сессии:** недавние рабочие папки, поиск, возобновление и цепочки handoff.
+- **Нативные терминалы:** параллельные PTY-вкладки, изменение размера, прерывание и завершение процессов.
+- **Настройки и провайдеры:** параметры OMP, модели, аккаунты и лимиты, фиксация провайдера для сессии.
+- **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки с явными ограничениями чтения, предупреждения и монитор ресурсов.
+- **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
+
+<details>
+<summary>Подробные возможности, ограничения и поведение</summary>
 
 - Проекты и недавние рабочие папки в боковой панели.
 - Автоматическое обнаружение стандартных JSONL-сессий OMP. Нечитаемые файлы и нераспознаваемые заголовки показываются отдельным предупреждением с путями и повторным чтением; остальные сессии остаются доступны.
@@ -41,6 +52,8 @@
 - Второй запуск с `--project <path>`, `-p <path>` или позиционным путём передаёт workspace в уже открытое окно.
 - Нажатие версии Desktop запускает ручную проверку обновления. Уведомления OMP и Desktop используют общий стек без взаимного перекрытия; фоновые предложения обновиться не закрывают кнопки модальных окон. Установка при работающих терминалах требует подтверждения до загрузки; отмена сохраняет их работу. На время подтверждения и установки заблокированы новые запуски терминалов и перезапуск для смены фиксации провайдера. Установка не начинается при незавершённом запуске или перезапуске терминала; отмена и ошибка установки освобождают блокировку.
 - Единая кодовая база и установщики для Windows и Linux.
+
+</details>
 
 ### Установка
 
@@ -75,7 +88,18 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 
 **OMP Desktop** is a cross-platform graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings projects, session history, and live OMP terminals into one native desktop application for Windows and Linux.
 
+**[Installation](#installation) · [Latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+
 ### Features
+
+- **Projects and sessions:** recent workspaces, search, resume, and handoff lineage.
+- **Native terminals:** concurrent PTY tabs, resizing, interruption, and process cleanup.
+- **Configuration and providers:** OMP settings, models, accounts and limits, and per-session provider pinning.
+- **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search with explicit read limits, warnings, and resource monitoring.
+- **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.
+
+<details>
+<summary>Detailed features, limitations, and behavior</summary>
 
 - Project sidebar with persisted recent workspaces.
 - Automatic discovery of standard OMP JSONL sessions. Unreadable files and unrecognized headers appear in a separate warning with paths and a retry action; other sessions remain available.
@@ -103,6 +127,8 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - A second launch with `--project <path>`, `-p <path>`, or a positional path forwards the workspace to the existing window.
 - Clicking the Desktop version starts a manual update check. OMP and Desktop update notices share a non-overlapping stack; background update offers do not cover modal controls. Installation with running terminals requires confirmation before downloading; cancellation leaves them running. New terminal launches and provider-pin restarts are blocked during confirmation and installation. Installation cannot start while a terminal launch or restart is pending; cancellation and installation failure release the gate.
 - One codebase and installable packages for Windows and Linux.
+
+</details>
 
 ### Installation
 
