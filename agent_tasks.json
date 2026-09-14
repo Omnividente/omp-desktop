@@ -252,7 +252,7 @@
       "id": "research-terminal-input-performance-1",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -330,6 +330,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "80cb5d29f0a87a34cd2a9859",
+        "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
+        "starting_branch": "autonomous/attempt-80cb5d29f0a87a34cd2a9859",
+        "started_at": "2026-09-14T06:14:09Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
