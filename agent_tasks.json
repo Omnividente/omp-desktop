@@ -252,7 +252,7 @@
       "id": "research-terminal-input-performance-1",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -333,18 +333,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12039231957422058631",
         "dispatch_key": "80cb5d29f0a87a34cd2a9859",
         "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
         "starting_branch": "autonomous/attempt-80cb5d29f0a87a34cd2a9859",
         "started_at": "2026-09-14T06:14:09Z",
-        "finished_at": "",
+        "finished_at": "2026-09-14T06:30:28Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-14T06:28:19Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-14T06:30:28Z"
+      },
+      "research_result": {
+        "summary": "Measured terminal output batching and base64 decoding latency, confirming high performance and bounded memory usage.",
+        "observations": [
+          {
+            "scenario": "Rapid queuing of many small output chunks via `createTerminalOutputBatcher`",
+            "evidence": "Simulated 500,000 enqueues of 64-byte chunks (30.52 MB total) in a synthetic benchmark script. Observed 124 batch flushes completing in ~50ms total execution time. Memory allocations remained well-bounded (heap used +0.45 MB), successfully averting GC pauses under heavy load.",
+            "result": "Establishes that the custom chunk batcher efficiently arrays small chunks without unbounded memory retention or latency issues prior to invoking the terminal write."
+          },
+          {
+            "scenario": "Decoding large Base64 PTY output payloads synchronously on the frontend",
+            "evidence": "Benchmarked the custom `decodeBase64` function (`atob` + `charCodeAt` loop) in a Playwright Chromium environment using a 256KB payload (simulating MAX_TERMINAL_WRITE_BATCH limits). The loop decoded the string in roughly 1.8 to 2.0ms per call.",
+            "result": "Establishes that the synchronous decoding implementation is heavily optimized by V8 and comfortably meets input latency requirements. No performance bottleneck exists, and offloading to Web Workers or alternative asynchronous APIs (like `fetch` with data URIs) would add unnecessary overhead."
+          },
+          {
+            "scenario": "Applying formatting regex to massive terminal clipboard events via `formatSelectionReply`",
+            "evidence": "Ran a synthetic benchmark passing a 10MB text string (simulating an extreme terminal block selection) through `formatSelectionReply`. The `UNSAFE_SELECTION_CONTROLS` regex filter and line-splitting logic completed in ~130ms.",
+            "result": "Establishes that standard and even massive terminal selection lengths resolve nearly instantly, and the control character regex acts as an efficient filter without causing catastrophic backtracking delays."
+          }
+        ],
+        "next_hypotheses": [
+          "Profile React render latency when the terminal view component rapidly mounts and unmounts during rapid model transitions or high-load background events.",
+          "Investigate the application's xterm.js WebGL or Canvas rendering performance bounds and resource lifecycle during rapid window resizing actions."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-14T06:30:28Z",
+        "source": {
+          "activity_id": "sessions/12039231957422058631/activities/420174f061a8415e9267ef69af5b5268",
+          "report_sha256": "da0ac8b4517b3681d6df71ed0e0978fbfddca15c3d9a523d05e7bd923be5b03d",
+          "activity_created_at": "2026-09-14T06:23:06Z",
+          "session_id": "12039231957422058631",
+          "dispatch_key": "80cb5d29f0a87a34cd2a9859"
+        },
+        "deferred_findings": []
       }
     }
   ]
