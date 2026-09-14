@@ -547,7 +547,7 @@
       "id": "discovery-d47c6c8c6e6f2995",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "in_progress",
+      "status": "blocked",
       "priority": 40,
       "risk": "medium",
       "focus": [
@@ -577,7 +577,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "quarantined",
         "session_id": "10335808607131075348",
         "dispatch_key": "24bf30539113a26a595bb2b6",
         "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
@@ -585,10 +585,11 @@
         "started_at": "2026-09-14T06:48:34Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "stale",
+        "note": "worker outcome unknown after 6h",
         "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-14T12:47:05Z"
+        "observed_at": "2026-09-14T12:47:05Z",
+        "quarantined_at": "2026-09-14T12:49:22Z"
       }
     }
   ]
