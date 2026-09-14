@@ -588,7 +588,7 @@
         "outcome": "stale",
         "note": "worker outcome unknown after 6h",
         "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-14T12:47:05Z",
+        "observed_at": "2026-09-14T12:49:22Z",
         "quarantined_at": "2026-09-14T12:49:22Z"
       }
     }
