@@ -344,7 +344,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-14T06:30:28Z"
+        "observed_at": "2026-09-14T06:30:28Z",
+        "released_attempt_ref": "autonomous/attempt-80cb5d29f0a87a34cd2a9859"
       },
       "research_result": {
         "summary": "Measured terminal output batching and base64 decoding latency, confirming high performance and bounded memory usage.",
