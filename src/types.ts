@@ -374,6 +374,16 @@ export interface TerminalAttachment {
   error: string | null
 }
 
+export interface TerminalCapture {
+  path: string
+  metadataPath: string
+  bytes: number
+  firstSeq: number | null
+  lastSeq: number | null
+  truncated: boolean
+  droppedBytes: number
+}
+
 export interface PtySessionEvent {
   terminalId: string
   session: SessionSummary

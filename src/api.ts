@@ -12,6 +12,7 @@ import type {
   SettingsSaveRequest,
   SettingsUnavailableDetails,
   TerminalAttachment,
+  TerminalCapture,
   TerminalStarted,
   TerminalRuntime,
   SwitchInputRecoveryMetadata,
@@ -146,6 +147,10 @@ export function attachTerminal(
 
 export function detachTerminal(terminalId: string, attachmentId: string): Promise<void> {
   return invoke("detach_terminal", { request: { terminalId, attachmentId } })
+}
+
+export function saveTerminalCapture(terminalId: string): Promise<TerminalCapture> {
+  return invoke("save_terminal_capture", { terminalId })
 }
 
 export function writeTerminal(terminalId: string, data: string): Promise<void> {
