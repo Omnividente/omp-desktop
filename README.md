@@ -29,6 +29,7 @@
 - Проекты и недавние рабочие папки в боковой панели.
 - Автоматическое обнаружение стандартных JSONL-сессий OMP. Нечитаемые файлы и нераспознаваемые заголовки показываются отдельным предупреждением с путями и повторным чтением; остальные сессии остаются доступны.
 - Поиск, открытие и возобновление существующих сессий.
+- Новая терминальная сессия сразу получает JSONL, созданный самим OMP через `--session`: модель можно переключать до первого сообщения, без перезапуска процесса и потери набранного черновика. Desktop подтверждает выбор по записи runtime, не отправляя служебный запрос модели. Пустая сессия остаётся в истории; её можно удалить обычной командой после закрытия вкладки.
 - Handoff-переходы отслеживаются без перезапуска: текущая сессия остаётся в корне раскрываемой группы, архивные предшественники вложены под ней, а поиск сохраняет полную цепочку.
 - Фиксация основного провайдера хранится для конкретной сессии: переключение в состоянии idle перезапускает её через точный `--resume` с локальным overlay без model/usage fallback и переносится на активное продолжение после handoff.
 - Desktop Proxy Mode включается отдельно для каждого провайдера в настройках: новые и перезапущенные сессии получают локальный overlay, который удерживает fallback внутри выбранного провайдера и отключает OpenAI WebSocket transport. Уже работающие сессии не изменяются до перезапуска.
@@ -104,6 +105,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Project sidebar with persisted recent workspaces.
 - Automatic discovery of standard OMP JSONL sessions. Unreadable files and unrecognized headers appear in a separate warning with paths and a retry action; other sessions remain available.
 - Search, open, and resume existing sessions.
+- A new terminal session immediately gets a JSONL created by OMP itself through `--session`: switch models before the first message without restarting the process or losing the input draft. Desktop confirms the choice from the runtime record without sending a synthetic model request. Empty sessions remain in history and can be deleted normally after closing their tabs.
 - Handoff transitions are tracked without restarting: the current session stays at the root of an expandable group, archived predecessors are nested below it, and search preserves the full lineage.
 - Primary-provider pinning is stored per session: toggling it while idle restarts the exact `--resume` target with a local no-model/usage-fallback overlay and transfers the pin to the active continuation after handoff.
 - Desktop Proxy Mode is enabled per provider in Settings: new and restarted sessions receive a local overlay that keeps fallback within the selected provider and disables the OpenAI WebSocket transport. Already-running sessions are unchanged until restart.
