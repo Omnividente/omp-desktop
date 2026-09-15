@@ -10,8 +10,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
-from validate_tasks import validate
-
 
 QUEUE = "agent_tasks.json"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -30,28 +28,31 @@ def revision(repo: Path, ref: str) -> str:
 
 
 def busy_reason(manifest: Mapping[str, Any], pull_requests: list, config: Mapping[str, Any]) -> str:
-    # New workers use immutable starting refs; legacy workers on lab must finish
-    # before moving their source. Human proposals and foreign PRs never block.
-    for task in manifest["tasks"]:
-        execution = task.get("execution") or {}
-        if task.get("status") != "in_progress" and execution.get("state") != "quarantined":
+    if any(task.get("status") == "in_progress" for task in manifest["tasks"]):
+        return "active_task"
+    blocked = set(config.get("automation", {}).get(
+        "blocking_labels", ["human-review", "hold", "do-not-merge", "wip"],
+    ))
+    for entry in pull_requests:
+        if str(entry.get("state", "")).lower() != "open":
             continue
-        key = execution.get("dispatch_key")
-        if (not key or execution.get("starting_branch") != "autonomous/attempt-" + key
-                or not SHA.fullmatch(str(execution.get("base_sha", "")))):
-            return "legacy_active_task"
+        labels = {
+            str(label.get("name", "")) if isinstance(label, Mapping) else str(label)
+            for label in entry.get("labels", [])
+        }
+        if not (entry.get("draft") or entry.get("isDraft") or labels & blocked):
+            return "active_pull_request"
     return ""
 
 
 def prepare_sync(
     repo: Path, main_sha: str, manifest: Path, pull_requests: list,
-    config: Mapping[str, Any], *, lab_sha: str = "", state_sha: str = "",
+    config: Mapping[str, Any], *, lab_sha: str = "",
 ) -> dict:
     result = {
         "status": "conflict", "reason": "invalid_input",
         "main_sha": main_sha if SHA.fullmatch(main_sha) else "",
         "lab_sha": "", "candidate_sha": "", "conflicts": [], "queue_blob": "",
-        "state_sha": state_sha,
     }
     if not SHA.fullmatch(main_sha) or (lab_sha and not SHA.fullmatch(lab_sha)):
         return result
@@ -66,14 +67,17 @@ def prepare_sync(
         return dict(result, reason="stale_main")
     if git(repo, "status", "--porcelain", "--untracked-files=all").stdout:
         return dict(result, reason="dirty_worktree")
-    if manifest.resolve() == (repo / QUEUE).resolve():
-        return dict(result, reason="manifest_not_external")
-    data = json.loads(manifest.read_text(encoding="utf-8"))
-    if validate(data):
-        return dict(result, reason="invalid_manifest")
-    # This is immutable legacy content only, never the active state snapshot.
+    if manifest.resolve() != (repo / QUEUE).resolve():
+        return dict(result, reason="manifest_not_lab_queue")
     queue = git(repo, "show", head + ":" + QUEUE).stdout
+    if manifest.read_bytes() != queue:
+        return dict(result, reason="queue_bytes_changed")
     result["queue_blob"] = git(repo, "rev-parse", head + ":" + QUEUE).stdout.decode().strip()
+    data = json.loads(queue)
+    if not isinstance(data, dict) or not isinstance(data.get("tasks"), list):
+        return result
+    if not all(isinstance(task, dict) for task in data["tasks"]):
+        return result
     if not isinstance(pull_requests, list) or not all(isinstance(pr, dict) for pr in pull_requests):
         return result
     ancestry = git(repo, "merge-base", "--is-ancestor", main_sha, head, check=False)
@@ -129,7 +133,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--main-sha", required=True)
     parser.add_argument("--lab-sha", default="")
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--state-revision", type=Path, required=True)
     parser.add_argument("--pull-requests", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -139,7 +142,6 @@ def main(argv: list[str] | None = None) -> int:
             args.repo.resolve(), args.main_sha, args.manifest.resolve(),
             json.loads(args.pull_requests.read_text(encoding="utf-8")),
             json.loads(args.config.read_text(encoding="utf-8")), lab_sha=args.lab_sha,
-            state_sha=json.loads(args.state_revision.read_text(encoding="utf-8")).get("state_sha") or "",
         )
     except (OSError, ValueError, TypeError, AttributeError, KeyError, subprocess.CalledProcessError):
         # Git diagnostics and PR bodies can contain private data; artifacts only
@@ -148,7 +150,6 @@ def main(argv: list[str] | None = None) -> int:
             "status": "conflict", "reason": "preparation_failed",
             "main_sha": args.main_sha if SHA.fullmatch(args.main_sha) else "",
             "lab_sha": "", "candidate_sha": "", "conflicts": [], "queue_blob": "",
-            "state_sha": "",
         }
     encoded = json.dumps(result, ensure_ascii=True, indent=2) + "\n"
     args.out.write_text(encoded, encoding="utf-8")

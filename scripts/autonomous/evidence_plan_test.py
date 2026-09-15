@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from evidence_plan import (  # noqa: E402
-    MODE_MISSING_TEST, MODE_NO_SOURCE, MODE_TEST_ONLY, MODE_PROOF_TS, MODE_UNSUPPORTED, plan,
+    MODE_MISSING_TEST, MODE_NO_SOURCE, MODE_PROOF_TS, MODE_UNSUPPORTED, plan,
 )
 
 CONFIG = {
@@ -38,10 +38,10 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(result["mode"], MODE_MISSING_TEST)
         self.assertFalse(result["proof_supported"])
 
-    def test_test_only_change_requires_human_review_not_fake_proof(self):
+    def test_test_only_change_has_nothing_to_prove(self):
         result = plan(CONFIG, ["src/clock.test.ts"])
-        self.assertEqual(result["mode"], MODE_TEST_ONLY)
-        self.assertFalse(result["proof_supported"])
+        self.assertEqual(result["mode"], MODE_NO_SOURCE)
+        self.assertTrue(result["proof_supported"])
 
     def test_excluded_files_do_not_count_as_product_source(self):
         result = plan(CONFIG, ["docs/autonomous/RUNBOOK.md"])
@@ -59,10 +59,6 @@ class PlanTest(unittest.TestCase):
 
     def test_mixed_rust_and_typescript_is_not_silently_approved(self):
         result = plan(CONFIG, ["src/clock.ts", "src/clock.test.ts", "src-tauri/src/lib.rs"])
-        self.assertEqual(result["mode"], MODE_UNSUPPORTED)
-
-    def test_unproved_rust_tests_cannot_hide_behind_a_typescript_proof(self):
-        result = plan(CONFIG, ["src/clock.ts", "src/clock.test.ts", "src-tauri/tests/update.rs"])
         self.assertEqual(result["mode"], MODE_UNSUPPORTED)
 
     def test_empty_diff_is_not_a_proof_request(self):

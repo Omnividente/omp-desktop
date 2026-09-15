@@ -36,8 +36,7 @@ export function applyTerminalAttachment(
   const expectedSeq = reset ? 1 : previous.lastSeq + 1
   const receivedSeq = attachment.firstSeq
   const gap = !reset && !attachment.truncated && receivedSeq !== null && receivedSeq > expectedSeq
-  const lastSeq =
-    attachment.lastSeq ?? (reset ? Math.max(0, attachment.nextSeq - 1) : (previous?.lastSeq ?? 0))
+  const lastSeq = attachment.lastSeq ?? (reset ? 0 : (previous?.lastSeq ?? 0))
   baselines.set(terminalId, {
     generation: attachment.generation,
     lastSeq: Math.max(reset ? 0 : (previous?.lastSeq ?? 0), lastSeq),
@@ -66,9 +65,9 @@ export function applyTerminalOutputEvent(event: PtyOutputEvent): TerminalContinu
     baselines.set(event.terminalId, { generation: event.generation, lastSeq: event.seq })
     return {
       accept: true,
-      gap: true,
+      gap: event.seq !== 1,
       generationChanged: true,
-      expectedSeq: previous.lastSeq + 1,
+      expectedSeq: 1,
       receivedSeq: event.seq,
     }
   }

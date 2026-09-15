@@ -68,15 +68,12 @@ def select(
     ceiling = _risk_rank(risk_ceiling)
 
     todo = [t for t in tasks if str(t.get("status")) == "todo"]
-    in_flight = [t for t in tasks if str(t.get("status")) == "in_progress"
-                 or (t.get("execution") or {}).get("state") == "quarantined"]
+    in_flight = [t for t in tasks if str(t.get("status")) == "in_progress"]
     todo_count = len(todo)
 
     def is_eligible(task: Mapping[str, Any]) -> tuple:
         if str(task.get("id")) in excluded:
             return False, "excluded"
-        if (task.get("execution") or {}).get("outcome") == "closed_unmerged":
-            return False, "proposal_declined"
         if _attempts(task) >= max_attempts:
             return False, "attempt_limit_reached"
         if _risk_rank(task.get("risk", "medium")) > ceiling:

@@ -24,7 +24,6 @@ import html
 import json
 import subprocess
 from pathlib import Path
-from validate_tasks import validate
 
 RESULT_SUCCESS = "success"
 VERIFY_RESULTS = ("success", "failure", "cancelled", "skipped", "none")
@@ -40,10 +39,22 @@ def _safe(value, limit=500) -> str:
     })
 
 
+def _lab_queue(head_sha: str):
+    """Read the queue from the reviewed Git object, never from the worktree."""
+    try:
+        raw = _git("show", f"{head_sha}:agent_tasks.json")
+        value = json.loads(raw)
+    except (OSError, subprocess.CalledProcessError, TypeError, ValueError):
+        return None
+    if isinstance(value, dict) and isinstance(value.get("tasks"), list):
+        return value["tasks"]
+    return None
 
 
-def _lab_section(manifest: dict) -> list[str]:
-    tasks = manifest["tasks"]
+def _lab_section(head_sha: str) -> list[str]:
+    tasks = _lab_queue(head_sha)
+    if tasks is None:
+        return ["## Autonomous lab results", "", "_Reviewed `agent_tasks.json` is absent or unreadable; no lab results are claimed._", ""]
     tasks = [task for task in tasks if isinstance(task, dict)]
     counts = {}
     for task in tasks:
@@ -102,7 +113,7 @@ def _lab_section(manifest: dict) -> list[str]:
                 lines.append("  - Evidence: " + _safe(evidence["detail"]))
     text = "\n".join(lines)
     if len(text) > MAX_LAB_REPORT:
-        text = text[:MAX_LAB_REPORT].rsplit("\n", 1)[0] + "\n\n_Additional task details omitted for size; queue totals above include them. Read agent_tasks.json at the reported state SHA for the full history._"
+        text = text[:MAX_LAB_REPORT].rsplit("\n", 1)[0] + "\n\n_Additional task details omitted for size; queue totals above include them. Read agent_tasks.json at the reviewed SHA for the full history._"
     return text.splitlines() + [""]
 
 
@@ -180,9 +191,7 @@ def verification_status(head_sha: str, verified_sha: str, verify_result: str) ->
 
 def build_report(base: str, head: str, *, base_sha: str = "", head_sha: str = "",
                  verified_sha: str = "", verify_result: str = "none",
-                 verify_run_url: str = "", manifest: dict, state_sha: str = "") -> str:
-    if validate(manifest):
-        raise ValueError("invalid state manifest")
+                 verify_run_url: str = "") -> str:
     # Resolve even explicitly supplied SHAs: a caller-provided label or a
     # nonexistent object is not proof that the report describes that commit.
     base_sha = resolve(base_sha or base)
@@ -224,8 +233,6 @@ def build_report(base: str, head: str, *, base_sha: str = "", head_sha: str = ""
         "",
         "- Reviewed head: `" + (head_sha or "unresolved") + "` (`" + head + "`)",
         "- Compared against: `" + (base_sha or "unresolved") + "` (`" + base + "`)",
-        "- State revision (independent of reviewed code): `" + (state_sha or "unpublished legacy seed") + "`",
-        "- Pending proposals are not accepted product changes; only the code diff below is verified.",
         verification_line,
         "- Commits ahead of `" + base + "`: **" + ahead + "**",
         "- Commits behind `" + base + "`: **" + behind + "**",
@@ -240,7 +247,7 @@ def build_report(base: str, head: str, *, base_sha: str = "", head_sha: str = ""
         stat or "(no differences)",
         "```",
         "",
-        *(_lab_section(manifest)),
+        *(_lab_section(head_sha)),
         "## Release decision checklist (human-gated)",
         "",
         checklist_verification,
@@ -268,8 +275,6 @@ def main(argv=None) -> int:
     parser.add_argument("--verify-result", default="none",
                         help="conclusion of the verification job: " + ", ".join(VERIFY_RESULTS))
     parser.add_argument("--verify-run-url", default="")
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--state-revision", type=Path, required=True)
     parser.add_argument("--out", type=Path, default=Path("release-review.md"))
     args = parser.parse_args(argv)
     exit_code = 0
@@ -278,10 +283,8 @@ def main(argv=None) -> int:
             args.base, args.head, base_sha=args.base_sha, head_sha=args.head_sha,
             verified_sha=args.verified_sha, verify_result=args.verify_result,
             verify_run_url=args.verify_run_url,
-            manifest=json.loads(args.manifest.read_text(encoding="utf-8")),
-            state_sha=json.loads(args.state_revision.read_text(encoding="utf-8")).get("state_sha") or "",
         )
-    except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError) as exc:
         exit_code = 1
         report = "\n".join([
             "# Autonomous integration review",
@@ -291,7 +294,7 @@ def main(argv=None) -> int:
             "- Requested head: `" + (args.head_sha or args.head) + "`",
             "- Requested base: `" + (args.base_sha or args.base) + "`",
             "- Verification job result: `" + args.verify_result + "`",
-            "- Report generation failed: code or state snapshot could not be read safely.",
+            "- Report generation failed: " + str(exc),
             "",
             "Resolve the Git failure and re-run this review before making a release decision.",
         ])

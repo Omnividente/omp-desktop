@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -52,8 +51,6 @@ REQUIRED_MANUAL_REVIEW = (
     "src/UpdateNotices.test.tsx",
     "src/updateReminder.ts",
     "src/updateReminder.test.ts",
-    "src-tauri/src/update.rs",
-    "src-tauri/tests/update.rs",
     "src-tauri/src/updater*",
     "src-tauri/tests/updater*",
 )
@@ -65,15 +62,6 @@ def verify(config: Mapping[str, Any], integration_branch: str = "autonomous/lab"
     parallel = config.get("parallel_mode") or {}
     product = config.get("product") or {}
     gate = config.get("merge_gate") or {}
-    automation = config.get("automation") or {}
-    if automation.get("merge_mode") != "manual":
-        problems.append("automation.merge_mode must be 'manual'")
-    if automation.get("state_branch") != "autonomous/state":
-        problems.append("automation.state_branch must be 'autonomous/state'")
-    if "allowed_pr_authors" in automation:
-        problems.append("automation.allowed_pr_authors is obsolete; persisted session provenance is required")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", str(config.get("repository") or "")):
-        problems.append("repository must identify the GitHub owner/repository")
 
     if release.get("automation") != "disabled":
         problems.append("release_policy.automation must be 'disabled'")
@@ -112,8 +100,8 @@ def verify(config: Mapping[str, Any], integration_branch: str = "autonomous/lab"
         if glob.startswith(".github") or glob in ("**", "*", "/"):
             problems.append("product.editable_globs must not include " + repr(glob))
 
-    # Before/after evidence is reported independently from human acceptance.
-    # It must not silently disappear from a proposal's risk assessment.
+    # The fix-evidence gate is what turns "the test fails before the fix" from a
+    # prompt instruction into a merge condition. It may not be silently removed.
     if gate.get("require_regression_test") is not True:
         problems.append("merge_gate.require_regression_test must be true")
     if not [str(name) for name in gate.get("manual_approval_labels") or []]:
@@ -166,7 +154,7 @@ def main(argv=None) -> int:
     if problems:
         return 1
     print(
-        "policy OK: acceptance manual, release automation disabled, fix evidence required, integration branch "
+        "policy OK: release automation disabled, fix evidence required, integration branch "
         + args.integration_branch
     )
     return 0

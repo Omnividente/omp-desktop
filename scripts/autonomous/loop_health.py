@@ -15,8 +15,6 @@ from research_cycle import _iso, _time, plan_research, scope_fingerprints
 from select_task import select
 from task_lifecycle import awaiting_report, sweep
 from validate_tasks import validate
-from jules_provenance import trusted_pull_request
-from sync_main import busy_reason
 
 STALL_AFTER = timedelta(minutes=90)
 POLL_DELAY_SECONDS = 90
@@ -55,7 +53,6 @@ def assess_health(
     main_sha: str, lab_sha: str, main_is_ancestor: bool,
     fingerprints: Mapping[str, str], runs: Sequence[dict], sync_runs: Sequence[dict],
     pull_requests: Sequence[dict], enabled: bool, now: datetime,
-    state_sha: str = "", sync_result: Mapping[str, Any] | None = None,
 ) -> dict:
     """Plan against a private queue copy, never mint, reconcile or dispatch work."""
     if now.tzinfo is None:
@@ -76,39 +73,6 @@ def assess_health(
                        and run.get("conclusion") in FAILED_CONCLUSIONS | {"success"}]
     last_sync = max(completed_syncs, key=lambda run: _run_time(run) or minimum, default=None)
     attention = []
-    proposals = []
-    repository = config.get("repository", "")
-    for task in manifest["tasks"]:
-        execution = task.get("execution") or {}
-        started = _time(execution.get("started_at"))
-        age = max(0, int((now - started).total_seconds())) if started else None
-        if execution.get("state") == "quarantined":
-            attention.append({"reason": "quarantined", "task_id": task["id"], "age_seconds": age})
-        elif task.get("status") == "in_progress" and (age is None or age > 24 * 3600):
-            attention.append({"reason": "worker_stale", "task_id": task["id"], "age_seconds": age})
-        for pr in pull_requests:
-            if pr.get("state") != "open" or not trusted_pull_request(task, pr, repository, "autonomous/lab"):
-                continue
-            updated = _time(pr.get("updated_at"))
-            proposal_age = max(0, int((now - updated).total_seconds())) if updated else None
-            proposal = {"task_id": task["id"], "pull_request": pr["number"],
-                        "head_sha": pr["head"]["sha"], "age_seconds": proposal_age,
-                        "awaiting_human": execution.get("state") == "awaiting_review"}
-            proposals.append(proposal)
-            if pr.get("mergeable") is False or pr.get("mergeable_state") == "dirty":
-                attention.append({"reason": "proposal_conflict", **proposal})
-            elif pr.get("mergeable_state") == "behind":
-                attention.append({"reason": "proposal_base_stale", **proposal})
-            elif proposal_age is None or proposal_age > 7 * 24 * 3600:
-                attention.append({"reason": "proposal_stale", **proposal})
-    observed_sync = sync_result if sync_result and sync_result.get("main_sha") == main_sha else None
-    if observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"):
-        attention.append({"reason": "sync_outcome_blocked", "main_sha": main_sha,
-                          "outcome": observed_sync.get("reason")})
-    if observed_sync and (observed_sync.get("refresh") or {}).get("outcome") == "attention":
-        attention.append({"reason": "proposal_refresh_attention", "refresh": observed_sync["refresh"]})
-    if observed_sync and observed_sync.get("status") == "unknown":
-        attention.append({"reason": "sync_outcome_missing"})
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
         if awaiting_report(task):
@@ -116,14 +80,11 @@ def assess_health(
             attention.append({"reason": "report_invalid", "task_id": task["id"],
                               "observed_at": _iso(reported_at) if reported_at else None})
     failed_sync = not main_is_ancestor and last_sync is not None and last_sync.get("conclusion") in FAILED_CONCLUSIONS
-    failed_sync = failed_sync or bool(observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"))
     if failed_sync:
         attention.append({"reason": "sync_failed", "main_sha": main_sha, "run": _run_summary(last_sync)})
     result = {
         "health": "ok", "action": "none", "reason": "idle", "delay_seconds": 0,
         "main_sha": main_sha, "lab_sha": lab_sha, "main_is_ancestor": main_is_ancestor,
-        "code_sha": lab_sha, "state_sha": state_sha, "sync_outcome": observed_sync,
-        "proposals": proposals,
         "observed_at": _iso(now), "last_next_task": _run_summary(latest),
         "next_task_age_seconds": max(0, int((now - last_at).total_seconds())) if last_at else None,
         "last_sync": _run_summary(last_sync), "attention": attention,
@@ -150,23 +111,27 @@ def assess_health(
     reconciled = sweep(data, pull_requests, config=config, now=now)
     if reconciled["changed"]:
         return decision("reconciliation_due", "next_task", due=True)
-    sync_blocker = busy_reason(data, [], config)
-    if sync_blocker and any((task.get("execution") or {}).get("state") == "quarantined" for task in data["tasks"]):
-        return decision("legacy_worker_reconciliation", "next_task", due=True, delay=POLL_DELAY_SECONDS)
-    if not main_is_ancestor and not failed_sync and not sync_blocker:
-        return decision("sync_required", "sync")
+    blocking_labels = set(config.get("automation", {}).get(
+        "blocking_labels", ["human-review", "hold", "do-not-merge", "wip"],
+    ))
+    active_prs = []
+    for pr in pull_requests:
+        labels = {label.get("name", "") if isinstance(label, dict) else label for label in pr.get("labels", [])}
+        if str(pr.get("state", "")).lower() == "open" and not (pr.get("draft") or pr.get("isDraft") or labels & blocking_labels):
+            active_prs.append(pr["number"])
+    result["active_pull_requests"] = sorted(active_prs)
+    if active_prs:
+        return decision("open_pull_request")
     active_tasks = [task for task in data["tasks"] if task["status"] == "in_progress"]
     if active_tasks:
         if any(not (task.get("execution") or {}).get("session_id") for task in active_tasks):
             attention.append({"reason": "active_session_unbound"})
-            return decision("active_session_unbound", "next_task", due=True, delay=POLL_DELAY_SECONDS)
+            return decision("active_session_unbound")
         return decision("active_polling", "next_task", due=True, delay=POLL_DELAY_SECONDS)
     if not main_is_ancestor:
         if failed_sync:
             return decision("sync_failed")
         return decision("sync_required", "sync")
-    if any((task.get("execution") or {}).get("state") == "quarantined" for task in data["tasks"]):
-        return decision("worker_quarantined")
     selection = select(data, risk_ceiling=config.get("risk_ceiling", "medium"))
     if selection["selected"]:
         return decision("work_due", "next_task", due=True)
@@ -183,8 +148,6 @@ def main(argv=None) -> int:
     for name in ("manifest", "config", "repo", "runs", "sync-runs", "pull-requests"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--enabled", required=True, choices=("true", "false"))
-    parser.add_argument("--state-revision", type=Path)
-    parser.add_argument("--sync-result", type=Path)
     parser.add_argument("--now")
     args = parser.parse_args(argv)
     try:
@@ -208,8 +171,6 @@ def main(argv=None) -> int:
             runs=workflow_runs(json.loads(args.runs.read_text(encoding="utf-8"))),
             sync_runs=workflow_runs(json.loads(args.sync_runs.read_text(encoding="utf-8"))),
             pull_requests=json.loads(args.pull_requests.read_text(encoding="utf-8")),
-            state_sha=(json.loads(args.state_revision.read_text(encoding="utf-8")).get("state_sha") or "") if args.state_revision else "",
-            sync_result=json.loads(args.sync_result.read_text(encoding="utf-8")) if args.sync_result else None,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

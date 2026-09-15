@@ -10,8 +10,8 @@ markers:
   every new commit and duplicate work that is still running; leaving the attempt
   out is just as bad in the other direction - a retry would keep matching the
   previous, already finished session and never actually run again.
-* ``AUTONOMOUS_TASK_ID`` - gives the worker and human reviewer queue context.
-  Only exact session outputs and persisted provenance can identify its PR.
+* ``AUTONOMOUS_TASK_ID`` - lets task_lifecycle.py map the resulting pull request
+  back to the queue entry and close it out.
 
 The base commit still travels in the prompt as context for the worker; it just
 no longer influences identity.
@@ -43,7 +43,7 @@ def next_attempt(task: Mapping[str, Any]) -> int:
         attempts = int(block.get("attempts") or 0)
     except (TypeError, ValueError):
         attempts = 0
-    if str(task.get("status") or "") != "todo" and attempts:
+    if str(task.get("status") or "") == "in_progress":
         return max(1, attempts)
     return max(0, attempts) + 1
 
@@ -65,7 +65,6 @@ def build(
     focus: str = "",
     risk_ceiling: str = "medium",
     attempt: int | None = None,
-    starting_branch: str = "",
 ) -> dict:
     task_id = str(task.get("id") or "")
     number = next_attempt(task) if attempt is None else attempt
@@ -73,7 +72,6 @@ def build(
     replacements = {
         "PROJECT_REPO": repo,
         "INTEGRATION_BRANCH": branch,
-        "STARTING_BRANCH": starting_branch or branch,
         "BASE_COMMIT": base_sha,
         "FOCUS": focus,
         "RISK_CEILING": risk_ceiling,
@@ -85,14 +83,12 @@ def build(
     }
     marker = "AUTONOMOUS_DISPATCH_KEY: " + key + "\nAUTONOMOUS_TASK_ID: " + task_id + "\n\n"
     prompt = marker + render_prompt(template, replacements)
-    if starting_branch:
-        prompt += "\n\nImmutable starting branch: " + starting_branch + "\nProposal target branch: " + branch + "\nDo not merge or write the target branch; submit a proposal for human review.\n"
     title = "[dispatch:" + key + "] " + (str(task.get("title") or task_id))
     request = {
         "prompt": prompt,
         "sourceContext": {
             "source": "sources/github/" + repo,
-            "githubRepoContext": {"startingBranch": starting_branch or branch},
+            "githubRepoContext": {"startingBranch": branch},
         },
         "requirePlanApproval": False,
         "title": title[:200],
@@ -109,7 +105,6 @@ def main(argv=None) -> int:
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--branch", required=True)
-    parser.add_argument("--starting-branch", default="")
     parser.add_argument("--base-sha", default="")
     parser.add_argument("--focus", default="")
     parser.add_argument("--risk-ceiling", default="medium")
@@ -136,7 +131,6 @@ def main(argv=None) -> int:
         template=args.template.read_text(encoding="utf-8"),
         repo=args.repo,
         branch=args.branch,
-        starting_branch=args.starting_branch,
         base_sha=base_sha,
         focus=args.focus,
         risk_ceiling=args.risk_ceiling,
@@ -149,7 +143,7 @@ def main(argv=None) -> int:
             handle.write("dispatch_key=" + key + "\n")
             handle.write("dispatch_attempt=" + str(attempt) + "\n")
     print(
-        "wrote request for task " + args.task_id + " (startingBranch " + (args.starting_branch or args.branch)
+        "wrote request for task " + args.task_id + " (startingBranch " + args.branch
         + ", attempt " + str(attempt) + ", dispatch key " + key + ")"
     )
     return 0

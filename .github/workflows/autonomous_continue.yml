@@ -8,7 +8,7 @@ on:
       - Autonomous Next Task
       - Autonomous Sync Main
       - Autonomous Loop Switch
-      - Autonomous Proposal Review
+      - Autonomous Automerge
       - Autonomous Replenish
     types: [completed]
   push:
@@ -32,8 +32,7 @@ jobs:
       ${{ github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' ||
            (github.event.workflow_run.conclusion == 'success' &&
-            (github.event.workflow_run.head_branch == 'main' ||
-             github.event.workflow_run.name == 'Autonomous Proposal Review') &&
+            github.event.workflow_run.head_branch == 'main' &&
             github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -70,11 +69,10 @@ jobs:
             if [ "${enabled}" != "true" ]; then enabled=false; fi
             git -C lab fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/autonomous/lab:refs/remotes/origin/autonomous/lab'
             git -C lab checkout --detach refs/remotes/origin/autonomous/lab
-            python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
             gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
             gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
-            gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base=autonomous/lab -f state=all -f per_page=100 --jq '.[]' | jq -s '.' > pull-requests.json
-            python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json
+            gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base=autonomous/lab -f state=all -f per_page=100 --jq '.[] | {number,state,title,body,merged_at,labels:[.labels[]?.name],draft}' | jq -s '.' > pull-requests.json
+            python3 control/scripts/autonomous/loop_health.py --manifest lab/agent_tasks.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json
           }
           snapshot
           delay=$(jq -r '.delay_seconds' health.json)

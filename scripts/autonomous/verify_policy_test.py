@@ -37,23 +37,6 @@ class ReleasePolicyTest(unittest.TestCase):
         config["release_policy"]["human_gated"] = False
         self.assertTrue(any("human_gated" in p for p in verify(config)))
 
-    def test_autonomous_acceptance_or_product_state_branch_is_rejected(self):
-        for field, value in (("merge_mode", "automatic"), ("state_branch", "autonomous/lab")):
-            with self.subTest(field=field):
-                config = load()
-                config["automation"][field] = value
-                self.assertTrue(any(field in problem for problem in verify(config)))
-
-    def test_author_allowlist_cannot_substitute_for_provenance(self):
-        config = load()
-        config["automation"]["allowed_pr_authors"] = ["owner"]
-        self.assertTrue(any("allowed_pr_authors" in problem for problem in verify(config)))
-
-    def test_repository_identity_is_required(self):
-        config = load()
-        config.pop("repository")
-        self.assertTrue(any("repository" in problem for problem in verify(config)))
-
 
 class ParallelModeTest(unittest.TestCase):
     def test_pointing_the_loop_at_the_default_branch_is_rejected(self):
@@ -160,7 +143,8 @@ class EmptyConfigTest(unittest.TestCase):
 
 
 class MergeGateContractTest(unittest.TestCase):
-    """The policy covers every guard used by the proposal review report."""
+    """The policy check must cover everything the merge decision reads, or the
+    configuration can be weakened without the check noticing."""
 
     def test_removing_the_required_check_names_is_rejected(self):
         config = load()

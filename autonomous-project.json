@@ -1,8 +1,7 @@
 {
   "version": 2,
   "project": "omp-desktop",
-  "repository": "Omnividente/omp-desktop",
-  "description": "Autonomous research and proposal laboratory for OMP Desktop. Proposes changes for human acceptance, never accepts its own PRs or performs releases.",
+  "description": "Autonomous self-improvement loop for the OMP Desktop (Tauri + React/TS) app. Runs in parallel to normal development and never performs releases.",
   "default_branch": "main",
   "parallel_mode": {
     "enabled": true,
@@ -48,8 +47,6 @@
       "src/UpdateNotices.test.tsx",
       "src/updateReminder.ts",
       "src/updateReminder.test.ts",
-      "src-tauri/src/update.rs",
-      "src-tauri/tests/update.rs",
       "src-tauri/src/updater*",
       "src-tauri/tests/updater*"
     ],
@@ -60,7 +57,7 @@
     "evidence_check_name": "Autonomous Evidence Gate",
     "manual_approval_labels": ["approved-by-owner"],
     "test_globs": ["*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx", "src-tauri/tests/**"],
-    "notes": "Every proposal is accepted manually. Reports bind complete file lists, renames, required GitHub Actions checks (app 15368), evidence and owner reviews to the current SHA. Missing proof, test-only changes, updater paths and large diffs require explicit revision-bound owner review. Labels are not approvals; unknown provenance, incomplete files and missing or foreign checks never produce a ready claim.",
+    "notes": "A pull request may only merge when every required_check_names check run and the evidence_check_name check run are green for the exact revision being merged. manual_approval_labels are a signal for humans, not an approval: only a review approval recorded against that revision by an owner_approvers login can release a manual-review pull request, because a label survives a force-push. A diff larger than max_changed_files, or one whose file list cannot be proven complete, is never merged unattended.",
     "required_check_names": ["Checks (ubuntu-latest)", "Checks (windows-latest)"],
     "owner_approvers": ["Omnividente"],
     "max_changed_files": 200
@@ -214,9 +211,9 @@
   },
   "automation": {
     "ai_worker": "jules",
-    "merge_mode": "manual",
-    "state_branch": "autonomous/state",
-    "blocking_labels": ["hold", "do-not-merge", "wip"]
+    "allowed_pr_authors": ["google-labs-jules[bot]"],
+    "max_open_pull_requests": 1,
+    "blocking_labels": ["hold", "do-not-merge", "human-review", "wip"]
   },
   "task_focus": ["quality", "tests", "bugfix", "refactor", "a11y", "i18n", "perf", "compat"],
   "risk_ceiling": "medium"

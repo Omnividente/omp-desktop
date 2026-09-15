@@ -2,8 +2,8 @@ name: Autonomous Control CI
 
 # Self-tests for the autonomous control plane.
 #
-# Run executable policy, queue and manual-proposal regressions. State-store
-# checks use disposable Git repositories, never the live laboratory queue.
+# Run executable policy, queue and merge-decision regressions. Source-text
+# matches cannot establish that the workflow actually enforces those contracts.
 
 on:
   pull_request:
@@ -69,7 +69,6 @@ jobs:
           set -euo pipefail
           python3 -c "import json; json.load(open('autonomous-project.json', encoding='utf-8'))"
           python3 scripts/autonomous/verify_policy.py --config autonomous-project.json --integration-branch autonomous/lab
-          # Product copy is an immutable migration seed; active state is separate.
           python3 scripts/autonomous/validate_tasks.py ../lab/agent_tasks.json
 
       - name: Parse every autonomous workflow

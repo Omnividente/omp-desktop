@@ -90,7 +90,6 @@ describe("SessionControls primary provider pin", () => {
     act(() => {
       root.render(
         <SessionControls
-          installingDesktopUpdate={false}
           lang="ru"
           ompConfig={config()}
           onDiscardSwitchRecovery={vi.fn()}
@@ -114,7 +113,6 @@ describe("SessionControls primary provider pin", () => {
     act(() => {
       root.render(
         <SessionControls
-          installingDesktopUpdate={false}
           lang="ru"
           ompConfig={config()}
           onSwitch={vi.fn()}
@@ -137,7 +135,6 @@ describe("SessionControls primary provider pin", () => {
     act(() => {
       root.render(
         <SessionControls
-          installingDesktopUpdate={false}
           lang="ru"
           ompConfig={config()}
           onSwitch={vi.fn()}
@@ -165,7 +162,6 @@ describe("SessionControls primary provider pin", () => {
     act(() => {
       root.render(
         <SessionControls
-          installingDesktopUpdate={false}
           lang="ru"
           ompConfig={config()}
           onDiscardSwitchRecovery={onDiscard}

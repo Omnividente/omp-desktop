@@ -1,33 +1,50 @@
 name: Autonomous Next Task
 
-# The trusted controller reads code from main, product from lab and mutable
-# metadata from autonomous/state. Human proposals never occupy the worker slot.
+# Researches the next product area when concrete work runs out, dispatches one
+# worker, and records its observations, proposed tasks and implementation result.
+#
+# Two checkouts on purpose:
+#   control/ - the control plane, always read from the default branch, so the
+#              loop can neither weaken nor lose its own scripts.
+#   lab/     - the product, queue and event entry-point workflows. Scripts and
+#              policy still come from control/, not from the lab branch.
+#
+# Never targets main, never releases.
+
 on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       task_id:
-        description: Optional existing task to select or report to recover
+        description: Dispatch one specific task id (optional)
         type: string
         default: ""
       recover_report:
-        description: Re-read the same completed research report without another worker
+        description: Re-read the completed report for task_id without starting another worker
         type: boolean
         default: false
       focus:
-        description: Comma-separated focus filter
+        description: Comma-separated focus filter (optional)
         type: string
         default: ""
       risk_ceiling:
-        description: Highest risk of a proposed change
+        description: Highest task risk the worker may take on
         type: choice
-        options: [low, medium, high]
+        options:
+          - low
+          - medium
+          - high
         default: medium
+  pull_request:
+    types:
+      - closed
+    branches:
+      - autonomous/lab
 
 permissions:
   contents: write
-  pull-requests: write
+  pull-requests: read
   actions: read
 
 concurrency:
@@ -36,58 +53,432 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dispatch:
-    name: Research and collect proposals without accepting them
-    if: ${{ github.ref == 'refs/heads/main' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true) }}
+  close-task:
+    name: Close the task behind a finished pull request
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
-      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      INTEGRATION_BRANCH: autonomous/lab
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
     steps:
-      - name: Check out the trusted controller
+      - name: Check out the control plane from the default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          fetch-depth: 1
           path: control
-          persist-credentials: false
 
-      - name: Check out the product history
+      - name: Check out the integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+          path: lab
+
+      - name: Capture the pull request body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "${PR_BODY}" > pr-body.txt
+
+      - name: Close the task this pull request belongs to
+        id: close
+        run: |
+          set -euo pipefail
+          cp lab/agent_tasks.json queue-staged.json
+          python3 control/scripts/autonomous/task_lifecycle.py \
+            --manifest queue-staged.json \
+            --action close-from-pr \
+            --pull-request "${PR_NUMBER}" \
+            --title "${PR_TITLE}" \
+            --body-file pr-body.txt \
+            --merged "${PR_MERGED}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Import the backlog a merged discovery pull request proposed
+        id: import
+        if: ${{ github.event.pull_request.merged == true && steps.close.outputs.lifecycle_changed == 'true' }}
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/import_discovery_tasks.py \
+            --manifest queue-staged.json \
+            --body-file pr-body.txt \
+            --max-new 10 \
+            --config control/autonomous-project.json \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Validate the task queue
+        run: |
+          python3 control/scripts/autonomous/validate_tasks.py queue-staged.json
+          cp queue-staged.json lab/agent_tasks.json
+
+      - name: Commit the queue back to the integration branch
+        working-directory: lab
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- agent_tasks.json; then
+            echo "Queue unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent_tasks.json
+          git commit -m "chore(autonomous): close the task behind #${PR_NUMBER}"
+          git -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
+
+      - name: Summary
+        if: always()
+        env:
+          LIFECYCLE_CHANGED: ${{ steps.close.outputs.lifecycle_changed }}
+          LIFECYCLE_REASON: ${{ steps.close.outputs.lifecycle_reason }}
+          LIFECYCLE_TASK_ID: ${{ steps.close.outputs.lifecycle_task_id }}
+          IMPORTED_COUNT: ${{ steps.import.outputs.imported_count }}
+          IMPORTED_STATUS: ${{ steps.import.outputs.imported_status }}
+        run: |
+          {
+            echo "### Autonomous task lifecycle"
+            echo ""
+            echo "- Pull request: #${PR_NUMBER} (merged: ${PR_MERGED})"
+            echo "- Task closed: ${LIFECYCLE_CHANGED:-false} (${LIFECYCLE_REASON:-none})"
+            echo "- Task id: ${LIFECYCLE_TASK_ID:-none}"
+            echo "- Backlog items imported: ${IMPORTED_COUNT:-0} (block: ${IMPORTED_STATUS:-not read})"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  dispatch:
+    name: Dispatch the next autonomous task
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      GH_TOKEN: ${{ github.token }}
+      TASK_ID: ${{ inputs.task_id }}
+      FOCUS: ${{ inputs.focus }}
+      RISK_CEILING: ${{ inputs.risk_ceiling }}
+    steps:
+      - name: Check out the control plane from the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          path: control
+
+      - name: Check out the integration branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
           fetch-depth: 0
           path: lab
-          persist-credentials: false
 
-      - name: Verify the laboratory policy
-        run: python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
+      - name: Verify release automation is still disabled
+        run: python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
 
-      - name: Reconcile saved attempts and run one laboratory tick
+      - name: Close tasks whose pull request has already finished
+        id: sweep
+        run: |
+          set -euo pipefail
+          # A merge performed with the loop's own token starts no pull_request
+          # event, so the queue is reconciled against the real state of the pull
+          # requests rather than against an event that may never arrive. Without
+          # this, finished work would later be mistaken for an abandoned session.
+          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[] | {number, state, title, body, merged: (.merged_at != null), labels: [.labels[]?.name], draft}' | jq -s '.' > pull-requests.json
+          cp lab/agent_tasks.json queue-staged.json
+          python3 control/scripts/autonomous/task_lifecycle.py \
+            --manifest queue-staged.json \
+            --action sweep \
+            --config control/autonomous-project.json \
+            --pull-requests pull-requests.json \
+            --github-output "${GITHUB_OUTPUT}" > sweep-result.json
+          cat sweep-result.json
+          while IFS= read -r number; do
+            jq -r --argjson number "${number}" '.[] | select(.number == $number) | .body // ""' pull-requests.json > pr-body.txt
+            python3 control/scripts/autonomous/import_discovery_tasks.py --manifest queue-staged.json --body-file pr-body.txt --max-new 10 --config control/autonomous-project.json
+          done < <(jq -r '.changes[]? | select(.outcome == "merged") | .pull_request' sweep-result.json)
+          python3 control/scripts/autonomous/validate_tasks.py queue-staged.json
+          cp queue-staged.json lab/agent_tasks.json
+
+      - name: Validate the task queue
+        run: python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+
+      - name: Count active autonomous pull requests
+        id: open_prs
+        run: |
+          set -euo pipefail
+          blocked=$(jq -c '.automation.blocking_labels' control/autonomous-project.json)
+          count=$(jq --argjson blocked "${blocked}" '[.[] | select(.state == "open" and .draft != true) | select(any(.labels[]?; . as $label | $blocked | index($label)) | not)] | length' pull-requests.json)
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+          echo "Active pull requests into ${INTEGRATION_BRANCH}: ${count} (deferred proposals do not block research)"
+
+      - name: Recover a parked report without another AI attempt
+        id: recover_report
+        if: ${{ inputs.recover_report == true }}
         env:
-          TASK_ID: ${{ inputs.task_id }}
-          FOCUS: ${{ inputs.focus }}
-          RISK_CEILING: ${{ inputs.risk_ceiling }}
-          RECOVER_REPORT: ${{ inputs.recover_report }}
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
         run: |
           set -euo pipefail
-          options=()
-          if [ "${RECOVER_REPORT}" = true ]; then options+=(--recover-report); fi
-          python3 control/scripts/autonomous/lab_controller.py \
-            --repo lab --config control/autonomous-project.json \
-            --manifest queue.json --revision-file queue-revision.json \
-            --task-id "${TASK_ID}" --focus "${FOCUS}" \
-            --risk-ceiling "${RISK_CEILING:-medium}" \
-            --out lab-result.json "${options[@]}"
+          if [ -z "${TASK_ID}" ]; then
+            echo "::error::task_id is required to recover a completed report."
+            exit 1
+          fi
+          jq -e --arg id "${TASK_ID}" '.tasks[] | select(.id == $id) | .execution | select((.session_id | type == "string" and length > 0) and (.dispatch_key | type == "string" and length > 0)) | {name: (if (.session_id | startswith("sessions/")) then .session_id else ("sessions/" + .session_id) end), state: "COMPLETED", title: ("[dispatch:" + .dispatch_key + "]")}' lab/agent_tasks.json > recovery-session.json
+          python3 control/scripts/autonomous/complete_jules_task.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --task-id "${TASK_ID}" \
+            --session-file recovery-session.json \
+            --retry-report \
+            --diagnostics recovered-report-diagnostics.json \
+            --github-output "${GITHUB_OUTPUT}"
 
-      - name: Preserve laboratory outcome and redacted report diagnostics
-        if: ${{ always() && (hashFiles('lab-result.json') != '' || hashFiles('research-diagnostics.json') != '') }}
+      - name: Check product freshness and dispatch readiness
+        id: readiness
+        run: |
+          set -euo pipefail
+          git -C lab fetch --no-tags origin main:refs/remotes/origin/main
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" \
+            | jq --arg current "${GITHUB_RUN_ID}" '.workflow_runs | map(select((.id | tostring) != $current))' > next-runs.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" > sync-runs.json
+          python3 control/scripts/autonomous/loop_health.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --repo lab \
+            --runs next-runs.json \
+            --sync-runs sync-runs.json \
+            --pull-requests pull-requests.json \
+            --enabled true > loop-readiness.json
+          cat loop-readiness.json
+          echo "action=$(jq -r '.action' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          echo "reason=$(jq -r '.reason' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          echo "main_is_ancestor=$(jq -r '.main_is_ancestor' loop-readiness.json)" >> "${GITHUB_OUTPUT}"
+          if [ "$(jq -r '.health' loop-readiness.json)" = "attention" ]; then
+            echo "::warning::The lab needs attention; see the readiness report. No stale-base task will be dispatched."
+          fi
+
+      - name: Plan the next product investigation when concrete work runs out
+        id: research
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && steps.readiness.outputs.main_is_ancestor == 'true' && inputs.recover_report != true }}
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/research_cycle.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --repo lab \
+            --focus "${FOCUS}" \
+            --risk-ceiling "${RISK_CEILING:-medium}" \
+            --task-id "${TASK_ID}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Select the next task
+        id: select
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && inputs.recover_report != true }}
+        env:
+          MAIN_IS_ANCESTOR: ${{ steps.readiness.outputs.main_is_ancestor }}
+        run: |
+          set -euo pipefail
+          if [ "${MAIN_IS_ANCESTOR}" != "true" ]; then
+            # Only reconcile an existing attempt until accepted main is synchronized.
+            active=$(jq -r '[.tasks[] | select(.status == "in_progress") | .id] | if length == 1 then .[0] else "" end' lab/agent_tasks.json)
+            if [ -z "${active}" ]; then
+              echo "The lab is stale; no new task will be selected."
+              exit 0
+            fi
+            python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --task-id "${active}" --github-output "${GITHUB_OUTPUT}"
+          else
+            python3 control/scripts/autonomous/select_task.py --manifest lab/agent_tasks.json --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --task-id "${TASK_ID}" --github-output "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build the AI worker request
+        id: build
+        if: ${{ steps.select.outputs.selected == 'true' || steps.select.outputs.reason_code == 'work_in_progress' }}
+        env:
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SELECTED_TASK_TYPE: ${{ steps.select.outputs.task_type }}
+        run: |
+          set -euo pipefail
+          template=control/docs/autonomous/JULES_TASK_PROMPT.md
+          if [ "${SELECTED_TASK_TYPE}" = "project_discovery" ]; then
+            template=control/docs/autonomous/JULES_PROJECT_DISCOVERY_PROMPT.md
+          fi
+          base_sha=$(git -C lab rev-parse HEAD)
+          python3 control/scripts/autonomous/build_jules_request.py --manifest lab/agent_tasks.json --template "${template}" --task-id "${SELECTED_TASK_ID}" --repo "${GITHUB_REPOSITORY}" --branch "${INTEGRATION_BRANCH}" --base-sha "${base_sha}" --focus "${FOCUS}" --risk-ceiling "${RISK_CEILING:-medium}" --out jules-request.json --github-output "${GITHUB_OUTPUT}"
+          python3 -c 'import json; from pathlib import Path; data=json.loads(Path("loop-readiness.json").read_text()); print("Research/execution base:", data["lab_sha"], "accepted main:", data["main_sha"])'
+
+      - name: Dispatch the AI worker session
+        id: jules
+        if: ${{ steps.select.outputs.selected == 'true' || steps.select.outputs.reason_code == 'work_in_progress' }}
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SELECTION_REASON: ${{ steps.select.outputs.reason_code }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh variable get JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}")" != "true" ]; then
+            echo "Loop was disabled after selection; leaving this attempt untouched."
+            echo "dispatch_result=deferred" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          extra=()
+          if [ "${SELECTION_REASON}" = "work_in_progress" ]; then
+            stored=$(jq -er --arg id "${SELECTED_TASK_ID}" '.tasks[] | select(.id == $id) | .execution.session_id | select(type == "string" and length > 0)' lab/agent_tasks.json)
+            extra=(--session-id "${stored}")
+          else
+            current_main=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+            current_lab=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
+            if [ "${current_main}" != "$(jq -r '.main_sha' loop-readiness.json)" ] || [ "${current_lab}" != "$(jq -r '.lab_sha' loop-readiness.json)" ]; then
+              echo "The product base moved after selection; a fresh tick must re-evaluate it."
+              echo "dispatch_result=deferred" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          python3 control/scripts/autonomous/jules_dispatch.py --request-body jules-request.json --response jules-response.json --github-output "${GITHUB_OUTPUT}" "${extra[@]}"
+
+      - name: Mark the task as in progress
+        id: start
+        if: ${{ steps.jules.outputs.dispatch_result == 'created' || steps.jules.outputs.dispatch_result == 'reconciled' || steps.jules.outputs.dispatch_result == 'already_completed' || steps.jules.outputs.dispatch_result == 'already_failed' }}
+        env:
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SESSION_ID: ${{ steps.jules.outputs.session_id }}
+          DISPATCH_KEY: ${{ steps.build.outputs.dispatch_key }}
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/task_lifecycle.py \
+            --manifest lab/agent_tasks.json \
+            --action start \
+            --task-id "${SELECTED_TASK_ID}" \
+            --session-id "${SESSION_ID}" \
+            --dispatch-key "${DISPATCH_KEY}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Collect completed session findings and record their outcome
+        id: already_done
+        if: ${{ steps.jules.outputs.dispatch_result == 'already_completed' }}
+        env:
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/complete_jules_task.py \
+            --manifest lab/agent_tasks.json \
+            --config control/autonomous-project.json \
+            --task-id "${SELECTED_TASK_ID}" \
+            --session-file jules-response.json \
+            --diagnostics session-report-diagnostics.json \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Record a task whose worker session failed
+        id: already_failed
+        if: ${{ steps.jules.outputs.dispatch_result == 'already_failed' }}
+        env:
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          SESSION_STATE: ${{ steps.jules.outputs.session_state }}
+        run: |
+          set -euo pipefail
+          # start counted this attempt before recording its terminal failure.
+          # The next tick therefore builds the next attempt's dispatch key.
+          python3 control/scripts/autonomous/task_lifecycle.py \
+            --manifest lab/agent_tasks.json \
+            --action complete \
+            --task-id "${SELECTED_TASK_ID}" \
+            --outcome failed \
+            --note "the worker session for this task ended in state ${SESSION_STATE:-unknown}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Release tasks abandoned by a dead session
+        id: reconcile
+        if: ${{ steps.open_prs.outputs.count == '0' && steps.readiness.outputs.action == 'next_task' && steps.jules.outputs.dispatch_result == '' && inputs.recover_report != true }}
+        run: python3 control/scripts/autonomous/task_lifecycle.py --manifest lab/agent_tasks.json --action reconcile --github-output "${GITHUB_OUTPUT}"
+      - name: Commit the queue back to the integration branch
+        if: always()
+        working-directory: lab
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 ../control/scripts/autonomous/validate_tasks.py agent_tasks.json
+          if git diff --quiet -- agent_tasks.json; then
+            echo "Queue unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent_tasks.json
+          git commit -m "chore(autonomous): update the task lifecycle"
+          git -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
+
+      - name: Preserve redacted completion diagnostics
+        if: ${{ always() && (hashFiles('session-report-diagnostics.json') != '' || hashFiles('recovered-report-diagnostics.json') != '') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: laboratory-result-${{ github.run_id }}-${{ github.run_attempt }}
+          name: research-report-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            lab-result.json
-            research-diagnostics.json
+            session-report-diagnostics.json
+            recovered-report-diagnostics.json
           retention-days: 14
           if-no-files-found: error
+
+      - name: Preserve dispatch readiness
+        if: ${{ always() && hashFiles('loop-readiness.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: loop-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: loop-readiness.json
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        env:
+          OPEN_PRS: ${{ steps.open_prs.outputs.count }}
+          SELECTED: ${{ steps.select.outputs.selected }}
+          SELECTED_TASK_ID: ${{ steps.select.outputs.task_id }}
+          REASON_CODE: ${{ steps.select.outputs.reason_code }}
+          TODO_COUNT: ${{ steps.select.outputs.todo_count }}
+          DEFERRED_DISCOVERY: ${{ steps.select.outputs.deferred_discovery }}
+          RESEARCH_REASON: ${{ steps.research.outputs.research_reason }}
+          RESEARCH_TASK_ID: ${{ steps.research.outputs.research_task_id }}
+          RESEARCH_NEXT_AT: ${{ steps.research.outputs.research_next_at }}
+          COMPLETION_REASON: ${{ steps.already_done.outputs.lifecycle_reason }}
+          IMPORTED_COUNT: ${{ steps.already_done.outputs.imported_count }}
+          SWEEP_REASON: ${{ steps.sweep.outputs.lifecycle_reason }}
+          SWEEP_TASK_ID: ${{ steps.sweep.outputs.lifecycle_task_id }}
+          RECONCILE_REASON: ${{ steps.reconcile.outputs.lifecycle_reason }}
+          DISPATCH_RESULT: ${{ steps.jules.outputs.dispatch_result }}
+          SESSION_ID: ${{ steps.jules.outputs.session_id }}
+          SESSION_STATE: ${{ steps.jules.outputs.session_state }}
+          READINESS_ACTION: ${{ steps.readiness.outputs.action }}
+          READINESS_REASON: ${{ steps.readiness.outputs.reason }}
+          RECOVERED_REPORT: ${{ steps.recover_report.outputs.lifecycle_reason }}
+        run: |
+          {
+            echo "### Autonomous next task"
+            echo ""
+            echo "- Integration branch: ${INTEGRATION_BRANCH}"
+            echo "- Control plane: read from main"
+            echo "- Active autonomous pull requests: ${OPEN_PRS:-unknown} (deferred proposals excluded)"
+            echo "- Queue depth (todo): ${TODO_COUNT:-unknown}"
+            echo "- Finished pull requests swept: ${SWEEP_REASON:-none} (${SWEEP_TASK_ID:-no task})"
+            echo "- Abandoned work released: ${RECONCILE_REASON:-none}"
+            echo "- Task selected: ${SELECTED:-false} (${REASON_CODE:-skipped_open_pull_request})"
+            echo "- Task id: ${SELECTED_TASK_ID:-none}"
+            echo "- Discovery deferred for real work: ${DEFERRED_DISCOVERY:-false}"
+            echo "- Research planner: ${RESEARCH_REASON:-not run} (${RESEARCH_TASK_ID:-no new task})"
+            echo "- Next eligible investigation: ${RESEARCH_NEXT_AT:-now or existing work first}"
+            echo "- Completed session: ${COMPLETION_REASON:-none}; findings imported: ${IMPORTED_COUNT:-0}"
+            echo "- Worker dispatch: ${DISPATCH_RESULT:-none} (session ${SESSION_ID:-none}, state ${SESSION_STATE:-none})"
+            echo "- Product/dispatch readiness: ${READINESS_ACTION:-not checked} (${READINESS_REASON:-none})"
+            echo "- Same-attempt report recovery: ${RECOVERED_REPORT:-not requested}"
+            echo "- Readiness and redacted report diagnostics are attached as artifacts when available."
+            echo "- Releases: disabled by policy, human-gated"
+          } >> "${GITHUB_STEP_SUMMARY}"
