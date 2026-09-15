@@ -16,7 +16,6 @@ import {
   writeTerminalBinary,
 } from "./api"
 import { Icon } from "./Icon"
-import { ContentActionMenu } from "./ContentActionMenu"
 import {
   bufferCellFromMouseEvent,
   createMouseSelectionEdit,
@@ -36,7 +35,7 @@ import {
 import { formatTerminalExitLine } from "./uiUtils"
 import type { PtyExitEvent, PtyOutputEvent, RuntimeInfo, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
-import { CONTENT_URL_PATTERN, isContentLink, isFileContentLink } from "./contentLinks"
+import { CONTENT_URL_PATTERN, isContentLink } from "./contentLinks"
 import { terminalShortcutInput } from "./terminalShortcuts"
 
 // The xterm addon adds its own global flag when scanning wrapped lines.
@@ -87,7 +86,6 @@ export function TerminalView({
   const [inputHelpOpen, setInputHelpOpen] = useState(false)
   const [selectionReply, setSelectionReply] = useState<SelectionReplyAction | null>(null)
   const [linkPreview, setLinkPreview] = useState<string | null>(null)
-  const [linkMenu, setLinkMenu] = useState<{ uri: string; left: number; top: number } | null>(null)
   const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -113,7 +111,7 @@ export function TerminalView({
 
   const replyToSelection = () => {
     const terminal = terminalRef.current
-    if (!terminal || !selectionReply || inputBlockedRef.current) return
+    if (!terminal || !selectionReply) return
     const input = formatSelectionReply(
       selectionReply.text,
       t(language, "terminalReplyContext"),
@@ -123,25 +121,7 @@ export function TerminalView({
     terminal.paste(input)
     terminal.clearSelection()
     setSelectionReply(null)
-    terminal.focus()
-  }
-
-  const dismissContentMenu = (restoreFocus: boolean) => {
-    setSelectionReply(null)
-    setLinkMenu(null)
-    if (restoreFocus) terminalRef.current?.focus()
-  }
-  const copySelection = () => {
-    if (!selectionReply) return
-    void writeText(selectionReply.text).catch((error) => onError(errorMessage(error, language)))
-    dismissContentMenu(true)
-  }
-  const openMenuLink = (action: "open" | "reveal") => {
-    if (!linkMenu) return
-    void openContentLink(linkMenu.uri, sessionPathRef.current, action).catch((error) => {
-      onError(errorMessage(error, language, { includeDetails: true }))
-    })
-    dismissContentMenu(true)
+    window.requestAnimationFrame(() => terminal.focus())
   }
 
   useEffect(() => {
@@ -162,7 +142,7 @@ export function TerminalView({
     }
     const activateLink = (event: MouseEvent, uri: string) => {
       event.preventDefault()
-      // xterm ends selection dragging on document mouseup; let this release reach it.
+      event.stopPropagation()
       if (terminal.hasSelection() || (event.button !== 0 && event.button !== 1)) return
       if (!isContentLink(uri)) {
         onErrorRef.current(t(languageRef.current, "contentLinkUnsupported"))
@@ -243,12 +223,28 @@ export function TerminalView({
       })
     }
     const showSelectionReply = (event: MouseEvent, text: string) => {
-      if (!text) {
+      if (tab.kind !== "agent" || !text.trim()) {
         setSelectionReply(null)
         return
       }
-      setLinkMenu(null)
-      setSelectionReply({ text, left: event.clientX + 10, top: event.clientY + 10 })
+      const view = container.parentElement
+      if (!view) return
+      const bounds = view.getBoundingClientRect()
+      const actionWidth = 92
+      const actionGap = 10
+      const pointerX = event.clientX - bounds.left
+      const pointerY = event.clientY - bounds.top
+      const horizontalOffset = actionWidth / 2 + actionGap
+      const placeRight = pointerX + actionWidth + actionGap <= bounds.width
+      const left = Math.min(
+        Math.max(
+          pointerX + (placeRight ? horizontalOffset : -horizontalOffset),
+          actionWidth / 2 + 8,
+        ),
+        bounds.width - actionWidth / 2 - 8,
+      )
+      const top = Math.min(Math.max(pointerY, 20), Math.max(20, bounds.height - 20))
+      setSelectionReply({ text, left, top })
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
@@ -332,7 +328,6 @@ export function TerminalView({
     }
     const handleMouseDown = (event: MouseEvent) => {
       terminal.focus()
-      setLinkMenu(null)
       clearArmedSelection()
       setSelectionReply(null)
       if (hoveredLink !== null) {
@@ -372,28 +367,13 @@ export function TerminalView({
       }
       pointerDownCell = null
     }
-    const preserveContextSelection = (event: MouseEvent) => {
-      if (
-        event.button === 2 &&
-        (terminal.hasSelection() || (hoveredLink && isFileContentLink(hoveredLink)))
-      ) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-    }
     const handleContextMenu = (event: MouseEvent) => {
-      if (terminal.hasSelection()) {
-        const text = terminal.getSelection()
-        if (!text) return
-        event.preventDefault()
-        showSelectionReply(event, text)
-      } else if (hoveredLink && isFileContentLink(hoveredLink)) {
-        event.preventDefault()
-        setSelectionReply(null)
-        setLinkMenu({ uri: hoveredLink, left: event.clientX, top: event.clientY })
-      }
+      if (tab.kind !== "agent" || !terminal.hasSelection()) return
+      const text = terminal.getSelection()
+      if (!text.trim()) return
+      event.preventDefault()
+      showSelectionReply(event, text)
     }
-    container.addEventListener("mousedown", preserveContextSelection, true)
     container.addEventListener("mousedown", handleMouseDown)
     container.addEventListener("contextmenu", handleContextMenu)
     container.addEventListener("mouseup", handleMouseUp)
@@ -403,13 +383,11 @@ export function TerminalView({
     })
     const scrollSubscription = terminal.onScroll(() => {
       setSelectionReply(null)
-      setLinkMenu(null)
       leaveLink()
     })
 
     let disposed = false
     let lastCols = 0
-    let fitFrame: number | null = null
     let lastRows = 0
     const unlisteners: UnlistenFn[] = []
     const attachmentId =
@@ -470,11 +448,7 @@ export function TerminalView({
     }
 
     const resizeObserver = new ResizeObserver(() => {
-      if (fitFrame === null)
-        fitFrame = window.requestAnimationFrame(() => {
-          fitFrame = null
-          fit()
-        })
+      window.requestAnimationFrame(fit)
     })
     resizeObserver.observe(container)
 
@@ -551,9 +525,7 @@ export function TerminalView({
       } else {
         onReadyRef.current(tab.id)
       }
-      if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
-      fitFrame = window.requestAnimationFrame(() => {
-        fitFrame = null
+      window.requestAnimationFrame(() => {
         fit()
         if (activeRef.current) terminal.focus()
       })
@@ -571,11 +543,9 @@ export function TerminalView({
       outputBatcher.dispose()
       deferredOutput = []
       resizeObserver.disconnect()
-      if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
       container.removeEventListener("mousedown", handleMouseDown)
       container.removeEventListener("mouseup", handleMouseUp)
       container.removeEventListener("focusout", handleFocusOut)
-      container.removeEventListener("mousedown", preserveContextSelection, true)
       container.removeEventListener("contextmenu", handleContextMenu)
       selectAllArmedRef.current = false
       dataSubscription.dispose()
@@ -596,8 +566,7 @@ export function TerminalView({
     if (!terminal) return
     terminal.options.fontFamily = terminalFontFamily
     terminal.options.fontSize = terminalFontSize
-    const frame = window.requestAnimationFrame(() => fitAddonRef.current?.fit())
-    return () => window.cancelAnimationFrame(frame)
+    window.requestAnimationFrame(() => fitAddonRef.current?.fit())
   }, [terminalFontFamily, terminalFontSize])
 
   useEffect(() => {
@@ -625,7 +594,6 @@ export function TerminalView({
     setInputHelpOpen(false)
     setInputSelectionArmed(false)
     setSelectionReply(null)
-    setLinkMenu(null)
     setLinkPreview(null)
   }, [active])
 
@@ -640,35 +608,19 @@ export function TerminalView({
           {linkPreview}
         </div>
       )}
-      {selectionReply && (
-        <ContentActionMenu
-          left={selectionReply.left}
-          top={selectionReply.top}
-          onDismiss={dismissContentMenu}
-          actions={[
-            { label: t(language, "copySelection"), run: copySelection },
-            ...(tab.kind === "agent" && selectionReply.text.trim()
-              ? [
-                  {
-                    label: t(language, "terminalReplyToSelection"),
-                    disabled: inputBlockedRef.current,
-                    run: replyToSelection,
-                  },
-                ]
-              : []),
-          ]}
-        />
-      )}
-      {linkMenu && (
-        <ContentActionMenu
-          left={linkMenu.left}
-          top={linkMenu.top}
-          onDismiss={dismissContentMenu}
-          actions={[
-            { label: t(language, "contentLinkOpen"), run: () => openMenuLink("open") },
-            { label: t(language, "contentLinkReveal"), run: () => openMenuLink("reveal") },
-          ]}
-        />
+      {tab.kind === "agent" && selectionReply && (
+        <button
+          aria-label={t(language, "terminalReplyToSelection")}
+          className="terminal-selection-reply"
+          onClick={replyToSelection}
+          onMouseDown={(event) => event.stopPropagation()}
+          style={{ left: selectionReply.left, top: selectionReply.top }}
+          title={t(language, "terminalReplyToSelection")}
+          type="button"
+        >
+          <Icon name="reply" size={13} />
+          <span>{t(language, "terminalReplyToSelection")}</span>
+        </button>
       )}
       {tab.kind === "agent" && (
         <button

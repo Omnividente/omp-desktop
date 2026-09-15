@@ -7,9 +7,6 @@ import type { OmpUpdateInfo, ResourceHealthSnapshot, RuntimeInfo, WorkspaceSumma
 interface TopbarProps {
   appVersion: string
   checkingUpdate: boolean
-  checkingDesktopUpdate: boolean
-  installingDesktopUpdate: boolean
-  onCheckDesktopUpdate: () => void
   incidentActiveTerminalCount: number
   incidentCenterOpen: boolean
   incidentTriggerRef: Ref<HTMLButtonElement>
@@ -31,9 +28,6 @@ interface TopbarProps {
 export function Topbar({
   appVersion,
   checkingUpdate,
-  checkingDesktopUpdate,
-  installingDesktopUpdate,
-  onCheckDesktopUpdate,
   incidentActiveTerminalCount,
   incidentCenterOpen,
   incidentTriggerRef,
@@ -68,21 +62,9 @@ export function Topbar({
         </span>
         <strong>OMP</strong>
         <span className="brand-product">Desktop</span>
-        <button
-          aria-label={t(language, "desktopUpdateCheck")}
-          className="app-version"
-          disabled={checkingDesktopUpdate || installingDesktopUpdate}
-          onClick={onCheckDesktopUpdate}
-          title={t(language, "desktopUpdateCheck")}
-          type="button"
-        >
-          {checkingDesktopUpdate ? (
-            <span className="mini-loader" />
-          ) : (
-            <Icon name="refresh" size={11} />
-          )}
+        <span className="app-version" title={`OMP Desktop ${appVersion}`}>
           v{appVersion}
-        </button>
+        </span>
       </div>
       <div className="topbar-context">
         <Icon name="folder" size={15} />

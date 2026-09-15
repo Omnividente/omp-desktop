@@ -118,8 +118,6 @@ export interface SessionTranscript {
   entries: TranscriptEntry[]
   updatedAt: number
   truncated: boolean
-  malformedRecords: number
-  incompleteLastRecord: boolean
 }
 
 export interface WorkspaceSummary {
@@ -131,17 +129,11 @@ export interface WorkspaceSummary {
   pinned: boolean
 }
 
-export interface SessionScanWarning {
-  path: string
-  message: string
-}
-
 export interface BootstrapPayload {
   settings: AppSettings
   runtime: RuntimeInfo
   workspaces: WorkspaceSummary[]
   sessions: SessionSummary[]
-  sessionWarnings: SessionScanWarning[]
 }
 
 export type ImportMode = "skip" | "update" | "copy"
@@ -250,23 +242,6 @@ export interface OmpConfigWarning {
   message: string
 }
 
-export type OmpOperationalValue = boolean | number | string | null
-
-export interface OmpOperationalSetting {
-  key: string
-  category: "agent" | "context" | "retry" | "tools" | "terminal" | "tasks"
-  type: "boolean" | "number" | "enum"
-  description: string
-  value: OmpOperationalValue
-  choices: string[]
-}
-
-export interface OmpOperationalChange {
-  expectedValue: OmpOperationalValue
-  value: OmpOperationalValue
-  reset: boolean
-}
-
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[]
   models: OmpModelInfo[]
@@ -282,7 +257,6 @@ export interface OmpConfigSnapshot {
   usageObservedAt: number | null
   credentials: OmpCredentialInfo[]
   warnings: OmpConfigWarning[]
-  operationalSettings?: OmpOperationalSetting[]
 }
 
 export interface OmpCustomProviderRequest {
@@ -304,7 +278,6 @@ export interface OmpConfigSaveRequest {
   customProviderUpserts?: OmpCustomProviderRequest[]
   removedCustomProviders?: string[]
   providerEnv?: Record<string, string> | null
-  operationalChanges?: Record<string, OmpOperationalChange>
 }
 
 export interface SettingsSaveRequest {

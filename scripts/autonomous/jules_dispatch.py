@@ -37,17 +37,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Mapping, Sequence
 
 DEFAULT_API_BASE = "https://jules.googleapis.com/v1alpha"
 TRANSIENT_STATUSES = {0, 408, 409, 429, 500, 502, 503, 504}
 AUTH_STATUSES = {401, 403}
 COMPLETED_STATES = {"COMPLETED"}
-# Terminal failure must not be reported as successful completion. Without a
-# proposal the lifecycle may retry within budget; an output PR remains for
-# human review even when its worker failed.
+# Terminal states that mean the worker did not finish its job. These must not be
+# reported as a completed session: the task is retried (within its attempt
+# budget) instead of being closed as "nothing to change".
 FAILED_STATES = {
     "FAILED", "FAILURE", "ERROR", "ERRORED", "CANCELLED", "CANCELED", "ABORTED",
     "EXPIRED", "TIMED_OUT", "TIMEOUT",
@@ -61,20 +59,11 @@ RESULT_ALREADY_COMPLETED = "already_completed"
 RESULT_ALREADY_FAILED = "already_failed"
 
 
-class CreateRejected(RuntimeError):
-    """A definite non-transient HTTP refusal of this CreateSession attempt."""
-
-    def __init__(self, status: int) -> None:
-        self.status = status
-        super().__init__("Jules CreateSession rejected: HTTP " + str(status))
-
-
 class Response:
-    def __init__(self, status: int, payload: Any = None, text: str = "", headers: Mapping | None = None) -> None:
+    def __init__(self, status: int, payload: Any = None, text: str = "") -> None:
         self.status = status
         self.payload = payload
         self.text = text
-        self.headers = {str(key).lower(): str(value) for key, value in (headers or {}).items()}
 
 
 class KeyRing:
@@ -148,46 +137,28 @@ def urllib_transport(method: str, url: str, headers: Mapping[str, str], payload:
         with urllib.request.urlopen(request, timeout=45) as response:
             raw = response.read().decode("utf-8", errors="replace")
             parsed = json.loads(raw) if raw.strip() else None
-            return Response(int(response.status), parsed, raw, dict(response.headers))
+            return Response(int(response.status), parsed, raw)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         try:
             parsed = json.loads(raw) if raw.strip() else None
         except json.JSONDecodeError:
             parsed = None
-        return Response(int(exc.code), parsed, raw, dict(exc.headers))
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return Response(0)
+        return Response(int(exc.code), parsed, raw)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return Response(0, None, str(exc))
 
 
 def request_with_keys(transport: Callable, ring: KeyRing, method: str, url: str,
-                      payload: Any = None, *, max_attempts: int = 3,
-                      base_delay: float = 3.0, sleeper: Callable = time.sleep) -> Response:
-    retries = 0
+                      payload: Any = None) -> Response:
     while True:
-        try:
-            response = transport(method, url, {"X-Goog-Api-Key": ring.current}, payload)
-        except (TimeoutError, OSError):
-            response = Response(0)
+        response = transport(method, url, {"X-Goog-Api-Key": ring.current}, payload)
         if response.status in AUTH_STATUSES and ring.rotate():
             continue
-        if method != "GET" or response.status not in TRANSIENT_STATUSES or retries >= max(1, max_attempts) - 1:
-            return response
-        delay = base_delay * (2 ** retries)
-        retry_after = response.headers.get("retry-after", "")
-        if retry_after:
-            try:
-                delay = float(retry_after)
-            except ValueError:
-                try:
-                    delay = (parsedate_to_datetime(retry_after) - datetime.now(timezone.utc)).total_seconds()
-                except (ValueError, TypeError, OverflowError):
-                    pass
-        sleeper(min(60.0, max(0.0, delay)))
-        retries += 1
+        return response
 
 
-def list_sessions(transport: Callable, api_base: str, ring: KeyRing, **retry_options) -> list:
+def list_sessions(transport: Callable, api_base: str, ring: KeyRing) -> list:
     sessions = []
     token = ""
     seen = set()
@@ -198,7 +169,6 @@ def list_sessions(transport: Callable, api_base: str, ring: KeyRing, **retry_opt
         response = request_with_keys(
             transport, ring, "GET",
             api_base.rstrip("/") + "/sessions?" + urllib.parse.urlencode(query),
-            **retry_options,
         )
         if response.status // 100 != 2:
             raise RuntimeError("Jules ListSessions failed: HTTP " + str(response.status))
@@ -222,10 +192,9 @@ def session_resource(value: str) -> str:
     return resource
 
 
-def get_session(transport: Callable, api_base: str, ring: KeyRing, resource: str, **retry_options) -> dict:
+def get_session(transport: Callable, api_base: str, ring: KeyRing, resource: str) -> dict:
     response = request_with_keys(
         transport, ring, "GET", api_base.rstrip("/") + "/" + session_resource(resource),
-        **retry_options,
     )
     if response.status // 100 != 2:
         raise RuntimeError("Jules GetSession failed: HTTP " + str(response.status))
@@ -234,7 +203,7 @@ def get_session(transport: Callable, api_base: str, ring: KeyRing, resource: str
     return response.payload
 
 
-def list_activities(transport: Callable, api_base: str, ring: KeyRing, resource: str, **retry_options) -> list:
+def list_activities(transport: Callable, api_base: str, ring: KeyRing, resource: str) -> list:
     """Read every page from the exact session; API order is not chronological."""
     resource = session_resource(resource)
     activities = []
@@ -247,7 +216,6 @@ def list_activities(transport: Callable, api_base: str, ring: KeyRing, resource:
         response = request_with_keys(
             transport, ring, "GET", api_base.rstrip("/") + "/" + resource
             + "/activities?" + urllib.parse.urlencode(query),
-            **retry_options,
         )
         if response.status // 100 != 2:
             raise RuntimeError("Jules ListActivities failed: HTTP " + str(response.status))
@@ -273,9 +241,6 @@ def find_matches(sessions, key: str) -> tuple:
     matches = [
         s for s in sessions if isinstance(s, dict) and session_matches(s, key)
     ]
-    identities = {session_resource(session_id(session)) for session in matches}
-    if len(identities) > 1:
-        raise RuntimeError("multiple Jules sessions match the same reserved attempt")
     matches.sort(
         key=lambda s: str(s.get("updateTime") or s.get("createTime") or ""), reverse=True
     )
@@ -307,7 +272,6 @@ def dispatch(
     max_attempts: int = 3,
     base_delay: float = 3.0,
     sleeper: Callable = time.sleep,
-    allow_create: bool = True,
 ) -> dict:
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     if not ring:
@@ -318,52 +282,47 @@ def dispatch(
         raise RuntimeError("request prompt is missing the AUTONOMOUS_DISPATCH_KEY marker")
     if not session_matches(request_body, key):
         raise RuntimeError("request contains contradictory dispatch markers")
-    retry_options = {"max_attempts": max_attempts, "base_delay": base_delay, "sleeper": sleeper}
-
-    def matched_result(session, kind):
-        source = session.get("sourceContext") or {}
-        expected_source = request_body.get("sourceContext") or {}
-        if source.get("source") and source.get("source") != expected_source.get("source"):
-            raise RuntimeError("Jules session belongs to a foreign source repository")
-        actual_branch = (source.get("githubRepoContext") or {}).get("startingBranch")
-        expected_branch = (expected_source.get("githubRepoContext") or {}).get("startingBranch")
-        if actual_branch and expected_branch and actual_branch != expected_branch:
-            raise RuntimeError("Jules session belongs to a different starting branch")
-        return _result(kind, session)
 
     if stored_session:
         resource = session_resource(stored_session)
-        current = get_session(transport, api_base, ring, resource, **retry_options)
+        current = get_session(transport, api_base, ring, resource)
         if (session_id(current) != resource.split("/", 1)[1]
                 or current.get("name", resource) != resource
                 or not session_matches(current, key)):
             raise RuntimeError("stored Jules session does not match this attempt")
-        return matched_result(current, RESULT_RECONCILED if session_is_active(current) else terminal_result(current))
+        return _result(RESULT_RECONCILED if session_is_active(current)
+                       else terminal_result(current), current)
 
-    active, terminal = find_matches(list_sessions(transport, api_base, ring, **retry_options), key)
-    if active or terminal:
-        current = active or terminal
-        return matched_result(current, RESULT_RECONCILED if active else terminal_result(current))
-    if not allow_create:
-        return _result("deferred", {})
+    active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
+    if active:
+        return _result(RESULT_RECONCILED, active)
+    if terminal:
+        # This exact attempt was already worked on and its session ended. Creating
+        # a second session for the same attempt would re-run finished work, so the
+        # caller closes the task out (completed) or retries it (failed) instead.
+        return _result(terminal_result(terminal), terminal)
 
-    response = request_with_keys(transport, ring, "POST", api_base.rstrip("/") + "/sessions", dict(request_body))
-    if response.status // 100 == 2 and isinstance(response.payload, dict):
-        current = response.payload
-        if session_id(current) and session_matches(current, key):
-            session_resource(session_id(current))
-            return matched_result(current, RESULT_CREATED)
-    elif 400 <= response.status < 500 and response.status not in TRANSIENT_STATUSES:
-        raise CreateRejected(response.status)
-    # A timeout or uncertain response is not permission to POST again. Durable
-    # callers resume this intent through the same read-only lookup next tick.
-    active, terminal = find_matches(list_sessions(transport, api_base, ring, **retry_options), key)
-    if active or terminal:
-        current = active or terminal
-        return matched_result(current, RESULT_RECONCILED if active else terminal_result(current))
-    result = _result("deferred", {})
-    result["reason"] = "create_ambiguous"
-    return result
+    last_status = 0
+    for attempt in range(1, max_attempts + 1):
+        response = request_with_keys(
+            transport, ring, "POST", api_base.rstrip("/") + "/sessions", dict(request_body)
+        )
+        last_status = response.status
+        if response.status // 100 == 2 and isinstance(response.payload, dict):
+            return _result(RESULT_CREATED, response.payload)
+        active, terminal = find_matches(list_sessions(transport, api_base, ring), key)
+        if active:
+            return _result(RESULT_RECONCILED, active)
+        if terminal:
+            return _result(terminal_result(terminal), terminal)
+        if response.status not in TRANSIENT_STATUSES:
+            raise RuntimeError("Jules CreateSession failed: HTTP " + str(response.status))
+        if attempt < max_attempts:
+            sleeper(base_delay * attempt)
+    raise RuntimeError(
+        "Jules CreateSession did not succeed after " + str(max_attempts)
+        + " attempt(s); last HTTP " + str(last_status)
+    )
 
 
 def _write_output(path: str, values: Mapping[str, Any]) -> None:
@@ -379,7 +338,6 @@ def main(argv=None) -> int:
     parser.add_argument("--request-body", required=True, type=Path)
     parser.add_argument("--response", type=Path, default=Path("jules-response.json"))
     parser.add_argument("--session-id", default="", help="Read only this stored attempt; never create a replacement")
-    parser.add_argument("--reconcile-only", action="store_true")
     parser.add_argument("--api-base", default=os.environ.get("JULES_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
     args = parser.parse_args(argv)
@@ -397,7 +355,6 @@ def main(argv=None) -> int:
         result = dispatch(
             urllib_transport, api_base=args.api_base, api_keys=ring, request_body=request_body,
             stored_session=args.session_id,
-            allow_create=not args.reconcile_only,
         )
     except (RuntimeError, ValueError) as exc:
         print("ERROR: " + str(exc), file=sys.stderr)

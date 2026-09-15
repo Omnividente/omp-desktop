@@ -57,7 +57,7 @@ class DispatchKeyTest(unittest.TestCase):
 
     def test_retry_changes_identity_but_reconciliation_does_not(self):
         now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
-        for outcome in ("failed",):
+        for outcome in ("failed", "closed_unmerged", "stale"):
             with self.subTest(outcome=outcome):
                 data = {"tasks": [dict(TASK)]}
                 item = data["tasks"][0]
@@ -88,26 +88,8 @@ class DispatchKeyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             start(data, TASK["id"], session_id="2", dispatch_key="next")
 
-    def test_quarantine_and_decline_do_not_generate_a_new_attempt_identity(self):
-        now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
-        for outcome in ("closed_unmerged", "stale"):
-            data = {"tasks": [dict(TASK)]}
-            first = extract_key(build(data["tasks"][0], template=TEMPLATE, repo="r", branch="lab", base_sha="s")["prompt"])
-            start(data, TASK["id"], session_id="7", dispatch_key=first, now=now)
-            complete(data, TASK["id"], outcome=outcome, now=now)
-            body = build(data["tasks"][0], template=TEMPLATE, repo="r", branch="lab", base_sha="s")
-            self.assertEqual(extract_key(body["prompt"]), first)
-            with self.assertRaises(ValueError):
-                start(data, TASK["id"], session_id="8", dispatch_key="next")
-
 
 class BuildTest(unittest.TestCase):
-    def test_immutable_source_does_not_change_proposal_target(self):
-        body = make(starting_branch="autonomous/attempt-first")
-        self.assertEqual(body["sourceContext"]["githubRepoContext"]["startingBranch"], "autonomous/attempt-first")
-        self.assertIn("branch autonomous/lab", body["prompt"])
-        self.assertEqual(extract_key(body["prompt"]), extract_key(make()["prompt"]))
-
     def test_only_implementation_sessions_create_pull_requests(self):
         discovery = build(dict(TASK, task_type="project_discovery"), template=TEMPLATE,
                           repo="r", branch="lab", base_sha="s")

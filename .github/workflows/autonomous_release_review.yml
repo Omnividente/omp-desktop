@@ -32,7 +32,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   resolve:
@@ -42,37 +41,11 @@ jobs:
     outputs:
       base_sha: ${{ steps.pin.outputs.base_sha }}
       head_sha: ${{ steps.pin.outputs.head_sha }}
-      state_sha: ${{ steps.state.outputs.state_sha }}
     env:
       GH_TOKEN: ${{ github.token }}
       BASE_REF: ${{ inputs.base }}
       HEAD_REF: ${{ inputs.head }}
     steps:
-      - name: Check out trusted state reader
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          fetch-depth: 0
-          path: control
-
-      - name: Pin the independent state snapshot
-        id: state
-        run: |
-          set -euo pipefail
-          git -C control fetch origin autonomous/lab
-          git -C control show refs/remotes/origin/autonomous/lab:agent_tasks.json > legacy-seed.json
-          python3 control/scripts/autonomous/state_store.py --action load --repo control --manifest queue.json --revision-file queue-revision.json --seed legacy-seed.json
-          echo "state_sha=$(jq -r .state_sha queue-revision.json)" >> "${GITHUB_OUTPUT}"
-
-      - name: Retain the pinned state for this review
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: review-state
-          path: |
-            queue.json
-            queue-revision.json
-          retention-days: 14
-
       - name: Resolve both refs to commits
         id: pin
         run: |
@@ -166,11 +139,6 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Recover the independent pinned state
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: review-state
-
       - name: Fetch both pinned commits
         run: |
           set -euo pipefail
@@ -183,7 +151,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/autonomous/release_review.py \
-            --manifest queue.json --state-revision queue-revision.json \
             --base "${BASE_REF}" \
             --head "${HEAD_REF}" \
             --base-sha "${BASE_SHA}" \

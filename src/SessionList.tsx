@@ -126,7 +126,6 @@ export function SessionList({
     overscan: 8,
     getItemKey: (item) => item.session.id,
   })
-  const lastVirtualItem = virtualItems.at(-1)
 
   const showEmpty = Boolean(selectedWorkspacePath) && flattenedSessions.length === 0
 
@@ -193,10 +192,15 @@ export function SessionList({
         </label>
       </div>
 
-      <div ref={listRef} className="session-list">
+      <div
+        ref={listRef}
+        className="session-list"
+        style={{ position: "relative", overflow: "auto" }}
+      >
         {flattenedSessions.length > 0 && (
           <>
-            <div style={{ height: virtualItems[0]?.offset ?? 0 }} aria-hidden="true" />
+            {/* Spacer to establish correct scroll height */}
+            <div style={{ height: totalHeight }} aria-hidden="true" />
             {virtualItems.map((vi) => {
               const session = vi.item.session
               const selected = session.id === selectedSessionId
@@ -217,7 +221,16 @@ export function SessionList({
                 onRenameKeyDown(e, session)
 
               return (
-                <div key={session.id} style={{ height: vi.height, display: "flow-root" }}>
+                <div
+                  key={session.id}
+                  style={{
+                    position: "absolute",
+                    top: vi.offset,
+                    left: 0,
+                    right: 0,
+                    height: vi.height,
+                  }}
+                >
                   <SessionRow
                     busy={busy}
                     actionsDisabled={deletingSessionId !== null}
@@ -277,16 +290,6 @@ export function SessionList({
                 </div>
               )
             })}
-            <div
-              aria-hidden="true"
-              style={{
-                height: Math.max(
-                  0,
-                  totalHeight -
-                    (lastVirtualItem ? lastVirtualItem.offset + lastVirtualItem.height : 0),
-                ),
-              }}
-            />
           </>
         )}
 

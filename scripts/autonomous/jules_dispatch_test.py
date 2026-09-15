@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from jules_dispatch import (  # noqa: E402
     RESULT_ALREADY_COMPLETED, RESULT_ALREADY_FAILED, RESULT_CREATED, RESULT_RECONCILED,
-    CreateRejected, Response, dispatch,
+    Response, dispatch,
 )
 
 KEY = "deadbeefcafe0001"
@@ -69,30 +69,24 @@ class CreateTest(unittest.TestCase):
         self.assertEqual(result["result"], RESULT_CREATED)
         self.assertEqual(result["session_id"], "555")
 
-    def test_ambiguous_create_is_reconciled_read_only_even_when_replayed(self):
-        transport = FakeTransport([sessions_response()] * 3,
-                                  [Response(0), Response(200, session("QUEUED"))])
-        self.assertEqual(run(transport)["result"], "deferred")
-        self.assertEqual(run(transport, allow_create=False)["result"], "deferred")
-        self.assertEqual([method for method, _ in transport.calls].count("POST"), 1)
+    def test_transient_failure_is_retried(self):
+        transport = FakeTransport(
+            [sessions_response(), sessions_response()],
+            [Response(429, None), Response(200, session("QUEUED"))],
+        )
+        self.assertEqual(run(transport)["result"], RESULT_CREATED)
 
-    def test_definite_create_rejection_exposes_status_without_upstream_secrets(self):
-        for status in (400, 401, 403, 422):
-            with self.subTest(status=status):
-                transport = FakeTransport([sessions_response()],
-                                          [Response(status, {"message": "PRIVATE_BODY"}, text="PRIVATE_BODY")])
-                with self.assertRaises(CreateRejected) as caught:
-                    run(transport)
-                self.assertEqual(caught.exception.status, status)
-                self.assertNotIn("PRIVATE_BODY", str(caught.exception))
-                self.assertEqual([method for method, _ in transport.calls], ["GET", "POST"])
+    def test_permanent_failure_raises(self):
+        transport = FakeTransport([sessions_response()], [Response(400, None)])
+        with self.assertRaises(RuntimeError):
+            run(transport)
 
-    def test_uncertain_create_failure_does_not_spend_another_post(self):
-        for status in (0, 200, 408, 409, 429, 500, 501, 503):
-            with self.subTest(status=status):
-                transport = FakeTransport([sessions_response()] * 2, [Response(status)])
-                self.assertEqual(run(transport)["result"], "deferred")
-                self.assertEqual([method for method, _ in transport.calls].count("POST"), 1)
+    def test_exhausted_retries_raise(self):
+        transport = FakeTransport(
+            [sessions_response()] * 6, [Response(503, None)] * 3
+        )
+        with self.assertRaises(RuntimeError):
+            run(transport)
 
 
 class ReconcileTest(unittest.TestCase):
@@ -120,12 +114,14 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(result["session_state"], "FAILED")
         self.assertNotEqual(result["result"], RESULT_ALREADY_COMPLETED)
 
-    def test_multiple_matching_sessions_require_attention_not_list_order(self):
+    def test_active_session_wins_over_an_older_finished_one(self):
         transport = FakeTransport([sessions_response(
-            session("COMPLETED", name="sessions/1"), session("IN_PROGRESS", name="sessions/2"))])
-        with self.assertRaises(RuntimeError):
-            run(transport)
-        self.assertNotIn("POST", [method for method, _ in transport.calls])
+            session("COMPLETED", name="sessions/1", updateTime="2026-09-11T10:00:00Z"),
+            session("IN_PROGRESS", name="sessions/2", updateTime="2026-09-12T10:00:00Z"),
+        )])
+        result = run(transport)
+        self.assertEqual(result["result"], RESULT_RECONCILED)
+        self.assertEqual(result["session_id"], "2")
 
     def test_unrelated_sessions_are_ignored(self):
         other = session("IN_PROGRESS", title="[dispatch:other] thing", prompt="nope")
@@ -162,23 +158,6 @@ class ReconcileTest(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     run(transport, stored_session="555")
                 self.assertNotIn("POST", [method for method, _url in transport.calls])
-
-    def test_known_session_transient_exhaustion_never_creates_replacement(self):
-        transport = FakeTransport([Response(503)] * 3)
-        with self.assertRaises(RuntimeError):
-            run(transport, stored_session="555")
-        self.assertEqual([method for method, _ in transport.calls], ["GET"] * 3)
-        self.assertTrue(all(url.endswith("/sessions/555") for _, url in transport.calls))
-
-    def test_retry_after_and_auth_rotation_recover_exact_session(self):
-        transport = FakeTransport([Response(429, headers={"Retry-After": "7"}),
-                                   Response(401), Response(200, session("COMPLETED"))])
-        delays = []
-        result = dispatch(transport, api_base="https://example.test", api_keys=["primary", "backup"],
-                          request_body=REQUEST, stored_session="555", sleeper=delays.append)
-        self.assertEqual(result["result"], RESULT_ALREADY_COMPLETED)
-        self.assertEqual(delays, [7.0])
-        self.assertEqual(transport.keys_used, ["primary", "primary", "backup"])
 
 
 class KeyRingTest(unittest.TestCase):
@@ -263,7 +242,7 @@ class PaginationTest(unittest.TestCase):
 
     def test_failed_later_page_does_not_mean_no_matching_session(self):
         transport = FakeTransport([
-            Response(200, {"sessions": [], "nextPageToken": "next"}), *([Response(503, None)] * 3),
+            Response(200, {"sessions": [], "nextPageToken": "next"}), Response(503, None),
         ])
         with self.assertRaises(RuntimeError):
             run(transport)

@@ -49,10 +49,6 @@ export function startWithDefaults(): Promise<BootstrapPayload> {
   return invoke("start_with_defaults")
 }
 
-export function openSettingsFolder(): Promise<void> {
-  return invoke("open_settings_folder")
-}
-
 export function addWorkspace(path: string): Promise<BootstrapPayload> {
   return invoke("add_workspace", { path })
 }
@@ -176,12 +172,8 @@ export function readSessionTranscript(path: string): Promise<SessionTranscript> 
   return invoke("read_session_transcript", { path })
 }
 
-export function openContentLink(
-  uri: string,
-  sessionPath?: string | null,
-  action: "open" | "reveal" = "open",
-): Promise<void> {
-  return invoke("open_content_link", { request: { uri, sessionPath, action } })
+export function openContentLink(uri: string, sessionPath: string | null): Promise<void> {
+  return invoke("open_content_link", { request: { uri, sessionPath } })
 }
 
 export function importSessions(requests: ImportSessionRequest[]): Promise<ImportBatchPayload> {

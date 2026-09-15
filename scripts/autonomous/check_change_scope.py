@@ -7,9 +7,11 @@ are different answers:
 * ``product.excluded`` is a hard block. A pull request touching these paths is
   refused outright, so the loop can never cut a release, bump a version, or
   rewrite its own guardrails.
-* ``product.manual_review_paths`` identifies additional revision-bound review
-  requirements. Every proposal is accepted manually; updater changes also need
-  explicit owner approval before a report can call them ready for review.
+* ``product.manual_review_paths`` is a soft block. The loop may propose changes
+  there, but they can never land unattended: automerge downgrades such a pull
+  request to manual review so a human accepts it explicitly. The auto-update
+  machinery lives here - it is product code, but shipping a broken updater is
+  unrecoverable, so it is never merged by a robot.
 
 Pattern matching is fnmatch-based and deliberately ignores directory
 boundaries, so ``*.test.ts`` matches ``src/api.test.ts`` as well as

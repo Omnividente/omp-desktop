@@ -1,115 +1,226 @@
 name: Autonomous Loop Switch
 
-# Stop new effects first, outside the queue-writer lock. A saved external session
-# is quarantined, never forgotten or advertised as cancelled.
+# Master on/off switch for the parallel autonomous improvement loop.
+# The loop never releases: it only accumulates changes on the integration branch.
+#
+# Switching on also prepares the integration branch, because a lab branch that
+# predates the loop cannot run it. Preparation is additive: a missing branch is
+# created from the default branch, a missing task queue is seeded, and the
+# workflows that must exist *on the branch itself* are published onto it. Work
+# already accumulated on the branch is never overwritten and its history is
+# never rewritten.
+#
+# The entry points have to live on the branch because GitHub reads a
+# pull_request workflow from the ref of the event, not from the default branch:
+# a file that exists only on main would never run for a pull request into the
+# integration branch. Writing workflow files needs a PAT with the workflow
+# scope, and if that write fails the switch fails loudly - a loop whose own
+# pull requests have no evidence gate must not be turned on.
+#
+# Switching off releases any task left in flight so the queue cannot deadlock.
+
 on:
   workflow_dispatch:
     inputs:
       loop_enabled:
-        description: Enable the research/proposal laboratory
+        description: Enable the autonomous loop
         type: choice
-        options: ["true", "false"]
-        default: "false"
+        options:
+          - "true"
+          - "false"
+        default: "true"
       prepare_integration_branch:
-        description: Create lab only if absent and refresh trusted event entry points
+        description: Create and seed the integration branch if it is not ready
         type: boolean
         default: true
 
 permissions:
   contents: write
 
+concurrency:
+  group: autonomous-lab-queue
+  queue: max
+  cancel-in-progress: false
+
 jobs:
-  stop-dispatch:
-    if: ${{ github.ref == 'refs/heads/main' }}
+  switch:
+    name: Set the loop state
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    env:
+      INTEGRATION_BRANCH: autonomous/lab
+      DEFAULT_BRANCH: main
+      LOOP_ENABLED: ${{ inputs.loop_enabled }}
+      ADMIN_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Stop new dispatches before waiting for state ownership
+      - name: Stop new dispatches before changing the loop state
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with the repo and workflow scopes so this workflow can manage Actions variables and publish the loop entry points."
+            exit 1
+          fi
+          GH_TOKEN="${ADMIN_TOKEN}" gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body false
+
+      - name: Prepare the integration branch
+        id: prepare
+        if: ${{ inputs.loop_enabled == 'true' && inputs.prepare_integration_branch }}
         env:
           GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
-        run: gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body false
+        run: |
+          set -euo pipefail
+          created=false
+          seeded=false
+          if gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" > /dev/null 2>&1; then
+            echo "Integration branch ${INTEGRATION_BRANCH} already exists; leaving its history alone."
+          else
+            sha=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEFAULT_BRANCH}" --jq '.object.sha')
+            gh api --method POST "/repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/heads/${INTEGRATION_BRANCH}" -f "sha=${sha}"
+            created=true
+            echo "Created ${INTEGRATION_BRANCH} from ${DEFAULT_BRANCH} at ${sha}."
+          fi
+          # Existing queue state is never replaced. Event entry points are
+          # checked separately before dispatches can be enabled again.
+          if gh api "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json?ref=${INTEGRATION_BRANCH}" > /dev/null 2>&1; then
+            echo "Task queue already present on ${INTEGRATION_BRANCH}; keeping the accumulated state."
+          else
+            content=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json?ref=${DEFAULT_BRANCH}" --jq '.content' | tr -d '\n')
+            if [ -z "${content}" ]; then
+              echo "::error::agent_tasks.json is missing on ${DEFAULT_BRANCH}. Merge the control plane into the default branch first."
+              exit 1
+            fi
+            gh api --method PUT "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json" -f "message=chore(autonomous): seed the task queue on the integration branch" -f "content=${content}" -f "branch=${INTEGRATION_BRANCH}" > /dev/null
+            seeded=true
+            echo "Seeded agent_tasks.json onto ${INTEGRATION_BRANCH} from ${DEFAULT_BRANCH}."
+          fi
+          echo "created=${created}" >> "${GITHUB_OUTPUT}"
+          echo "seeded=${seeded}" >> "${GITHUB_OUTPUT}"
 
-  switch:
-    needs: stop-dispatch
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    concurrency:
-      group: autonomous-lab-queue
-      queue: max
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
-      LOOP_ENABLED: ${{ inputs.loop_enabled }}
-    steps:
-      - name: Check out the trusted controller
+      - name: Publish the loop entry points onto the integration branch
+        id: entrypoints
+        if: ${{ inputs.loop_enabled == 'true' }}
+        env:
+          ENTRY_WORKFLOWS: ".github/workflows/autonomous_evidence_gate.yml .github/workflows/autonomous_next_task.yml .github/workflows/autonomous_control_ci.yml"
+          PREPARE_BRANCH: ${{ inputs.prepare_integration_branch }}
+        run: |
+          set -euo pipefail
+          # GitHub resolves a pull_request workflow from the ref of the event, so
+          # a pull request into the integration branch only runs the evidence
+          # gate and the lifecycle hooks if the branch itself carries those
+          # files. They are copied from the default branch byte for byte and are
+          # never edited here; everything they execute is still read from main at
+          # run time, so this does not hand the loop control of its guardrails.
+          if [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::error::Add a repository secret named PAT (or GH_TOKEN) with the repo and workflow scopes."
+            exit 1
+          fi
+          gh api "/repos/${GITHUB_REPOSITORY}/contents/agent_tasks.json?ref=${INTEGRATION_BRANCH}" > /dev/null
+          synced=0
+          for path in ${ENTRY_WORKFLOWS}; do
+            source_content=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${DEFAULT_BRANCH}" --jq '.content' | tr -d '\n')
+            if [ -z "${source_content}" ]; then
+              echo "::error::${path} is missing on ${DEFAULT_BRANCH}. Merge the control plane into the default branch first."
+              exit 1
+            fi
+            target_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${INTEGRATION_BRANCH}" --jq '.sha' 2> /dev/null || true)
+            target_content=$(gh api "/repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${INTEGRATION_BRANCH}" --jq '.content' 2> /dev/null | tr -d '\n' || true)
+            if [ -n "${target_content}" ] && [ "${target_content}" = "${source_content}" ]; then
+              echo "${path} is already identical on ${INTEGRATION_BRANCH}."
+              continue
+            fi
+            if [ "${PREPARE_BRANCH}" != "true" ]; then
+              echo "::error::${path} is missing or differs on ${INTEGRATION_BRANCH}. Enable branch preparation before turning the loop on."
+              exit 1
+            fi
+            args=(--method PUT "/repos/${GITHUB_REPOSITORY}/contents/${path}" -f "message=chore(autonomous): publish ${path} on the integration branch" -f "content=${source_content}" -f "branch=${INTEGRATION_BRANCH}")
+            if [ -n "${target_sha}" ]; then
+              args+=(-f "sha=${target_sha}")
+            fi
+            code=0
+            GH_TOKEN="${ADMIN_TOKEN}" gh api "${args[@]}" > /tmp/entrypoint.json 2>&1 || code=$?
+            if [ "${code}" != "0" ]; then
+              cat /tmp/entrypoint.json || true
+              echo "::error::Could not write ${path} onto ${INTEGRATION_BRANCH}. A GITHUB_TOKEN is refused for .github/workflows/**, so the PAT secret needs the 'workflow' scope in addition to 'repo'. Until these files exist on the branch, pull requests into it run no evidence gate, so the loop must stay off."
+              exit 1
+            fi
+            synced=$((synced + 1))
+            echo "Published ${path} onto ${INTEGRATION_BRANCH}."
+          done
+          echo "synced=${synced}" >> "${GITHUB_OUTPUT}"
+
+      - name: Enable dispatches after all entry points are ready
+        if: ${{ inputs.loop_enabled == 'true' }}
+        run: GH_TOKEN="${ADMIN_TOKEN}" gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body true
+
+      - name: Check out the control plane from the default branch
+        if: ${{ inputs.loop_enabled == 'false' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          fetch-depth: 1
           path: control
-          persist-credentials: false
 
-      - name: Verify manual acceptance and disabled releases
-        run: python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
-
-      - name: Prepare only a missing integration branch
-        if: ${{ inputs.loop_enabled == 'true' && inputs.prepare_integration_branch }}
-        run: |
-          set -euo pipefail
-          refs=$(gh api "/repos/${GITHUB_REPOSITORY}/git/matching-refs/heads/autonomous/lab")
-          if ! jq -e 'any(.[]; .ref == "refs/heads/autonomous/lab")' <<< "${refs}" > /dev/null; then
-            sha=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
-            gh api --method POST "/repos/${GITHUB_REPOSITORY}/git/refs" -f ref=refs/heads/autonomous/lab -f "sha=${sha}"
-          fi
-
-      - name: Check out the laboratory without changing its queue
+      - name: Check out the integration branch
+        if: ${{ inputs.loop_enabled == 'false' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
-          fetch-depth: 0
+          fetch-depth: 1
           path: lab
-          persist-credentials: false
 
-      - name: Migrate the saved queue once and retain in-flight identities
-        run: |
-          python3 control/scripts/autonomous/lab_controller.py \
-            --repo lab --config control/autonomous-project.json \
-            --manifest queue.json --revision-file queue-revision.json \
-            --quarantine-all --out switch-result.json
-
-      - name: Refresh trusted event entry points without rewriting product history
-        if: ${{ inputs.loop_enabled == 'true' && inputs.prepare_integration_branch }}
+      - name: Release work left in flight
+        id: release
+        if: ${{ inputs.loop_enabled == 'false' }}
         run: |
           set -euo pipefail
-          paths=(.github/workflows/autonomous_evidence_gate.yml .github/workflows/autonomous_next_task.yml .github/workflows/autonomous_control_ci.yml)
-          for path in "${paths[@]}"; do
-            cp "control/${path}" "lab/${path}"
-          done
-          if ! git -C lab diff --quiet -- "${paths[@]}"; then
-            git -C lab config user.name 'github-actions[bot]'
-            git -C lab config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git -C lab add -- "${paths[@]}"
-            git -C lab -c commit.gpgsign=false commit -m 'chore(autonomous): refresh trusted event entry points'
-            git -C lab -c credential.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' push origin HEAD:refs/heads/autonomous/lab
+          ids=$(jq -r '.tasks[] | select(.status == "in_progress") | .id' lab/agent_tasks.json)
+          if [ -z "${ids}" ]; then
+            echo "No task is in flight."
+            echo "released=0" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
-
-      - name: Verify entry points before enabling
-        if: ${{ inputs.loop_enabled == 'true' }}
-        run: |
-          set -euo pipefail
-          for path in .github/workflows/autonomous_evidence_gate.yml .github/workflows/autonomous_next_task.yml .github/workflows/autonomous_control_ci.yml; do
-            cmp "control/${path}" "lab/${path}"
+          count=0
+          for id in ${ids}; do
+            python3 control/scripts/autonomous/task_lifecycle.py --manifest lab/agent_tasks.json --action complete --task-id "${id}" --outcome stale --note "the owner switched the loop off"
+            count=$((count + 1))
           done
-          gh variable set JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}" --body true
+          python3 control/scripts/autonomous/validate_tasks.py lab/agent_tasks.json
+          echo "released=${count}" >> "${GITHUB_OUTPUT}"
+          cd lab
+          if git diff --quiet -- agent_tasks.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent_tasks.json
+          git commit -m "chore(autonomous): release in-flight tasks after the loop was switched off"
+          GH_TOKEN="${ADMIN_TOKEN}" git \
+            -c http.https://github.com/.extraheader= -c credential.helper= \
+            -c 'credential.https://github.com.helper=!gh auth git-credential' \
+            push origin "HEAD:${INTEGRATION_BRANCH}"
 
-      - name: Explain the switch outcome
-        if: always()
+      - name: Summary
+        env:
+          BRANCH_CREATED: ${{ steps.prepare.outputs.created }}
+          QUEUE_SEEDED: ${{ steps.prepare.outputs.seeded }}
+          ENTRY_POINTS_SYNCED: ${{ steps.entrypoints.outputs.synced }}
+          RELEASED: ${{ steps.release.outputs.released }}
         run: |
           {
-            echo '### Laboratory switch'
-            echo 'Current switch:'
-            gh variable get JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}"
-            echo ''
-            echo 'PR acceptance is always manual. The loop never writes main or releases.'
-            echo 'An already-running Jules session is not cancelled. Its identity is retained for reconciliation; disabling never spends another attempt.'
-            echo 'The product queue is no longer written. Current state lives in autonomous/state.'
+            echo "### Autonomous loop switch"
+            echo ""
+            echo "- JULES_LOOP_ENABLED: ${LOOP_ENABLED}"
+            echo "- Integration branch: ${INTEGRATION_BRANCH} (created now: ${BRANCH_CREATED:-skipped}, queue seeded now: ${QUEUE_SEEDED:-skipped})"
+            echo "- Entry-point workflows published onto the branch now: ${ENTRY_POINTS_SYNCED:-skipped}"
+            echo "- Control plane: scripts and policy are always read from ${DEFAULT_BRANCH}; the branch carries agent_tasks.json plus the workflow files GitHub can only resolve from the event ref"
+            echo "- Release automation: disabled by policy, human-gated"
+            if [ "${LOOP_ENABLED}" = "false" ]; then
+              echo "- Tasks released back to the queue: ${RELEASED:-0}"
+              echo ""
+              echo "**The switch stops new dispatches only.** A worker session that is already running is not cancelled by it, because the worker API documents no cancel operation. Stop such a session in the Jules UI if you need it stopped now; any pull request it still opens will not be merged while the loop is off."
+            else
+              echo ""
+              echo "Before relying on unattended merges, protect ${INTEGRATION_BRANCH} and require the check runs **Checks (ubuntu-latest)**, **Checks (windows-latest)** (both from the Quality Gate workflow) and **Autonomous Evidence Gate**. Those are check-run names, not workflow names, which is what branch protection matches. Without server-side protection, the merge guards are only enforced by the workflow that performs the merge."
+            fi
           } >> "${GITHUB_STEP_SUMMARY}"
