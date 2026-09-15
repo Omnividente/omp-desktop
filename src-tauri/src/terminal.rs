@@ -6,8 +6,9 @@ use crate::{
     session_lease::{SessionLease, SessionLeasePurpose},
     sessions::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
-        canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
-        transfer_session_primary_provider_pin, validated_session_file,
+        canonical_project_path, encode_session_dir_name, parse_session, path_key,
+        session_title_fallback_from_line, transfer_session_primary_provider_pin,
+        validated_session_file,
     },
     settings::{
         ensure_primary_provider_pin_overlay, ensure_proxy_provider_overlay, resolve_omp,
@@ -1060,7 +1061,30 @@ fn start_terminal_blocking(
         .flatten()
         .collect::<Vec<_>>();
     let args = if restartable {
-        initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths)
+        let mut args = initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths);
+        if resume_path.is_none() {
+            // OMP otherwise keeps model/thinking changes only in memory until the first
+            // response. An explicit new path lets OMP write its own session header and
+            // acknowledge changes immediately, without submitting input or restarting.
+            let directory = session_root.join(encode_session_dir_name(&cwd));
+            fs::create_dir_all(&directory).map_err(|error| {
+                format!(
+                    "Не удалось создать папку сессии {}: {error}",
+                    directory.display()
+                )
+            })?;
+            let path = loop {
+                let path = directory.join(format!("desktop-{:032x}.jsonl", rand::random::<u128>()));
+                match path.try_exists() {
+                    Ok(false) => break path,
+                    Ok(true) => continue,
+                    Err(error) => return Err(format!("Не удалось проверить путь сессии: {error}")),
+                }
+            };
+            args.push("--session".to_owned());
+            args.push(cli_path_arg(&path.to_string_lossy()));
+        }
+        args
     } else {
         request.args.unwrap_or_default()
     };
