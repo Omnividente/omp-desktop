@@ -4,10 +4,16 @@ Investigate `{{PROJECT_REPO}}` from immutable `{{STARTING_BRANCH}}` at
 `{{BASE_COMMIT}}`, a snapshot of the laboratory `{{INTEGRATION_BRANCH}}`.
 This is the autonomous lab's research phase, **not an implementation task**.
 Do not commit changes or open a pull request just to deliver a report. The
-controller reads your exact saved session's final activity and queues actionable
-findings. Accepted reports retain their session, activity identity and SHA-256;
+controller reads your exact saved session's final activity and records actionable
+findings as pending proposals. Accepted reports retain their session, activity identity and SHA-256;
 editable pull request descriptions are not a backlog source.
 Never target `main`, change the task queue, publish, release or bump versions.
+
+Work without waiting for a human answer or a choice of which proposal to implement.
+Resolve nonessential ambiguity conservatively within read-only research. If access,
+information or a runtime is missing, finish the observations you can actually make
+and state the limitation. Never invent evidence, request privileged access or turn
+the report into implementation. Humans review the accumulated backlog later.
 
 - Focus: `{{FOCUS}}`
 - Highest acceptable risk: `{{RISK_CEILING}}`
@@ -42,6 +48,8 @@ lint pass or an audit of the automation itself.
 5. Record what actually ran, what was observed and what remains unverified.
    If the native app cannot be exercised, do not present a mocked bridge or a
    source inspection as a successful native smoke test.
+   Source reading is not an experiment. Do not promote a hypothesis into an
+   implementation finding without observing the defect or measurable limitation.
 
 Temporary local fixtures and experiments are allowed; remove them before ending.
 Do not change tracked files. Do not inspect secret values. The controller's
@@ -97,14 +105,56 @@ Replace the empty task array only when there are actionable findings. Each entry
 must contain `title`, `task_type` (`bugfix` or `product_improvement`), `risk`,
 `priority` (1–90), and non-empty string arrays `focus`, `target_paths` and
 `acceptance`. Paths must be concrete and repository-relative. `acceptance` must
-be an array even for one criterion, never a string. Include
-`evidence: {"source": "product_research", "detail": "..."}`.
-State the observed problem, expected benefit and how to verify the change. At
-most ten concrete tasks per report; additional unconfirmed directions belong in
-`next_hypotheses`. Do not propose more discovery tasks or repeat prior findings.
+be an array even for one criterion, never a string. Include `evidence.source`,
+`evidence.detail` and an actionable `evidence.reproduction` object: a non-empty
+`steps` array of nonblank strings, and nonblank `expected` and `actual` strings.
+Give exact commands or interactions, isolated synthetic inputs and the observed
+result on `{{BASE_COMMIT}}`; put environment limitations and the scope of what was
+actually exercised in `detail`. Do not claim an unavailable native scenario ran.
 
-The next worker implements one concrete task separately. Exact-revision quality
-and evidence gates inform a human review report; they never accept the change.
-Every implementation PR waits for a human or Main AI to accept or decline it.
-Missing proof must be stated honestly, not replaced with a fake proof. Waiting
-for that decision does not stop unrelated research.
+For example, the task block for an actually observed finding has this shape
+(replace this illustrative scenario with your own observations; do not copy it
+as a finding):
+
+```text
+<!-- AUTONOMOUS_TASKS_BEGIN -->
+[
+  {
+    "title": "Refresh the displayed clock after resume",
+    "task_type": "bugfix",
+    "risk": "low",
+    "priority": 45,
+    "focus": ["quality"],
+    "target_paths": ["src/clock.ts"],
+    "acceptance": ["Resuming refreshes the clock to the current system time"],
+    "evidence": {
+      "source": "product_research",
+      "detail": "Native desktop observation with an empty synthetic profile; no real user data. Only resume was exercised.",
+      "reproduction": {
+        "steps": ["Launch the pinned base with an empty synthetic profile and note the displayed time", "Suspend the host for two minutes, then resume and inspect the displayed time"],
+        "expected": "The clock displays the current system time after resume",
+        "actual": "The clock still displays the time recorded before suspend"
+      }
+    }
+  }
+]
+<!-- AUTONOMOUS_TASKS_END -->
+```
+
+The controller imports actionable findings as **proposed**, with evidence still
+**reported**, never verified. Self-assigned status, approval or review flags carry no authority.
+A reproducible plan is still not proof of truth: the implementation worker must
+confirm it independently on its own pinned base before changing code. Findings
+without actionable reproduction are retained as deferred `unverified_finding`,
+not queued, and do not invalidate otherwise accepted research. Missing or malformed
+report packaging remains a separate error. State the observed problem, expected
+benefit and how to verify the change. At most ten concrete tasks per report;
+additional unconfirmed directions belong in `next_hypotheses`. Do not propose
+more discovery tasks or repeat prior findings.
+
+A human or Main AI later rejects, implements externally or explicitly approves a
+finding and selects its task for Jules implementation. This is not automatic and
+does not hold this research session open. Exact-revision quality and evidence
+gates inform a separate manual acceptance of any resulting PR. Missing proof must
+be stated honestly, not replaced with a fake proof. Finish the report now; waiting
+proposals never stop unrelated research.

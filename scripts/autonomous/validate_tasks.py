@@ -10,7 +10,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-VALID_STATUSES = {"todo", "in_progress", "done", "blocked"}
+from jules_dispatch import session_is_active
+from select_task import blocks_lane, is_unresolved, valid_research_detachment
+
+VALID_STATUSES = {"proposed", "todo", "in_progress", "done", "blocked"}
 VALID_RISKS = {"low", "medium", "high"}
 VALID_TASK_TYPES = {
     "product_improvement", "bugfix", "test_coverage", "refactor",
@@ -35,6 +38,19 @@ def _string_list(value: Any) -> bool:
     return isinstance(value, list) and all(_nonblank(item) for item in value)
 
 
+def validate_reproduction(block: Any, prefix: str = "evidence.reproduction") -> list:
+    """Check an actionable report's shape, never whether its claim is true."""
+    if not isinstance(block, dict):
+        return [prefix + " must be an object"]
+    errors = []
+    if not _string_list(block.get("steps")) or not block["steps"]:
+        errors.append(prefix + ".steps must be a non-empty list of non-empty strings")
+    for field in ("expected", "actual"):
+        if not _nonblank(block.get(field)):
+            errors.append(prefix + "." + field + " must be a non-empty string")
+    return errors
+
+
 def _utc_timestamp(value: Any) -> bool:
     if not isinstance(value, str) or "T" not in value:
         return False
@@ -43,6 +59,52 @@ def _utc_timestamp(value: Any) -> bool:
         return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
     except ValueError:
         return False
+
+
+def proposal_mutation_error(task: dict) -> str:
+    """A human decision closes backlog work, never an unknown worker or PR."""
+    execution = task.get("execution") or {}
+    if not isinstance(execution, dict):
+        return "invalid execution record"
+    if is_unresolved(task) or execution.get("state") in ("dispatching", "dispatched", "quarantined"):
+        return "unresolved worker must be reconciled before a proposal decision"
+    if execution.get("state") in ("awaiting_review", "awaiting_report"):
+        return "pending worker report or PR must be reconciled before a proposal decision"
+    if execution.get("pull_request") and execution.get("outcome") not in ("merged", "closed_unmerged"):
+        return "pending PR must be settled before a proposal decision"
+    if execution.get("session_id") and session_is_active({"state": execution.get("session_state")}):
+        return "saved worker has no observed terminal state"
+    return ""
+
+
+def _validate_proposal(task: dict, prefix: str) -> list:
+    errors = []
+    decision = task.get("proposal_decision")
+    if task.get("status") == "proposed":
+        if task.get("task_type") == "project_discovery":
+            errors.append(prefix + ".proposed is only for nonresearch backlog")
+        if "proposal_decision" in task or task.get("execution"):
+            errors.append(prefix + ".proposed cannot carry a decision or execution")
+    if "proposal_decision" not in task:
+        return errors
+    if not isinstance(decision, dict):
+        return errors + [prefix + ".proposal_decision must be an object"]
+    if task.get("task_type") == "project_discovery":
+        errors.append(prefix + ".proposal_decision requires a nonresearch task")
+    if decision.get("action") not in ("approve", "reject", "resolve"):
+        errors.append(prefix + ".proposal_decision.action must be approve, reject or resolve")
+    for field in ("actor", "note"):
+        if not _nonblank(decision.get(field)):
+            errors.append(prefix + ".proposal_decision." + field + " must be a non-empty string")
+    if not _utc_timestamp(decision.get("at")):
+        errors.append(prefix + ".proposal_decision.at must be an ISO UTC timestamp")
+    if decision.get("action") in ("reject", "resolve"):
+        if task.get("status") != "done":
+            errors.append(prefix + ".closed proposal requires done status")
+        reason = proposal_mutation_error(task)
+        if reason:
+            errors.append(prefix + ".proposal_decision: " + reason)
+    return errors
 
 
 def _validate_report_source(source: Any, prefix: str) -> list:
@@ -232,7 +294,8 @@ def validate(manifest: Any) -> list:
         return errors + ["tasks must be a list"]
 
     seen_ids: set = set()
-    in_progress = 0
+    lane_counts = {False: 0, True: 0}
+    research_pairs = set()
     for index, task in enumerate(tasks):
         prefix = "tasks[" + str(index) + "]"
         if not isinstance(task, dict):
@@ -252,8 +315,17 @@ def validate(manifest: Any) -> list:
         status = str(task.get("status"))
         if status not in VALID_STATUSES:
             errors.append(prefix + ".status must be one of " + str(sorted(VALID_STATUSES)))
-        if status == "in_progress":
-            in_progress += 1
+        # Invalid execution shapes are reported below, not passed to lane helpers.
+        if task.get("execution") is None or isinstance(task.get("execution"), dict):
+            for discovery in lane_counts:
+                lane_counts[discovery] += int(blocks_lane(task, discovery=discovery))
+            if is_unresolved(task) and task.get("task_type") == "project_discovery":
+                research = task.get("research")
+                if isinstance(research, dict) and all(_nonblank(research.get(field)) for field in ("area_id", "perspective_id")):
+                    pair = (research["area_id"], research["perspective_id"])
+                    if pair in research_pairs:
+                        errors.append(prefix + ".research pair already has an unresolved attempt")
+                    research_pairs.add(pair)
         if str(task.get("task_type")) not in VALID_TASK_TYPES:
             errors.append(prefix + ".task_type must be one of " + str(sorted(VALID_TASK_TYPES)))
         if str(task.get("risk")) not in VALID_RISKS:
@@ -270,13 +342,30 @@ def validate(manifest: Any) -> list:
                 errors.append(prefix + ".evidence.source is required")
             if not str(evidence.get("detail") or "").strip():
                 errors.append(prefix + ".evidence.detail is required")
+            # Missing fields belong to historical, still-unverified records.
+            if "status" in evidence and evidence["status"] != "reported":
+                errors.append(prefix + ".evidence.status must be reported; worker metadata is not proof")
+            if "reproduction" in evidence:
+                errors.extend(validate_reproduction(evidence["reproduction"], prefix + ".evidence.reproduction"))
         errors.extend(_validate_execution(task.get("execution"), prefix))
         execution = task.get("execution")
         if isinstance(execution, dict):
+            if "research_detached" in execution and not valid_research_detachment(task):
+                errors.append(prefix + ".execution.research_detached requires a pinned research attempt and UTC wait record")
+            if "feedback_nudge" in execution:
+                nudge = execution["feedback_nudge"]
+                if (task.get("task_type") != "project_discovery"
+                        or not _nonblank(execution.get("session_id"))
+                        or not isinstance(nudge, dict)
+                        or nudge.get("result") not in ("pending", "sent", "unknown", "rejected")
+                        or not _utc_timestamp(nudge.get("at"))):
+                    errors.append(prefix + ".execution.feedback_nudge requires a research session, UTC at and a durable result")
             state, outcome = execution.get("state"), execution.get("outcome", "")
             expected = {"dispatching": "in_progress", "dispatched": "in_progress",
                         "quarantined": "blocked", "completed": "done", "retry": "todo", "exhausted": "blocked"}
-            if state in expected and status != expected[state]:
+            decision = task.get("proposal_decision")
+            human_closed = isinstance(decision, dict) and decision.get("action") in ("reject", "resolve")
+            if state in expected and status != expected[state] and not human_closed:
                 errors.append(prefix + ".execution.state contradicts task status")
             if state in ("dispatching", "dispatched") and outcome:
                 errors.append(prefix + ".active execution cannot have an outcome")
@@ -291,13 +380,12 @@ def validate(manifest: Any) -> list:
         if isinstance(origin, dict) and ("activity_id" in origin or "report_sha256" in origin):
             errors.extend(_validate_report_source(origin, prefix + ".origin"))
         errors.extend(_validate_research(task, prefix))
+        errors.extend(_validate_proposal(task, prefix))
 
-    # The loop runs one worker session at a time; more than one in-flight task
-    # means a lifecycle transition was lost and the queue is no longer truthful.
-    if in_progress > 1:
-        errors.append(
-            "only one task may be in_progress at a time, found " + str(in_progress)
-        )
+    for discovery, count in lane_counts.items():
+        if count > 1:
+            lane = "research" if discovery else "implementation"
+            errors.append("only one unresolved task may occupy the " + lane + " lane, found " + str(count))
     return errors
 
 

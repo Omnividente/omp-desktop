@@ -101,6 +101,39 @@ class EvidenceTest(unittest.TestCase):
         data = manifest(task(evidence={"source": "tsc", "detail": "   "}))
         self.assertTrue(any("evidence.detail" in e for e in validate(data)))
 
+    def test_reported_reproduction_is_valid_but_does_not_permit_verified_status(self):
+        evidence = {"source": "research", "detail": "Observed stale clock", "status": "reported",
+                    "reproduction": {"steps": ["Resume a synthetic profile"],
+                                     "expected": "Current time", "actual": "Stale time"}}
+        self.assertEqual(validate(manifest(task(evidence=evidence))), [])
+        for status in ("verified", "approved", "", None):
+            with self.subTest(status=status):
+                self.assertTrue(any(".evidence.status" in error for error in
+                                    validate(manifest(task(evidence={**evidence, "status": status})))))
+
+    def test_present_reproduction_requires_actionable_steps_and_results(self):
+        valid = {"steps": ["Resume"], "expected": "Current time", "actual": "Stale time"}
+        invalid = (None, [], {}, {**valid, "steps": []}, {**valid, "steps": "Resume"},
+                   {**valid, "steps": ["Resume", " "]}, {**valid, "expected": " "},
+                   {**valid, "actual": 42})
+        for reproduction in invalid:
+            with self.subTest(reproduction=reproduction):
+                evidence = {"source": "research", "detail": "Clock finding", "reproduction": reproduction}
+                self.assertTrue(any(".evidence.reproduction" in error for error in
+                                    validate(manifest(task(evidence=evidence)))))
+
+    def test_historical_active_and_terminal_evidence_remains_readable_without_promotion(self):
+        data = manifest(
+            task("active", status="in_progress", execution={
+                "state": "dispatched", "attempts": 1, "session_id": "7", "dispatch_key": "first"}),
+            task("finished", status="done", execution={
+                "state": "completed", "outcome": "no_change", "attempts": 1,
+                "session_id": "6", "dispatch_key": "old"}),
+        )
+        before = copy.deepcopy(data)
+        self.assertEqual(validate(data), [])
+        self.assertEqual(data, before)
+
 
 class LifecycleTest(unittest.TestCase):
     def test_valid_execution_block_is_accepted(self):
@@ -134,7 +167,7 @@ class LifecycleTest(unittest.TestCase):
         data = manifest(
             task("auto-1", status="in_progress"), task("auto-2", status="in_progress")
         )
-        self.assertTrue(any("only one task may be in_progress" in e for e in validate(data)))
+        self.assertTrue(any("implementation lane" in e for e in validate(data)))
 
     def test_one_task_in_progress_is_fine(self):
         data = manifest(task("auto-1", status="in_progress"), task("auto-2"))
@@ -237,6 +270,99 @@ class ResearchSchemaTest(unittest.TestCase):
         self.assertEqual(validate(manifest(entry)), [])
         entry["status"] = "in_progress"
         self.assertTrue(any("manual review" in error for error in validate(manifest(entry))))
+
+
+class ProposalAndLaneTest(unittest.TestCase):
+    def decision(self, action="approve"):
+        return {"action": action, "actor": "Owner", "at": "2026-09-14T12:00:00Z", "note": "Reviewed"}
+
+    def research(self, task_id="research", *, detached=False):
+        execution = {"state": "dispatched", "attempts": 1, "session_id": task_id,
+                     "dispatch_key": task_id, "starting_branch": "autonomous/attempt-" + task_id,
+                     "base_sha": "a" * 40, "session_state": "AWAITING_USER_FEEDBACK"}
+        if detached:
+            execution["research_detached"] = {"at": "2026-09-14T12:00:00Z", "reason": "AWAITING_USER_FEEDBACK"}
+        return task(task_id, task_type="project_discovery", status="in_progress", execution=execution,
+                    research={"area_id": task_id, "perspective_id": "behavior", "fingerprint": "a" * 64,
+                              "cycle": 1, "previous_reports": []})
+
+    def test_pending_and_historical_records_are_valid_without_migration(self):
+        data = manifest(task("new", status="proposed"), task("legacy"),
+                        task("approved", proposal_decision=self.decision()))
+        before = copy.deepcopy(data)
+        self.assertEqual(validate(data), [])
+        self.assertEqual(data, before)
+
+    def test_decision_requires_human_audit_and_consistent_lifecycle(self):
+        for field, value in (("actor", " "), ("note", None), ("at", "2026-09-14T12:00:00"),
+                             ("at", "2026-09-14T12:00:00+01:00"), ("action", "implement")):
+            with self.subTest(field=field, value=value):
+                decision = self.decision()
+                decision[field] = value
+                self.assertTrue(validate(manifest(task(proposal_decision=decision))))
+        for entry in (task(status="proposed", proposal_decision=self.decision()),
+                      task(task_type="project_discovery", proposal_decision=self.decision()),
+                      task(status="proposed", execution={"attempts": 1}),
+                      task(proposal_decision=self.decision("reject"))):
+            self.assertTrue(validate(manifest(entry)))
+
+    def test_human_closure_preserves_failed_worker_without_faking_completion(self):
+        entry = task(status="done", proposal_decision=self.decision("reject"), execution={
+            "state": "exhausted", "outcome": "failed", "attempts": 2, "session_id": "old",
+            "session_state": "FAILED", "dispatch_key": "original"})
+        self.assertEqual(validate(manifest(entry)), [])
+        for changes in ({"session_state": "UNKNOWN"}, {"state": "quarantined", "outcome": "stale"},
+                        {"pull_request": 53}, {"state": "awaiting_review", "outcome": "review_required"}):
+            with self.subTest(changes=changes):
+                invalid = copy.deepcopy(entry)
+                invalid["execution"].update(changes)
+                self.assertTrue(validate(manifest(invalid)))
+
+    def test_lanes_allow_foreground_research_and_implementation_plus_detached_research(self):
+        data = manifest(task("implementation", status="in_progress"), self.research("foreground"),
+                        self.research("detached", detached=True))
+        self.assertEqual(validate(data), [])
+        data["tasks"][2]["execution"]["session_state"] = "IN_PROGRESS"
+        self.assertEqual(validate(data), [])
+        data["tasks"].append(self.research("second"))
+        self.assertTrue(any("research lane" in error for error in validate(data)))
+
+    def test_quarantine_also_occupies_its_lane(self):
+        quarantined = task("lost", status="blocked", execution={"state": "quarantined", "outcome": "stale"})
+        self.assertTrue(any("implementation lane" in error for error in
+                            validate(manifest(quarantined, task(status="in_progress")))))
+        self.assertEqual(validate(manifest(quarantined, self.research())), [])
+
+    def test_detachment_cannot_hide_duplicate_pair_or_unpinned_attempt(self):
+        detached = self.research("detached", detached=True)
+        other = self.research("other")
+        other["research"].update(detached["research"], fingerprint="b" * 64)
+        self.assertTrue(any("pair" in error for error in validate(manifest(detached, other))))
+        for changes in ({"session_id": ""}, {"attempts": 0}, {"base_sha": "moving-main"},
+                        {"starting_branch": "autonomous/lab"},
+                        {"research_detached": {"at": "2026-09-14", "reason": "PAUSED"}},
+                        {"research_detached": {"at": "2026-09-14T12:00:00Z", "reason": "UNKNOWN"}}):
+            with self.subTest(changes=changes):
+                invalid = copy.deepcopy(detached)
+                invalid["execution"].update(changes)
+                self.assertTrue(validate(manifest(invalid)))
+        detached["task_type"] = "bugfix"
+        detached.pop("research")
+        self.assertTrue(validate(manifest(detached)))
+
+    def test_nudge_receipt_belongs_only_to_saved_research_session(self):
+        entry = self.research()
+        for result in ("pending", "sent", "unknown", "rejected"):
+            entry["execution"]["feedback_nudge"] = {"at": "2026-09-14T12:00:00Z", "result": result}
+            self.assertEqual(validate(manifest(entry)), [])
+        for value in (None, {}, {"at": "2026-09-14", "result": "sent"},
+                      {"at": "2026-09-14T12:00:00Z", "result": "retry"}):
+            invalid = copy.deepcopy(entry)
+            invalid["execution"]["feedback_nudge"] = value
+            self.assertTrue(validate(manifest(invalid)))
+        entry["task_type"] = "bugfix"
+        entry.pop("research")
+        self.assertTrue(validate(manifest(entry)))
 
 
 if __name__ == "__main__":

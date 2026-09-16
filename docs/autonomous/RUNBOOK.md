@@ -1,11 +1,12 @@
 # Autonomous improvement loop - runbook
 
 This is a **research and proposal lab, not an autonomous product acceptor**.
-It investigates concrete scenarios, saves observations and opens improvement
-PRs. A human or Main AI reviews and accepts or declines every proposal into
-`autonomous/lab`. The lab never merges its own product PRs, writes `main`, bumps
-versions or releases. Updating lab from accepted `main` is a separate checked
-synchronization, not acceptance of a worker's proposal.
+It continuously investigates concrete scenarios and saves observations and proposed
+improvements in a backlog. A human or Main AI decides which findings to reject,
+implement externally or explicitly send to Jules for implementation. Only that
+last path creates product PRs, each requiring a separate manual acceptance into
+`autonomous/lab`. The lab never merges its own PRs, writes `main`, bumps versions
+or releases. Checked main-to-lab synchronization remains separate from acceptance.
 
 ## Architecture
 
@@ -17,7 +18,7 @@ autonomous/lab        product history; only manually accepted proposals
   | pinned product snapshot
   v
 autonomous/attempt-*  immutable Jules starting ref for one saved attempt
-  | Jules final report or PR -> controller -> human/Main decision
+  | research report -> proposed backlog -> human decision -> explicit implementation
   v
 autonomous/state      one JSON queue and its independent Git history
 ```
@@ -40,6 +41,16 @@ Queue writers share `autonomous-lab-queue`, `queue: max` and
 writers. The switch's stop flag is deliberately outside that lock. There is no
 database or extra service. The JSON queue in the product remains a legacy seed.
 
+Server protection is separate from CAS and from the controller code. Two active
+rulesets match only `refs/heads/autonomous/state`: `autonomous-state-controller-writer`
+restricts creation and updates to the current writer identity; the separate
+`autonomous-state-history-integrity` forbids deletion and non-fast-forward updates
+with **no bypass actors**. The writer's bypass in the first ruleset does not waive
+the second. Do not require product checks or PR review for ordinary queue writes.
+Rules distinguish GitHub actors, not individual tokens or programs using the same
+actor. The owner and other credentials acting as that owner share the writer's
+permission; the commit author alone does not identify the authenticated pusher.
+
 After a saved terminal Jules outcome, the controller may delete that attempt's
 starting ref only if its SHA is unchanged and no open PR uses it as base or head.
 Deletion also carries an exact SHA lease; active, unknown or modified refs are
@@ -56,9 +67,10 @@ into `main`.
 
 ## Invariants enforced by code
 
-1. **No product automerge.** `proposal_review.py` emits `blocked`, `manual_review`
-   or `ready_for_review`, always with `acceptance: manual`. Readiness is evidence
-   for a human/Main decision, never a merge instruction.
+1. **No product automerge.** `proposal_review.py` emits `blocked`, `manual_review`,
+   `manual_bypass_required` or `ready_for_review`, always with `acceptance: manual`.
+   Readiness informs a human/Main decision, never a merge instruction. A bypass
+   requirement is not readiness and the report performs no server-side bypass.
 2. **Identity comes from the worker API.** A saved dispatch key and exact Jules
    session must match its repository, starting branch and `outputs.pullRequest`.
    The receipt pins PR number, URL, repository and head ref. Owner-authored Jules
@@ -70,12 +82,18 @@ into `main`.
    non-transient rejection closes that attempt under the bounded retry policy.
    Failed state persistence stops further external actions. Before POST the
    controller rechecks the switch and pinned main/lab heads.
-4. **Stopping retains uncertainty.** An old or unknown session is quarantined,
-   not declared cancelled or recycled. Its key, session and attempt survive.
-   Only a verified terminal outcome can release it safely. A completed session
-   with a PR becomes `blocked / awaiting_review / review_required`; it frees the
-   worker slot. Merge resolves the same task; close without merge permanently
-   declines it. An active session cannot free its slot merely by opening a PR.
+4. **Stopping retains uncertainty.** Stale processing or an unknown session is
+   quarantined, not declared cancelled or recycled. Its identity survives.
+   Known feedback, plan-approval and paused states are not stale processing;
+   explicit loop-disabled quarantine still applies. After resume, the stale
+   timer starts at the later of the saved state transition and attempt start;
+   identical polls do not reset it. Only a verified terminal outcome releases
+   uncertain work safely. A completed implementation session with a PR becomes
+   `blocked / awaiting_review / review_required`; it frees its implementation
+   lane. Merge resolves the same task; close without merge permanently declines
+   it. Merely opening a PR never makes a running session terminal. Pinned research
+   waiting may free the research lane under invariant 11, without releasing its
+   own unresolved attempt or scope.
 5. **Reports are imported transactionally.** Research collection reads all
    activity pages from the saved completed session, chooses the latest agent
    report, and binds its content hash and activity identity to the import. The
@@ -96,8 +114,11 @@ into `main`.
 8. **Checks must be trusted and exact.** Required check names and GitHub Actions
    app identity must match the reviewed SHA. Missing, pending, skipped, neutral
    or foreign results cannot produce readiness. A green quality suite is not
-   failing-first proof. Missing proof, test-only changes, unsupported changes,
-   updater paths and large diffs retain an explicit owner-review requirement.
+   failing-first proof. A failed TypeScript proof is a hard blocker even after
+   owner approval. Unsupported, test-only or missing-test plans with a completed
+   failed Evidence Gate yield `manual_bypass_required`, unless another blocker
+   takes precedence. They need supported proof or a separate explicit owner
+   server-side bypass decision. Updater paths and large diffs require owner review.
 9. **A crash is not a failing test.** `vitest_proof.py` requires an executed
    assertion failure without the source fix, then passing collected tests with
    it. Import errors, failing hooks, runtime exceptions, zero tests and substituted
@@ -106,11 +127,17 @@ into `main`.
 10. **Approval belongs to a SHA.** Only the owner's latest decisive review of the
     reviewed commit counts. A later changes-request or dismissal revokes it;
     labels such as `approved-by-owner` are hints, never authorization. Approval
-    cannot waive identity, incomplete-diff or missing-check blockers.
-11. **Research yields to concrete work.** The planner creates a scoped read-only
-    investigation when there is no eligible concrete task or active worker.
-    Observed findings become implementation tasks, not fictitious research PRs.
-    Waiting human decisions do not stop discovery or main synchronization.
+    cannot waive identity, incomplete-diff or required-check failures.
+11. **Research and implementation are independent.** Scheduled selection starts
+    only read-only research, even when approved implementation tasks exist.
+    Automatic imports and diagnostics enter `proposed`; historical nonresearch
+    `todo` entries remain pending without rewriting their history. Implementation
+    requires a recorded owner `approve` decision and an explicit `task_id`.
+    One foreground research attempt and one implementation attempt may coexist.
+    A pinned research session waiting for feedback, plan approval or resume may
+    retain a sticky detachment marker and let another scope proceed. Its exact
+    area/perspective remains occupied until it settles, even after code changes
+    or late resume. Backlog size never blocks research.
 12. **New work uses accepted main.** Sync prepares a real merge in a disposable
     worktree, preserving lab's legacy queue blob. Non-queue conflicts stop it.
     Linux/Windows check the exact candidate without inherited secrets; unchanged
@@ -124,9 +151,30 @@ into `main`.
 `autonomous-project.json.research` defines six product areas (terminal, sessions,
 workspace, settings, diagnostics and transcript) and four perspectives (behavior,
 reliability, performance and UX). Green quality checks do not end the lab: a
-measured limitation or a useful missing behavior can justify an implementation
-task without inventing a failing linter. Only concrete observed findings become
-work; unconfirmed ideas remain `next_hypotheses`.
+reported measurable limitation or useful missing behavior can justify a proposal
+for human consideration without inventing a failing linter. Unconfirmed directions
+without an actionable reproduction remain hypotheses, not implementation work.
+
+New imported findings require `evidence.reproduction`: a nonempty `steps` array
+of nonblank strings plus nonblank `expected` and `actual` strings. The controller
+whitelists these fields with
+`source` and `detail` and assigns `evidence.status = reported`; worker claims of
+verification, review or approval confer no authority. Missing or malformed
+reproductions are retained as `deferred_findings` with `unverified_finding`, not
+queued as fixes or treated as a malformed whole report. Valid neighbors can still
+be imported. Scope, immutable report provenance and deduplication remain required.
+
+A reproduction plan is not proof that the claim is true. After an explicit human
+decision and task selection, the implementation prompt requires the worker to run
+the smallest real synthetic scenario on
+its exact pinned base **before editing**. Without confirmation it must finish
+`no_change`, explain the checks and limitations, and avoid an empty PR, adjacent
+work or another verification session. This is a worker instruction, not a
+controller-observed experiment; it can still spend a session on a false claim.
+The PR report keeps `finding_evidence: reported` separate from
+`proof_established`, which comes only from the trusted exact-SHA TypeScript gate.
+Historical task evidence remains readable without migration or restarting an
+active attempt; missing new fields never mean verified evidence.
 
 The planner prefers unvisited area/perspective pairs, then the least recently
 investigated pair. It fingerprints only tracked, permitted product blobs;
@@ -134,8 +182,11 @@ queue/control commits and untracked fixtures do not reset coverage. A changed
 area can be investigated immediately after a successful report. Unchanged areas
 and unsuccessful attempts wait 24 hours before a new investigation of that pair.
 At most 24 new investigations are scheduled in a rolling 24-hour window; each
-still has the existing bounded attempt budget. Concrete tasks bypass research
-throttling. The planner reports the next eligible time instead of filling a quota.
+still has the existing bounded attempt budget. Explicitly selected approved
+implementation bypasses research throttling. Unresolved area/perspective pairs
+are never duplicated; if all scopes are unresolved, research waits rather than
+starting unbounded replacement workers. The planner reports the next eligible
+time instead of filling a quota.
 
 Each investigation keeps `research` (area, perspective, fingerprint, cycle and
 bounded previous reports) and `research_result` (summary, scenario/evidence/result
@@ -166,8 +217,14 @@ replaced with a fresh seed. Reports and pending proposals survive restarts.
    `Checks (windows-latest)` and `Autonomous Evidence Gate`, not workflow names.
    Keep the existing narrow owner bypass for setup and the exact-SHA checked
    sync publisher; do not grant Jules a bypass. Unsupported proof remains a
-   conscious owner decision, not a green assertion. Protect `autonomous/state`
-   as controller-owned metadata rather than requiring product checks on it.
+   failed required check, not a green assertion after PR approval.
+   Protect exact `autonomous/state` with the two independent rulesets described
+   above. Identify the real writer from push events/rule-suite evaluations, not
+   the commit author. The current controller PAT acts as `Omnividente` (User
+   `6513759`); only that actor bypasses creation/update restrictions. Leave the
+   history-integrity ruleset without any bypass, including for the writer.
+   Verify a normal controller CAS write after enabling protection; never test
+   deletion or force-push by damaging the live queue.
 5. Run **Autonomous Loop Switch** with `loop_enabled = true`. It disables new
    dispatch first, prepares lab if absent, migrates state and preserves active
    identities in quarantine, verifies entry points, then enables the flag.
@@ -183,26 +240,94 @@ may read a previously completed session and save its result without dispatching.
   branch/entry-point drift and read-only readiness. Due work without a tick for
   90 minutes, invalid parked reports and failed synchronization are visible as a
   failed monitor job, not a green claim of progress.
-- **Autonomous Next Task** (30-minute fallback and event-driven wakeups) reconciles
-  PR outcomes, plans research when concrete work runs out and starts or polls one
-  worker. Stored attempts use GetSession directly; a missing session never causes
-  a replacement CreateSession. Draft or blocking-labelled PRs do not occupy the
-  active-work slot.
-- **Autonomous Continue** runs after successful trusted controller workflows and
-  main pushes. It takes two live snapshots, waits at most 90 seconds for an active
-  worker poll, rechecks the switch and existing queued/running controller jobs,
-  and dispatches at most one NextTask or Sync run. Dispatch uses the existing
-  Loop Switch PAT, so the child's completion can trigger continuation again.
-  `GITHUB_TOKEN` can start an explicit `workflow_dispatch`, but its downstream
-  completion did not wake this loop during live verification. Ordinary reads
-  still use the read-only `GITHUB_TOKEN`; cadence, queued-run checks and the live
-  switch bound the repeated work instead of relying on GitHub's recursion guard.
+- **Autonomous Next Task** is called by continuation or explicit owner dispatch;
+  it has no independent cron. It reconciles saved sessions and PR outcomes,
+  collects reports and starts eligible research regardless of pending backlog or
+  an implementation worker. An approved implementation is started only with its
+  explicit `task_id`; it never becomes the default next task. A manual dispatch
+  polls immediately. Stored attempts use GetSession directly; a missing session
+  never causes a replacement CreateSession. Active lane and scope rules still apply.
+- **Autonomous Continue** is the single scheduled wakeup (every 5 minutes), also
+  triggered after successful trusted workflows and main pushes. It reads live
+  state and dispatches at most one NextTask or Sync run, without sleeping on a
+  runner. Polling returns `action: none` until `due_at`: 5 minutes for a new or
+  changed foreground research worker, 15 minutes after 30 minutes of unchanged
+  research processing, and 30 minutes for implementation, detached research or
+  known waiting when no new research is due. The deadline uses
+  the latest completed NextTask as well as the saved session transition, so an
+  unchanged queue cannot cause an immediate polling chain. Completion events
+  allow useful work immediately when no worker poll is pending. Dispatch still
+  uses the existing Loop Switch PAT and rechecks the enabled flag.
+  `health_snapshot.py` reads all pages for every active Actions status and only
+  the latest 100 completed runs per workflow. It fetches proposal details by
+  saved provenance, including old `awaiting_review` PRs, rather than all PR
+  history. Incomplete or capped active-run results fail with `snapshot_incomplete`;
+  they never establish that the controller is idle.
 - **Autonomous Sync Main** runs on main pushes or explicit dispatch. Legacy
   workers, including quarantined ones, are reconciled before moving their source.
   Immutable-attempt workers and pending human proposals do not block sync. It
   refreshes verified proposal branches and reports per-PR conflicts.
-- **Autonomous Replenish** (every 6h) remains an additional source of concrete
-  ESLint/TypeScript diagnostic tasks, not the only reason the lab may do work.
+- **Autonomous Replenish** (every 6h) contributes ESLint/TypeScript diagnostic
+  proposals to the backlog, not automatically approved implementation work.
+- **Autonomous Backlog** is manual-only on `main`: use `list` to review the full
+  uncapped JSON artifact and escaped summary; `approve`, `reject` or `resolve`
+  require an exact proposal `task_id`, configured owner actor and nonblank note.
+
+### Reviewing the accumulated backlog
+
+Open **Autonomous Backlog** and choose `list` whenever convenient; dozens of
+pending findings do not pause research. Every entry retains evidence, paths,
+acceptance criteria and origin. The JSON artifact includes all entries, decisions
+and deferred research hypotheses rather than truncating to active workers.
+
+- `approve` records `proposal_decision = {action, actor, at, note}` and makes the
+  proposal `todo`. It does **not** dispatch Jules. To delegate implementation,
+  separately run **Autonomous Next Task** with that exact `task_id`.
+- `reject` closes an unwanted proposal. `resolve` closes work completed by you or
+  Main outside Jules; explain the outcome in the note. Both set `status = done`
+  while preserving evidence, session, attempt and worker execution outcome.
+- Decisions cannot dismiss an unresolved or unknown saved worker, pending report
+  or unsettled PR. Observe its actual terminal outcome or handle its PR instead;
+  a backlog action never pretends to cancel a session.
+- The same action/actor/note is idempotent and retains its first timestamp.
+  Closed proposals cannot reopen. Earlier approval remains in the parent state
+  revision when later rejected or resolved. All writes use the authoritative
+  state CAS and owner allowlist; workflow `GITHUB_ACTOR` cannot be impersonated.
+
+Local administration uses `proposal_backlog.py --action ACTION --repo LAB
+--config CONTROL/autonomous-project.json --manifest queue.json --revision-file
+queue-revision.json --actor OWNER --task-id ID --note NOTE --json-out backlog.json
+--summary-out summary.txt`. `list` needs no task or note and performs no state save.
+The product seed is not an editable backlog; never change it to make a decision.
+
+### A worker waiting for you
+
+`worker_awaiting_feedback`, `worker_awaiting_approval` and `worker_paused` include
+the task, safe session ID/link and observation timestamp in `waiting_workers`.
+Normal waiting is informational, not a controller failure. Quarantine, unknown
+identity, invalid reports and actual errors remain separate attention conditions.
+
+An implementation session retains its lane and receives no automatic answer or
+plan approval. Open that exact Jules session if you want to handle its request;
+read-only research continues independently. An ordinary scheduled observation is
+due in 30 minutes, or run NextTask explicitly to observe a manual response sooner.
+
+A waiting research session on its saved immutable attempt receives a sticky
+`execution.research_detached = {at, reason}` marker. Another area/perspective may
+proceed, while the old session stays unresolved, monitored and collectible. For
+research-only `AWAITING_USER_FEEDBACK`, the controller sends at most one instruction
+to finish existing observations and report limitations, not to implement or seek
+more permission. A durable `feedback_nudge` intent is saved before the message;
+lost acknowledgement or restart never blindly resends it. It is not a fabricated
+answer, plan approval, cancellation or terminal outcome. Late resume keeps the
+same identity and scope exclusion. Disabling the loop prevents new detach/nudge.
+
+Queue `execution.observed_at` now records session-state transitions, not every
+poll. Per-run output records fresh observations; unchanged states, repeated
+identical errors and unchanged PR receipts do not produce heartbeat-only commits.
+The state store still checks CAS when bytes are unchanged, stopping a stale
+writer before further API actions. Old saved timestamps are retained until the
+next transition; they are not retroactive evidence of when an earlier state began.
 
 ### Recovering a completed research report
 
@@ -238,7 +363,7 @@ candidate cannot create an endless build loop; a new main revision or a successf
 manual sync releases that condition. No branch protection is weakened, no force
 push is used, and no installer, version or release is produced.
 
-### Accepting or declining a proposal
+### Accepting or declining an implementation PR
 
 Every completed implementation PR waits as
 `blocked / awaiting_review / review_required`, even with green checks. Read the
@@ -246,6 +371,13 @@ Every completed implementation PR waits as
 scope, exact checks, proof and remaining risks. `ready_for_review` still requires
 your or Main AI's usefulness review and explicit acceptance. New commits or a
 moved lab base require a fresh report. Labels do not approve a revision.
+
+`blocked` means resolve the listed blockers and rerun the report. In particular,
+a failed supported TypeScript proof cannot be approved away. For
+`manual_bypass_required`, the required Evidence check is still failed: provide
+supported proof or make a separate, explicit owner server-side bypass decision
+for that exact revision. Approval alone neither satisfies the check nor performs
+the bypass. This report never accepts a proposal or changes repository rules.
 
 Merge the PR manually when appropriate; close it without merge to decline it
 permanently. The controller reconciles that same attempt on a later tick. Do not
@@ -287,14 +419,18 @@ accepted by the controller, whether the loop is on or off.
 ## Known limits
 
 - Rust and non-TypeScript work cannot establish the offline Vitest proof;
-  evidence fails deliberately and the owner decides with the recorded risks.
+  evidence fails deliberately. The report requires supported proof or an explicit
+  owner server-side bypass, not ordinary approval or a ready claim.
 - Updater changes and diffs above `merge_gate.max_changed_files` (200) require
   explicit owner review. A missing full diff remains blocked regardless.
-- Scheduled reconciliation is a fallback, not a timing SLA; an absent callback
-  cannot justify duplicate dispatch. Old paused, inaccessible or ambiguous
-  workers remain visible in quarantine until terminal identity can be verified.
+- GitHub schedules may be delayed; `due_at` prevents early polling, not late
+  execution. A missing callback cannot justify duplicate dispatch. Known waiting
+  states retain the active attempt; stale unknown or inaccessible processing is
+  quarantined until its terminal identity can be verified.
 - The fallback Jules key is used after primary-key failure, not for load balancing.
 - Findings are bounded at ten tasks per research report. Prior context is capped
   at three reports and 24,000 JSON characters; the full queue has Git history.
-  Research quality still depends on actual worker evidence: orchestration alone
-  cannot guarantee useful improvements.
+  Research and implementation claims remain untrusted until checked. The
+  reproduction shape and verification-first prompt preserve useful autonomy,
+  but cannot guarantee truthful worker output, useful improvements or zero
+  spending on false findings.

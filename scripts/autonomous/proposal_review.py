@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_change_scope import evaluate, manual_review_hits
-from evidence_plan import MODE_PROOF_TS, explain, plan
+from evidence_plan import MODE_MISSING_TEST, MODE_PROOF_TS, MODE_TEST_ONLY, MODE_UNSUPPORTED, explain, plan
 from jules_provenance import trusted_pull_request
 from verify_policy import verify
 
@@ -62,9 +62,13 @@ def check_result(name: str, checks: Sequence[Mapping[str, Any]], sha: str) -> di
         result["state"] = "invalid"
         return result
     latest = max(matching, key=lambda check: check["id"])
-    result.update(id=latest["id"], url=str(latest.get("html_url") or ""))
+    result.update(id=latest["id"], url=str(latest.get("html_url") or ""),
+                  conclusion=latest.get("conclusion"))
     if latest.get("status") != "completed":
         result["state"] = "pending"
+    elif latest.get("conclusion") not in ("success", "failure", "neutral", "cancelled",
+                                          "skipped", "timed_out", "action_required", "stale"):
+        result["state"] = "invalid"
     else:
         result["state"] = "passed" if latest.get("conclusion") == "success" else "failed"
     return result
@@ -171,8 +175,13 @@ def decide(pull_request: Mapping[str, Any], config: Mapping[str, Any],
     proof = plan(config, changed)
     if proof["mode"] != MODE_PROOF_TS:
         risks.append(explain(proof))
+    manual_bypass = (evidence["state"] == "failed" and evidence.get("conclusion") == "failure"
+                     and proof["mode"] in (MODE_MISSING_TEST, MODE_TEST_ONLY, MODE_UNSUPPORTED))
     if evidence["state"] == "failed":
-        risks.append("Evidence check failed: inspect its logs. No failing-first proof is established for this revision.")
+        if manual_bypass:
+            risks.append(evidence["name"] + " remains a failed server-required check because this plan has no supported failing-first proof. Owner approval does not satisfy it or perform a server bypass.")
+        else:
+            reasons.append(evidence["name"] + " failed on the reviewed SHA; inspect its logs, fix the failing proof or check execution, and rerun until it passes. Owner approval cannot waive this failure.")
 
     owners = {str(owner).lower() for owner in gate.get("owner_approvers", [])}
     reviews = _approvals(approvals)
@@ -185,7 +194,15 @@ def decide(pull_request: Mapping[str, Any], config: Mapping[str, Any],
     if changes_requested:
         reasons.append("Owner requested changes on this revision: " + ", ".join(changes_requested))
     label_claims = sorted(labels & {str(label).lower() for label in gate.get("manual_approval_labels", [])})
-    decision = "blocked" if reasons else "manual_review" if risks and not approved else "ready_for_review"
+    if reasons:
+        decision = "blocked"
+    elif manual_bypass:
+        decision = "manual_bypass_required"
+    elif risks and not approved:
+        decision = "manual_review"
+    else:
+        decision = "ready_for_review"
+    origin = trusted[0].get("origin") if provenance_verified else None
     url = "https://github.com/" + repository + "/pull/" + str(number)
     return {
         "decision": decision, "acceptance": "manual", "reasons": reasons,
@@ -193,6 +210,7 @@ def decide(pull_request: Mapping[str, Any], config: Mapping[str, Any],
         "approved_by": approved, "label_approvals": label_claims,
         "provenance_verified": provenance_verified,
         "task_id": trusted[0].get("id") if provenance_verified else None,
+        "finding_evidence": "reported" if isinstance(origin, Mapping) and origin else "none",
         "pull_request": number, "repository": repository,
         "ci_sha": ci_sha, "head_sha": head_sha, "files_sha": files_sha, "lab_sha": lab_sha,
         "changed_files": changed, "changed_file_count": count,
@@ -200,6 +218,7 @@ def decide(pull_request: Mapping[str, Any], config: Mapping[str, Any],
         "renamed_paths": renames, "violations": scope["violations"],
         "manual_review_paths": manual_paths, "proof_plan": proof,
         "proof_established": proof["mode"] == MODE_PROOF_TS and evidence["state"] == "passed",
+        "evidence_check_name": evidence["name"],
         "checks": quality + [evidence],
         "links": {"proposal": url, "diff": url + "/files/" + ci_sha,
                   "revision": "https://github.com/" + repository + "/commit/" + ci_sha,
@@ -220,6 +239,7 @@ def render_report(result: Mapping[str, Any]) -> str:
              "- Persisted session provenance: " + ("verified" if result["provenance_verified"] else "unknown or ambiguous"),
              "- Complete diff: " + str(result["changed_files_complete"]).lower()
              + " (" + str(result["changed_file_count"]) + "/" + str(result["expected_file_count"]) + " files)",
+             "- Finding evidence: " + result["finding_evidence"] + " (research reports are claims, not verified proof)",
              "- Failing-first proof: " + ("established" if result["proof_established"] else "not established"),
              "- Owner approval of this SHA: " + (", ".join(result["approved_by"]) or "none"), "", "### Checks"]
     for check in result["checks"]:
@@ -236,6 +256,11 @@ def render_report(result: Mapping[str, Any]) -> str:
     lines.extend(["", "### Next action"])
     if result["decision"] == "blocked":
         lines.append("Resolve the blockers and rerun this report for the current head. Do not treat a partial or foreign check result as readiness.")
+    elif result["decision"] == "manual_bypass_required":
+        lines.append("The server-required check `" + result["evidence_check_name"]
+                     + "` remains failed for this SHA; this proposal is not ready or mergeable under the required-check policy. "
+                     "Provide a supported failing-first proof and rerun the gate, or ask the owner to make a separate explicit server-side bypass decision for this exact revision. "
+                     "PR approval does not satisfy the check or execute that bypass; this report performs no bypass.")
     elif result["decision"] == "manual_review":
         lines.append("Inspect the diff, evidence logs and risks; a configured owner must explicitly review this exact SHA. Passing quality checks do not prove the fix.")
     else:

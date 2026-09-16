@@ -66,6 +66,9 @@ def task(task_id: str = TASK_ID, **overrides) -> dict:
         "priority": 50,
         "risk": "low",
     }
+    if overrides.get("task_type", "bugfix") != "project_discovery":
+        base["proposal_decision"] = {"action": "approve", "actor": "owner",
+                                     "at": "2026-09-12T11:00:00Z", "note": "Approved fixture"}
     base.update(overrides)
     return base
 
@@ -219,13 +222,13 @@ class CloseFromPullRequestTest(unittest.TestCase):
                                                  repository=REPOSITORY, merged=merged, now=NOW)
                         self.assertFalse(observe()["changed"])
                         self.assertEqual(data, before)
-                        self.assertFalse(select(data)["selected"])
+                        self.assertFalse(select(data, task_id="other")["selected"])
                         execution(data)["session_state"] = "FAILED"
                         self.assertTrue(observe()["changed"])
                         self.assertEqual(status_of(data), "done")
                         self.assertEqual(execution(data)["outcome"], OUTCOME_MERGED if merged else OUTCOME_CLOSED)
                         self.assertEqual(execution(data)["attempts"], 1)
-                        self.assertEqual(select(data)["task_id"], "other")
+                        self.assertEqual(select(data, task_id="other")["task_id"], "other")
                         self.assertFalse(observe()["changed"])
 
 
@@ -310,7 +313,7 @@ class SweepTest(unittest.TestCase):
         data = manifest(task(), task("other"))
         pr = bind(data)
         self.assertEqual(status_of(data), "blocked")
-        self.assertEqual(select(data)["task_id"], "other")
+        self.assertTrue(select(data, task_id="other")["selected"])
         self.assertFalse(sweep(data, [pr], repository=REPOSITORY, now=NOW)["changed"])
         start(data, "other", session_id="8", dispatch_key="other", now=NOW)
         pr.update(state="closed", merged_at="2026-09-12T12:00:00Z", body="edited")
@@ -325,7 +328,7 @@ class SweepTest(unittest.TestCase):
         pr = bind(data, proposal(draft=True, labels=["human-review"]), state="IN_PROGRESS")
         self.assertFalse(sweep(data, [pr], repository=REPOSITORY, now=NOW)["changed"])
         self.assertEqual(status_of(data), "in_progress")
-        self.assertFalse(select(data)["selected"])
+        self.assertFalse(select(data, task_id="other")["selected"])
 
     def test_declining_a_proposal_never_retries(self):
         data = manifest(task())
@@ -430,6 +433,31 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(status_of(data, "declined"), "done")
         self.assertFalse(select(data)["selected"])
 
+    def test_known_human_wait_is_not_stale_and_explicit_quarantine_still_wins(self):
+        for state in ("AWAITING_USER_FEEDBACK", "AWAITING_PLAN_APPROVAL", "PAUSED"):
+            with self.subTest(state=state):
+                data = manifest(task())
+                start(data, TASK_ID, session_id="7", dispatch_key="first", now=NOW)
+                execution(data)["session_state"] = state
+                before = copy.deepcopy(data)
+                self.assertFalse(reconcile(data, now=NOW + timedelta(days=7))["changed"])
+                self.assertEqual(data, before)
+                quarantine(data, TASK_ID, reason="loop_disabled", now=NOW + timedelta(days=7))
+                reconcile(data, now=NOW + timedelta(days=8))
+                self.assertEqual((status_of(data), execution(data)["state"], execution(data)["session_id"]),
+                                 ("blocked", "quarantined", "7"))
+
+    def test_resumed_processing_gets_transition_ttl_not_started_age(self):
+        data = manifest(task())
+        start(data, TASK_ID, session_id="7", dispatch_key="first", now=NOW)
+        resumed = NOW + timedelta(hours=7)
+        execution(data).update(session_state="IN_PROGRESS", observed_at=resumed.isoformat())
+        self.assertFalse(reconcile(data, now=resumed + timedelta(minutes=30))["changed"])
+        self.assertEqual((status_of(data), execution(data)["session_id"], execution(data)["attempts"]),
+                         ("in_progress", "7", 1))
+        self.assertTrue(reconcile(data, now=resumed + timedelta(hours=6))["changed"])
+        self.assertEqual((execution(data)["state"], execution(data)["session_id"]), ("quarantined", "7"))
+
 
 
 
@@ -438,9 +466,9 @@ class QueueTest(unittest.TestCase):
         data = manifest(
             task("a", status="todo"), task("b", status="in_progress"),
             task("c", status="done"), task("d", status="blocked"),
-            task("e", status="todo"),
+            task("e", status="todo"), task("proposal", status="proposed"),
         )
-        self.assertEqual(counts(data), {"todo": 2, "in_progress": 1, "done": 1, "blocked": 1})
+        self.assertEqual(counts(data), {"proposed": 1, "todo": 2, "in_progress": 1, "done": 1, "blocked": 1})
 
 
 if __name__ == "__main__":

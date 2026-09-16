@@ -24,6 +24,7 @@ REPOSITORY = "Omnividente/omp-desktop"
 TEMPLATES = Path(__file__).resolve().parents[2] / "docs" / "autonomous"
 CONFIG = {"repository": REPOSITORY, "automation": {"merge_mode": "manual"},
           "parallel_mode": {"integration_branch": "autonomous/lab"},
+          "merge_gate": {"owner_approvers": ["Omnividente"]},
           "product": {"editable_globs": ["src/**"], "excluded": []},
           "research": {"enabled": False}}
 
@@ -32,6 +33,8 @@ def task(identifier):
     return {"id": identifier, "title": "Fix clock " + identifier, "status": "todo",
             "task_type": "bugfix", "risk": "low", "priority": 90, "focus": ["quality"],
             "target_paths": ["src/clock.ts"], "acceptance": ["Clock updates after resume"],
+            "proposal_decision": {"action": "approve", "actor": "Omnividente",
+                                  "at": "2026-09-13T11:00:00Z", "note": "Investigate this finding"},
             "evidence": {"source": "smoke", "detail": "Clock remained stale after resume"}}
 
 
@@ -49,6 +52,8 @@ class Sessions:
         self.after_create = lambda: None
         self.before_list = lambda: None
         self.create_status = 200
+        self.messages = []
+        self.message_status = 200
 
     def __call__(self, method, url, headers, payload):
         path = urlsplit(url).path
@@ -62,6 +67,9 @@ class Sessions:
             self.values[identifier] = value
             self.after_create()
             return Response(200, value)
+        if method == "POST" and path.endswith(":sendMessage"):
+            self.messages.append((path, payload))
+            return Response(self.message_status)
         if method != "GET":
             raise AssertionError("unexpected worker mutation")
         if path == "/v1alpha/sessions":
@@ -153,20 +161,32 @@ class ControllerTests(unittest.TestCase):
         save_state(self.repo, self.queue, self.revision)
 
     def run_tick(self, persist=None, **options):
-        return tick(self.data, CONFIG, repo=self.repo, templates=TEMPLATES, github=self.github,
+        return tick(self.data, options.pop("config", CONFIG), repo=self.repo, templates=TEMPLATES, github=self.github,
                     persist=persist or self.persist, api_keys=["fixture-only"], transport=self.api,
-                    api_base="http://localhost/v1alpha", now=NOW, **options)
+                    api_base="http://localhost/v1alpha", now=options.pop("now", NOW),
+                    task_id=options.pop("task_id", "first"), **options)
 
     def reload(self):
         self.data = load_state(self.repo, self.queue, self.revision)
         return self.data["tasks"]
+
+    def research_config(self):
+        config = copy.deepcopy(CONFIG)
+        config["research"] = {
+            "enabled": True, "revisit_after_hours": 24, "max_sessions_per_day": 24,
+            "areas": [{"id": name, "title": name, "paths": ["src/clock.ts"]}
+                      for name in ("clock", "continuity")],
+            "perspectives": [{"id": "behavior", "title": "behavior", "focus": ["quality"],
+                              "instruction": "Inspect a synthetic boundary and report observations."}],
+        }
+        return config
 
     def test_completed_owner_proposal_releases_worker_without_accepting_it(self):
         self.data["tasks"].append(task("second"))
         start(self.data, "first", session_id="1", dispatch_key="old", now=NOW)
         self.api.values["1"] = session("1", "old", "COMPLETED", 59)
         self.github.add_proposal(59)
-        self.run_tick()
+        self.run_tick(task_id="second")
         first, second = self.reload()
         self.assertEqual((first["status"], first["execution"]["state"]), ("blocked", "awaiting_review"))
         self.assertEqual(first["execution"]["pull_request"], 59)
@@ -178,12 +198,12 @@ class ControllerTests(unittest.TestCase):
     def test_stale_unknown_session_is_quarantined_then_terminal_proof_resolves_it(self):
         self.data["tasks"].append(task("second"))
         start(self.data, "first", session_id="1", dispatch_key="old", now=NOW - timedelta(hours=7))
-        self.run_tick()
+        self.run_tick(task_id="second")
         first, second = self.reload()
         self.assertEqual((first["status"], first["execution"]["state"]), ("blocked", "quarantined"))
         self.assertEqual((second["status"], self.api.posts), ("todo", 0))
         self.api.values["1"] = session("1", "old", "COMPLETED")
-        self.run_tick()
+        self.run_tick(task_id="second")
         first, second = self.reload()
         self.assertEqual((first["status"], first["execution"]["outcome"], first["execution"]["attempts"]),
                          ("done", "no_change", 1))
@@ -246,6 +266,7 @@ class ControllerTests(unittest.TestCase):
         research = self.data["tasks"][0]
         research.update(task_type="project_discovery", research={"area_id": "clock", "perspective_id": "behavior",
                         "fingerprint": "a" * 64, "cycle": 1, "previous_reports": []})
+        research.pop("proposal_decision", None)
         start(self.data, "first", session_id="1", dispatch_key="research", now=NOW)
         research["execution"]["last_error"] = {"at": "2026-09-13T11:00:00Z", "detail": "prior outage"}
         self.api.values["1"] = session("1", "research", "COMPLETED")
@@ -334,6 +355,172 @@ class ControllerTests(unittest.TestCase):
         with patch("lab_controller._git", side_effect=racing_git), self.assertRaises(RuntimeError):
             self.github.release_attempt(self.repo, execution)
         self.assertEqual(self.github.head(branch), moved)
+
+    def test_unchanged_poll_has_new_observation_without_queue_publication(self):
+        self.run_tick()
+        self.reload()
+        before = self.queue.read_bytes()
+        revision = self.github.head("autonomous/state")
+        result = self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.queue.read_bytes(), before)
+        self.assertEqual((result["observations"][0]["session_id"], result["observations"][0]["observed_at"]),
+                         ("1", "2026-09-13T12:05:00Z"))
+        self.assertEqual(self.api.posts, 1)
+
+    def test_waiting_and_resumed_observations_keep_the_same_attempt(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        waiting = self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(waiting["waiting_workers"][0]["session_url"], "https://jules.google.com/session/1")
+        revision = self.github.head("autonomous/state")
+        self.run_tick(now=NOW + timedelta(hours=7))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.api.values["1"]["state"] = "IN_PROGRESS"
+        self.run_tick(now=NOW + timedelta(hours=7, minutes=30))
+        saved = self.reload()[0]
+        self.assertEqual((saved["status"], saved["execution"]["session_state"], saved["execution"]["observed_at"]),
+                         ("in_progress", "IN_PROGRESS", "2026-09-13T19:30:00Z"))
+        revision = self.github.head("autonomous/state")
+        self.run_tick(now=NOW + timedelta(hours=8))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual((self.reload()[0]["execution"]["session_id"], self.api.posts), ("1", 1))
+
+    def test_same_poll_error_preserves_error_timestamp_and_queue_revision(self):
+        self.run_tick()
+        self.reload()
+        del self.api.values["1"]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        error = copy.deepcopy(self.reload()[0]["execution"]["last_error"])
+        revision = self.github.head("autonomous/state")
+        result = self.run_tick(now=NOW + timedelta(minutes=10))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.reload()[0]["execution"]["last_error"], error)
+        self.assertEqual(result["attention"][0]["observed_at"], "2026-09-13T12:10:00Z")
+        self.assertEqual(self.api.posts, 1)
+
+    def test_unchanged_active_proposal_does_not_rewrite_provenance_timestamp(self):
+        self.run_tick()
+        self.reload()
+        self.github.add_proposal(59)
+        self.api.values["1"]["outputs"] = [{"pullRequest": {"url": f"https://github.com/{REPOSITORY}/pull/59"}}]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        revision = self.github.head("autonomous/state")
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual((self.reload()[0]["status"], self.api.posts), ("in_progress", 1))
+
+    def test_unchanged_tick_checks_cas_before_external_observation(self):
+        self.run_tick()
+        self.reload()
+        other_queue, other_revision = self.root / "other-queue.json", self.root / "other-revision.json"
+        concurrent = load_state(self.repo, other_queue, other_revision)
+        concurrent["tasks"].append(task("other"))
+        other_queue.write_text(json.dumps(concurrent), encoding="utf-8")
+        save_state(self.repo, other_queue, other_revision)
+        revision = self.github.head("autonomous/state")
+        with patch("lab_controller.get_session", side_effect=AssertionError("API before CAS")):
+            with self.assertRaises(StateWriteError):
+                self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.api.posts, 1)
+
+    def test_scheduled_research_runs_beside_waiting_implementation_and_backlog(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.run_tick()
+        first = copy.deepcopy(self.reload()[0])
+        for number in range(40):
+            proposal = task("pending-" + str(number))
+            proposal.pop("proposal_decision")
+            proposal["status"] = "proposed"
+            self.data["tasks"].append(proposal)
+        self.data["tasks"].append(task("approved-but-not-selected"))
+        config = self.research_config()
+        result = self.run_tick(task_id="", config=config)
+        tasks = self.reload()
+        self.assertEqual(result["action"], "dispatched")
+        self.assertEqual(tasks[0], first)
+        self.assertEqual(tasks[-1]["task_type"], "project_discovery")
+        self.assertEqual(tasks[-1]["status"], "in_progress")
+        self.assertEqual(tasks[-2]["status"], "todo")
+        self.assertEqual(sum(t["status"] == "proposed" for t in tasks), 40)
+        self.assertNotIn("automationMode", self.api.values["2"])
+        self.assertEqual(self.api.messages, [])
+        self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=5))
+        self.assertEqual((self.api.posts, self.reload()[0]), (2, first))
+
+    def test_detached_research_nudge_lost_ack_and_resume_never_duplicate_scope(self):
+        config = self.research_config()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        research = self.data["tasks"][-1]
+        identity = copy.deepcopy(research["execution"])
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.message_status = 0
+        self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=5))
+        tasks = self.reload()
+        older, newer = tasks[-2:]
+        self.assertNotEqual(older["research"]["area_id"], newer["research"]["area_id"])
+        self.assertEqual((older["execution"]["feedback_nudge"]["result"], len(self.api.messages)), ("unknown", 1))
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(older["execution"][field], identity[field])
+        self.api.values["1"]["state"] = "IN_PROGRESS"
+        self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=10))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (2, 1))
+        self.assertEqual(self.reload()[-2]["execution"]["session_state"], "IN_PROGRESS")
+        self.assertEqual(validate(self.data), [])
+        self.api.values["1"]["state"] = "COMPLETED"
+        report = {"summary": "Clock boundary checked", "observations": [
+            {"scenario": "synthetic resume", "evidence": "time advanced", "result": "expected time"}],
+            "next_hypotheses": []}
+        self.api.activities["1"] = [{"name": "sessions/1/activities/final", "originator": "agent",
+            "createTime": "2026-09-13T12:11:00Z", "agentMessaged": {"agentMessage":
+            "AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(report) + "\nAUTONOMOUS_RESEARCH_END"}}]
+        self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=15))
+        older, newer = self.reload()[-2:]
+        self.assertEqual((older["status"], newer["status"]), ("done", "in_progress"))
+        self.assertEqual(older["execution"]["session_id"], identity["session_id"])
+        self.assertEqual(self.api.posts, 2)
+
+    def test_nudge_requires_durable_intent_and_does_not_repeat_after_restart(self):
+        config = self.research_config()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        def fail_nudge_intent(data):
+            if data["tasks"][-1].get("execution", {}).get("feedback_nudge"):
+                raise RuntimeError("state unavailable")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(task_id="", config=config, persist=fail_nudge_intent)
+        self.assertEqual(self.api.messages, [])
+        self.reload()
+        def lose_nudge_ack(data):
+            receipt = data["tasks"][-1].get("execution", {}).get("feedback_nudge") or {}
+            if receipt.get("result") == "sent":
+                raise RuntimeError("ack state unavailable")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(task_id="", config=config, persist=lose_nudge_ack)
+        self.assertEqual(len(self.api.messages), 1)
+        self.assertEqual(self.reload()[-1]["execution"]["feedback_nudge"]["result"], "pending")
+        self.run_tick(task_id="", config=config)
+        self.assertEqual((self.api.posts, len(self.api.messages)), (2, 1))
+
+    def test_explicit_unapproved_or_foreign_approval_never_creates_worker(self):
+        for decision in (None, {"action": "approve", "actor": "foreign",
+                               "at": "2026-09-13T11:00:00Z", "note": "Spoofed approval"}):
+            with self.subTest(decision=decision):
+                if decision is None:
+                    self.data["tasks"][0].pop("proposal_decision", None)
+                else:
+                    self.data["tasks"][0]["proposal_decision"] = decision
+                self.run_tick()
+                self.assertEqual(self.api.posts, 0)
+                self.assertEqual(self.reload()[0]["status"], "todo")
 
 
 if __name__ == "__main__":

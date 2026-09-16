@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mint at most one read-only research task when the eligible queue is empty.
+"""Mint one read-only research task when its foreground lane and scope are free.
 
 Coverage is keyed by trusted area/perspective and committed product blob content,
 not the lab branch tip. Existing rows and lifecycle transitions are never edited.
@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from check_change_scope import evaluate, manual_review_hits
-from select_task import DEFAULT_MAX_ATTEMPTS, RISK_ORDER, select
+from select_task import DEFAULT_MAX_ATTEMPTS, RISK_ORDER, is_unresolved, select
 from validate_tasks import MAX_PREVIOUS_REPORTS, MAX_PREVIOUS_REPORT_CHARS, validate
 
 
@@ -166,7 +166,7 @@ def plan_research(
     """Pure scheduling API; return a new manifest only when one task is appended.
 
     The daily cap is a rolling 24-hour window of minted research sessions. Failed
-    or exhausted sessions consume coverage/cooldown too; real tasks bypass it.
+    or exhausted sessions consume coverage/cooldown too; proposals do not block it.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -183,6 +183,8 @@ def plan_research(
 
     if task_id:
         return unchanged("explicit_task_selection")
+    if not (config.get("research") or {}).get("enabled", False):
+        return unchanged("research_disabled")
     selection = select(manifest, focus=focus, risk_ceiling=risk_ceiling)
     if selection["selected"] or selection["reason_code"] == "work_in_progress":
         return unchanged("eligible_work_exists" if selection["selected"] else "work_in_progress")
@@ -195,8 +197,6 @@ def plan_research(
         for task in manifest["tasks"]
     ):
         return unchanged("research_pending")
-    if not (config.get("research") or {}).get("enabled", False):
-        return unchanged("research_disabled")
     validate_config(config)
     if risk_ceiling not in RISK_ORDER:
         raise ValueError("unknown risk ceiling")
@@ -214,6 +214,7 @@ def plan_research(
         cap_next = recent[-research["max_sessions_per_day"]] + timedelta(days=1)
     focus_set = {value.lower() for value in (focus or [])}
     candidates, next_times = [], []
+    occupied_scope = False
     for area_index, area in enumerate(research["areas"]):
         fingerprint = fingerprints.get(area["id"])
         if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
@@ -226,6 +227,9 @@ def plan_research(
                 if task["research"]["area_id"] == area["id"]
                 and task["research"]["perspective_id"] == perspective["id"]
             ], key=lambda task: (_last_activity(task, now), task["id"]))
+            if any(is_unresolved(task) for task in history):
+                occupied_scope = True
+                continue
             eligible_at = now
             last_at = datetime.min.replace(tzinfo=timezone.utc)
             if history:
@@ -246,7 +250,7 @@ def plan_research(
                 ))
     if not candidates:
         if not next_times:
-            return unchanged("focus_mismatch")
+            return unchanged("research_scope_occupied" if occupied_scope else "focus_mismatch")
         return unchanged("daily_cap" if cap_next is not None else "cooldown", min(next_times))
     _, area, perspective, history, fingerprint = min(candidates, key=lambda item: item[0])
     cycle = max((task["research"]["cycle"] for task in history), default=0) + 1

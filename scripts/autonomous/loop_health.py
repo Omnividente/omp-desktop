@@ -12,16 +12,53 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
-from select_task import select
+from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, select, valid_research_detachment
 from task_lifecycle import awaiting_report, sweep
 from validate_tasks import validate
 from jules_provenance import trusted_pull_request
 from sync_main import busy_reason
 
 STALL_AFTER = timedelta(minutes=90)
-POLL_DELAY_SECONDS = 90
+POLL_INTERVAL = timedelta(minutes=5)
+UNCHANGED_POLL_INTERVAL = timedelta(minutes=15)
+UNCHANGED_AFTER = timedelta(minutes=30)
+WAITING_POLL_INTERVAL = timedelta(minutes=30)
+WAITING_REASONS = {
+    "AWAITING_USER_FEEDBACK": "worker_awaiting_feedback",
+    "AWAITING_PLAN_APPROVAL": "worker_awaiting_approval",
+    "PAUSED": "worker_paused",
+}
 ACTIVE_RUN_STATUSES = {"queued", "in_progress", "waiting", "pending", "requested"}
 FAILED_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure"}
+
+
+def worker_observation(task: Mapping[str, Any], now: datetime) -> dict:
+    execution = task.get("execution") or {}
+    identifier = str(execution.get("session_id") or "").removeprefix("sessions/")
+    safe_id = identifier if re.fullmatch(r"[A-Za-z0-9_-]+", identifier) else None
+    state = execution.get("session_state") or "UNKNOWN"
+    return {"task_id": task["id"], "session_id": safe_id,
+            "session_url": "https://jules.google.com/session/" + safe_id if safe_id else None,
+            "session_state": state, "observed_at": _iso(now),
+            "state_changed_at": execution.get("observed_at"),
+            "reason": WAITING_REASONS.get(state, "worker_running")}
+
+
+def poll_due_at(tasks: Sequence[dict], completed_at: datetime | None, now: datetime) -> datetime:
+    deadlines = []
+    for task in tasks:
+        execution = task.get("execution") or {}
+        changed_at = max((at for field in ("observed_at", "started_at")
+                          if (at := _time(execution.get(field))) is not None), default=None)
+        interval = POLL_INTERVAL
+        if (task.get("task_type") != DISCOVERY_TYPE or valid_research_detachment(task)
+                or execution.get("session_state") in WAITING_REASONS):
+            interval = WAITING_POLL_INTERVAL
+        elif changed_at and now - changed_at >= UNCHANGED_AFTER:
+            interval = UNCHANGED_POLL_INTERVAL
+        anchor = max((at for at in (completed_at, changed_at) if at is not None), default=None)
+        deadlines.append(anchor + interval if anchor else now)
+    return min(deadlines, default=now)
 
 
 def workflow_runs(value: Any) -> list[dict]:
@@ -70,6 +107,8 @@ def assess_health(
     minimum = datetime.min.replace(tzinfo=timezone.utc)
     latest = max(ticks, key=lambda run: _run_time(run) or minimum, default=None)
     last_at = _run_time(latest) if latest else None
+    completed_at = max((_run_time(run) for run in ticks if run.get("status") == "completed"
+                        and _run_time(run) is not None), default=None)
     current_syncs = [run for run in sync_runs if run.get("head_branch") == default_branch
                      and _sync_main(run) == main_sha]
     completed_syncs = [run for run in current_syncs if run.get("status") == "completed"
@@ -80,11 +119,13 @@ def assess_health(
     repository = config.get("repository", "")
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
-        started = _time(execution.get("started_at"))
-        age = max(0, int((now - started).total_seconds())) if started else None
+        changed_at = max((at for field in ("observed_at", "started_at")
+                          if (at := _time(execution.get(field))) is not None), default=None)
+        age = max(0, int((now - changed_at).total_seconds())) if changed_at else None
+        waiting = execution.get("session_state") in WAITING_REASONS
         if execution.get("state") == "quarantined":
             attention.append({"reason": "quarantined", "task_id": task["id"], "age_seconds": age})
-        elif task.get("status") == "in_progress" and (age is None or age > 24 * 3600):
+        elif not waiting and task.get("status") == "in_progress" and (age is None or age > 24 * 3600):
             attention.append({"reason": "worker_stale", "task_id": task["id"], "age_seconds": age})
         for pr in pull_requests:
             if pr.get("state") != "open" or not trusted_pull_request(task, pr, repository, "autonomous/lab"):
@@ -124,10 +165,24 @@ def assess_health(
         "main_sha": main_sha, "lab_sha": lab_sha, "main_is_ancestor": main_is_ancestor,
         "code_sha": lab_sha, "state_sha": state_sha, "sync_outcome": observed_sync,
         "proposals": proposals,
+        "pending_proposals": sum(
+            task.get("task_type") != DISCOVERY_TYPE
+            and (task.get("status") == "proposed"
+                 or (task.get("status") == "todo" and not task.get("proposal_decision")))
+            for task in manifest["tasks"]
+        ),
+        "approved_proposals": sum(
+            task.get("task_type") != DISCOVERY_TYPE and task.get("status") == "todo"
+            and (task.get("proposal_decision") or {}).get("action") == "approve"
+            for task in manifest["tasks"]
+        ),
+        "waiting_workers": [worker_observation(task, now) for task in manifest["tasks"]
+                            if is_unresolved(task)
+                            and (task.get("execution") or {}).get("session_state") in WAITING_REASONS],
         "observed_at": _iso(now), "last_next_task": _run_summary(latest),
         "next_task_age_seconds": max(0, int((now - last_at).total_seconds())) if last_at else None,
         "last_sync": _run_summary(last_sync), "attention": attention,
-        "research_next_at": None,
+        "research_next_at": None, "due_at": None,
     }
 
     def decision(reason: str, action: str = "none", *, due: bool = False, delay: int = 0) -> dict:
@@ -137,6 +192,19 @@ def assess_health(
         if stalled:
             result["attention"].append({"reason": "next_task_stalled", "observed_at": _iso(last_at) if last_at else None})
         return result
+
+    def polling(reason: str, tasks: Sequence[dict]) -> dict:
+        deadline = poll_due_at(tasks, completed_at, now)
+        result["due_at"] = _iso(deadline)
+        waiting = [worker_observation(task, now) for task in tasks
+                   if (task.get("execution") or {}).get("session_state") in WAITING_REASONS]
+        if waiting:
+            reason = waiting[0]["reason"]
+        if now < deadline:
+            return decision(reason, delay=max(1, int((deadline - now).total_seconds())))
+        # Human waiting is informational, not a controller failure or stalled processing.
+        # Scheduled observations remain visible through next_task_age_seconds.
+        return decision(reason, "next_task", due=not waiting)
 
     if not enabled:
         result.update(health="disabled", reason="loop_disabled")
@@ -151,23 +219,34 @@ def assess_health(
     if reconciled["changed"]:
         return decision("reconciliation_due", "next_task", due=True)
     sync_blocker = busy_reason(data, [], config)
-    if sync_blocker and any((task.get("execution") or {}).get("state") == "quarantined" for task in data["tasks"]):
-        return decision("legacy_worker_reconciliation", "next_task", due=True, delay=POLL_DELAY_SECONDS)
-    if not main_is_ancestor and not failed_sync and not sync_blocker:
-        return decision("sync_required", "sync")
-    active_tasks = [task for task in data["tasks"] if task["status"] == "in_progress"]
-    if active_tasks:
-        if any(not (task.get("execution") or {}).get("session_id") for task in active_tasks):
-            attention.append({"reason": "active_session_unbound"})
-            return decision("active_session_unbound", "next_task", due=True, delay=POLL_DELAY_SECONDS)
-        return decision("active_polling", "next_task", due=True, delay=POLL_DELAY_SECONDS)
+    unresolved = [task for task in data["tasks"] if is_unresolved(task)]
     if not main_is_ancestor:
+        if sync_blocker:
+            reason = "legacy_worker_reconciliation" if any(
+                (task.get("execution") or {}).get("state") == "quarantined" for task in unresolved
+            ) else "active_polling"
+            return polling(reason, unresolved)
         if failed_sync:
             return decision("sync_failed")
         return decision("sync_required", "sync")
-    if any((task.get("execution") or {}).get("state") == "quarantined" for task in data["tasks"]):
-        return decision("worker_quarantined")
-    selection = select(data, risk_ceiling=config.get("risk_ceiling", "medium"))
+    for task in unresolved:
+        execution = task.get("execution") or {}
+        state = execution.get("session_state")
+        if (task.get("task_type") == DISCOVERY_TYPE and state in WAITING_REASONS
+                and "research_detached" not in execution):
+            candidate = {**task, "execution": {**execution, "research_detached": {
+                "at": _iso(now), "reason": state,
+            }}}
+            if valid_research_detachment(candidate):
+                return decision("research_detachment_due", "next_task")
+    foreground = [task for task in unresolved if blocks_lane(task, discovery=True)]
+    if foreground:
+        if any(not (task.get("execution") or {}).get("session_id") for task in foreground):
+            attention.append({"reason": "active_session_unbound"})
+            return polling("active_session_unbound", foreground)
+        return polling("active_polling", foreground)
+    selection = select(data, risk_ceiling=config.get("risk_ceiling", "medium"),
+                       allow_discovery=(config.get("research") or {}).get("enabled", False))
     if selection["selected"]:
         return decision("work_due", "next_task", due=True)
     _, research = plan_research(data, config, fingerprints, now=now,
@@ -175,6 +254,8 @@ def assess_health(
     if research["research_changed"]:
         return decision("research_due", "next_task", due=True)
     result["research_next_at"] = research["research_next_at"] or None
+    if unresolved:
+        return polling("active_polling", unresolved)
     return decision(research["research_reason"])
 
 

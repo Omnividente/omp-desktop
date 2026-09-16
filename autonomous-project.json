@@ -2,7 +2,7 @@
   "version": 2,
   "project": "omp-desktop",
   "repository": "Omnividente/omp-desktop",
-  "description": "Autonomous research and proposal laboratory for OMP Desktop. Proposes changes for human acceptance, never accepts its own PRs or performs releases.",
+  "description": "Continuous read-only research and proposal backlog for OMP Desktop. Findings wait for an explicit human decision; implementation requires a separate task selection. Never accepts its own PRs or performs releases.",
   "default_branch": "main",
   "parallel_mode": {
     "enabled": true,
@@ -60,7 +60,7 @@
     "evidence_check_name": "Autonomous Evidence Gate",
     "manual_approval_labels": ["approved-by-owner"],
     "test_globs": ["*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx", "src-tauri/tests/**"],
-    "notes": "Every proposal is accepted manually. Reports bind complete file lists, renames, required GitHub Actions checks (app 15368), evidence and owner reviews to the current SHA. Missing proof, test-only changes, updater paths and large diffs require explicit revision-bound owner review. Labels are not approvals; unknown provenance, incomplete files and missing or foreign checks never produce a ready claim.",
+    "notes": "Every proposal is accepted manually. Reports bind complete files, renames, trusted GitHub Actions checks (app 15368) and owner reviews to the exact SHA. Failed supported TypeScript proof is blocked even after approval. Unsupported, test-only or missing-test plans with a completed failed Evidence Gate require supported proof or a separate explicit owner server-side bypass; manual_bypass_required is not ready and performs no bypass. Other blockers take precedence. Updater paths and large diffs need revision-bound owner review. Labels and worker-reported findings are not proof; unknown provenance, incomplete files and missing or foreign checks never produce readiness.",
     "required_check_names": ["Checks (ubuntu-latest)", "Checks (windows-latest)"],
     "owner_approvers": ["Omnividente"],
     "max_changed_files": 200

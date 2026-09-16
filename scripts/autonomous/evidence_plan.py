@@ -6,17 +6,19 @@ is not a guarantee. This module decides, from the diff alone, what a proof run
 must do:
 
 * ``no_source_change``    - no product source or tests changed; no proof performed.
-* ``test_only``           - tests changed without source; explicit human review.
+* ``test_only``           - tests changed without source; no failing-first proof.
 * ``missing_test``        - product source changed with no accompanying test: unprovable.
 * ``proof_required_ts``   - TypeScript source plus TypeScript tests: the gate reverts
                             the source to the base revision and requires the new test
                             to FAIL, then restores the fix and requires it to PASS.
 * ``proof_unsupported``   - the diff needs a proof this gate cannot run offline
-                            (for example Rust sources), so it falls through to
-                            explicit human approval instead of silently passing.
+                            (for example Rust sources); the required check fails.
 
 The gate never reports a regression proof for a diff it did not actually prove.
 The proposal report preserves this limitation even when quality checks pass.
+A failed unsupported, test-only or missing-test gate requires supported proof or
+a separate explicit owner server-side bypass, never merely a PR approval. The
+report's manual_bypass_required decision is not readiness and performs no bypass.
 """
 from __future__ import annotations
 
@@ -85,20 +87,24 @@ def explain(result: Mapping[str, Any]) -> str:
     if mode == MODE_TEST_ONLY:
         return (
             "Only tests changed: reverting product source cannot establish failing-first "
-            "evidence. Review the assertions and coverage with explicit owner approval "
-            "of this exact revision; passing tests alone are not proof of a fix."
+            "evidence. Review the assertions and coverage, but owner approval does not "
+            "satisfy a failed required check. Add supported proof or request a separate "
+            "explicit owner server-side bypass; passing tests alone are not proof of a fix."
         )
     if mode == MODE_MISSING_TEST:
         return (
             "Product source changed without any accompanying test, so the claim that a "
-            "regression existed cannot be reproduced. Add a failing-first test or get "
-            "explicit owner approval."
+            "regression existed cannot be reproduced. Add a failing-first test and rerun "
+            "the gate, or request a separate explicit owner server-side bypass. Owner "
+            "approval alone does not satisfy the failed required check."
         )
     if mode == MODE_UNSUPPORTED:
         paths = ", ".join(result.get("unsupported_paths") or []) or "unknown paths"
         return (
             "This diff needs a proof run this gate cannot perform offline ("
-            + paths + "). Owner approval is required."
+            + paths + "). Add supported proof or request a separate explicit owner "
+            "server-side bypass. Owner approval alone does not satisfy the failed "
+            "required check."
         )
     return (
         "Reverting the source changes must make "

@@ -16,6 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
 from research_cycle import plan_research
+from health_snapshot import snapshot_proposals, snapshot_runs
+from urllib.parse import parse_qs, urlsplit
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
 MAIN = "a" * 40
@@ -85,7 +87,7 @@ class DecisionTest(unittest.TestCase):
 
     def test_due_work_uses_actual_tick_not_queue_creation_or_other_branch_run(self):
         old = run(NOW - timedelta(minutes=91), id=7)
-        result = health(queue(task(created_at=NOW.isoformat())), runs=[old, run(id=8, head_branch="feature/untrusted")])
+        result = health(queue(task(task_type="project_discovery", created_at=NOW.isoformat())), runs=[old, run(id=8, head_branch="feature/untrusted")])
         self.assertEqual((result["health"], result["action"], result["reason"]), ("stalled", "next_task", "work_due"))
         self.assertEqual(result["last_next_task"]["id"], 7)
         self.assertEqual(result["next_task_age_seconds"], 91 * 60)
@@ -132,12 +134,12 @@ class DecisionTest(unittest.TestCase):
         failed = run(conclusion="failure", display_title="Sync main " + MAIN)
         result = health(data, main_is_ancestor=False, sync_runs=[failed])
         self.assertEqual((result["health"], result["action"], result["reason"], result["delay_seconds"]),
-                         ("attention", "next_task", "active_polling", 90))
+                         ("attention", "none", "active_polling", 1800))
         self.assertEqual(data, before)
         data["tasks"][0]["execution"].pop("session_id")
-        self.assertEqual(health(data)["action"], "next_task")
+        self.assertEqual(health(data, main_is_ancestor=False)["action"], "none")
 
-    def test_immutable_worker_can_sync_and_quarantine_never_launches_a_new_worker(self):
+    def test_immutable_implementation_can_sync_and_quarantine_does_not_block_research(self):
         execution = {"state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one",
                      "attempts": 1, "started_at": NOW.isoformat(), "base_sha": LAB,
                      "starting_branch": "autonomous/attempt-attempt-one"}
@@ -147,7 +149,7 @@ class DecisionTest(unittest.TestCase):
         execution.update(state="quarantined", outcome="stale")
         data["tasks"].append(task(id="other"))
         result = health(data)
-        self.assertEqual((result["health"], result["action"]), ("attention", "none"))
+        self.assertEqual((result["health"], result["action"], result["reason"]), ("attention", "next_task", "research_due"))
         self.assertEqual(health(data, main_is_ancestor=False)["action"], "sync")
 
     def test_migrated_legacy_quarantine_is_reconciled_before_sync(self):
@@ -156,7 +158,7 @@ class DecisionTest(unittest.TestCase):
         before = copy.deepcopy(data)
         result = health(data, main_is_ancestor=False)
         self.assertEqual((result["action"], result["reason"], result["delay_seconds"]),
-                         ("next_task", "legacy_worker_reconciliation", 90))
+                         ("none", "legacy_worker_reconciliation", 1800))
         self.assertEqual(data, before)
 
     def test_live_controller_runs_make_wakeups_idempotent(self):
@@ -189,7 +191,7 @@ class DecisionTest(unittest.TestCase):
             "session_id": "123", "dispatch_key": "attempt-one", "started_at": NOW.isoformat(),
             "report_error": {"code": "research_invalid", "detail": "PRIVATE_WORKER_PROSE secret=never-print", "reported_at": NOW.isoformat()},
         })
-        data["tasks"].append(task())
+        data["tasks"].append(task(task_type="project_discovery"))
         result = health(data)
         self.assertEqual((result["health"], result["action"], result["reason"]), ("attention", "next_task", "work_due"))
         self.assertEqual(result["attention"], [{"reason": "report_invalid", "task_id": data["tasks"][0]["id"], "observed_at": "2026-09-13T12:00:00Z"}])
@@ -222,6 +224,151 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual(health(runs=workflow_runs([run()]))["action"], "next_task")
         with self.assertRaises(ValueError):
             workflow_runs({"unrelated": []})
+
+    def test_fresh_completion_not_old_state_timestamp_anchors_poll_deadline(self):
+        old = NOW - timedelta(hours=2)
+        data = queue(task(task_type="project_discovery", status="in_progress", execution={"state": "dispatched", "session_id": "123",
+                     "dispatch_key": "attempt-one", "attempts": 1, "started_at": old.isoformat(),
+                     "observed_at": old.isoformat(), "session_state": "IN_PROGRESS"}))
+        recent = run(NOW - timedelta(minutes=1))
+        result = health(data, runs=[recent])
+        self.assertEqual((result["action"], result["delay_seconds"], result["due_at"]),
+                         ("none", 14 * 60, "2026-09-13T12:14:00Z"))
+        self.assertEqual(health(data, runs=[recent], now=NOW + timedelta(minutes=14))["action"], "next_task")
+        data["tasks"][0]["execution"].update(session_state="IN_PROGRESS", observed_at=NOW.isoformat())
+        resumed = health(data, runs=[run()])
+        self.assertEqual((resumed["action"], resumed["due_at"]), ("none", "2026-09-13T12:05:00Z"))
+        self.assertEqual(health(data, runs=[run()], now=NOW + timedelta(minutes=5))["action"], "next_task")
+
+    def test_human_wait_keeps_identity_and_thirty_minute_cadence_without_false_failure(self):
+        for state, reason in (("AWAITING_USER_FEEDBACK", "worker_awaiting_feedback"),
+                              ("AWAITING_PLAN_APPROVAL", "worker_awaiting_approval"),
+                              ("PAUSED", "worker_paused")):
+            with self.subTest(state=state):
+                old = (NOW - timedelta(days=2)).isoformat()
+                data = queue(task(status="in_progress", execution={"state": "dispatched", "session_id": "123",
+                             "dispatch_key": "attempt-one", "attempts": 1, "started_at": old,
+                             "observed_at": old, "session_state": state}))
+                config = settings()
+                config["research"]["enabled"] = False
+                result = health(data, config)
+                self.assertEqual((result["action"], result["reason"], result["due_at"]),
+                                 ("none", reason, "2026-09-13T12:30:00Z"))
+                self.assertEqual(result["waiting_workers"][0]["session_url"], "https://jules.google.com/session/123")
+                self.assertEqual(result["waiting_workers"][0]["task_id"], "fix")
+                overdue = health(data, config, runs=[run(NOW - timedelta(hours=3))])
+                self.assertEqual((overdue["health"], overdue["action"], overdue["reason"]),
+                                 ("ok", "next_task", reason))
+                self.assertEqual(overdue["attention"], [])
+
+    def test_recent_completion_frees_slot_for_immediate_useful_work(self):
+        finished = task(status="done", execution={"state": "completed", "outcome": "no_change",
+                        "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+                        "session_state": "COMPLETED", "finished_at": NOW.isoformat()})
+        result = health(queue(finished, task(id="next", task_type="project_discovery")), runs=[run()])
+        self.assertEqual((result["action"], result["reason"], result["delay_seconds"]),
+                         ("next_task", "work_due", 0))
+
+    def test_proposal_backlog_and_legacy_wait_never_starve_research(self):
+        old = (NOW - timedelta(days=2)).isoformat()
+        waiting = task(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "original-attempt", "attempts": 1,
+            "started_at": old, "observed_at": old, "session_state": "AWAITING_USER_FEEDBACK",
+        })
+        data = queue(waiting, task(id="legacy"), *(task(id="proposal-" + str(i), status="proposed") for i in range(60)))
+        before = copy.deepcopy(data)
+        result = health(data)
+        self.assertEqual((result["action"], result["reason"]), ("next_task", "research_due"))
+        self.assertEqual(result["pending_proposals"], 61)
+        self.assertEqual(result["waiting_workers"][0]["session_id"], "123")
+        self.assertEqual(data, before)
+        data["tasks"].append(task(id="queued-research", task_type="project_discovery"))
+        self.assertEqual(health(data)["reason"], "work_due")
+        self.assertEqual(health(data, enabled=False)["action"], "none")
+        self.assertEqual(health(data, runs=[run(status="in_progress")])["action"], "none")
+
+    def test_first_waiting_research_detach_needs_tick_then_other_scope_can_run(self):
+        config = settings()
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64}, now=NOW)
+        research = data["tasks"][0]
+        research.update(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "research-attempt", "attempts": 1,
+            "starting_branch": "autonomous/attempt-research-attempt", "base_sha": LAB,
+            "started_at": NOW.isoformat(), "session_state": "AWAITING_PLAN_APPROVAL",
+        })
+        result = health(data)
+        self.assertEqual((result["action"], result["reason"]), ("next_task", "research_detachment_due"))
+        self.assertNotIn("research_detached", research["execution"])
+        research["execution"]["research_detached"] = {"at": NOW.isoformat(), "reason": "AWAITING_PLAN_APPROVAL"}
+        idle = health(data)
+        self.assertEqual((idle["action"], idle["due_at"]), ("none", "2026-09-13T12:30:00Z"))
+        config["research"]["perspectives"].append({
+            "id": "reliability", "title": "Reliability", "focus": ["quality"], "instruction": "Observe recovery.",
+        })
+        self.assertEqual(health(data, config)["reason"], "research_due")
+        research["execution"]["session_state"] = "IN_PROGRESS"
+        self.assertEqual(health(data, config)["reason"], "research_due")
+        config["research"]["max_sessions_per_day"] = 1
+        self.assertEqual(health(data, config)["due_at"], "2026-09-13T12:30:00Z")
+
+    def test_idle_implementation_poll_anchors_completion_instead_of_chaining(self):
+        config = settings()
+        config["research"]["enabled"] = False
+        old = (NOW - timedelta(hours=2)).isoformat()
+        data = queue(task(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+            "started_at": old, "observed_at": old, "session_state": "IN_PROGRESS",
+        }))
+        result = health(data, config, runs=[run(NOW - timedelta(minutes=1))])
+        self.assertEqual((result["action"], result["delay_seconds"]), ("none", 29 * 60))
+        due = health(data, config, runs=[run(NOW - timedelta(minutes=30))])
+        self.assertEqual(due["action"], "next_task")
+        self.assertEqual(health(data, config, runs=[run()])["action"], "none")
+
+    def test_disabled_research_does_not_dispatch_existing_research_or_approved_proposal(self):
+        config = settings()
+        config["research"]["enabled"] = False
+        data = queue(task(task_type="project_discovery"), task(id="approved", proposal_decision={
+            "action": "approve", "actor": "maintainer", "at": NOW.isoformat(), "note": "Implement finding",
+        }))
+        result = health(data, config)
+        self.assertEqual((result["action"], result["reason"]), ("none", "research_disabled"))
+        self.assertEqual(result["approved_proposals"], 1)
+
+    def test_active_snapshot_keeps_old_pending_run_beyond_completed_window(self):
+        old = run(NOW - timedelta(days=10), id=1, status="pending", conclusion=None)
+        def get(path, paginate=False):
+            state = parse_qs(urlsplit(path).query)["status"][0]
+            values = [old] if state == "pending" else []
+            if state == "completed":
+                return {"total_count": 50000, "workflow_runs": [run(id=number) for number in range(100, 200)]}
+            return [{"total_count": len(values), "workflow_runs": values}]
+        observed = snapshot_runs(get, "autonomous_next_task.yml")
+        result = health(queue(task()), runs=observed)
+        self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
+
+    def test_partial_active_snapshot_cannot_claim_idle(self):
+        for total in (1, 1000):
+            with self.subTest(total=total):
+                def get(path, paginate=False):
+                    page = {"total_count": total, "workflow_runs": []}
+                    return [page] if paginate else page
+                with self.assertRaises(ValueError):
+                    snapshot_runs(get, "autonomous_next_task.yml")
+
+    def test_old_queue_owned_proposal_is_reconciled_without_pr_history(self):
+        pending, pr = proposal()
+        pending["execution"]["started_at"] = (NOW - timedelta(days=60)).isoformat()
+        pr.update(state="closed", merged_at=NOW.isoformat())
+        foreign = task(id="foreign", status="blocked", execution={"state": "awaiting_review", "outcome": "review_required",
+                       "pull_request": 999, "session_id": "foreign", "dispatch_key": "foreign", "attempts": 1})
+        data = queue(pending, foreign)
+        observed = snapshot_proposals(lambda path: {"pulls/9": pr}[path], data, "owner/repo")
+        result = health(data, pull_requests=observed)
+        self.assertEqual((result["action"], result["reason"]), ("next_task", "reconciliation_due"))
+        pr["head"]["repo"]["full_name"] = "foreign/repo"
+        with self.assertRaises(ValueError):
+            snapshot_proposals(lambda path: pr, data, "owner/repo")
 
 
 class GitReadinessTest(unittest.TestCase):
@@ -263,7 +410,8 @@ class GitReadinessTest(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(main(arguments), 0)
-            self.assertEqual(json.loads(output.getvalue())["action"], "next_task")
+            result = json.loads(output.getvalue())
+            self.assertEqual((result["action"], result["reason"]), ("none", "research_disabled"))
             self.assertEqual(paths["manifest"].read_bytes(), before)
 
 

@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Select the next eligible autonomous task from agent_tasks.json.
+"""Select read-only research by default; implementation requires explicit approval.
 
-Pure, deterministic, and deliberately biased towards finishing real work:
-
-* nothing is selected while another task is still in flight, so the loop can
-  never run two worker sessions against one integration branch;
-* a concrete evidence-backed task always outranks open-ended discovery,
-  regardless of the configured priority numbers - discovery is the fallback for
-  an empty queue, not the default activity;
-* a task that already burned through its attempt budget is skipped instead of
-  being retried forever.
-
+Research and implementation have independent foreground lanes. Detached pinned
+research remains unresolved but frees the research lane, never its own scope.
 Never mutates the manifest; task_lifecycle.py owns all transitions.
 """
 from __future__ import annotations
@@ -18,6 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -45,6 +39,56 @@ def _attempts(task: Mapping[str, Any]) -> int:
         return 0
 
 
+def _utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or "T" not in value:
+        return False
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return moment.tzinfo is not None and moment.utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
+def is_unresolved(task: Mapping[str, Any]) -> bool:
+    execution = task.get("execution")
+    return task.get("status") == "in_progress" or (isinstance(execution, Mapping) and execution.get("state") == "quarantined")
+
+
+def valid_research_detachment(task: Mapping[str, Any]) -> bool:
+    """A sticky detachment is valid only for its saved, immutable research attempt."""
+    execution = task.get("execution")
+    if not isinstance(execution, Mapping):
+        return False
+    detached = execution.get("research_detached")
+    key = execution.get("dispatch_key")
+    return (
+        task.get("task_type") == DISCOVERY_TYPE
+        and isinstance(detached, dict)
+        and _utc_timestamp(detached.get("at"))
+        and detached.get("reason") in ("AWAITING_USER_FEEDBACK", "AWAITING_PLAN_APPROVAL", "PAUSED")
+        and type(execution.get("attempts")) is int and execution["attempts"] >= 1
+        and isinstance(execution.get("session_id"), str)
+        and re.fullmatch(r"(?:sessions/)?[A-Za-z0-9_-]+", execution["session_id"]) is not None
+        and isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_-]+", key) is not None
+        and execution.get("starting_branch") == "autonomous/attempt-" + key
+        and re.fullmatch(r"[0-9a-fA-F]{40}", str(execution.get("base_sha") or "")) is not None
+    )
+
+
+def blocks_lane(task: Mapping[str, Any], *, discovery: bool) -> bool:
+    if not is_unresolved(task) or (task.get("task_type") == DISCOVERY_TYPE) != discovery:
+        return False
+    return not (discovery and valid_research_detachment(task))
+
+
+def _approved(task: Mapping[str, Any]) -> bool:
+    decision = task.get("proposal_decision")
+    return (isinstance(decision, dict) and decision.get("action") == "approve"
+            and all(isinstance(decision.get(field), str) and decision[field].strip()
+                    for field in ("actor", "note"))
+            and _utc_timestamp(decision.get("at")))
+
+
 def select(
     manifest: Mapping[str, Any],
     *,
@@ -68,13 +112,27 @@ def select(
     ceiling = _risk_rank(risk_ceiling)
 
     todo = [t for t in tasks if str(t.get("status")) == "todo"]
-    in_flight = [t for t in tasks if str(t.get("status")) == "in_progress"
-                 or (t.get("execution") or {}).get("state") == "quarantined"]
+    unresolved = [t for t in tasks if is_unresolved(t)]
     todo_count = len(todo)
 
     def is_eligible(task: Mapping[str, Any]) -> tuple:
         if str(task.get("id")) in excluded:
             return False, "excluded"
+        if is_unresolved(task):
+            return False, "work_in_progress"
+        if task.get("task_type") != DISCOVERY_TYPE and not _approved(task):
+            return False, "proposal_approval_required"
+        if task.get("task_type") == DISCOVERY_TYPE:
+            if not allow_discovery:
+                return False, "discovery_disabled"
+            scope = task.get("research") or {}
+            if scope and any(
+                other.get("task_type") == DISCOVERY_TYPE
+                and (other.get("research") or {}).get("area_id") == scope.get("area_id")
+                and (other.get("research") or {}).get("perspective_id") == scope.get("perspective_id")
+                for other in unresolved
+            ):
+                return False, "research_scope_occupied"
         if (task.get("execution") or {}).get("outcome") == "closed_unmerged":
             return False, "proposal_declined"
         if _attempts(task) >= max_attempts:
@@ -93,14 +151,13 @@ def select(
             priority = 0
         return (-priority, str(task.get("created_at") or ""), str(task.get("id") or ""))
 
-    # One task in flight at a time. Re-dispatching while a session is still
-    # running is how duplicate pull requests and repeated discovery happen.
-    if in_flight:
-        return _summary(
-            False, in_flight[0], "work_in_progress",
-            "task " + repr(str(in_flight[0].get("id"))) + " is still in progress",
-            todo_count, 0,
-        )
+    def lane_blocker(discovery: bool) -> dict | None:
+        return next((task for task in unresolved if blocks_lane(task, discovery=discovery)), None)
+
+    def occupied(blocker: dict) -> dict:
+        return _summary(False, blocker, "work_in_progress",
+                        "task " + repr(str(blocker.get("id"))) + " still occupies this lane",
+                        todo_count, 0)
 
     if task_id:
         match = next((t for t in tasks if str(t.get("id")) == task_id), None)
@@ -116,34 +173,24 @@ def select(
             return _summary(False, match, "explicit_task_ineligible",
                             "task " + repr(task_id) + " ineligible: " + why,
                             todo_count, 0)
+        blocker = lane_blocker(match.get("task_type") == DISCOVERY_TYPE)
+        if blocker:
+            return occupied(blocker)
         return _summary(True, match, "explicit_task_selected",
                         "explicit task selected", todo_count, 1)
 
-    eligible = [t for t in todo if is_eligible(t)[0]]
-    eligible_count = len(eligible)
-    concrete = [t for t in eligible if str(t.get("task_type")) != DISCOVERY_TYPE]
-    discovery = [t for t in eligible if str(t.get("task_type")) == DISCOVERY_TYPE]
-
-    if todo_count == 0:
-        return _summary(False, None, "no_todo_tasks",
-                        "no todo tasks remain", todo_count, 0)
-    if not eligible:
-        return _summary(False, None, "no_eligible_autonomous_task",
-                        "todo tasks remain but none is eligible", todo_count, 0)
-
-    if concrete:
-        chosen = sorted(concrete, key=sort_key)[0]
-        return _summary(True, chosen, "ready", "eligible task selected",
-                        todo_count, eligible_count,
-                        deferred_discovery=bool(discovery))
+    blocker = lane_blocker(True)
+    if blocker:
+        return occupied(blocker)
     if not allow_discovery:
-        return _summary(False, None, "discovery_disabled",
-                        "only discovery tasks remain and discovery is disabled",
-                        todo_count, eligible_count)
-    chosen = sorted(discovery, key=sort_key)[0]
-    return _summary(True, chosen, "ready_discovery",
-                    "no concrete task is available; falling back to discovery",
-                    todo_count, eligible_count)
+        return _summary(False, None, "discovery_disabled", "research is disabled", todo_count, 0)
+    eligible = [t for t in todo if t.get("task_type") == DISCOVERY_TYPE and is_eligible(t)[0]]
+    if not eligible:
+        return _summary(False, None, "no_todo_tasks" if not todo else "no_eligible_autonomous_task",
+                        "no eligible research task", todo_count, 0)
+    chosen = min(eligible, key=sort_key)
+    return _summary(True, chosen, "ready_discovery", "eligible read-only research selected",
+                    todo_count, len(eligible))
 
 
 def _summary(selected, task, reason_code, reason, todo_count, eligible_count,
