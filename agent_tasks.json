@@ -897,7 +897,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T12:13:31Z"
+        "observed_at": "2026-09-16T12:13:31Z",
+        "released_attempt_ref": "autonomous/attempt-fdc021df05434d2d90510fac"
       },
       "research_result": {
         "summary": "Investigated the performance of `scan_sessions` in the backend for large inputs and repeated accesses. Benchmarked the function directly using synthetic fixtures containing thousands of sessions and large session files.",
