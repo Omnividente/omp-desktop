@@ -1136,7 +1136,7 @@
       "id": "research-workspace-navigation-behavior-1",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -1163,6 +1163,19 @@
         "fingerprint": "8c83133110756e3dd7ea280616db8bb8841e0526b76f86e4f532d74276e9cbf3",
         "cycle": 1,
         "previous_reports": []
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "4a2e91af25dfd0d68d149232",
+        "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
+        "starting_branch": "autonomous/attempt-4a2e91af25dfd0d68d149232",
+        "started_at": "2026-09-16T15:11:11Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
