@@ -1616,7 +1616,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T21:17:55Z"
+        "observed_at": "2026-09-16T21:17:55Z",
+        "released_attempt_ref": "autonomous/attempt-c7a7711fef5e70759ad444f5"
       },
       "research_result": {
         "summary": "Verified frontend focus management during workspace deletion. The application currently loses keyboard focus when a workspace is removed, as the unmounted remove button leaves focus on document.body.",
