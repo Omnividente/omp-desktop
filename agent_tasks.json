@@ -638,8 +638,8 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T07:09:47Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-16T07:14:57Z"
       }
     }
   ]
