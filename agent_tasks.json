@@ -795,6 +795,95 @@
         "session_id": "728187137027557012",
         "dispatch_key": "06dcae2e8488eb0205ec11a5"
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-1",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-16T11:32:18Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "e1e7f7e7905862afbf549caa3df17d0168a901e739b030ae11c0bbb92aacf219",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Investigation into the session import lifecycle reveals that the backend correctly transforms and persists the imported session, but there are potential discrepancies in how the frontend filters the resulting payload.",
+            "observations": [
+              {
+                "scenario": "Investigating OMP session file import logic in the backend (`import_omp_session`)",
+                "evidence": "Source code in `src-tauri/src/sessions.rs` shows that `import_omp_session` reads the first 12 lines to extract the session header. It replaces `cwd` with `canonical_project_path(request.target_cwd)`, assigns a new session ID, appends an `importSource` block, and loops over the original file to append the rest of the lines (dropping the old header). The file is then written using `atomic_write_file`, which relies on an atomic `fs::rename`. Existing backend tests confirm the file is correctly persisted.",
+                "result": "Establishes that the backend successfully imports, modifies, and atomically writes the session file without losing messages or metadata."
+              },
+              {
+                "scenario": "Investigating the frontend's handling of the imported session payload (`importPendingOmp` in `App.tsx`)",
+                "evidence": "Upon successful import, `importPendingOmp` receives a new `BootstrapPayload` and calls `applyPayload(result.bootstrap, selectedWorkspace.path)`. The UI displays sessions matching `session.projectKey === selectedWorkspace.key`. If the `canonical_project_path` used during import resolves to a different string (e.g., due to symlink expansion) than the `selectedWorkspace.path` provided by the frontend, the `projectKey` of the new session will not match `selectedWorkspace.key`.",
+                "result": "Identifies a potential cause for imported sessions not appearing immediately: a mismatch between the backend's canonicalized path and the frontend's expected workspace key."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `canonical_project_path` evaluates differently from `path_key` when handling symlinked project directories, causing a workspace key mismatch upon import.",
+              "Verify if sessions imported without explicit user or assistant messages (`has_messages == false`) are unexpectedly filtered out by the frontend's visible session logic."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-16T11:32:18Z",
+            "source": {
+              "activity_id": "sessions/12392161211667019992/activities/5254a51667204d0eacf670deeb32de2d",
+              "report_sha256": "c3f9af63b81e576092d7301b1a1e72302b98e8664b271213433ec916b754521e",
+              "activity_created_at": "2026-09-16T10:20:28Z",
+              "session_id": "12392161211667019992",
+              "dispatch_key": "083a0d558adb102fa7413b6e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Importing a session is vulnerable to a crash desync between artifacts and the session metadata. During a crash between `rename(&staging, &target_artifacts)` and `write_session`, the target artifacts are updated but the session JSONL remains the old state, and the backup folder is leaked.",
+            "observations": [
+              {
+                "scenario": "A power-loss or uncatchable SIGKILL occurs during `commit_import_with` exactly after moving the new artifacts into place but before writing the JSONL session metadata.",
+                "evidence": "Observed via an explicit simulated test of the commit order defined in `src-tauri/src/sessions.rs`. The backup artifact folder `.session.import.artifacts-backup...` is left permanently in the session directory. The session itself remains on its old content, while the artifact subfolder contains the newly imported artifacts, creating a permanent state desync.",
+                "result": "The current swap mechanism does not have recovery code for resuming a failed atomic swap on a subsequent launch, resulting in lost artifacts (replaced by the new ones before they are persisted in JSONL) and orphaned backup artifacts."
+              }
+            ],
+            "next_hypotheses": [
+              "Write a marker file prior to artifact swaps to allow crash recovery on next read, or implement WAL-based import transactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-e938ec8d92054623"
+            ],
+            "completed_at": "2026-09-16T11:32:18Z",
+            "source": {
+              "activity_id": "sessions/728187137027557012/activities/ab0c71ac80ce440cbd9101c86ce9d5d8",
+              "report_sha256": "b3a5c70d609a9d9358ca0d953b3f84fcb0887cb956c2d66f6e4bae68561137b9",
+              "activity_created_at": "2026-09-16T10:39:00Z",
+              "session_id": "728187137027557012",
+              "dispatch_key": "06dcae2e8488eb0205ec11a5"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
