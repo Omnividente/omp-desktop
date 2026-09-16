@@ -1732,7 +1732,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T22:13:53Z"
+        "observed_at": "2026-09-16T22:13:53Z",
+        "released_attempt_ref": "autonomous/attempt-8687b570b2a5fdaff879d0c9"
       },
       "research_result": {
         "summary": "Investigated the settings recovery flow and model selection component behavior against backend contracts and observable behavior.",
