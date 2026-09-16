@@ -1,0 +1,72 @@
+name: Autonomous Backlog
+
+# Human review never dispatches a worker or approves a Jules plan.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: List proposals, approve for explicit implementation, reject, or resolve externally
+        type: choice
+        options: [list, approve, reject, resolve]
+        default: list
+        required: true
+      task_id:
+        description: Exact proposal id (required except for list)
+        type: string
+        default: ""
+      note:
+        description: Decision rationale or externally completed work (required except for list)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-lab-queue
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  backlog:
+    name: Review the authoritative proposal backlog
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      BACKLOG_ACTION: ${{ inputs.action }}
+      BACKLOG_TASK_ID: ${{ inputs.task_id }}
+      BACKLOG_NOTE: ${{ inputs.note }}
+    steps:
+      - name: Check out the trusted control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+
+      - name: Check out the migration seed without executing product code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          path: lab
+          persist-credentials: false
+
+      - name: Load, review and CAS-save only the authoritative state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/proposal_backlog.py \
+            --action "${BACKLOG_ACTION}" --repo lab --config control/autonomous-project.json \
+            --manifest queue.json --revision-file queue-revision.json \
+            --actor "${GITHUB_ACTOR}" --task-id "${BACKLOG_TASK_ID}" --note "${BACKLOG_NOTE}" \
+            --json-out backlog.json --summary-out "${GITHUB_STEP_SUMMARY}"
+
+      - name: Preserve the full uncapped review snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: autonomous-backlog-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backlog.json
+          retention-days: 30
+          if-no-files-found: error

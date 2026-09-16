@@ -26,6 +26,9 @@ def manifest():
         {"id": "next", "title": "Inspect resume", "task_type": "bugfix", "status": "todo",
          "risk": "low", "priority": 40},
     ]}
+    for task in data["tasks"]:
+        task["proposal_decision"] = {"action": "approve", "actor": "owner",
+                                    "at": "2026-09-13T11:00:00Z", "note": "Approved fixture"}
     reserve(data, TASK_ID, "first", base_sha="a" * 40, starting_branch=BRANCH, now=NOW)
     start(data, TASK_ID, session_id="7", dispatch_key="first", now=NOW)
     return data
@@ -56,7 +59,7 @@ class ProvenanceTest(unittest.TestCase):
         self.assertEqual(task["status"], "blocked")
         self.assertEqual(task["execution"]["state"], "awaiting_review")
         self.assertEqual(task["execution"]["outcome"], "review_required")
-        self.assertEqual(select(data)["task_id"], "next")
+        self.assertTrue(select(data, task_id="next")["selected"])
 
     def test_public_markers_and_foreign_outputs_cannot_bind_a_proposal(self):
         cases = []
@@ -152,10 +155,10 @@ class ProvenanceTest(unittest.TestCase):
                 task = data["tasks"][0]
                 if state == "FAILED":
                     self.assertEqual(task["execution"]["state"], "awaiting_review")
-                    self.assertEqual(select(data)["task_id"], "next")
+                    self.assertTrue(select(data, task_id="next")["selected"])
                 else:
                     self.assertEqual(task["status"], "in_progress")
-                    self.assertFalse(select(data)["selected"])
+                    self.assertFalse(select(data, task_id="next")["selected"])
                 self.assertEqual(task["execution"]["attempts"], 1)
 
     def test_terminal_quarantine_resolves_without_incrementing_or_retrying_declined_work(self):
@@ -180,7 +183,7 @@ class ProvenanceTest(unittest.TestCase):
                 self.assertEqual(task["execution"]["outcome"], "closed_unmerged")
                 self.assertEqual(task["execution"]["attempts"], 1)
                 self.assertFalse(observe()["changed"])
-                self.assertEqual(select(data)["task_id"], "next")
+                self.assertTrue(select(data, task_id="next")["selected"])
 
     def test_quarantined_failed_output_returns_to_human_review_not_retry_queue(self):
         data = manifest()
@@ -190,7 +193,7 @@ class ProvenanceTest(unittest.TestCase):
         self.assertEqual(task["status"], "blocked")
         self.assertEqual(task["execution"]["state"], "awaiting_review")
         self.assertEqual(task["execution"]["attempts"], 1)
-        self.assertEqual(select(data)["task_id"], "next")
+        self.assertTrue(select(data, task_id="next")["selected"])
 
 
 if __name__ == "__main__":

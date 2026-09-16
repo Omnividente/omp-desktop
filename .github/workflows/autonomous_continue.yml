@@ -1,8 +1,11 @@
 name: Autonomous Continue
 
-# Use the existing owner token only for dispatches that must emit another
-# workflow_run completion; GITHUB_TOKEN can start the child but suppress its wakeup.
+# One scheduler is also the watchdog for missed completion events. Completion
+# events perform useful work immediately, but never bypass a worker poll deadline.
 on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
   workflow_run:
     workflows:
       - Autonomous Next Task
@@ -19,7 +22,7 @@ permissions:
   pull-requests: read
   actions: read
 
-# Wakeups must never hold the queue writer lock while waiting for a worker.
+# Wakeups never occupy a runner or the queue writer lock while waiting for due_at.
 concurrency:
   group: autonomous-lab-wakeup
   queue: max
@@ -30,7 +33,8 @@ jobs:
     name: Wake the ready controller
     if: >-
       ${{ github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' ||
+          (github.event_name == 'push' || github.event_name == 'schedule' ||
+           github.event_name == 'workflow_dispatch' ||
            (github.event.workflow_run.conclusion == 'success' &&
             (github.event.workflow_run.head_branch == 'main' ||
              github.event.workflow_run.name == 'Autonomous Proposal Review') &&
@@ -71,19 +75,9 @@ jobs:
             git -C lab fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/autonomous/lab:refs/remotes/origin/autonomous/lab'
             git -C lab checkout --detach refs/remotes/origin/autonomous/lab
             python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
-            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
-            gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
-            gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base=autonomous/lab -f state=all -f per_page=100 --jq '.[]' | jq -s '.' > pull-requests.json
+            python3 control/scripts/autonomous/health_snapshot.py --manifest queue.json --config control/autonomous-project.json
             python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json
           }
-          snapshot
-          delay=$(jq -r '.delay_seconds' health.json)
-          if [ "${delay}" -gt 0 ]; then
-            # This is a poll of the same bound session, not another AI attempt.
-            sleep "$((delay > 90 ? 90 : delay))"
-          fi
-          # A switch, queue commit or queued run may have arrived during sleep.
-          # Even zero-delay wakeups re-read before taking action.
           snapshot
           {
             echo '### Autonomous continuation decision'

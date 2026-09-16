@@ -32,7 +32,8 @@ def test_task_has_evidence_and_stable_id():
     assert task["id"] == "auto-tsc-" + fingerprint("tsc", "TS1", "src/a.ts"), task
     assert task["evidence"]["source"] == "tsc", task
     assert task["evidence"]["base_commit"] == "basesha", task
-    assert task["status"] == "todo" and task["risk"] == "low", task
+    assert task["status"] == "proposed" and task["risk"] == "low", task
+    assert "proposal_decision" not in task, task
 
 
 def test_merge_is_idempotent_per_defect_class():
@@ -48,6 +49,20 @@ def test_merge_adds_new_task():
     updated, added = merge_tasks({"tasks": []}, [finding_to_task(finding)])
     assert len(added) == 1, added
     assert updated["tasks"][0]["evidence"]["source"] == "eslint", updated
+
+
+def test_diagnostics_cannot_supply_human_approval_or_replace_reviewed_origin():
+    finding = {"tool": "tsc", "rule": "TS1", "path": "src/a.ts", "line": 1, "message": "m",
+               "status": "todo", "proposal_decision": {"action": "approve", "actor": "worker"}}
+    incoming = finding_to_task(finding, "new-base")
+    assert incoming["status"] == "proposed", incoming
+    assert "proposal_decision" not in incoming, incoming
+    existing = finding_to_task(finding, "original-base")
+    existing.update(status="done", proposal_decision={"action": "reject", "actor": "Owner",
+                                                   "at": "2026-09-14T12:00:00Z", "note": "Reviewed"})
+    updated, added = merge_tasks({"tasks": [existing]}, [incoming])
+    assert added == [], added
+    assert updated["tasks"] == [existing], updated
 
 
 def main():

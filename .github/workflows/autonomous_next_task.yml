@@ -1,14 +1,14 @@
 name: Autonomous Next Task
 
 # The trusted controller reads code from main, product from lab and mutable
-# metadata from autonomous/state. Human proposals never occupy the worker slot.
+# metadata from autonomous/state. Research and explicitly selected implementation
+# use separate lanes; pending proposals never occupy either lane.
+# Autonomous Continue owns scheduled cadence; manual dispatch intentionally polls now.
 on:
-  schedule:
-    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       task_id:
-        description: Optional existing task to select or report to recover
+        description: Optional approved proposal to implement, research task, or report to recover
         type: string
         default: ""
       recover_report:
