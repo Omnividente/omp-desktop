@@ -647,7 +647,8 @@
         "feedback_nudge": {
           "at": "2026-09-16T10:19:46Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-083a0d558adb102fa7413b6e"
       },
       "research_result": {
         "summary": "Investigation into the session import lifecycle reveals that the backend correctly transforms and persists the imported session, but there are potential discrepancies in how the frontend filters the resulting payload.",
