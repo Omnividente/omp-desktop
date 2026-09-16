@@ -727,7 +727,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T11:32:18Z"
+        "observed_at": "2026-09-16T11:32:18Z",
+        "released_attempt_ref": "autonomous/attempt-06dcae2e8488eb0205ec11a5"
       },
       "research_result": {
         "summary": "Importing a session is vulnerable to a crash desync between artifacts and the session metadata. During a crash between `rename(&staging, &target_artifacts)` and `write_session`, the target artifacts are updated but the session JSONL remains the old state, and the backup folder is leaked.",
