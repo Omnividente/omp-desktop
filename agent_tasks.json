@@ -1691,7 +1691,7 @@
       "id": "research-settings-models-behavior-1",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -1721,18 +1721,90 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9057746085564018396",
         "dispatch_key": "8687b570b2a5fdaff879d0c9",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-8687b570b2a5fdaff879d0c9",
         "started_at": "2026-09-16T21:17:55Z",
-        "finished_at": "",
+        "finished_at": "2026-09-16T22:13:53Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T21:17:55Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-16T22:13:53Z"
+      },
+      "research_result": {
+        "summary": "Investigated the settings recovery flow and model selection component behavior against backend contracts and observable behavior.",
+        "observations": [
+          {
+            "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+            "evidence": "Tested `selectorForModel` logic with synthetic model data mapping 'provider/model:off' to a new model that also supports thinking. The :off modifier is lost.",
+            "result": "Establishes that the UI incorrectly drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` natively omits these base overrides from its array."
+          },
+          {
+            "scenario": "Parsing of settings_unavailable error from the backend.",
+            "evidence": "Tested serialization of SettingsFailureWire with missing fields like backupPath against backend struct AppError and frontend settingsUnavailableDetails parser.",
+            "result": "Establishes that settings unavailable recovery correctly propagates backup paths when null (using skip_serializing_if or default serde logic in Rust), and the frontend correctly manages fallback cases to keep the UI from crashing."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+        ],
+        "proposed_task_ids": [
+          "discovery-21935d2cee4d8a7e"
+        ],
+        "completed_at": "2026-09-16T22:13:53Z",
+        "source": {
+          "activity_id": "sessions/9057746085564018396/activities/6edffc59ef784821ae23e0b28630afb4",
+          "report_sha256": "c590e94148931c4ee8ab4618bffafd59d4468329d3556821d426ed0fe14454e2",
+          "activity_created_at": "2026-09-16T21:32:00Z",
+          "session_id": "9057746085564018396",
+          "dispatch_key": "8687b570b2a5fdaff879d0c9"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-21935d2cee4d8a7e",
+      "title": "Preserve built-in thinking modifiers when switching models",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-16T22:13:53Z",
+      "acceptance": [
+        "When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Set up synthetic models that support thinking.",
+            "Invoke `selectorForModel` passing a new model 'openai/gpt-4o' and a current selector 'anthropic/claude-sonnet:off'.",
+            "Observe the generated selector string."
+          ],
+          "expected": "The returned selector is 'openai/gpt-4o:off'.",
+          "actual": "The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx",
+        "src/ModelPicker.test.ts"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-1",
+        "activity_id": "sessions/9057746085564018396/activities/6edffc59ef784821ae23e0b28630afb4",
+        "report_sha256": "c590e94148931c4ee8ab4618bffafd59d4468329d3556821d426ed0fe14454e2",
+        "activity_created_at": "2026-09-16T21:32:00Z",
+        "session_id": "9057746085564018396",
+        "dispatch_key": "8687b570b2a5fdaff879d0c9"
       }
     }
   ]
