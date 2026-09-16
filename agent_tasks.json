@@ -1209,7 +1209,7 @@
       "id": "research-workspace-navigation-reliability-1",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -1264,18 +1264,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "486851115706699998",
         "dispatch_key": "716a956b1cc67951418b139f",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-716a956b1cc67951418b139f",
         "started_at": "2026-09-16T16:55:10Z",
-        "finished_at": "",
+        "finished_at": "2026-09-16T20:04:16Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-16T18:56:16Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-16T20:04:16Z",
         "research_detached": {
           "at": "2026-09-16T18:56:16Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -1284,6 +1284,32 @@
           "at": "2026-09-16T18:56:16Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated workspace persistence across application restarts.",
+        "observations": [
+          {
+            "scenario": "Restarting the application to check if the previously selected workspace is preserved.",
+            "evidence": "Examined `src/App.tsx`. `selectedWorkspaceKey` is stored in a React `useState` initialized to `null`. On the initial `refresh()` call which triggers `applyPayload(await loadBootstrap())`, no `preferredWorkspace` argument is provided. The state setter calculates `preferred = preferredWorkspace ?? current`, both of which are null/undefined. The callback then defaults to `next.workspaces[0]?.key ?? null`. There is no read or write to `localStorage` or another persistent store to preserve the selection.",
+            "result": "Establishes that there is no workspace selection persistence across normal restarts; the application always defaults to the first available workspace. The previously formulated hypothesis about 'when the saved selectedWorkspaceKey is no longer present' was premature, as there is currently no saved key at all. The fallback logic `next.workspaces[0]?.key ?? null` will gracefully handle missing workspaces once persistence is actually implemented."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate how the frontend components behave when navigating to a workspace whose directory has been externally deleted or permissions revoked (invalid/inaccessible path handling).",
+          "Investigate single-instance workspace switching and how it overrides or merges with ongoing terminal session states."
+        ],
+        "proposed_task_ids": [
+          "discovery-7f98db57491c0c0d"
+        ],
+        "completed_at": "2026-09-16T20:04:16Z",
+        "source": {
+          "activity_id": "sessions/486851115706699998/activities/1fd25a5957db46919de3adb61dbb6ff7",
+          "report_sha256": "5035b9ea94b2ae467ec470aa37c2f121d044e4fee2339472289df8a15a677565",
+          "activity_created_at": "2026-09-16T18:56:50Z",
+          "session_id": "486851115706699998",
+          "dispatch_key": "716a956b1cc67951418b139f"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -1356,6 +1382,46 @@
         "note": "",
         "session_state": "QUEUED",
         "observed_at": "2026-09-16T18:56:16Z"
+      }
+    },
+    {
+      "id": "discovery-7f98db57491c0c0d",
+      "title": "Persist selected workspace across application restarts",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-16T20:04:16Z",
+      "acceptance": [
+        "The application restores the previously selected workspace upon restart"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Source inspection of src/App.tsx shows selectedWorkspaceKey is a React state initialized to null. There is no read or write to localStorage or any other persistent store. The refresh() effect triggers applyPayload without a preferred workspace, forcing a fallback to the first workspace on mount.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and create or observe two distinct workspaces.",
+            "Select the second workspace in the ProjectRail.",
+            "Restart the application (or unmount and remount App)."
+          ],
+          "expected": "The second workspace remains selected after the restart.",
+          "actual": "The selected workspace reverts to the first workspace in the list."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-1",
+        "activity_id": "sessions/486851115706699998/activities/1fd25a5957db46919de3adb61dbb6ff7",
+        "report_sha256": "5035b9ea94b2ae467ec470aa37c2f121d044e4fee2339472289df8a15a677565",
+        "activity_created_at": "2026-09-16T18:56:50Z",
+        "session_id": "486851115706699998",
+        "dispatch_key": "716a956b1cc67951418b139f"
       }
     }
   ]
