@@ -1883,8 +1883,12 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T22:13:53Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-16T22:53:49Z",
+        "research_detached": {
+          "at": "2026-09-16T22:53:49Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ]
