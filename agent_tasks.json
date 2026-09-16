@@ -596,7 +596,7 @@
       "id": "research-sessions-persistence-behavior-1",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -628,18 +628,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12392161211667019992",
         "dispatch_key": "083a0d558adb102fa7413b6e",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-083a0d558adb102fa7413b6e",
         "started_at": "2026-09-16T07:09:47Z",
-        "finished_at": "",
+        "finished_at": "2026-09-16T11:32:18Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-16T10:19:46Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-16T11:32:18Z",
         "research_detached": {
           "at": "2026-09-16T10:19:46Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -648,6 +648,35 @@
           "at": "2026-09-16T10:19:46Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigation into the session import lifecycle reveals that the backend correctly transforms and persists the imported session, but there are potential discrepancies in how the frontend filters the resulting payload.",
+        "observations": [
+          {
+            "scenario": "Investigating OMP session file import logic in the backend (`import_omp_session`)",
+            "evidence": "Source code in `src-tauri/src/sessions.rs` shows that `import_omp_session` reads the first 12 lines to extract the session header. It replaces `cwd` with `canonical_project_path(request.target_cwd)`, assigns a new session ID, appends an `importSource` block, and loops over the original file to append the rest of the lines (dropping the old header). The file is then written using `atomic_write_file`, which relies on an atomic `fs::rename`. Existing backend tests confirm the file is correctly persisted.",
+            "result": "Establishes that the backend successfully imports, modifies, and atomically writes the session file without losing messages or metadata."
+          },
+          {
+            "scenario": "Investigating the frontend's handling of the imported session payload (`importPendingOmp` in `App.tsx`)",
+            "evidence": "Upon successful import, `importPendingOmp` receives a new `BootstrapPayload` and calls `applyPayload(result.bootstrap, selectedWorkspace.path)`. The UI displays sessions matching `session.projectKey === selectedWorkspace.key`. If the `canonical_project_path` used during import resolves to a different string (e.g., due to symlink expansion) than the `selectedWorkspace.path` provided by the frontend, the `projectKey` of the new session will not match `selectedWorkspace.key`.",
+            "result": "Identifies a potential cause for imported sessions not appearing immediately: a mismatch between the backend's canonicalized path and the frontend's expected workspace key."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `canonical_project_path` evaluates differently from `path_key` when handling symlinked project directories, causing a workspace key mismatch upon import.",
+          "Verify if sessions imported without explicit user or assistant messages (`has_messages == false`) are unexpectedly filtered out by the frontend's visible session logic."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-16T11:32:18Z",
+        "source": {
+          "activity_id": "sessions/12392161211667019992/activities/5254a51667204d0eacf670deeb32de2d",
+          "report_sha256": "c3f9af63b81e576092d7301b1a1e72302b98e8664b271213433ec916b754521e",
+          "activity_created_at": "2026-09-16T10:20:28Z",
+          "session_id": "12392161211667019992",
+          "dispatch_key": "083a0d558adb102fa7413b6e"
+        },
+        "deferred_findings": []
       }
     },
     {
