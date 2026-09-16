@@ -1691,7 +1691,7 @@
       "id": "research-settings-models-behavior-1",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -1718,6 +1718,19 @@
         "fingerprint": "ff8a2e7c5b38f3517fa15a9157508243cb7844d0f9aed918770a4d2fdb2f82eb",
         "cycle": 1,
         "previous_reports": []
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "8687b570b2a5fdaff879d0c9",
+        "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
+        "starting_branch": "autonomous/attempt-8687b570b2a5fdaff879d0c9",
+        "started_at": "2026-09-16T21:17:55Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
