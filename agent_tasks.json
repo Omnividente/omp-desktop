@@ -643,6 +643,10 @@
         "research_detached": {
           "at": "2026-09-16T10:19:46Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-16T10:19:46Z",
+          "result": "pending"
         }
       }
     }
