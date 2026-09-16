@@ -934,7 +934,7 @@
       "id": "research-sessions-persistence-ux-1",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -1050,18 +1050,85 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5474976814849461776",
         "dispatch_key": "7321046869a0bea3378b90ed",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-7321046869a0bea3378b90ed",
         "started_at": "2026-09-16T12:13:31Z",
-        "finished_at": "",
+        "finished_at": "2026-09-16T15:11:11Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T12:13:31Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-16T15:11:11Z"
+      },
+      "research_result": {
+        "summary": "Investigation of session import modals reveals missing keyboard accessibility (Escape to close).",
+        "observations": [
+          {
+            "scenario": "Keyboard interaction for closing ImportSessionModal and CodexImportModal.",
+            "evidence": "Source code for `src/ImportSessionModal.tsx` and `src/CodexImportModal.tsx` lacks `onKeyDown` handlers for the `Escape` key. A synthetic Vitest test simulating the Escape keydown event confirmed that `onClose` is not triggered.",
+            "result": "Establishes that a keyboard-only user cannot close the import modals by pressing Escape, degrading interaction clarity and accessibility."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if focus correctly returns to the button that opened the modal after it closes.",
+          "Check if focus is correctly trapped inside the modal while it is open, preventing keyboard interaction with background elements."
+        ],
+        "proposed_task_ids": [
+          "discovery-2e80f2798c364331"
+        ],
+        "completed_at": "2026-09-16T15:11:11Z",
+        "source": {
+          "activity_id": "sessions/5474976814849461776/activities/af565290f15f4512bf2e324f8bd515cb",
+          "report_sha256": "78fe222ac4c5395e71bbe87e80a3e5cf2aa2072e283e4f8fcc0af2f141ad39e4",
+          "activity_created_at": "2026-09-16T12:26:29Z",
+          "session_id": "5474976814849461776",
+          "dispatch_key": "7321046869a0bea3378b90ed"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-2e80f2798c364331",
+      "title": "Add Escape key support to close import modals",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-16T15:11:11Z",
+      "acceptance": [
+        "Pressing the Escape key while the Codex or OMP import modal is open triggers the onClose handler."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Investigation using source code inspection and synthetic React testing. The Escape key behavior was exercised.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the application and trigger either the Codex or OMP import modal.",
+            "Press the Escape key."
+          ],
+          "expected": "The open modal should close.",
+          "actual": "The modal remains open and ignores the key press."
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx",
+        "src/ImportSessionModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-1",
+        "activity_id": "sessions/5474976814849461776/activities/af565290f15f4512bf2e324f8bd515cb",
+        "report_sha256": "78fe222ac4c5395e71bbe87e80a3e5cf2aa2072e283e4f8fcc0af2f141ad39e4",
+        "activity_created_at": "2026-09-16T12:26:29Z",
+        "session_id": "5474976814849461776",
+        "dispatch_key": "7321046869a0bea3378b90ed"
       }
     }
   ]
