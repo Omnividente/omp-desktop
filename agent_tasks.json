@@ -1807,6 +1807,70 @@
         "session_id": "9057746085564018396",
         "dispatch_key": "8687b570b2a5fdaff879d0c9"
       }
+    },
+    {
+      "id": "research-settings-models-reliability-1",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-16T22:13:53Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "ff8a2e7c5b38f3517fa15a9157508243cb7844d0f9aed918770a4d2fdb2f82eb",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Investigated the settings recovery flow and model selection component behavior against backend contracts and observable behavior.",
+            "observations": [
+              {
+                "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+                "evidence": "Tested `selectorForModel` logic with synthetic model data mapping 'provider/model:off' to a new model that also supports thinking. The :off modifier is lost.",
+                "result": "Establishes that the UI incorrectly drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` natively omits these base overrides from its array."
+              },
+              {
+                "scenario": "Parsing of settings_unavailable error from the backend.",
+                "evidence": "Tested serialization of SettingsFailureWire with missing fields like backupPath against backend struct AppError and frontend settingsUnavailableDetails parser.",
+                "result": "Establishes that settings unavailable recovery correctly propagates backup paths when null (using skip_serializing_if or default serde logic in Rust), and the frontend correctly manages fallback cases to keep the UI from crashing."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+            ],
+            "proposed_task_ids": [
+              "discovery-21935d2cee4d8a7e"
+            ],
+            "completed_at": "2026-09-16T22:13:53Z",
+            "source": {
+              "activity_id": "sessions/9057746085564018396/activities/6edffc59ef784821ae23e0b28630afb4",
+              "report_sha256": "c590e94148931c4ee8ab4618bffafd59d4468329d3556821d426ed0fe14454e2",
+              "activity_created_at": "2026-09-16T21:32:00Z",
+              "session_id": "9057746085564018396",
+              "dispatch_key": "8687b570b2a5fdaff879d0c9"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
