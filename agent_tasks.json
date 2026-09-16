@@ -1177,7 +1177,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T16:55:10Z"
+        "observed_at": "2026-09-16T16:55:10Z",
+        "released_attempt_ref": "autonomous/attempt-4a2e91af25dfd0d68d149232"
       },
       "research_result": {
         "summary": "Verified frontend behavior for workspace navigation and empty-input boundary handling during workspace renames. The application correctly suppresses empty or whitespace-only rename attempts locally, bypassing backend API calls, and preserves proper navigation states between distinct workspaces.",
