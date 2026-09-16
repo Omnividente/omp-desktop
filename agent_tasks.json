@@ -1204,6 +1204,64 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-1",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-16T16:55:10Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "8c83133110756e3dd7ea280616db8bb8841e0526b76f86e4f532d74276e9cbf3",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified frontend behavior for workspace navigation and empty-input boundary handling during workspace renames. The application correctly suppresses empty or whitespace-only rename attempts locally, bypassing backend API calls, and preserves proper navigation states between distinct workspaces.",
+            "observations": [
+              {
+                "scenario": "Navigating between two distinct workspaces and submitting an empty string ('   ') while renaming the first workspace.",
+                "evidence": "Locally wrote an RTL test against `<App />` and `<ProjectRail />`. Switching to 'Workspace 2' successfully updates the active project. Triggering rename on 'Workspace 1' and blurring a whitespace-only value successfully reverts the UI to the original workspace name without invoking `api.renameWorkspace()`. Confirmed in src/App.tsx `submitWorkspaceRename` handling and RTL boundary test.",
+                "result": "Establishes that the frontend gracefully handles empty workspace rename boundary cases by silently dropping them without throwing errors or initiating useless backend dispatches. It also establishes that workspace selection and visual state transition successfully update across mock workspace selections. It does not establish the behavior of backend validation for malicious renames injected natively."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate how the frontend components behave when navigating to a workspace whose directory has been externally deleted or permissions revoked (invalid/inaccessible path handling).",
+              "Investigate persistence of the selected workspace upon application restart when the saved `selectedWorkspaceKey` is no longer present in the workspaces array."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-16T16:55:10Z",
+            "source": {
+              "activity_id": "sessions/7249061271233043898/activities/b21dbdc1a1dd43a08b0a5cf7e345f34e",
+              "report_sha256": "ef9ba152d26a7544d0ec4fb7456e36907a58e1f9b3902402def6810b39fdac45",
+              "activity_created_at": "2026-09-16T15:17:47Z",
+              "session_id": "7249061271233043898",
+              "dispatch_key": "4a2e91af25dfd0d68d149232"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
