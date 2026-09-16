@@ -1382,7 +1382,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-16T20:04:16Z"
+        "observed_at": "2026-09-16T20:04:16Z",
+        "released_attempt_ref": "autonomous/attempt-8da9d2c4caf9a5b18047636a"
       },
       "research_result": {
         "summary": "Measured frontend rendering and interaction latency for the workspace project rail with varying input sizes. Rendering latency scales linearly and degrades severely with very large datasets.",
