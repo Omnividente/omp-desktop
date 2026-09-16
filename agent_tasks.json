@@ -1493,6 +1493,116 @@
         "session_id": "10697000555719664223",
         "dispatch_key": "8da9d2c4caf9a5b18047636a"
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-1",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-16T20:04:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "8c83133110756e3dd7ea280616db8bb8841e0526b76f86e4f532d74276e9cbf3",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified frontend behavior for workspace navigation and empty-input boundary handling during workspace renames. The application correctly suppresses empty or whitespace-only rename attempts locally, bypassing backend API calls, and preserves proper navigation states between distinct workspaces.",
+            "observations": [
+              {
+                "scenario": "Navigating between two distinct workspaces and submitting an empty string ('   ') while renaming the first workspace.",
+                "evidence": "Locally wrote an RTL test against `<App />` and `<ProjectRail />`. Switching to 'Workspace 2' successfully updates the active project. Triggering rename on 'Workspace 1' and blurring a whitespace-only value successfully reverts the UI to the original workspace name without invoking `api.renameWorkspace()`. Confirmed in src/App.tsx `submitWorkspaceRename` handling and RTL boundary test.",
+                "result": "Establishes that the frontend gracefully handles empty workspace rename boundary cases by silently dropping them without throwing errors or initiating useless backend dispatches. It also establishes that workspace selection and visual state transition successfully update across mock workspace selections. It does not establish the behavior of backend validation for malicious renames injected natively."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate how the frontend components behave when navigating to a workspace whose directory has been externally deleted or permissions revoked (invalid/inaccessible path handling).",
+              "Investigate persistence of the selected workspace upon application restart when the saved `selectedWorkspaceKey` is no longer present in the workspaces array."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-16T16:55:10Z",
+            "source": {
+              "activity_id": "sessions/7249061271233043898/activities/b21dbdc1a1dd43a08b0a5cf7e345f34e",
+              "report_sha256": "ef9ba152d26a7544d0ec4fb7456e36907a58e1f9b3902402def6810b39fdac45",
+              "activity_created_at": "2026-09-16T15:17:47Z",
+              "session_id": "7249061271233043898",
+              "dispatch_key": "4a2e91af25dfd0d68d149232"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured frontend rendering and interaction latency for the workspace project rail with varying input sizes. Rendering latency scales linearly and degrades severely with very large datasets.",
+            "observations": [
+              {
+                "scenario": "Rendering ProjectRail with 100, 1000, and 5000 workspaces and switching the selected workspace.",
+                "evidence": "Synthetic React Testing Library benchmark simulating large workspace arrays. Initial render for 100 items: ~325ms, switch ~93ms. 1000 items: ~1397ms, switch ~532ms. 5000 items: ~7363ms, switch ~1883ms.",
+                "result": "Establishes that ProjectRail does not implement list virtualization and its rendering time is O(N) relative to the number of workspaces. This causes significant unresponsiveness when switching between workspaces or loading the rail if a user has thousands of saved workspaces."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the specific memory footprint of these retained workspace DOM nodes.",
+              "Investigate persistence of the selected workspace upon application restart when the saved `selectedWorkspaceKey` is no longer present in the workspaces array."
+            ],
+            "proposed_task_ids": [
+              "discovery-e0f2bce9ebc246e7"
+            ],
+            "completed_at": "2026-09-16T20:04:16Z",
+            "source": {
+              "activity_id": "sessions/10697000555719664223/activities/3a993e2d1f294a58b3c618375a3c144b",
+              "report_sha256": "aaf9993d413126f0fb9090b1a9b309b5cf43056004331c83de3af8bcf84c4454",
+              "activity_created_at": "2026-09-16T19:06:08Z",
+              "session_id": "10697000555719664223",
+              "dispatch_key": "8da9d2c4caf9a5b18047636a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace persistence across application restarts.",
+            "observations": [
+              {
+                "scenario": "Restarting the application to check if the previously selected workspace is preserved.",
+                "evidence": "Examined `src/App.tsx`. `selectedWorkspaceKey` is stored in a React `useState` initialized to `null`. On the initial `refresh()` call which triggers `applyPayload(await loadBootstrap())`, no `preferredWorkspace` argument is provided. The state setter calculates `preferred = preferredWorkspace ?? current`, both of which are null/undefined. The callback then defaults to `next.workspaces[0]?.key ?? null`. There is no read or write to `localStorage` or another persistent store to preserve the selection.",
+                "result": "Establishes that there is no workspace selection persistence across normal restarts; the application always defaults to the first available workspace. The previously formulated hypothesis about 'when the saved selectedWorkspaceKey is no longer present' was premature, as there is currently no saved key at all. The fallback logic `next.workspaces[0]?.key ?? null` will gracefully handle missing workspaces once persistence is actually implemented."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate how the frontend components behave when navigating to a workspace whose directory has been externally deleted or permissions revoked (invalid/inaccessible path handling).",
+              "Investigate single-instance workspace switching and how it overrides or merges with ongoing terminal session states."
+            ],
+            "proposed_task_ids": [
+              "discovery-7f98db57491c0c0d"
+            ],
+            "completed_at": "2026-09-16T20:04:16Z",
+            "source": {
+              "activity_id": "sessions/486851115706699998/activities/1fd25a5957db46919de3adb61dbb6ff7",
+              "report_sha256": "5035b9ea94b2ae467ec470aa37c2f121d044e4fee2339472289df8a15a677565",
+              "activity_created_at": "2026-09-16T18:56:50Z",
+              "session_id": "486851115706699998",
+              "dispatch_key": "716a956b1cc67951418b139f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
