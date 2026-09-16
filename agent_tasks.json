@@ -1283,7 +1283,8 @@
         "feedback_nudge": {
           "at": "2026-09-16T18:56:16Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-716a956b1cc67951418b139f"
       },
       "research_result": {
         "summary": "Investigated workspace persistence across application restarts.",
