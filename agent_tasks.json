@@ -683,7 +683,7 @@
       "id": "research-sessions-persistence-reliability-1",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -715,18 +715,83 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "728187137027557012",
         "dispatch_key": "06dcae2e8488eb0205ec11a5",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-06dcae2e8488eb0205ec11a5",
         "started_at": "2026-09-16T10:19:46Z",
-        "finished_at": "",
+        "finished_at": "2026-09-16T11:32:18Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T10:19:46Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-16T11:32:18Z"
+      },
+      "research_result": {
+        "summary": "Importing a session is vulnerable to a crash desync between artifacts and the session metadata. During a crash between `rename(&staging, &target_artifacts)` and `write_session`, the target artifacts are updated but the session JSONL remains the old state, and the backup folder is leaked.",
+        "observations": [
+          {
+            "scenario": "A power-loss or uncatchable SIGKILL occurs during `commit_import_with` exactly after moving the new artifacts into place but before writing the JSONL session metadata.",
+            "evidence": "Observed via an explicit simulated test of the commit order defined in `src-tauri/src/sessions.rs`. The backup artifact folder `.session.import.artifacts-backup...` is left permanently in the session directory. The session itself remains on its old content, while the artifact subfolder contains the newly imported artifacts, creating a permanent state desync.",
+            "result": "The current swap mechanism does not have recovery code for resuming a failed atomic swap on a subsequent launch, resulting in lost artifacts (replaced by the new ones before they are persisted in JSONL) and orphaned backup artifacts."
+          }
+        ],
+        "next_hypotheses": [
+          "Write a marker file prior to artifact swaps to allow crash recovery on next read, or implement WAL-based import transactions."
+        ],
+        "proposed_task_ids": [
+          "discovery-e938ec8d92054623"
+        ],
+        "completed_at": "2026-09-16T11:32:18Z",
+        "source": {
+          "activity_id": "sessions/728187137027557012/activities/ab0c71ac80ce440cbd9101c86ce9d5d8",
+          "report_sha256": "b3a5c70d609a9d9358ca0d953b3f84fcb0887cb956c2d66f6e4bae68561137b9",
+          "activity_created_at": "2026-09-16T10:39:00Z",
+          "session_id": "728187137027557012",
+          "dispatch_key": "06dcae2e8488eb0205ec11a5"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-e938ec8d92054623",
+      "title": "Clean up orphaned backup and staging artifact directories during session scan",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "reliability"
+      ],
+      "created_at": "2026-09-16T11:32:18Z",
+      "acceptance": [
+        "Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "If a crash happens during session import, staging and backup sidecar directories are left forever in the sessions directory, consuming storage.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a session with artifacts",
+            "Attempt to import over it and crash the process inside `commit_import_with` after renaming the target artifacts to backup.",
+            "Scan the sessions directory on a subsequent run."
+          ],
+          "expected": "Orphaned backup directories from the interrupted import are detected and garbage collected.",
+          "actual": "Orphaned backup directories remain permanently in the session directory."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-1",
+        "activity_id": "sessions/728187137027557012/activities/ab0c71ac80ce440cbd9101c86ce9d5d8",
+        "report_sha256": "b3a5c70d609a9d9358ca0d953b3f84fcb0887cb956c2d66f6e4bae68561137b9",
+        "activity_created_at": "2026-09-16T10:39:00Z",
+        "session_id": "728187137027557012",
+        "dispatch_key": "06dcae2e8488eb0205ec11a5"
       }
     }
   ]
