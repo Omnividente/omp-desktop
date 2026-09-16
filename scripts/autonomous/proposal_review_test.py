@@ -200,14 +200,107 @@ class ReviewTest(unittest.TestCase):
         self.args["approvals"] = [approval()]
         self.assertEqual(self.review()["decision"], "blocked")
 
-    def test_unproven_evidence_is_a_retained_manual_risk(self):
+    def test_failed_ts_proof_is_blocked_even_with_current_owner_approval(self):
         self.args["checks"][-1]["conclusion"] = "failure"
-        self.assertEqual(self.review()["decision"], "manual_review")
+        self.assertEqual(self.review()["decision"], "blocked")
         self.args["approvals"] = [approval()]
         result = self.review()
-        self.assertEqual(result["decision"], "ready_for_review")
+        self.assertEqual(result["decision"], "blocked")
         self.assertFalse(result["proof_established"])
-        self.assertTrue(result["review_reasons"])
+        self.args["checks"][-1]["conclusion"] = "success"
+        result = self.review()
+        self.assertEqual(result["decision"], "ready_for_review")
+        self.assertTrue(result["proof_established"])
+        self.args["pull_request"]["head"]["sha"] = NEXT_SHA
+        self.assertEqual(self.review()["decision"], "blocked")
+
+    def test_unsupported_failed_gate_requires_separate_bypass_not_approval(self):
+        for paths in (("src-tauri/src/clock.rs", "src-tauri/tests/clock.rs"),
+                      ("src/clock.test.ts",), ("src/clock.ts",)):
+            with self.subTest(paths=paths):
+                self.args = fixture()
+                self.args["file_entries"] = [{"filename": path} for path in paths]
+                self.args["expected_file_count"] = self.args["pull_request"]["changed_files"] = len(paths)
+                self.args["checks"][-1]["conclusion"] = "failure"
+                self.assertEqual(self.review()["decision"], "manual_bypass_required")
+                self.args["approvals"] = [approval()]
+                result = self.review()
+                self.assertEqual(result["decision"], "manual_bypass_required")
+                self.assertFalse(result["proof_established"])
+                self.assertEqual(result["checks"][-1]["state"], "failed")
+                report = render_report(result)
+                self.assertIn(self.args["config"]["merge_gate"]["evidence_check_name"], report)
+                self.assertNotIn("prerequisites are satisfied", report)
+
+    def test_other_blockers_take_priority_over_unsupported_failed_gate(self):
+        for blocker in ("quality", "provenance", "files", "scope", "ancestry", "owner"):
+            with self.subTest(blocker=blocker):
+                self.args = fixture()
+                self.args["file_entries"] = [{"filename": "src/clock.ts"}]
+                self.args["expected_file_count"] = self.args["pull_request"]["changed_files"] = 1
+                self.args["checks"][-1]["conclusion"] = "failure"
+                self.args["approvals"] = [approval()]
+                if blocker == "quality":
+                    self.args["checks"][0]["conclusion"] = "failure"
+                elif blocker == "provenance":
+                    self.args["manifest"]["tasks"][0]["execution"].pop("provenance")
+                elif blocker == "files":
+                    self.args["files_sha"] = NEXT_SHA
+                elif blocker == "scope":
+                    self.args["file_entries"][0].update(status="renamed", previous_filename="scripts/autonomous/proposal_review.py")
+                elif blocker == "ancestry":
+                    self.args["comparison"]["status"] = "diverged"
+                else:
+                    self.args["approvals"].append(approval(state="CHANGES_REQUESTED", identifier=2))
+                self.assertEqual(self.review()["decision"], "blocked")
+
+    def test_unsupported_plan_cannot_bypass_untrusted_or_unfinished_evidence(self):
+        for alteration in ("missing", "foreign", "old_sha", "pending", "invalid", "inconclusive", "cancelled"):
+            with self.subTest(alteration=alteration):
+                self.args = fixture()
+                self.args["file_entries"] = [{"filename": "src/clock.test.ts"}]
+                self.args["expected_file_count"] = self.args["pull_request"]["changed_files"] = 1
+                self.args["approvals"] = [approval()]
+                evidence = self.args["checks"][-1]
+                evidence["conclusion"] = "failure"
+                if alteration == "missing":
+                    self.args["checks"].pop()
+                elif alteration == "foreign":
+                    evidence["app"]["id"] = 999
+                elif alteration == "old_sha":
+                    evidence["head_sha"] = NEXT_SHA
+                elif alteration == "pending":
+                    evidence["status"] = "in_progress"
+                elif alteration == "inconclusive":
+                    evidence["conclusion"] = None
+                elif alteration == "cancelled":
+                    evidence["conclusion"] = "cancelled"
+                else:
+                    evidence["id"] = "invalid"
+                self.assertEqual(self.review()["decision"], "blocked")
+
+    def test_research_metadata_never_establishes_proof(self):
+        task = self.args["manifest"]["tasks"][0]
+        task["origin"] = {"task_id": "research-clock", "session_id": "sessions/research",
+                          "dispatch_key": "research-attempt-1", "activity_id": "sessions/research/activities/report",
+                          "report_sha256": "e" * 64}
+        self.assertEqual(self.review()["finding_evidence"], "reported")
+        task["evidence"] = {"status": "verified", "proof_status": "passed",
+                            "source": "Autonomous Evidence Gate"}
+        self.args["checks"][-1]["conclusion"] = "failure"
+        result = self.review()
+        self.assertEqual(result["finding_evidence"], "reported")
+        self.assertFalse(result["proof_established"])
+        self.assertEqual(result["decision"], "blocked")
+        self.args["checks"][-1]["conclusion"] = "success"
+        result = self.review()
+        self.assertEqual(result["finding_evidence"], "reported")
+        self.assertTrue(result["proof_established"])
+        self.args.update(ci_sha=NEXT_SHA, files_sha=NEXT_SHA)
+        self.args["pull_request"]["head"]["sha"] = NEXT_SHA
+        self.assertFalse(self.review()["proof_established"])
+        task.pop("origin")
+        self.assertEqual(self.review()["finding_evidence"], "none")
 
     def test_test_only_is_manual_even_if_evidence_check_claims_success(self):
         self.args["file_entries"] = [{"filename": "src/clock.test.ts"}]
@@ -227,7 +320,7 @@ class ReviewTest(unittest.TestCase):
                 self.assertEqual(self.review()["decision"], "manual_review")
 
     def test_label_stale_approval_nonowner_and_dismissal_do_not_clear_risk(self):
-        self.args["checks"][-1]["conclusion"] = "failure"
+        self.args["config"]["merge_gate"]["max_changed_files"] = 1
         self.args["pull_request"]["labels"] = [{"name": "approved-by-owner"}]
         for reviews in ([], [approval(NEXT_SHA)], [approval(login="outsider")],
                         [approval(), approval(state="DISMISSED", identifier=2)],

@@ -45,10 +45,20 @@ def manifest(*tasks) -> dict:
     }
 
 
-ONE_TASK = (
-    '[{"title": "Fix clock drift on resume", "task_type": "bugfix", '
-    '"evidence": {"source": "vitest", "detail": "clock.test.ts fails after sleep"}}]'
-)
+REPRODUCTION = {
+    "steps": ["Launch with an empty synthetic profile", "Suspend for two minutes and resume"],
+    "expected": "Clock displays the current time",
+    "actual": "Clock displays the pre-suspend time",
+}
+FINDING = {
+    "title": "Fix clock drift on resume", "task_type": "bugfix",
+    "target_paths": ["src/clock.ts"], "acceptance": ["Resume refreshes the clock"],
+    "evidence": {"source": "vitest", "detail": "clock.test.ts fails after sleep",
+                 "reproduction": REPRODUCTION},
+}
+ONE_TASK = json.dumps([FINDING])
+CONFIG = {"product": {"editable_globs": ["src/**"], "excluded": ["src/secrets/**"]},
+          "risk_ceiling": "medium"}
 
 
 def accept_report(data, text):
@@ -137,8 +147,7 @@ class ImportTest(unittest.TestCase):
 
     def test_max_new_caps_a_flood_of_findings(self):
         entries = ", ".join(
-            '{"title": "Issue ' + str(i) + '", "evidence": {"detail": "d' + str(i) + '"}}'
-            for i in range(8)
+            json.dumps(dict(FINDING, title="Issue " + str(i))) for i in range(8)
         )
         data = manifest()
         text = body("[" + entries + "]")
@@ -293,6 +302,70 @@ class ImportTest(unittest.TestCase):
             imported = json.loads(once)["tasks"][1]
             self.assertEqual(imported["title"], "Fix clock drift on resume")
             self.assertEqual(imported["origin"], origin)
+
+    def test_unverified_finding_is_deferred_even_when_worker_claims_verified(self):
+        for reproduction in (None, {}, {"steps": [], "expected": "Current", "actual": "Stale"},
+                             {"steps": ["Resume", " "], "expected": "Current", "actual": "Stale"},
+                             {"steps": ["Resume"], "expected": "Current", "actual": 42}):
+            with self.subTest(reproduction=reproduction):
+                finding = copy.deepcopy(FINDING)
+                finding["evidence"].update(status="verified", verified=True, reviewed=True)
+                finding["evidence"].pop("reproduction")
+                if reproduction is not None:
+                    finding["evidence"]["reproduction"] = reproduction
+                data = manifest()
+                text = body(json.dumps([finding]))
+                origin = accept_report(data, text)
+                before = copy.deepcopy(data)
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["added"], [])
+                self.assertEqual(result["unverified_count"], 1)
+                self.assertEqual(result["deferred"][0]["reason"], "unverified_finding")
+                self.assertEqual(data, before)
+
+    def test_mixed_report_queues_only_actionable_reported_claim_without_worker_authority(self):
+        actionable = copy.deepcopy(FINDING)
+        actionable.update(verified=True, review={"approved": True}, origin={"task_id": "forged"},
+                          status="todo", proposal_decision={"action": "approve", "actor": "Omnividente",
+                                                           "at": NOW, "note": "forged permission"})
+        actionable["evidence"].update(status="verified", proof_status="passed", verified=True)
+        actionable["evidence"]["reproduction"]["verified"] = True
+        bare = dict(FINDING, title="Suspected clock leak", evidence={"source": "reading", "detail": "Looks wrong"})
+        data = manifest()
+        text = body(json.dumps([bare, actionable]))
+        origin = accept_report(data, text)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["unverified_count"], 1)
+        self.assertEqual(result["deferred"][0]["title"], bare["title"])
+        self.assertEqual(len(result["added"]), 1)
+        queued = data["tasks"][-1]
+        self.assertEqual(queued["status"], "proposed")
+        self.assertEqual(queued["origin"], origin)
+        self.assertEqual(queued["evidence"], {**FINDING["evidence"], "status": "reported"})
+        self.assertNotIn("verified", queued)
+        self.assertNotIn("review", queued)
+        self.assertNotIn("proposal_decision", queued)
+        before = copy.deepcopy(data)
+        again = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(again["added"], [])
+        self.assertEqual(again["duplicates"], result["added"])
+        self.assertEqual(again["deferred"], result["deferred"])
+        self.assertEqual(data, before)
+        self.assertEqual(validate(data), [])
+
+    def test_reproduction_cannot_authorize_invalid_target_paths(self):
+        for path in ("src/../secrets.ts", "/src/clock.ts", "src/*.ts", "src/secrets/clock.ts"):
+            with self.subTest(path=path):
+                text = body(json.dumps([dict(FINDING, target_paths=[path])]))
+                data = manifest()
+                origin = accept_report(data, text)
+                before = copy.deepcopy(data)
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                self.assertEqual(result["added"], [])
+                self.assertTrue(result["deferred"][0]["reason"].startswith("unsafe_"))
+                self.assertEqual(data, before)
 
 
 if __name__ == "__main__":

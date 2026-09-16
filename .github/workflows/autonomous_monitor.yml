@@ -92,16 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           git -C lab fetch --no-tags origin "${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
-          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,created_at,run_started_at,updated_at}' | jq -s '.' > next-runs.json
-          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/runs?per_page=100" --jq '.workflow_runs[] | {id,status,conclusion,event,head_branch,head_sha,display_title,created_at,run_started_at,updated_at}' | jq -s '.' > sync-runs.json
-          gh api --method GET --paginate "/repos/${GITHUB_REPOSITORY}/pulls" -f base="${INTEGRATION_BRANCH}" -f state=all -f per_page=100 --jq '.[]' | jq -s '.' > pull-requests.json
-          # The list endpoint omits mergeability; fetch open PRs individually.
-          jq -r '.[] | select(.state == "open") | .number' pull-requests.json > open-pr-numbers.txt
-          while read -r number; do
-            gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > observed-pr.json
-            jq --slurpfile pr observed-pr.json 'map(if .number == $pr[0].number then $pr[0] else . end)' pull-requests.json > updated-prs.json
-            mv updated-prs.json pull-requests.json
-          done < open-pr-numbers.txt
+          python3 control/scripts/autonomous/health_snapshot.py --manifest queue.json --config control/autonomous-project.json
           # A green job is not proof of publication; inspect its retained outcome.
           sync_id=$(jq -r '[.[] | select(.head_branch == "main" and .status == "completed")] | max_by(.id) | .id // empty' sync-runs.json)
           sync_args=()
@@ -136,6 +127,7 @@ jobs:
             echo 'report_invalid: inspect the stored diagnostics and reharvest the same completed session with retry_report; do not launch another AI attempt.'
             echo 'sync_failed: inspect the failed candidate checks, repair the cause and explicitly run Autonomous Sync Main. Automatic retries of that main revision are paused.'
             echo 'next_task_stalled: due work has no NextTask activity within 90 minutes; inspect continuation and the enabled switch.'
+            echo 'worker_awaiting_feedback / worker_awaiting_approval / worker_paused: act only in the linked existing Jules session; observation runs never answer or create a replacement. Scheduled polls use 30-minute cadence.'
           } >> "${GITHUB_STEP_SUMMARY}"
           health=$(jq -r '.health' health.json)
           attention=$(jq '.attention // [] | length' health.json)

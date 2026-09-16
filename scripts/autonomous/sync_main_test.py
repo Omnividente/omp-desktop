@@ -167,6 +167,8 @@ class SyncMainTest(unittest.TestCase):
         task = {"id": "fix", "title": "Fix", "task_type": "bugfix", "status": "todo",
                 "risk": "low", "priority": 40, "focus": ["quality"],
                 "evidence": {"source": "reproduction", "detail": "Observed lost state"}}
+        task["proposal_decision"] = {"action": "approve", "actor": "owner",
+                                     "at": "2026-09-13T11:00:00Z", "note": "Approved fixture"}
         data = {"version": 2, "autonomous_loop_policy": {}, "tasks": [task]}
         reserve(data, "fix", "attempt-one", base_sha=self.base, starting_branch="autonomous/attempt-attempt-one")
         self.manifest.write_text(json.dumps(data), encoding="utf-8")

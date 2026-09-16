@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from jules_dispatch import session_is_active
+from select_task import blocks_lane, select
 
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_STALE_HOURS = 6
@@ -209,13 +210,9 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
             raise ValueError("reservation identity conflicts with the stored attempt")
         return {"changed": False, "reason": "already_reserved", "task_id": task_id,
                 "attempts": attempts_of(task)}
-    if task.get("status") != STATUS_TODO or attempts_of(task) >= limits(manifest)[0] or block.get("outcome") == OUTCOME_CLOSED:
-        raise ValueError("task is not available for reservation")
-    if any(isinstance(other, Mapping) and other is not task and (
-        other.get("status") == STATUS_IN_PROGRESS or
-        (other.get("execution") or {}).get("state") == "quarantined"
-    ) for other in tasks_of(manifest)):
-        raise ValueError("another worker is active or quarantined")
+    selection = select(manifest, task_id=task["id"])
+    if not selection["selected"]:
+        raise ValueError("task is not available for reservation: " + selection["reason"])
     block = _execution(task)
     block.update(attempts=attempts_of(task) + 1, state="dispatching", session_id="",
                  dispatch_key=dispatch_key, base_sha=base_sha, starting_branch=starting_branch,
@@ -223,6 +220,8 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
                  outcome="", note="")
     block.pop("provenance", None)
     block.pop("session_state", None)
+    block.pop("research_detached", None)
+    block.pop("feedback_nudge", None)
     task["status"] = STATUS_IN_PROGRESS
     return {"changed": True, "reason": "reserved", "task_id": task_id,
             "status": STATUS_IN_PROGRESS, "attempts": block["attempts"]}
@@ -285,6 +284,10 @@ def start(
     max_attempts, _stale_hours = limits(manifest)
     if attempts_of(task) >= max_attempts:
         raise ValueError("task has exhausted its attempt budget")
+    if any(isinstance(other, Mapping) and other is not task
+           and blocks_lane(other, discovery=task.get("task_type") == "project_discovery")
+           for other in tasks_of(manifest)):
+        raise ValueError("another worker in this lane is active or quarantined")
     moment = now or utcnow()
     block = _execution(task)
     block["state"] = "dispatched"
@@ -300,6 +303,8 @@ def start(
     block["note"] = ""
     block.pop("provenance", None)
     block.pop("session_state", None)
+    block.pop("research_detached", None)
+    block.pop("feedback_nudge", None)
     task["status"] = STATUS_IN_PROGRESS
     return {
         "changed": True,
@@ -515,15 +520,20 @@ def reconcile(manifest: dict, *, now: datetime | None = None) -> dict:
             block["state"] = "exhausted"
             released.append({"changed": True, "reason": "exhausted", "task_id": task["id"]})
         elif task.get("status") == STATUS_IN_PROGRESS:
-            started = parse_iso(block.get("started_at"))
-            if started is None or started <= cutoff:
+            # Waiting for the owner is not stale processing. Preserve identity;
+            # explicit loop-disabled quarantine remains a separate transition.
+            if block.get("session_state") in {"AWAITING_USER_FEEDBACK", "AWAITING_PLAN_APPROVAL", "PAUSED"}:
+                continue
+            changed_at = max((transition for field in ("observed_at", "started_at")
+                              if (transition := parse_iso(block.get(field))) is not None), default=None)
+            if changed_at is None or changed_at <= cutoff:
                 released.append(quarantine(manifest, task["id"], reason="worker outcome unknown after " + str(stale_hours) + "h", now=moment))
     return {"changed": bool(released), "reason": "reconciled" if released else "nothing_stale",
             "released": released, "task_id": released[0]["task_id"] if released else ""}
 
 
 def counts(manifest: Mapping[str, Any]) -> dict:
-    out = {STATUS_TODO: 0, STATUS_IN_PROGRESS: 0, STATUS_DONE: 0, STATUS_BLOCKED: 0}
+    out = {"proposed": 0, STATUS_TODO: 0, STATUS_IN_PROGRESS: 0, STATUS_DONE: 0, STATUS_BLOCKED: 0}
     for task in tasks_of(manifest):
         if not isinstance(task, dict):
             continue

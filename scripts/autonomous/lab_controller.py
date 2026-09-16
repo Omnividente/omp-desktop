@@ -16,17 +16,19 @@ from build_jules_request import build, dispatch_key, next_attempt
 from complete_jules_task import atomic_write, harvest, redact
 from jules_dispatch import (
     DEFAULT_API_BASE, CreateRejected, KeyRing, dispatch, get_session, session_failed,
-    session_state, urllib_transport,
+    session_is_active, session_state, session_resource, request_with_keys, urllib_transport,
 )
 from jules_provenance import bind_proposal, session_pull_request, trusted_pull_request
 from research_cycle import plan_research, scope_fingerprints
-from select_task import select
+from select_task import select, valid_research_detachment
 from state_store import load_state, save_state
+from proposal_backlog import authorize
 from task_lifecycle import (
     awaiting_report, awaiting_review, complete, find_task, iso, quarantine, reconcile,
     reserve, start, sweep,
 )
 from validate_tasks import validate
+from loop_health import WAITING_REASONS, worker_observation
 
 LAB_BRANCH = "autonomous/lab"
 
@@ -163,12 +165,12 @@ def tick(
     now: datetime | None = None, task_id: str = "", focus: str = "", risk: str = "medium",
     recover_report: bool = False, diagnostics: Path | None = None,
 ) -> dict:
-    """Persist before effects and after each observation; resume never repeats POST."""
+    """CAS-check before effects; persist transitions, report every observation separately."""
     now = now or datetime.now(timezone.utc)
     repository = config["repository"]
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     result = {"observed_at": iso(now), "action": "none", "reason": "idle", "attention": [],
-              "proposals": [], "research": {}, "merge_mode": "manual"}
+              "proposals": [], "observations": [], "waiting_workers": [], "research": {}, "merge_mode": "manual"}
     if config.get("automation", {}).get("merge_mode") != "manual":
         raise ValueError("laboratory controller requires manual acceptance")
     if config.get("parallel_mode", {}).get("integration_branch") != LAB_BRANCH:
@@ -201,18 +203,68 @@ def tick(
     def record_error(task, exc):
         task = find_task(manifest, task["id"])
         message = redact(str(exc), ring.keys)[:500]
-        task.setdefault("execution", {})["last_error"] = {"at": iso(now), "detail": message}
-        result["attention"].append({"task_id": task["id"], "reason": message})
+        execution = task.setdefault("execution", {})
+        if (execution.get("last_error") or {}).get("detail") != message:
+            execution["last_error"] = {"at": iso(now), "detail": message}
+        observation = dict(worker_observation(task, now), reason=message)
+        result["observations"].append(observation)
+        result["attention"].append(observation)
+        checkpoint()
+
+    def detach_waiting_research(task, state):
+        # A reported question is not permission to implement or invent an answer.
+        # Preserve the unresolved session on its own immutable ref; another scope
+        # may proceed even if the worker never acknowledges this instruction.
+        execution = task["execution"]
+        if (task.get("task_type") != "project_discovery" or state not in WAITING_REASONS
+                or not enabled or not github.enabled()):
+            return
+        detached = {"at": iso(now), "reason": state}
+        if not valid_research_detachment(dict(task, execution=dict(execution, research_detached=detached))):
+            return
+        if not execution.get("research_detached"):
+            execution["research_detached"] = detached
+            checkpoint()
+        if state != "AWAITING_USER_FEEDBACK" or execution.get("feedback_nudge"):
+            return
+        receipt = {"at": iso(now), "result": "pending"}
+        execution["feedback_nudge"] = receipt
+        checkpoint()  # No blind retry after a lost acknowledgement or process crash.
+        if not github.enabled():
+            return
+        response = request_with_keys(
+            transport, ring, "POST", api_base.rstrip("/") + "/"
+            + session_resource(execution["session_id"]) + ":sendMessage",
+            {"prompt": (
+                "This session is read-only research, not implementation. Do not wait for an answer, "
+                "approval or a choice of which proposal to implement. Finish this same session now "
+                "with the observations already available, unresolved questions and environment "
+                "limitations in AUTONOMOUS_RESEARCH_BEGIN/END. Include actionable proposals only "
+                "in AUTONOMOUS_TASKS_BEGIN/END for later human review. Do not fabricate observations, "
+                "change product files, create a PR or start further work. No permission is granted "
+                "to execute any proposed change or privileged action."
+            )}, max_attempts=1,
+        )
+        receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
         checkpoint()
 
     def collect(task, session):
         execution = task["execution"]
         number = session_pull_request(session, execution, repository)
-        execution["session_state"] = session_state(session)
-        execution["observed_at"] = iso(now)
+        state = session_state(session)
+        if execution.get("session_state") != state:
+            execution["session_state"] = state
+            execution["observed_at"] = iso(now)
+        observation = worker_observation(task, now)
+        result["observations"].append(observation)
+        if state in WAITING_REASONS:
+            result["waiting_workers"].append(observation)
         if number is not None:
             pr = github.retarget(github.proposal(number), execution)
-            bind_proposal(manifest, task["id"], session, pr, repository=repository, now=now)
+            if (not trusted_pull_request(task, pr, repository)
+                    or (execution.get("provenance") or {}).get("head_sha") != pr["head"]["sha"]
+                    or not session_is_active(session)):
+                bind_proposal(manifest, task["id"], session, pr, repository=repository, now=now)
             sweep(manifest, [pr], config=config, now=now)
             result["proposals"].append({"task_id": task["id"], "number": number,
                                         "url": pr["html_url"], "state": pr["state"]})
@@ -223,6 +275,7 @@ def tick(
                     api_base=api_base, api_keys=ring, now=now,
                     retry_report=recover_report and awaiting_report(task), diagnostics=diagnostics)
         find_task(manifest, task["id"])["execution"].pop("last_error", None)
+        detach_waiting_research(find_task(manifest, task["id"]), state)
         checkpoint()
 
     # Only stored identities are queried. A foreign PR cannot occupy the worker.
@@ -288,16 +341,14 @@ def tick(
                 result["attention"].append({"task_id": task["id"], "reason": "attempt_ref_moved"})
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             record_error(task, exc)
-    if result["attention"]:
-        # A failed observation must not turn into a replacement for uncertain work.
-        unresolved = any(t.get("status") == "in_progress" or (t.get("execution") or {}).get("state") == "quarantined"
-                         for t in manifest["tasks"])
-        if unresolved:
-            result["reason"] = "worker_needs_reconciliation"
-            return result
-    selection = select(manifest, task_id=task_id or None, focus=focus.split(",") if focus else [], risk_ceiling=risk)
+    selection = select(manifest, task_id=task_id or None, focus=focus.split(",") if focus else [],
+                       risk_ceiling=risk, allow_discovery=bool(config.get("research", {}).get("enabled")))
     if selection["reason_code"] == "work_in_progress":
-        result["reason"] = "worker_running"
+        result["reason"] = next((entry["reason"] for entry in result["attention"] + result["waiting_workers"]
+                                 if entry.get("task_id") == selection["task_id"]), "worker_running")
+        return result
+    if task_id and not selection["selected"]:
+        result["reason"] = selection["reason_code"]
         return result
     lab_sha = _git(repo, "rev-parse", "HEAD").stdout.decode().strip()
     main_sha = github.head("main")
@@ -322,13 +373,21 @@ def tick(
         manifest.update(updated)
     result["research"] = research
     checkpoint()
-    selection = select(manifest, task_id=task_id or None, focus=focus.split(",") if focus else [], risk_ceiling=risk)
+    selection = select(manifest, task_id=task_id or None, focus=focus.split(",") if focus else [],
+                       risk_ceiling=risk, allow_discovery=bool(config.get("research", {}).get("enabled")))
     if not selection["selected"]:
         result["reason"] = selection["reason_code"]
         return result
     if not ring:
         raise RuntimeError("no Jules API key is configured")
     task = next(t for t in manifest["tasks"] if t["id"] == selection["task_id"])
+    if task.get("task_type") != "project_discovery":
+        decision = task.get("proposal_decision") or {}
+        try:
+            authorize(config, decision.get("actor", ""))
+        except ValueError:
+            result["reason"] = "implementation_not_approved"
+            return result
     key = dispatch_key(repository, task["id"], next_attempt(task))
     starting_branch = "autonomous/attempt-" + key
     if not github.enabled() or github.head("main") != main_sha or github.head(LAB_BRANCH) != lab_sha:
@@ -369,7 +428,8 @@ def tick(
             quarantine(manifest, task["id"], reason="loop_disabled_during_create", now=now)
             checkpoint()
         collect(task, get_session(transport, api_base, ring, response["session_id"]))
-        result.update(action="dispatched", reason=response["result"], task_id=task["id"])
+        reason = WAITING_REASONS.get(find_task(manifest, task["id"])["execution"].get("session_state"), response["result"])
+        result.update(action="dispatched", reason=reason, task_id=task["id"])
     except CreateRejected as exc:
         complete(manifest, task["id"], outcome="failed", note=str(exc), now=now)
         record_error(task, exc)

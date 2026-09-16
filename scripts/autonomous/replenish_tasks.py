@@ -92,7 +92,7 @@ def finding_to_task(finding: Mapping[str, Any], base_commit: str = "") -> dict:
         "id": "auto-" + tool + "-" + fp,
         "title": "Fix " + rule + " in " + path,
         "task_type": "bugfix",
-        "status": "todo",
+        "status": "proposed",
         "focus": ["quality"] if tool == "eslint" else ["quality", "compat"],
         "risk": "low",
         "priority": 40,

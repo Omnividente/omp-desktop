@@ -172,18 +172,56 @@ class QueueAndThrottleTest(unittest.TestCase):
         self.assertIs(unchanged, data)
         self.assertEqual(result["research_reason"], "research_pending")
         data["tasks"].append(concrete(focus=["perf"]))
-        self.assertEqual(select(data, focus=["perf"])["task_id"], "fix")
+        self.assertFalse(select(data, focus=["perf"])["selected"])
 
-    def test_concrete_discovery_and_active_work_prevent_minting(self):
-        for task in (
-            concrete(), concrete(task_type="project_discovery"),
-            concrete(status="in_progress", focus=["perf"], risk="high"),
-        ):
-            with self.subTest(task=task):
-                data = manifest(task)
+    def test_queued_and_foreground_research_prevent_minting(self):
+        for item in (concrete(task_type="project_discovery"),
+                     concrete(task_type="project_discovery", status="in_progress", focus=["perf"], risk="high")):
+            with self.subTest(task=item):
+                data = manifest(item)
                 updated, result = plan(data, focus=["quality"], risk_ceiling="low")
                 self.assertIs(updated, data)
                 self.assertFalse(result["research_changed"])
+
+    def test_large_backlog_and_live_implementation_do_not_block_isolated_research(self):
+        for state in ("IN_PROGRESS", "AWAITING_USER_FEEDBACK"):
+            live = concrete("live", status="in_progress", execution={
+                "state": "dispatched", "session_id": "123", "dispatch_key": "existing-attempt",
+                "attempts": 1, "started_at": NOW.isoformat(), "session_state": state,
+            })
+            data = manifest(live, *(concrete("proposal-" + str(index), status="proposed") for index in range(60)))
+            before = copy.deepcopy(data)
+            updated, result = plan(data)
+            self.assertTrue(result["research_changed"])
+            self.assertEqual(select(updated)["task_id"], updated["tasks"][-1]["id"])
+            self.assertEqual(updated["tasks"][:-1], before["tasks"])
+            self.assertEqual(data, before)
+
+    def test_detached_scope_never_respawns_despite_age_changed_source_or_resume(self):
+        settings = config()
+        data, _ = plan(manifest(), settings)
+        waiting = data["tasks"][0]
+        waiting.update(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+            "base_sha": "a" * 40, "starting_branch": "autonomous/attempt-attempt-one",
+            "started_at": NOW.isoformat(), "session_state": "IN_PROGRESS",
+            "research_detached": {"at": NOW.isoformat(), "reason": "AWAITING_USER_FEEDBACK"},
+        })
+        before = copy.deepcopy(data)
+        updated, result = plan_research(data, settings, {"terminal": "b" * 64, "sessions": "a" * 64},
+                                        now=NOW + timedelta(days=2))
+        self.assertTrue(result["research_changed"])
+        self.assertEqual(updated["tasks"][-1]["research"]["area_id"], "sessions")
+        self.assertEqual(updated["tasks"][0], before["tasks"][0])
+        self.assertEqual(data, before)
+        unchanged, result = plan_research(data, config(areas=("terminal",)), {"terminal": "b" * 64},
+                                          now=NOW + timedelta(days=2))
+        self.assertIs(unchanged, data)
+        self.assertEqual(result["research_reason"], "research_scope_occupied")
+        settings["research"]["max_sessions_per_day"] = 1
+        self.assertEqual(plan(data, settings)[1]["research_reason"], "daily_cap")
+        settings["research"]["enabled"] = False
+        self.assertEqual(plan(data, settings)[1]["research_reason"], "research_disabled")
 
     def test_explicit_selection_never_creates_a_phantom_task(self):
         data = manifest()
@@ -200,7 +238,7 @@ class QueueAndThrottleTest(unittest.TestCase):
         self.assertEqual(unchanged["tasks"], [])
         self.assertEqual(result["research_reason"], "focus_mismatch")
 
-    def test_daily_cap_defers_research_but_never_real_work(self):
+    def test_daily_cap_preserved_with_backlog_and_explicit_approval(self):
         settings = config()
         settings["research"]["max_sessions_per_day"] = 1
         data, _ = plan(manifest(), settings)
@@ -209,10 +247,12 @@ class QueueAndThrottleTest(unittest.TestCase):
         self.assertIs(unchanged, data)
         self.assertEqual(result["research_reason"], "daily_cap")
         self.assertEqual(result["research_next_at"], "2026-09-14T12:00:00Z")
-        data["tasks"].append(concrete())
-        self.assertEqual(plan(data, settings)[1]["research_reason"], "eligible_work_exists")
-        self.assertEqual(select(data)["task_id"], "fix")
-        data["tasks"].pop()
+        data["tasks"].append(concrete(proposal_decision={
+            "action": "approve", "actor": "maintainer", "at": NOW.isoformat(), "note": "Implement finding",
+        }))
+        self.assertEqual(plan(data, settings)[1]["research_reason"], "daily_cap")
+        self.assertFalse(select(data)["selected"])
+        self.assertTrue(select(data, task_id="fix")["selected"])
         self.assertTrue(plan(data, settings, now=NOW + timedelta(days=1))[1]["research_changed"])
 
     def test_deferred_manual_review_is_not_an_active_worker(self):

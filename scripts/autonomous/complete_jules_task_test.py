@@ -27,7 +27,9 @@ CONFIG = {"repository": "owner/project", "product": {"editable_globs": ["src/**"
 FINDING = {"id": "fix-clock", "title": "Fix stale clock after resume", "task_type": "bugfix",
            "risk": "low", "target_paths": ["src/clock.ts"],
            "acceptance": ["Resuming the app displays the current clock"],
-           "evidence": {"source": "smoke", "detail": "Resume kept the previous clock value"}}
+           "evidence": {"source": "smoke", "detail": "Resume kept the previous clock value",
+                        "reproduction": {"steps": ["Launch with a synthetic profile", "Suspend for two minutes and resume"],
+                                         "expected": "Clock shows current time", "actual": "Clock shows old time"}}}
 SESSION = {"name": "sessions/7", "id": "7", "state": "COMPLETED",
            "title": "[dispatch:first] investigate clock", "outputs": []}
 
@@ -108,7 +110,7 @@ class CompletionTest(unittest.TestCase):
         child = data["tasks"][1]
         self.assertEqual(child["target_paths"], FINDING["target_paths"])
         self.assertEqual(child["acceptance"], FINDING["acceptance"])
-        self.assertEqual(child["evidence"], FINDING["evidence"])
+        self.assertEqual(child["evidence"], {**FINDING["evidence"], "status": "reported"})
         self.assertEqual(child["origin"], {"task_id": "research-clock", "session_id": "7",
                                            "dispatch_key": "first",
                                            "activity_id": "sessions/7/activities/a3",
@@ -258,6 +260,50 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(stored["proposed_task_ids"], [])
         self.assertEqual(stored["deferred_findings"][0]["title"], finding["title"])
         self.assertEqual(stored["deferred_findings"][0]["reason"], "unsafe_product_scope")
+        self.assertEqual(validate(data), [])
+
+    def test_unverified_research_completes_without_retrying_same_report(self):
+        data = manifest()
+        finding = dict(FINDING, evidence={"source": "reading", "detail": "Clock may be stale", "status": "verified"})
+        api = API([[activity(report([finding]))]])
+        result = run(data, api)
+        self.assertEqual(result["reason"], "researched")
+        self.assertEqual(result["imported_count"], 0)
+        self.assertEqual([task["status"] for task in data["tasks"]], ["done"])
+        stored = data["tasks"][0]["research_result"]
+        self.assertEqual(stored["proposed_task_ids"], [])
+        self.assertEqual(stored["deferred_findings"][0]["reason"], "unverified_finding")
+        before = copy.deepcopy(data)
+        requests = list(api.requests)
+        for retry_report in (False, True):
+            self.assertFalse(run(data, api, retry_report=retry_report)["changed"])
+            self.assertEqual(data, before)
+            self.assertEqual(api.requests, requests)
+        with self.assertRaises(ValueError):
+            start(data, "research-clock", session_id="8", dispatch_key="retry", now=NOW)
+        self.assertEqual(validate(data), [])
+
+    def test_reharvest_mixed_findings_retains_deferred_and_imports_once(self):
+        data = manifest()
+        run(data, API([[activity("AUTONOMOUS_RESEARCH_BEGIN {broken")]]))
+        identity = copy.deepcopy(data["tasks"][0]["execution"])
+        bare = dict(FINDING, id="suspected", title="Suspected leak",
+                    evidence={"source": "reading", "detail": "Might retain clock objects"})
+        api = API([[activity(report([bare, FINDING]))]])
+        result = run(data, api, retry_report=True)
+        self.assertEqual(result["reason"], "researched")
+        self.assertEqual(result["imported_count"], 1)
+        self.assertEqual([task["id"] for task in data["tasks"]], ["research-clock", "fix-clock"])
+        stored = data["tasks"][0]["research_result"]
+        self.assertEqual(stored["deferred_findings"][0]["reason"], "unverified_finding")
+        self.assertEqual(stored["proposed_task_ids"], ["fix-clock"])
+        for field in ("attempts", "session_id", "dispatch_key", "started_at"):
+            self.assertEqual(data["tasks"][0]["execution"][field], identity[field])
+        before = copy.deepcopy(data)
+        requests = list(api.requests)
+        self.assertFalse(run(data, api, retry_report=True)["changed"])
+        self.assertEqual(data, before)
+        self.assertEqual(api.requests, requests)
         self.assertEqual(validate(data), [])
 
     def test_wrong_finding_shape_parks_attempt_without_partial_import(self):

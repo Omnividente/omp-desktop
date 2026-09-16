@@ -11,10 +11,10 @@ discovery prompt therefore requires a machine-readable block:
     ```
     <!-- AUTONOMOUS_TASKS_END -->
 
-This script parses that block, normalises each entry, drops duplicates and
-appends the rest to the queue. The resulting manifest must pass the ordinary
-validator, so malformed discovery output fails loudly instead of corrupting the
-queue.
+This script parses that block, normalises actionable reports, drops duplicates
+and appends reported (not verified) claims to the queue. Findings without a
+reproduction stay deferred; malformed packaging still fails loudly. The resulting
+manifest must pass the ordinary validator before the controller persists it.
 
 "Loudly" is the whole point: a JSON error used to be swallowed into an empty
 backlog, which is indistinguishable from "the worker found nothing". The block is
@@ -35,7 +35,7 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_tasks import (  # noqa: E402
-    VALID_RISKS, VALID_TASK_TYPES, validate,
+    VALID_RISKS, VALID_TASK_TYPES, validate, validate_reproduction,
 )
 from check_change_scope import evaluate as evaluate_scope  # noqa: E402
 from task_lifecycle import find_task  # noqa: E402
@@ -147,7 +147,7 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
         "id": task_id,
         "title": title,
         "task_type": task_type,
-        "status": "todo",
+        "status": "proposed",
         "priority": priority,
         "risk": risk,
         "focus": [str(item) for item in focus],
@@ -158,6 +158,12 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
         "evidence": {
             "source": str(evidence.get("source") or "project_discovery"),
             "detail": detail,
+            "status": "reported",
+            **({"reproduction": {
+                "steps": list(evidence["reproduction"]["steps"]),
+                "expected": evidence["reproduction"]["expected"],
+                "actual": evidence["reproduction"]["actual"],
+            }} if not validate_reproduction(evidence.get("reproduction")) else {}),
         },
         **({"target_paths": list(entry["target_paths"])}
            if isinstance(entry.get("target_paths"), list) else {}),
@@ -234,13 +240,16 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
             "missing_title" if not candidate["title"] else
             "missing_evidence" if not candidate["evidence"]["detail"] else ""
         )
+        if not reason and "reproduction" not in candidate["evidence"]:
+            reason = "unverified_finding"
         if reason:
             skipped.append({"id": candidate["id"], "reason": reason})
-            invalid = invalid or not reason.startswith("unsafe_")
-            if reason.startswith("unsafe_"):
+            can_defer = reason.startswith("unsafe_") or reason == "unverified_finding"
+            invalid = invalid or not can_defer
+            if can_defer:
                 deferred.append({"title": candidate["title"], "reason": reason,
                                  "evidence": candidate["evidence"]["detail"],
-                                 "target_paths": candidate["target_paths"],
+                                 "target_paths": candidate.get("target_paths", []),
                                  "acceptance": candidate["acceptance"]})
             continue
         existing = known_ids.get(candidate["id"])
@@ -276,6 +285,7 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
     return {
         "changed": bool(added), "added": added, "duplicates": duplicates, "skipped": skipped,
         "deferred": deferred,
+        "unverified_count": sum(item["reason"] == "unverified_finding" for item in deferred),
         "status": block["status"], "detail": block["detail"],
     }
 
@@ -328,6 +338,7 @@ def main(argv=None) -> int:
             )
             handle.write("imported_count=" + str(len(result["added"])) + "\n")
             handle.write("imported_status=" + str(result.get("status", STATUS_OK)) + "\n")
+            handle.write("unverified_count=" + str(result.get("unverified_count", 0)) + "\n")
     if result.get("status") == STATUS_MALFORMED:
         print(
             "::error::discovery backlog was not imported: " + str(result.get("detail")),

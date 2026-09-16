@@ -51,9 +51,11 @@ def _lab_section(manifest: dict) -> list[str]:
         counts[status] = counts.get(status, 0) + 1
     lines = ["## Autonomous lab results", "", "Results below are evidence for human review only; research is not release verification.", "", "### Queue summary", ""]
     lines.append("- Tasks in reviewed queue: **" + str(len(tasks)) + "**; " + ", ".join(f"`{_safe(k)}`: **{v}**" for k, v in sorted(counts.items())) + ".")
-    groups = {"Active work and pending proposals": [], "Completed investigations": [], "Completed implementations": []}
+    groups = {"Active work and pending proposals": [], "Human-closed proposals": [],
+              "Completed investigations": [], "Completed implementations": []}
     for task in reversed(tasks):
         group = ("Active work and pending proposals" if task.get("status") != "done" else
+                 "Human-closed proposals" if (task.get("proposal_decision") or {}).get("action") in ("reject", "resolve") else
                  "Completed investigations" if task.get("task_type") == "project_discovery" else
                  "Completed implementations")
         groups[group].append(task)
@@ -67,6 +69,12 @@ def _lab_section(manifest: dict) -> list[str]:
             meta = task.get("research") if isinstance(task.get("research"), dict) else {}
             lines.append("- " + _safe(task.get("id"), 160) + " - **" + _safe(task.get("status"), 40)
                          + "**: " + _safe(task.get("title"), 300))
+            decision = task.get("proposal_decision") or {}
+            if decision:
+                lines.append("  - Proposal decision: " + _safe(decision.get("action"), 30)
+                             + "; actor: " + _safe(decision.get("actor"), 100)
+                             + "; at: " + _safe(decision.get("at"), 60))
+                lines.append("  - Decision note: " + _safe(decision.get("note")))
             if meta:
                 lines.append("  - Area: " + _safe(meta.get("area_id"), 100) + "; perspective: "
                              + _safe(meta.get("perspective_id"), 100) + "; cycle: " + _safe(meta.get("cycle"), 30))

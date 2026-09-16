@@ -14,8 +14,10 @@ name: Autonomous Evidence Gate
 # imports - crashes without asserting anything, and a crash is not evidence that
 # a defect existed.
 #
-# A change that cannot be proven is reported honestly for human acceptance.
-# Test-only changes are not before/after proof and require owner review.
+# Unsupported or test-only proof leaves this required check failed. An owner
+# approval does not satisfy it; any server-side bypass is a separate explicit
+# owner action, never performed by the laboratory. A supported TS proof failure
+# is blocked until the proof passes.
 
 on:
   pull_request:
@@ -85,7 +87,7 @@ jobs:
           python3 control/scripts/autonomous/evidence_plan.py --config control/autonomous-project.json --changed-files changed-files.json > plan.txt 2>&1
           cat plan.txt
           {
-            echo "### Autonomous Evidence Gate: manual acceptance required"
+            echo "### Autonomous Evidence Gate: manual bypass required; required check remains failed"
             echo ""
             echo "Reviewed revision: ${HEAD_SHA}"
             echo ""
@@ -93,7 +95,7 @@ jobs:
             cat plan.txt
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
-          echo "::error::No reproducible failing-first proof is available for this revision. Explicit owner review is required; quality success alone is not fix evidence."
+          echo "::error::No supported failing-first proof is available for this revision. Autonomous Evidence Gate remains a failed server-required check. Add supported proof, or request a separate explicit owner server-side bypass; PR approval does not satisfy this check and this workflow performs no bypass."
           exit 1
 
       - name: Set up Node
