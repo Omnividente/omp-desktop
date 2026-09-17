@@ -3902,7 +3902,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T21:03:28Z"
+        "observed_at": "2026-09-17T21:03:28Z",
+        "released_attempt_ref": "autonomous/attempt-b3a2a7041486c9ca2204d19e"
       },
       "research_result": {
         "summary": "Investigated Terminal output continuity batching and decoding resource use.",
