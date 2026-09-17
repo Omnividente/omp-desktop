@@ -2901,7 +2901,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T15:20:26Z"
+        "observed_at": "2026-09-17T15:20:26Z",
+        "released_attempt_ref": "autonomous/attempt-999de2cc1526526b42420290"
       },
       "research_result": {
         "summary": "Verified the resilience and state persistence of Transcript loading and virtual list rendering.",
