@@ -2234,7 +2234,8 @@
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
           "reported_at": "2026-09-17T01:03:54Z"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-641f6e7c12f2a07601c0abd6"
       }
     }
   ]
