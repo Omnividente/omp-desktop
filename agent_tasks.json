@@ -2938,6 +2938,107 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-transcript-links-performance-1",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-17T15:20:26Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "fa5cba1be5af48d356a661cbf27c04e1ff6633d8a9b33fda45c9e03594016d1a",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified the behavior of Transcript content links handling boundaries and interactions.",
+            "observations": [
+              {
+                "scenario": "Verifying Link extraction on various schemes including edge cases",
+                "evidence": "Ran unit tests demonstrating `contentLinks` properly extracting URIs (e.g., `artifact://img.png`, `local://test.txt`) from markdown and unstructured text formats, whilst correctly ignoring unsafe protocols (e.g. `javascript:alert(1)`) per `isContentLink` restrictions.",
+                "result": "The frontend successfully differentiates content links that are active DOM anchors from those that are not, correctly rejecting unsupported protocols."
+              },
+              {
+                "scenario": "Middle-click link behavior for open on content link anchors",
+                "evidence": "Observed `LinkedText` components triggering `onOpen(uri)` explicitly when processing `auxclick` with `event.button === 1` via a synthetic test environment. Regular left click successfully triggers `onOpen` with `event.preventDefault()` to ignore typical anchor follow actions.",
+                "result": "Middle click opening works as designed on the React elements displaying the markdown URLs."
+              },
+              {
+                "scenario": "Context menu interaction for non-URL local file content links",
+                "evidence": "Verified via test that `LinkedText` suppresses invoking `onLinkContextMenu` if the clicked link doesn't conform to `isFileContentLink` (e.g. it is an `https://` link). If it is a file/local/artifact link, `onLinkContextMenu` is properly invoked.",
+                "result": "Context menus correctly filter out web URLs to only show file context interactions for resources the backend is responsible for."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate large transcript rendering scrolling and memory usage during virtual list scroll bounds resizing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T13:16:06Z",
+            "source": {
+              "activity_id": "sessions/4713677984387697352/activities/f66f7d8c308140c69af32c85e59d7e0f",
+              "report_sha256": "05c10fc79b61c2603ab2058a2df6938e12b6b5448f01265428f10cc1d119a1b6",
+              "activity_created_at": "2026-09-17T11:42:48Z",
+              "session_id": "4713677984387697352",
+              "dispatch_key": "9c568ab267b3746533f049a8"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the resilience and state persistence of Transcript loading and virtual list rendering.",
+            "observations": [
+              {
+                "scenario": "Simulating a concurrent or interrupted load Transcript session",
+                "evidence": "Tested `useTranscript` loading the same or different transcripts rapidly, simulating interruption. Asserted that older or interrupted load promises are properly ignored and don't overwrite current state upon resolving later.",
+                "result": "The transcript hook is robust against concurrent interruptions and correctly handles race conditions to avoid loading incorrect data."
+              },
+              {
+                "scenario": "Simulating failure during transcript loading and user recovery/retry",
+                "evidence": "Mocked `readSessionTranscript` to throw an error and checked if `useTranscript` fails cleanly by showing an error state, while retaining the session data, then simulated a retry by returning successful data.",
+                "result": "The state recovers correctly from API errors. It sets `transcriptError` properly without dropping the `transcriptSession` path, allowing accurate retries."
+              },
+              {
+                "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List",
+                "evidence": "Manually adjusted the scroll container's `clientHeight` to zero then back to normal to simulate being hidden/restored. Fired scroll events past loaded bounds to ensure items were generated correctly.",
+                "result": "The virtual list successfully maintains internal sizing measurements and bounds checking, correctly rendering list components even after recovering from a 0-height collapse or large scroll jumps."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate failure handling of copying very large transcript selections."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T15:20:26Z",
+            "source": {
+              "activity_id": "sessions/13764414488262800498/activities/3147b6b2df5849b3ae791151dc9dbdfa",
+              "report_sha256": "e53ae7b1654ffd0101d42f76b87090cb2fc07946a299ef0a2f67f7e77077fb9f",
+              "activity_created_at": "2026-09-17T13:23:35Z",
+              "session_id": "13764414488262800498",
+              "dispatch_key": "999de2cc1526526b42420290"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
