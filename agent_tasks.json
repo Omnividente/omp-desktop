@@ -2242,7 +2242,7 @@
       "id": "research-diagnostics-resources-behavior-1",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -2274,19 +2274,52 @@
       },
       "execution": {
         "attempts": 2,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12986037885643889939",
         "dispatch_key": "edf938feffecf87e9da8d72e",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-edf938feffecf87e9da8d72e",
         "started_at": "2026-09-17T04:52:20Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T05:30:38Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "observed_at": "2026-09-17T04:52:20Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "observed_at": "2026-09-17T05:30:38Z",
         "released_attempt_ref": "autonomous/attempt-d788ffd101dfe3b269591d43",
-        "session_state": "IN_PROGRESS"
+        "session_state": "COMPLETED"
+      },
+      "research_result": {
+        "summary": "Verified ResourceHealthPanel rendering and focus behaviors with synthetic snapshot data. Backend contracts for memory, swap, and process sampling correctly match the frontend presentation logic.",
+        "observations": [
+          {
+            "scenario": "Render ResourceHealthPanel with synthetic healthy snapshot",
+            "evidence": "Locally wrote and executed a Vitest component test (src/tests/ResourceHealthPanel.test.tsx) using a synthetic snapshot (512MiB/16GiB memory available, 0 bytes swap used, ok severity). The component accurately formatted sizes using binary units and rendered without displaying actionable warnings.",
+            "result": "Establishes that the frontend gracefully handles healthy system metrics and cleanly conditionally renders without displaying the critical action paragraph when no pressure is detected."
+          },
+          {
+            "scenario": "ResourceHealthPanel focus trapping and modal behavior",
+            "evidence": "Inspected src/IncidentCenter.test.tsx and src/ResourceHealthPanel.tsx source. The panel utilizes DOM query selector filters to trap Tab navigation and reliably assigns aria-hidden/inert to background DOM elements via MutationObserver.",
+            "result": "Dialog accessibility and modal trap function robustly on standard HTML elements without regression."
+          },
+          {
+            "scenario": "Backend sysinfo limits and snapshot serialization",
+            "evidence": "Inspected src-tauri/src/resource_health.rs threshold constants (e.g., MEMORY_CRITICAL_BYTES = 512 MiB) and swap logic. The calculation of swap severity correctly relies on the ratio of used swap out of total swap, matching the frontend's usage text interpolation expectations.",
+            "result": "Backend structural contract for ResourceHealthSnapshot maps one-to-one with the frontend's expectations in ResourceHealthPanel and resourceHealth.ts without datatype mismatches or formatting contradictions."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the rendering performance and visual consistency of IncidentCenter when populated with the maximum limit (100) of synthetic runtime incidents."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T05:30:38Z",
+        "source": {
+          "activity_id": "sessions/12986037885643889939/activities/e0928fb5ddd64d20961f4755c0450f6b",
+          "report_sha256": "f15d4db590cf5e2f9093d5e590e0e92ce8cd9467b1e16767b410d82726954f54",
+          "activity_created_at": "2026-09-17T05:05:07Z",
+          "session_id": "12986037885643889939",
+          "dispatch_key": "edf938feffecf87e9da8d72e"
+        },
+        "deferred_findings": []
       }
     }
   ]
