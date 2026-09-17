@@ -3772,7 +3772,7 @@
       "id": "research-terminal-input-performance-2",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -3891,18 +3891,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5020451505467015183",
         "dispatch_key": "b3a2a7041486c9ca2204d19e",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-b3a2a7041486c9ca2204d19e",
         "started_at": "2026-09-17T20:46:35Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T21:03:28Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-17T20:54:25Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T21:03:28Z"
+      },
+      "research_result": {
+        "summary": "Investigated Terminal output continuity batching and decoding resource use.",
+        "observations": [
+          {
+            "scenario": "Memory profile of terminalOutputBatcher.ts buffering up to 10MB of sequential chunks",
+            "evidence": "Ran isolated vitest benchmark with createTerminalOutputBatcher chunking 2500 events of 4KB each over performance.now() window limits. Demonstrated O(N) allocation bounds working correctly; it consumed bounded resources (41 flushes) scaling stably.",
+            "result": "Establishes that the memory batcher accurately prevents rendering stalls by limiting synchronous write iterations to xterm.js."
+          },
+          {
+            "scenario": "Throughput and allocation of decodeBase64 parsing large chunks",
+            "evidence": "Ran isolated Node.js script comparing the custom charCodeAt-based decodeBase64 logic vs Buffer.from/Uint8Array.from on 10MB of PTY data. The custom loop took ~50ms vs native Buffer ~15ms, showing acceptable allocation per payload length but scaling linearly.",
+            "result": "Establishes that decodeBase64 correctly isolates browser vs Node context without memory leaks, operating sequentially within the 16ms batch window."
+          },
+          {
+            "scenario": "State tracking cleanup for forgotten terminal continuity on close",
+            "evidence": "Created unit test inspecting `forgetTerminalContinuity` in `terminalContinuity.ts`. It correctly drops the baseline generation map entry via `Map.delete`, preventing unbound memory leaks over long session durations when terminal instances exit.",
+            "result": "Establishes that terminal continuity baselines do not permanently retain stale memory state across tab closures."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm WebGL renderer capability switching bounds when resizing massive numbers of terminal windows concurrently.",
+          "Examine if clipboard copying correctly preserves multi-byte strings spanning xterm lines across wrapped windows."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T21:03:28Z",
+        "source": {
+          "activity_id": "sessions/5020451505467015183/activities/e814a7bdeb2143ca800e81ef472069f4",
+          "report_sha256": "dd18f0dfbadeb9060ee5f63b7a5161bd51cfe76458d737769168bd9f519e7be3",
+          "activity_created_at": "2026-09-17T20:54:15Z",
+          "session_id": "5020451505467015183",
+          "dispatch_key": "b3a2a7041486c9ca2204d19e"
+        },
+        "deferred_findings": []
       }
     }
   ]
