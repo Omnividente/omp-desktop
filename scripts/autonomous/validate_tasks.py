@@ -163,6 +163,35 @@ def validate_research_result(block: Any, prefix: str = "research_result") -> lis
     return errors
 
 
+def _validate_discovery_import(task: dict, task_ids: set, prefix: str) -> list:
+    if "discovery_import" not in task:
+        return []
+    receipt = task["discovery_import"]
+    report = task.get("research_result")
+    if (task.get("task_type") != "project_discovery" or not isinstance(receipt, dict)
+            or not isinstance(report, dict) or not isinstance(report.get("source"), dict)
+            or receipt.get("source") != report["source"]):
+        return [prefix + ".discovery_import must identify the accepted research report"]
+    result = receipt.get("result")
+    if not isinstance(result, dict) or result.get("status") != "ok" or result.get("changed") is not True:
+        return [prefix + ".discovery_import requires a successful immutable import result"]
+    errors = []
+    for field in ("added", "duplicates"):
+        identifiers = result.get(field)
+        if not _string_list(identifiers) or any(identifier not in task_ids for identifier in identifiers):
+            errors.append(prefix + ".discovery_import." + field + " must link existing canonical tasks")
+    if not isinstance(result.get("skipped"), list) or any(
+        not isinstance(item, dict) or not _nonblank(item.get("id")) or not _nonblank(item.get("reason"))
+        for item in result.get("skipped", [])
+    ):
+        errors.append(prefix + ".discovery_import.skipped requires identified decisions")
+    if not _nonblank(result.get("detail")) or type(result.get("unverified_count")) is not int:
+        errors.append(prefix + ".discovery_import requires detail and unverified_count")
+    errors.extend(validate_research_result(dict(report, deferred_findings=result.get("deferred")),
+                                           prefix + ".discovery_import"))
+    return errors
+
+
 def _validate_research(task: dict, prefix: str) -> list:
     errors = []
     research = task.get("research")
@@ -220,6 +249,43 @@ def _validate_research(task: dict, prefix: str) -> list:
                     or not _nonblank(issue.get("code")) or not _nonblank(issue.get("detail"))
                     or not _utc_timestamp(issue.get("reported_at"))):
                 errors.append(prefix + ".report_error requires code, detail and an ISO UTC reported_at")
+            if isinstance(issue, dict) and "source" in issue:
+                errors.extend(_validate_report_source(issue["source"], prefix + ".report_error.source"))
+                if isinstance(issue["source"], dict) and any(
+                    issue["source"].get(field) != execution.get(field) for field in ("session_id", "dispatch_key")
+                ):
+                    errors.append(prefix + ".report_error.source must belong to the stored attempt")
+        if "report_repair" in execution:
+            repair = execution["report_repair"]
+            if not isinstance(repair, dict):
+                errors.append(prefix + ".report_repair must be an object")
+            else:
+                if (task.get("task_type") != "project_discovery"
+                        or not _nonblank(execution.get("session_id"))
+                        or not _nonblank(execution.get("dispatch_key"))
+                        or type(execution.get("attempts")) is not int or execution["attempts"] < 1
+                        or execution.get("pull_request")):
+                    errors.append(prefix + ".report_repair requires the bound research attempt without a PR")
+                if not _utc_timestamp(repair.get("at")) or repair.get("result") not in ("pending", "sent", "unknown", "rejected"):
+                    errors.append(prefix + ".report_repair requires UTC at and a durable send result")
+                status = repair.get("status")
+                if status not in ("pending", "resolved", "invalid", "rejected", "expired", "failed", "conflict"):
+                    errors.append(prefix + ".report_repair has invalid status")
+                expected = ("done", "completed") if status == "resolved" else ("blocked", "awaiting_report")
+                if (task.get("status"), state) != expected:
+                    errors.append(prefix + ".report_repair status contradicts lifecycle")
+                if status == "resolved" and (outcome not in ("no_change", "researched") or "research_result" not in task):
+                    errors.append(prefix + ".resolved report_repair requires an accepted research report")
+                if repair.get("result") == "rejected" and status not in ("rejected", "resolved"):
+                    errors.append(prefix + ".rejected report_repair cannot be pending")
+                if status not in ("pending", "resolved") and not _nonblank(repair.get("detail")):
+                    errors.append(prefix + ".terminal report_repair requires a diagnostic detail")
+                if "source" in repair:
+                    errors.extend(_validate_report_source(repair["source"], prefix + ".report_repair.source"))
+                    if isinstance(repair["source"], dict) and any(
+                        repair["source"].get(field) != execution.get(field) for field in ("session_id", "dispatch_key")
+                    ):
+                        errors.append(prefix + ".report_repair.source must belong to the stored attempt")
     return errors
 
 def _validate_execution(block: Any, prefix: str) -> list:
@@ -303,6 +369,7 @@ def validate(manifest: Any) -> list:
     if not isinstance(tasks, list):
         return errors + ["tasks must be a list"]
 
+    task_ids = {task["id"] for task in tasks if isinstance(task, dict) and isinstance(task.get("id"), str)}
     seen_ids: set = set()
     lane_counts = {False: 0, True: 0}
     research_pairs = set()
@@ -390,6 +457,7 @@ def validate(manifest: Any) -> list:
         if isinstance(origin, dict) and ("activity_id" in origin or "report_sha256" in origin):
             errors.extend(_validate_report_source(origin, prefix + ".origin"))
         errors.extend(_validate_research(task, prefix))
+        errors.extend(_validate_discovery_import(task, task_ids, prefix))
         errors.extend(_validate_proposal(task, prefix))
 
     for discovery, count in lane_counts.items():

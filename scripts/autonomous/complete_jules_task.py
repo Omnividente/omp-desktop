@@ -22,7 +22,7 @@ from jules_dispatch import (
     session_matches, session_resource, session_state, urllib_transport,
 )
 from task_lifecycle import awaiting_report, complete, find_task, iso, park_report, parse_iso, utcnow
-from validate_tasks import validate, validate_research_result
+from validate_tasks import _validate_report_source, validate, validate_research_result
 
 RESEARCH_BEGIN = "AUTONOMOUS_RESEARCH_BEGIN"
 RESEARCH_END = "AUTONOMOUS_RESEARCH_END"
@@ -157,7 +157,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     """Stage imports and the authoritative lifecycle transition as one mutation.
 
     Transport/read failures leave the queue untouched. Malformed report packaging
-    parks the bound attempt; only explicit recovery can complete it afterwards.
+    parks the bound attempt; recovery accepts only a newer, valid report.
     """
     task = find_task(manifest, task_id)
     if task is None:
@@ -212,11 +212,28 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                   "research_parser": {"status": "not_checked", "detail": ""},
                   "findings_parser": {"status": "not_checked", "detail": ""}}
     text = ""
+    source = None
+    fresh_report = False
     try:
         if task.get("task_type") == "project_discovery":
             # Finish all API reads before any mutation, even for invalid output.
             text, source = latest_report(list_activities(transport, api_base, ring, resource))
             source.update(session_id=str(execution["session_id"]), dispatch_key=str(execution["dispatch_key"]))
+            if _validate_report_source(source, "report.source"):
+                source = None
+                raise InvalidReport("report activity provenance is invalid", "report_provenance")
+            if recovering:
+                receipt = execution.get("report_repair") or {}
+                previous = receipt.get("source") or (execution.get("report_error") or {}).get("source") or {}
+                created = parse_iso(source["activity_created_at"])
+                boundary = parse_iso(previous.get("activity_created_at"))
+                requested = parse_iso(receipt.get("at"))
+                if ((previous and (source["activity_id"] == previous.get("activity_id")
+                                   or (boundary and created <= boundary)))
+                        or (requested and created < requested)):
+                    return {"changed": False, "reason": "report_unchanged", "task_id": task_id,
+                            "imported_count": 0}
+            fresh_report = True
             diagnostic["source"] = source
             diagnostic["selection"] = {"status": "ok", "detail": "latest worker report selected"}
             block = parse_block(text)
@@ -262,7 +279,13 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
             diagnostic["selection"] = {"status": exc.code, "detail": str(exc)}
         diagnostic["error_code"] = exc.code
         result = park_report(staged, task_id, code=exc.code,
-                             detail=redact(str(exc), secrets)[:2000], now=moment)
+                             detail=redact(str(exc), secrets)[:2000], now=moment, source=source)
+        repair = find_task(staged, task_id)["execution"].get("report_repair")
+        if recovering and fresh_report and repair:
+            repair["source"] = source
+            if repair["status"] == "pending":
+                repair.update(status="invalid", detail=redact(str(exc), secrets)[:2000])
+            result["changed"] = True
         imported = {"added": []}
     errors = validate(staged)
     if errors:
@@ -279,6 +302,8 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     manifest.clear()
     manifest.update(staged)
     result["imported_count"] = len(imported["added"])
+    if source:
+        result["report_source"] = source
     return result
 
 

@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
 from research_cycle import plan_research
+from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
 from urllib.parse import parse_qs, urlsplit
 
@@ -205,6 +206,27 @@ class DecisionTest(unittest.TestCase):
         self.assertNotIn("PRIVATE_WORKER_PROSE", json.dumps(result))
         self.assertNotIn("attempt-one", json.dumps(result))
         self.assertNotIn("never-print", json.dumps(result))
+
+    def test_pending_report_repair_is_polled_without_occupying_implementation_lane(self):
+        data, _ = plan_research(queue(), settings(), {"terminal": "c" * 64}, now=NOW)
+        data["tasks"][0].update(status="blocked", execution={
+            "state": "awaiting_report", "outcome": "report_invalid", "attempts": 1,
+            "session_id": "123", "dispatch_key": "attempt-one", "started_at": NOW.isoformat(),
+            "session_state": "COMPLETED",
+            "report_error": {"code": "research_invalid", "detail": "unmarked report", "reported_at": NOW.isoformat()},
+            "report_repair": {"at": NOW.isoformat(), "result": "unknown", "status": "pending"},
+        })
+        data["controller"] = {"last_poll_at": NOW.isoformat()}
+        result = health(data)
+        self.assertEqual((result["action"], result["delay_seconds"]), ("none", 300))
+        due = health(data, now=NOW + timedelta(minutes=5))
+        self.assertEqual((due["action"], due["reason"]), ("next_task", "active_polling"))
+        self.assertEqual(due["attention"][0]["repair_status"], "pending")
+        self.assertEqual(health(data, enabled=False)["action"], "none")
+        data["tasks"].append(task(proposal_decision={"action": "approve", "actor": "owner",
+                              "at": NOW.isoformat(), "note": "Explicit implementation approval"}))
+        self.assertTrue(select(data, task_id="fix")["selected"])
+        self.assertEqual(health(data)["action"], "none")
 
     def test_completed_verified_pr_requires_reconciliation_without_mutating_queue(self):
         pending, pr = proposal()

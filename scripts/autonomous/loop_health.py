@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
-from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, select, valid_research_detachment
+from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, pending_report_repair, select, valid_research_detachment
 from task_lifecycle import awaiting_report, sweep
 from validate_tasks import validate
 from jules_provenance import trusted_pull_request
@@ -51,13 +51,18 @@ def poll_due_at(tasks: Sequence[dict], useful_at: datetime | None, now: datetime
         changed_at = max((at for field in ("observed_at", "started_at")
                           if (at := _time(execution.get(field))) is not None), default=None)
         interval = POLL_INTERVAL
-        if (task.get("task_type") != DISCOVERY_TYPE or valid_research_detachment(task)
-                or execution.get("session_state") in WAITING_REASONS):
+        if pending_report_repair(task):
+            changed_at = _time(execution["report_repair"]["at"])
+        elif (task.get("task_type") != DISCOVERY_TYPE or valid_research_detachment(task)
+              or execution.get("session_state") in WAITING_REASONS):
             interval = WAITING_POLL_INTERVAL
         elif changed_at and now - changed_at >= UNCHANGED_AFTER:
             interval = UNCHANGED_POLL_INTERVAL
         anchor = max((at for at in (useful_at, changed_at) if at is not None), default=None)
-        deadlines.append(anchor + interval if anchor else now)
+        deadline = anchor + interval if anchor else now
+        if pending_report_repair(task):
+            deadline = min(deadline, changed_at + timedelta(hours=6))
+        deadlines.append(deadline)
     return min(deadlines, default=now)
 
 
@@ -179,6 +184,10 @@ def assess_health(
             reported_at = _time((execution.get("report_error") or {}).get("reported_at"))
             attention.append({"reason": "report_invalid", "task_id": task["id"],
                               "observed_at": _iso(reported_at) if reported_at else None})
+            repair = execution.get("report_repair")
+            if repair:
+                attention[-1]["repair_status"] = repair["status"]
+                attention[-1]["repair_result"] = repair["result"]
     failed_sync = not main_is_ancestor and last_sync is not None and last_sync.get("conclusion") in FAILED_CONCLUSIONS
     failed_sync = failed_sync or bool(observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"))
     if failed_sync:
@@ -287,7 +296,7 @@ def assess_health(
     for task in unresolved:
         execution = task.get("execution") or {}
         state = execution.get("session_state")
-        if (task.get("task_type") == DISCOVERY_TYPE and state in WAITING_REASONS
+        if (not pending_report_repair(task) and task.get("task_type") == DISCOVERY_TYPE and state in WAITING_REASONS
                 and "research_detached" not in execution):
             candidate = {**task, "execution": {**execution, "research_detached": {
                 "at": _iso(now), "reason": state,

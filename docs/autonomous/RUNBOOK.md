@@ -102,6 +102,14 @@ into `main`.
    an older valid message. Malformed output becomes
    `blocked / awaiting_report / report_invalid`, not `no_change` or another
    worker; unrelated research can proceed. Editable PR bodies are never imported.
+   A newly detected malformed report can receive one formatting-only message in
+   that same session. `execution.report_repair` is persisted before POST; a lost
+   acknowledgement or restart never grants another send. Pending repair polls
+   every five minutes for at most six hours. Rejected, failed, conflicting,
+   invalid or expired repair stays parked, without a new attempt. A strictly
+   newer activity can resolve it; subsecond activity/request times are preserved.
+   Historical parked reports are touched only by explicit `recover_report` for
+   their exact task. While disabled this may read, but never send a repair request.
 6. **One reviewed revision and one current base.** The review workflow pins
    `ci_sha`, the complete file list and current `lab_sha`, and verifies lab
    ancestry from the exact compare endpoint. Historical REST `pr.base.sha` is
@@ -196,6 +204,19 @@ from other areas are excluded. Rotation, cooldown and quota still use the
 area/perspective pair, not the broader shared context. Findings
 outside the execution boundary remain `deferred_findings` with their paths,
 acceptance criteria and exclusion reason; they are visible but never dispatched.
+The importer requires trusted product configuration even when invoked directly
+with `--config`. Exact duplicates retain a canonical ID only when the complete
+directed contract matches: paths, task type, title, detail, ordered reproduction
+steps, expected/actual outcomes and acceptance. Similar wording is not proof;
+it becomes `possible_duplicate` with a canonical review link and full evidence,
+including incomplete reproduction, rather than another queued proposal or a
+discarded claim. Independent contracts in one file remain separate. A task's
+controller-owned `discovery_import` receipt is bound to the accepted report and
+keeps replay stable after canonical work closes; it does not rewrite that work
+or the immutable worker report. A new report may describe a genuine regression.
+Existing proposals are included as a labeled, bounded queue-context snapshot.
+Shortened previous reports carry `context_excerpt` and original array counts;
+their stored source reports remain unchanged.
 `researched` means findings were recorded; `no_change` requires real observations
 and an empty findings list. Neither is proof that a release is verified.
 

@@ -588,6 +588,153 @@ class ControllerTests(unittest.TestCase):
         self.run_tick(task_id="", config=config)
         self.assertEqual((self.api.posts, len(self.api.messages)), (2, 1))
 
+    def broken_research(self):
+        entry = self.data["tasks"][0]
+        entry.update(task_type="project_discovery")
+        entry.pop("proposal_decision")
+        start(self.data, "first", session_id="7", dispatch_key="repair", now=NOW)
+        entry["execution"].update(base_sha=self.head, starting_branch="autonomous/attempt-repair")
+        self.api.values["7"] = session("7", "repair", "COMPLETED")
+        self.repair_activity("Final prose without structured report", "old", NOW - timedelta(minutes=1))
+        self.persist(self.data)
+        return copy.deepcopy(entry["execution"])
+
+    def repair_activity(self, text, identifier, at):
+        self.api.activities.setdefault("7", []).append({
+            "name": "sessions/7/activities/" + identifier, "createTime": at.isoformat(),
+            "originator": "agent", "agentMessaged": {"agentMessage": text},
+        })
+
+    def test_unknown_repair_survives_restart_and_automatic_poll_accepts_new_activity(self):
+        identity = self.broken_research()
+        self.api.message_status = 0
+        self.run_tick()
+        parked = self.reload()[0]
+        error = copy.deepcopy(parked["execution"]["report_error"])
+        self.assertEqual(parked["execution"]["report_repair"]["result"], "unknown")
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.reload()[0]["execution"]["report_error"], error)
+        self.assertNotIn("research_result", self.data["tasks"][0])
+        valid = {"summary": "Observed clock", "observations": [
+            {"scenario": "resume", "evidence": "synthetic transcript", "result": "clock advanced"}],
+            "next_hypotheses": []}
+        self.repair_activity("AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(valid)
+                             + "\nAUTONOMOUS_RESEARCH_END", "fixed", NOW + timedelta(minutes=6))
+        with patch("health_snapshot.gh_get", side_effect=self.snapshot_api):
+            self.run_tick(task_id="", automatic=True, now=NOW + timedelta(minutes=10))
+        completed = self.reload()[0]
+        self.assertEqual(completed["status"], "done")
+        self.assertEqual(completed["execution"]["report_repair"]["status"], "resolved")
+        self.assertEqual(completed["research_result"]["source"]["activity_id"], "sessions/7/activities/fixed")
+        self.assertNotIn("report_error", completed["execution"])
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(completed["execution"][field], identity[field])
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+        self.assertEqual(self.api.messages[0][0], "/v1alpha/sessions/7:sendMessage")
+
+    def test_repair_intent_is_durable_before_effect_and_lost_ack_never_resends(self):
+        self.broken_research()
+        def fail_intent(data):
+            if data["tasks"][0]["execution"].get("report_repair"):
+                raise RuntimeError("intent write failed")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=fail_intent)
+        self.assertEqual(self.api.messages, [])
+        self.reload()
+        def lose_ack(data):
+            if (data["tasks"][0]["execution"].get("report_repair") or {}).get("result") == "sent":
+                raise RuntimeError("ack write failed")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=lose_ack)
+        self.assertEqual(self.reload()[0]["execution"]["report_repair"]["result"], "pending")
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+
+    def test_second_invalid_report_parks_without_erasing_original_error_or_retrying(self):
+        self.broken_research()
+        self.run_tick()
+        error = copy.deepcopy(self.reload()[0]["execution"]["report_error"])
+        self.repair_activity("Still prose", "second-invalid", NOW + timedelta(minutes=1))
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        saved = self.reload()[0]
+        self.assertEqual(saved["execution"]["report_repair"]["status"], "invalid")
+        self.assertEqual(saved["execution"]["report_error"], error)
+        gets = self.api.gets
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        self.assertEqual(self.api.gets, gets)
+        self.assertEqual((saved["status"], self.api.posts, len(self.api.messages)), ("blocked", 0, 1))
+        self.assertNotIn("research_result", saved)
+
+    def test_rejected_completed_session_repair_is_parked_without_backup_key_retry(self):
+        self.broken_research()
+        self.api.message_status = 403
+        tick(self.data, CONFIG, repo=self.repo, templates=TEMPLATES, github=self.github,
+             persist=self.persist, api_keys=["fixture-primary", "fixture-backup"], transport=self.api,
+             api_base="http://localhost/v1alpha", now=NOW, task_id="first")
+        saved = self.reload()[0]
+        self.assertEqual(saved["execution"]["report_repair"]["status"], "rejected")
+        gets = self.api.gets
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.api.gets, gets)
+        self.run_tick(recover_report=True, now=NOW + timedelta(minutes=10))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+        self.assertNotIn("research_result", self.reload()[0])
+
+    def test_historical_report_requires_explicit_enabled_recovery(self):
+        self.broken_research()
+        self.github.is_enabled = False
+        self.run_tick()
+        self.reload()
+        self.run_tick(recover_report=True)
+        self.assertEqual(self.api.messages, [])
+        self.github.is_enabled = True
+        self.run_tick()
+        self.assertEqual(self.api.messages, [])
+        self.run_tick(recover_report=True)
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+
+    def test_switch_after_repair_intent_prevents_post(self):
+        self.broken_research()
+        def switch_off(data):
+            self.persist(data)
+            if data["tasks"][0]["execution"].get("report_repair"):
+                self.github.is_enabled = False
+        self.run_tick(persist=switch_off)
+        self.assertEqual(self.api.messages, [])
+        self.assertEqual(self.reload()[0]["execution"]["report_repair"]["status"], "rejected")
+        self.github.is_enabled = True
+        self.run_tick(recover_report=True)
+        self.assertEqual(self.api.messages, [])
+
+    def test_unknown_repair_expires_without_new_attempt_or_resend(self):
+        self.broken_research()
+        self.api.message_status = 0
+        self.run_tick()
+        self.reload()
+        self.run_tick(now=NOW + timedelta(hours=6))
+        saved = self.reload()[0]
+        self.assertEqual(saved["execution"]["report_repair"]["status"], "expired")
+        gets = self.api.gets
+        self.run_tick(now=NOW + timedelta(hours=7))
+        self.assertEqual(self.api.gets, gets)
+        self.assertEqual((saved["status"], self.api.posts, len(self.api.messages)), ("blocked", 0, 1))
+
+    def test_repair_pull_request_conflict_is_not_accepted_or_retargeted(self):
+        self.broken_research()
+        self.run_tick()
+        self.reload()
+        self.github.add_proposal(59, base="main")
+        self.api.values["7"]["outputs"] = [{"pullRequest": {"url": f"https://github.com/{REPOSITORY}/pull/59"}}]
+        result = self.run_tick(now=NOW + timedelta(minutes=5))
+        saved = self.reload()[0]
+        self.assertEqual(saved["execution"]["report_repair"]["status"], "conflict")
+        self.assertEqual(saved["status"], "blocked")
+        self.assertNotIn("research_result", saved)
+        self.assertEqual((self.github.retargets, self.api.posts, len(self.api.messages)), (0, 0, 1))
+        self.assertIn("pull request", result["attention"][0]["reason"])
+
     def test_explicit_unapproved_or_foreign_approval_never_creates_worker(self):
         for decision in (None, {"action": "approve", "actor": "foreign",
                                "at": "2026-09-13T11:00:00Z", "note": "Spoofed approval"}):

@@ -127,7 +127,7 @@ jobs:
             cat health.json
             echo '```'
             echo ''
-            echo 'report_invalid: inspect the stored diagnostics and reharvest the same completed session with retry_report; do not launch another AI attempt.'
+            echo 'report_invalid: inspect diagnostics and report_repair status. Pending formatting repair polls the same session for at most six hours; terminal or historical parked reports need explicit recover_report for their task. Never create another attempt to repair packaging.'
             echo 'sync_failed: inspect the failed candidate checks, repair the cause and explicitly run Autonomous Sync Main. Automatic retries of that main revision are paused.'
             echo 'next_task_stalled / scheduler_overdue: useful work missed its deadline; green skipped runs do not reset progress. Inspect the timer owner and confirmed handoff.'
             echo 'worker_awaiting_feedback / worker_awaiting_approval / worker_paused: act only in the linked existing Jules session; observation runs never answer or create a replacement. Scheduled polls use 30-minute cadence.'
