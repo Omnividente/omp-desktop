@@ -7,16 +7,20 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
 from jules_provenance import trusted_pull_request
-from loop_health import ACTIVE_RUN_STATUSES, workflow_runs
+from loop_health import ACTIVE_RUN_STATUSES, assess_health, workflow_runs
+from research_cycle import scope_fingerprints
+from sync_main import git, revision
 from validate_tasks import validate
 
 RECENT_COMPLETED = 100
 WORKFLOWS = {"Autonomous Next Task": ("autonomous_next_task.yml", "next-runs.json"),
-             "Autonomous Sync Main": ("autonomous_sync.yml", "sync-runs.json")}
+             "Autonomous Sync Main": ("autonomous_sync.yml", "sync-runs.json"),
+             "Autonomous Continue": ("autonomous_continue.yml", "wakeup-runs.json")}
 
 
 def gh_get(repository: str, path: str, *, paginate: bool = False):
@@ -33,20 +37,24 @@ def snapshot_runs(get, workflow: str) -> list[dict]:
     # Completed history is only a recency signal, never evidence of idle slots.
     recent = get(endpoint + urlencode({"status": "completed", "per_page": RECENT_COMPLETED}))
     runs = {run["id"]: run for run in workflow_runs(recent)}
-    for status in sorted(ACTIVE_RUN_STATUSES):
-        pages = get(endpoint + urlencode({"status": status, "per_page": 100}), paginate=True)
-        if not isinstance(pages, list) or not pages:
-            raise ValueError("incomplete active run snapshot")
-        found = {}
-        for page in pages:
-            for run in workflow_runs(page):
-                found[run["id"]] = run
-        # GitHub caps filtered searches at 1000. Never turn a capped/partial
-        # response into 'all idle'; a later scheduler tick can retry the read.
-        totals = [page.get("total_count") for page in pages]
-        if any(type(total) is not int or total >= 1000 or total > len(found) for total in totals):
-            raise ValueError("active run snapshot is capped or incomplete")
-        runs.update(found)
+    # The status queries are not atomic: a pending run may start just after the
+    # in_progress query and disappear from both filters. Collect twice and keep
+    # every observed active run; a racing completion may delay work, not admit it.
+    for _ in range(2):
+        for status in sorted(ACTIVE_RUN_STATUSES):
+            pages = get(endpoint + urlencode({"status": status, "per_page": 100}), paginate=True)
+            if not isinstance(pages, list) or not pages:
+                raise ValueError("incomplete active run snapshot")
+            found = {}
+            for page in pages:
+                for run in workflow_runs(page):
+                    found[run["id"]] = run
+            # GitHub caps filtered searches at 1000. Never turn a capped/partial
+            # response into 'all idle'; a later scheduler tick can retry the read.
+            totals = [page.get("total_count") for page in pages]
+            if any(type(total) is not int or total >= 1000 or total > len(found) for total in totals):
+                raise ValueError("active run snapshot is capped or incomplete")
+            runs.update(found)
     return list(runs.values())
 
 
@@ -73,6 +81,33 @@ def snapshot_proposals(get, manifest: dict, repository: str) -> list[dict]:
     return proposals
 
 
+def inspect_health(manifest, config, *, repo, enabled, now=None, state_sha="", current_run_id="", get=None) -> dict:
+    """Inspect fetched refs and complete live snapshots without updating any state."""
+    repository = config["repository"]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("invalid repository")
+    if validate(manifest):
+        raise ValueError("invalid manifest")
+    repo = Path(repo)
+    main_sha = revision(repo, "refs/remotes/origin/" + config.get("default_branch", "main"))
+    lab_sha = revision(repo, "HEAD")
+    ancestry = git(repo, "merge-base", "--is-ancestor", main_sha, lab_sha, check=False).returncode
+    if ancestry not in (0, 1):
+        raise ValueError("cannot determine lab ancestry")
+    fingerprints = scope_fingerprints(config, repo) if (config.get("research") or {}).get("enabled") else {}
+    if get is None:
+        def get(path, *, paginate=False):
+            return gh_get(repository, path, paginate=paginate)
+    snapshots = {filename: snapshot_runs(get, workflow) for workflow, filename in WORKFLOWS.values()}
+    return assess_health(
+        manifest, config, main_sha=main_sha, lab_sha=lab_sha, main_is_ancestor=ancestry == 0,
+        fingerprints=fingerprints, runs=snapshots["next-runs.json"], sync_runs=snapshots["sync-runs.json"],
+        wakeup_runs=snapshots["wakeup-runs.json"], pull_requests=snapshot_proposals(get, manifest, repository),
+        enabled=enabled, now=now if now is not None else datetime.now(timezone.utc),
+        state_sha=state_sha, current_run_id=current_run_id,
+    )
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -95,8 +130,8 @@ def main(argv=None) -> int:
         outputs = {}
         for name, (workflow, filename) in WORKFLOWS.items():
             runs = snapshot_runs(get, workflow)
-            # Completion webhooks may precede the list endpoint's update. An
-            # exact fresh read anchors cadence even when queue bytes did not change.
+            # Completion webhooks may precede the list endpoint's update. Keep
+            # failure/busy diagnostics fresh; completion is not a useful tick clock.
             if (completed.get("name") == name and type(completed.get("id")) is int
                     and (completed.get("head_repository") or {}).get("full_name") == repository):
                 observed = get("actions/runs/" + str(completed["id"]))

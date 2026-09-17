@@ -112,12 +112,15 @@ jobs:
           # Read-only: neither the planner's prospective task nor lifecycle
           # reconciliation is written back to the integration queue.
           status=0
-          python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json "${sync_args[@]}" --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
+          python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json "${sync_args[@]}" --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --wakeup-runs wakeup-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json || status=$?
           {
             echo '### Autonomous loop health'
             echo ''
             echo "- Loop entry points out of date: ${ENTRY_DRIFT:-unknown}"
             echo '- Releases: disabled by policy, human-gated'
+            echo ''
+            echo '### Scheduler, independent of proposal attention'
+            jq -r '(.scheduler // {}) | "- Last useful tick: \(.last_tick_at // "unknown")\n- Last worker poll: \(.last_poll_at // "unknown")\n- Next deadline: \(.due_at // "none")\n- Overdue seconds: \(.overdue_seconds // 0)\n- Scheduler state: \(.state // "unknown")\n- Waiting owner: \(.wakeup_run.id // "none")"' health.json
             echo ''
             echo 'Observed controller decision (no action taken):'
             echo '```json'
@@ -126,7 +129,7 @@ jobs:
             echo ''
             echo 'report_invalid: inspect the stored diagnostics and reharvest the same completed session with retry_report; do not launch another AI attempt.'
             echo 'sync_failed: inspect the failed candidate checks, repair the cause and explicitly run Autonomous Sync Main. Automatic retries of that main revision are paused.'
-            echo 'next_task_stalled: due work has no NextTask activity within 90 minutes; inspect continuation and the enabled switch.'
+            echo 'next_task_stalled / scheduler_overdue: useful work missed its deadline; green skipped runs do not reset progress. Inspect the timer owner and confirmed handoff.'
             echo 'worker_awaiting_feedback / worker_awaiting_approval / worker_paused: act only in the linked existing Jules session; observation runs never answer or create a replacement. Scheduled polls use 30-minute cadence.'
           } >> "${GITHUB_STEP_SUMMARY}"
           health=$(jq -r '.health' health.json)

@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from build_jules_request import build, dispatch_key, next_attempt
 from complete_jules_task import atomic_write, harvest, redact
+from health_snapshot import inspect_health
 from jules_dispatch import (
     DEFAULT_API_BASE, CreateRejected, KeyRing, dispatch, get_session, session_failed,
     session_is_active, session_state, session_resource, request_with_keys, urllib_transport,
@@ -164,9 +165,11 @@ def tick(
     api_keys, transport=urllib_transport, api_base=DEFAULT_API_BASE,
     now: datetime | None = None, task_id: str = "", focus: str = "", risk: str = "medium",
     recover_report: bool = False, diagnostics: Path | None = None,
+    automatic: bool = False, run_id: str = "",
 ) -> dict:
     """CAS-check before effects; persist transitions, report every observation separately."""
-    now = now or datetime.now(timezone.utc)
+    clock = (lambda: now) if now is not None else lambda: datetime.now(timezone.utc)
+    now = clock()
     repository = config["repository"]
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     result = {"observed_at": iso(now), "action": "none", "reason": "idle", "attention": [],
@@ -175,12 +178,47 @@ def tick(
         raise ValueError("laboratory controller requires manual acceptance")
     if config.get("parallel_mode", {}).get("integration_branch") != LAB_BRANCH:
         raise ValueError("laboratory target must not be main")
+    if automatic:
+        if task_id or focus or recover_report:
+            raise ValueError("automatic ticks cannot select or recover a task")
+        result["automatic"] = True
+        if not github.enabled():
+            return dict(result, reason="loop_disabled", skipped=True)
+        branch = config.get("default_branch", "main")
+        if branch != "main":
+            raise ValueError("automatic ticks require the trusted main control plane")
+        _git(repo, "fetch", "--no-tags", "origin",
+             "+refs/heads/main:refs/remotes/origin/main",
+             "+refs/heads/autonomous/lab:refs/remotes/origin/autonomous/lab")
+        lab_sha = _git(repo, "rev-parse", "HEAD").stdout.decode().strip()
+        current_lab = _git(repo, "rev-parse", "refs/remotes/origin/autonomous/lab").stdout.decode().strip()
+        if lab_sha != current_lab:
+            return dict(result, reason="product_moved", skipped=True)
+        readiness = inspect_health(manifest, config, repo=repo, enabled=True,
+                                   now=now, current_run_id=run_id)
+        result["scheduler"] = readiness["scheduler"]
+        if readiness["action"] != "next_task":
+            return dict(result, reason=readiness["reason"], skipped=True)
+        if not github.enabled():
+            return dict(result, reason="loop_disabled", skipped=True)
 
     def checkpoint():
         try:
             persist(manifest)
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             raise StateWriteError("state save failed; reload the authoritative queue before continuing") from exc
+
+    def finish():
+        useful = (result["observations"] or result["proposals"]
+                  or result["research"].get("research_changed")
+                  or result["action"] not in ("none", "stopped"))
+        if useful and not result["attention"] and result["reason"] != "loop_disabled":
+            controller = manifest.setdefault("controller", {})
+            controller["last_tick_at"] = iso(clock())
+            if run_id:
+                controller["run_id"] = run_id
+            checkpoint()
+        return result
 
     if recover_report:
         target = find_task(manifest, task_id)
@@ -252,6 +290,7 @@ def tick(
         execution = task["execution"]
         number = session_pull_request(session, execution, repository)
         state = session_state(session)
+        manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
         if execution.get("session_state") != state:
             execution["session_state"] = state
             execution["observed_at"] = iso(now)
@@ -321,10 +360,10 @@ def tick(
 
     if recover_report:
         result.update(reason="report_recovery", action="reconciled")
-        return result
+        return finish()
     if not enabled or not github.enabled():
         result["reason"] = "loop_disabled"
-        return result
+        return finish()
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
         branch = execution.get("starting_branch")
@@ -346,15 +385,15 @@ def tick(
     if selection["reason_code"] == "work_in_progress":
         result["reason"] = next((entry["reason"] for entry in result["attention"] + result["waiting_workers"]
                                  if entry.get("task_id") == selection["task_id"]), "worker_running")
-        return result
+        return finish()
     if task_id and not selection["selected"]:
         result["reason"] = selection["reason_code"]
-        return result
+        return finish()
     lab_sha = _git(repo, "rev-parse", "HEAD").stdout.decode().strip()
     main_sha = github.head("main")
     if not main_sha or github.head(LAB_BRANCH) != lab_sha:
         result["reason"] = "product_moved"
-        return result
+        return finish()
     _git(repo, "fetch", "--no-tags", "origin", main_sha)
     ancestry = _git(repo, "merge-base", "--is-ancestor", main_sha, lab_sha, check=False).returncode
     if ancestry not in (0, 1):
@@ -362,7 +401,7 @@ def tick(
     result.update(main_sha=main_sha, lab_sha=lab_sha)
     if ancestry:
         result.update(action="sync", reason="main_not_integrated")
-        return result
+        return finish()
     updated, research = plan_research(
         manifest, config, scope_fingerprints(config, repo) if (config.get("research", {}).get("enabled")
                                                              and not selection["selected"] and not task_id) else {},
@@ -377,7 +416,7 @@ def tick(
                        risk_ceiling=risk, allow_discovery=bool(config.get("research", {}).get("enabled")))
     if not selection["selected"]:
         result["reason"] = selection["reason_code"]
-        return result
+        return finish()
     if not ring:
         raise RuntimeError("no Jules API key is configured")
     task = next(t for t in manifest["tasks"] if t["id"] == selection["task_id"])
@@ -387,12 +426,12 @@ def tick(
             authorize(config, decision.get("actor", ""))
         except ValueError:
             result["reason"] = "implementation_not_approved"
-            return result
+            return finish()
     key = dispatch_key(repository, task["id"], next_attempt(task))
     starting_branch = "autonomous/attempt-" + key
     if not github.enabled() or github.head("main") != main_sha or github.head(LAB_BRANCH) != lab_sha:
         result["reason"] = "dispatch_conditions_changed"
-        return result
+        return finish()
     github.ensure_attempt(starting_branch, lab_sha)
     request = build(task, template=(templates / ("JULES_PROJECT_DISCOVERY_PROMPT.md" if task.get("task_type") == "project_discovery" else "JULES_TASK_PROMPT.md")).read_text(encoding="utf-8"),
                     repo=repository, branch=LAB_BRANCH, base_sha=lab_sha, starting_branch=starting_branch,
@@ -403,7 +442,7 @@ def tick(
         quarantine(manifest, task["id"], reason="loop_disabled_before_create", now=now)
         checkpoint()
         result["reason"] = "loop_disabled"
-        return result
+        return finish()
 
     def create_transport(method, url, headers, payload):
         # ListSessions may paginate or back off after the earlier switch read.
@@ -421,7 +460,7 @@ def tick(
         response = dispatch(create_transport, api_base=api_base, api_keys=ring, request_body=request, allow_create=True)
         if response["result"] == "deferred":
             result.update(action="reconcile", reason=response.get("reason", "unbound_dispatch_intent"))
-            return result
+            return finish()
         start(manifest, task["id"], session_id=response["session_id"], dispatch_key=key, now=now)
         checkpoint()
         if not github.enabled():
@@ -437,7 +476,7 @@ def tick(
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
         record_error(task, exc)
         result.update(action="reconcile", reason="dispatch_requires_reconciliation")
-    return result
+    return finish()
 
 
 def main(argv=None) -> int:
@@ -450,6 +489,8 @@ def main(argv=None) -> int:
     parser.add_argument("--focus", default="")
     parser.add_argument("--risk-ceiling", default="medium")
     parser.add_argument("--recover-report", action="store_true")
+    parser.add_argument("--automatic", action="store_true")
+    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--quarantine-all", action="store_true")
     args = parser.parse_args(argv)
@@ -468,6 +509,10 @@ def main(argv=None) -> int:
         return save_state(args.repo, args.manifest, args.revision_file)
 
     try:
+        if args.automatic and (args.task_id or args.focus or args.recover_report or args.quarantine_all):
+            raise ValueError("automatic ticks cannot select, recover or quarantine a task")
+        if args.run_id and not re.fullmatch(r"[1-9][0-9]*", args.run_id):
+            raise ValueError("invalid workflow run id")
         config = json.loads(args.config.read_text(encoding="utf-8"))
         manifest = load_state(args.repo, args.manifest, args.revision_file)
         loaded = True
@@ -484,7 +529,8 @@ def main(argv=None) -> int:
                           templates=args.config.parent / "docs" / "autonomous",
                           github=GitHub(config["repository"]), persist=persist,
                           api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
-                          recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics.json"))
+                          recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics.json"),
+                          automatic=args.automatic, run_id=args.run_id)
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",
                   "reason": "state_write_failed" if isinstance(exc, StateWriteError) else "controller_error",

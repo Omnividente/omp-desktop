@@ -50,6 +50,7 @@ class Sessions:
         self.activities = {}
         self.posts = 0
         self.after_create = lambda: None
+        self.gets = 0
         self.before_list = lambda: None
         self.create_status = 200
         self.messages = []
@@ -72,6 +73,7 @@ class Sessions:
             return Response(self.message_status)
         if method != "GET":
             raise AssertionError("unexpected worker mutation")
+        self.gets += 1
         if path == "/v1alpha/sessions":
             self.before_list()
             return Response(200, {"sessions": list(self.values.values())})
@@ -180,6 +182,84 @@ class ControllerTests(unittest.TestCase):
                               "instruction": "Inspect a synthetic boundary and report observations."}],
         }
         return config
+
+    def snapshot_api(self, repository, path, *, paginate=False):
+        if path.startswith("actions/workflows/"):
+            wanted = parse_qs(urlsplit(path).query)["status"][0]
+            runs = getattr(self, "workflow_runs", []) if "autonomous_next_task.yml" in path else []
+            runs = [run for run in runs if run["status"] == wanted]
+            page = {"total_count": len(runs), "workflow_runs": runs}
+            return [page] if paginate else page
+        return self.github.api(path)
+
+    def test_early_automatic_signal_preserves_deadline_queue_and_external_worker(self):
+        config = self.research_config()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        before, revision, reads = copy.deepcopy(self.data), self.github.head("autonomous/state"), self.api.gets
+        with patch("health_snapshot.gh_get", side_effect=self.snapshot_api):
+            result = self.run_tick(task_id="", config=config, automatic=True, run_id="10",
+                                   now=NOW + timedelta(minutes=1))
+        self.assertTrue(result["skipped"])
+        self.assertEqual((self.api.posts, self.api.gets), (1, reads))
+        self.reload()
+        self.assertEqual(self.data, before)
+        self.assertEqual(self.github.head("autonomous/state"), revision)
+
+    def test_due_automatic_tick_ignores_old_handoff_then_duplicate_does_not_poll(self):
+        config = self.research_config()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        self.workflow_runs = [{"id": identifier, "head_branch": "main", "event": "workflow_dispatch",
+                               "head_repository": {"full_name": REPOSITORY}, "status": "in_progress"}
+                              for identifier in (9, 10)]
+        with patch("health_snapshot.gh_get", side_effect=self.snapshot_api):
+            first = self.run_tick(task_id="", config=config, automatic=True, run_id="10",
+                                  now=NOW + timedelta(minutes=5))
+            self.assertFalse(first.get("skipped", False))
+            self.reload()
+            before, reads = copy.deepcopy(self.data), self.api.gets
+            second = self.run_tick(task_id="", config=config, automatic=True, run_id="11",
+                                   now=NOW + timedelta(minutes=5, seconds=10))
+        self.assertTrue(second["skipped"])
+        self.assertEqual((self.api.posts, self.api.gets), (1, reads))
+        self.reload()
+        self.assertEqual(self.data, before)
+
+    def test_automatic_path_rejects_an_explicit_approved_implementation(self):
+        before = copy.deepcopy(self.data)
+        with self.assertRaises(ValueError):
+            self.run_tick(automatic=True)
+        self.assertEqual((self.api.posts, self.api.gets), (0, 0))
+        self.assertEqual(self.data, before)
+
+    def test_disable_after_readiness_stops_without_quarantining_saved_attempts(self):
+        config = self.research_config()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        before, reads = copy.deepcopy(self.data), self.api.gets
+        with patch("health_snapshot.gh_get", side_effect=self.snapshot_api), \
+                patch.object(self.github, "enabled", side_effect=[True, False]):
+            result = self.run_tick(task_id="", config=config, automatic=True, run_id="10",
+                                   now=NOW + timedelta(minutes=5))
+        self.assertEqual(result["reason"], "loop_disabled")
+        self.assertEqual((self.api.posts, self.api.gets), (1, reads))
+        self.reload()
+        self.assertEqual(self.data, before)
+
+    def test_partial_poll_success_does_not_reset_the_failed_tick_clock(self):
+        config = self.research_config()
+        self.run_tick()
+        self.run_tick(task_id="", config=config)
+        self.reload()
+        previous_success = self.data["controller"]["last_tick_at"]
+        del self.api.values["2"]
+        result = self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=5))
+        self.assertEqual(result["attention"][0]["task_id"], self.data["tasks"][-1]["id"])
+        self.reload()
+        self.assertEqual(self.data["controller"]["last_tick_at"], previous_success)
+        self.assertEqual(self.data["controller"]["last_poll_at"], "2026-09-13T12:05:00Z")
+        self.assertEqual(self.api.posts, 2)
 
     def test_completed_owner_proposal_releases_worker_without_accepting_it(self):
         self.data["tasks"].append(task("second"))
@@ -356,14 +436,12 @@ class ControllerTests(unittest.TestCase):
             self.github.release_attempt(self.repo, execution)
         self.assertEqual(self.github.head(branch), moved)
 
-    def test_unchanged_poll_has_new_observation_without_queue_publication(self):
+    def test_unchanged_poll_advances_cadence_without_changing_worker_identity(self):
         self.run_tick()
-        self.reload()
-        before = self.queue.read_bytes()
-        revision = self.github.head("autonomous/state")
+        before = copy.deepcopy(self.reload())
         result = self.run_tick(now=NOW + timedelta(minutes=5))
-        self.assertEqual(self.github.head("autonomous/state"), revision)
-        self.assertEqual(self.queue.read_bytes(), before)
+        self.assertEqual(self.reload(), before)
+        self.assertEqual(self.data["controller"]["last_poll_at"], "2026-09-13T12:05:00Z")
         self.assertEqual((result["observations"][0]["session_id"], result["observations"][0]["observed_at"]),
                          ("1", "2026-09-13T12:05:00Z"))
         self.assertEqual(self.api.posts, 1)
@@ -374,17 +452,17 @@ class ControllerTests(unittest.TestCase):
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
         waiting = self.run_tick(now=NOW + timedelta(minutes=5))
         self.assertEqual(waiting["waiting_workers"][0]["session_url"], "https://jules.google.com/session/1")
-        revision = self.github.head("autonomous/state")
+        before = copy.deepcopy(self.reload())
         self.run_tick(now=NOW + timedelta(hours=7))
-        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.reload(), before)
         self.api.values["1"]["state"] = "IN_PROGRESS"
         self.run_tick(now=NOW + timedelta(hours=7, minutes=30))
         saved = self.reload()[0]
         self.assertEqual((saved["status"], saved["execution"]["session_state"], saved["execution"]["observed_at"]),
                          ("in_progress", "IN_PROGRESS", "2026-09-13T19:30:00Z"))
-        revision = self.github.head("autonomous/state")
+        before = copy.deepcopy(self.reload())
         self.run_tick(now=NOW + timedelta(hours=8))
-        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.reload(), before)
         self.assertEqual((self.reload()[0]["execution"]["session_id"], self.api.posts), ("1", 1))
 
     def test_same_poll_error_preserves_error_timestamp_and_queue_revision(self):
@@ -406,9 +484,9 @@ class ControllerTests(unittest.TestCase):
         self.github.add_proposal(59)
         self.api.values["1"]["outputs"] = [{"pullRequest": {"url": f"https://github.com/{REPOSITORY}/pull/59"}}]
         self.run_tick(now=NOW + timedelta(minutes=5))
-        revision = self.github.head("autonomous/state")
+        before = copy.deepcopy(self.reload())
         self.run_tick(now=NOW + timedelta(minutes=10))
-        self.assertEqual(self.github.head("autonomous/state"), revision)
+        self.assertEqual(self.reload(), before)
         self.assertEqual((self.reload()[0]["status"], self.api.posts), ("in_progress", 1))
 
     def test_unchanged_tick_checks_cas_before_external_observation(self):

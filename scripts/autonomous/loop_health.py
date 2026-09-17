@@ -44,7 +44,7 @@ def worker_observation(task: Mapping[str, Any], now: datetime) -> dict:
             "reason": WAITING_REASONS.get(state, "worker_running")}
 
 
-def poll_due_at(tasks: Sequence[dict], completed_at: datetime | None, now: datetime) -> datetime:
+def poll_due_at(tasks: Sequence[dict], useful_at: datetime | None, now: datetime) -> datetime:
     deadlines = []
     for task in tasks:
         execution = task.get("execution") or {}
@@ -56,7 +56,7 @@ def poll_due_at(tasks: Sequence[dict], completed_at: datetime | None, now: datet
             interval = WAITING_POLL_INTERVAL
         elif changed_at and now - changed_at >= UNCHANGED_AFTER:
             interval = UNCHANGED_POLL_INTERVAL
-        anchor = max((at for at in (completed_at, changed_at) if at is not None), default=None)
+        anchor = max((at for at in (useful_at, changed_at) if at is not None), default=None)
         deadlines.append(anchor + interval if anchor else now)
     return min(deadlines, default=now)
 
@@ -93,6 +93,7 @@ def assess_health(
     fingerprints: Mapping[str, str], runs: Sequence[dict], sync_runs: Sequence[dict],
     pull_requests: Sequence[dict], enabled: bool, now: datetime,
     state_sha: str = "", sync_result: Mapping[str, Any] | None = None,
+    wakeup_runs: Sequence[dict] = (), current_run_id: str = "",
 ) -> dict:
     """Plan against a private queue copy, never mint, reconcile or dispatch work."""
     if now.tzinfo is None:
@@ -102,21 +103,43 @@ def assess_health(
     if errors:
         raise ValueError("invalid task manifest")
     default_branch = config.get("default_branch", "main")
-    ticks = [run for run in runs if run.get("head_branch") == default_branch
+    repository = config.get("repository", "")
+
+    def trusted(run: Mapping[str, Any]) -> bool:
+        head_repository = (run.get("head_repository") or {}).get("full_name")
+        return (run.get("head_branch") == default_branch
+                and run.get("event") in {"schedule", "workflow_dispatch", "workflow_run", "push"}
+                and (not head_repository or head_repository == repository))
+
+    ticks = [run for run in runs if trusted(run)
              and run.get("event") in {"schedule", "workflow_dispatch"}]
+    syncs = [run for run in sync_runs if trusted(run)]
+    wakeups = [run for run in wakeup_runs if trusted(run)]
     minimum = datetime.min.replace(tzinfo=timezone.utc)
     latest = max(ticks, key=lambda run: _run_time(run) or minimum, default=None)
     last_at = _run_time(latest) if latest else None
-    completed_at = max((_run_time(run) for run in ticks if run.get("status") == "completed"
-                        and _run_time(run) is not None), default=None)
-    current_syncs = [run for run in sync_runs if run.get("head_branch") == default_branch
-                     and _sync_main(run) == main_sha]
+    controller = manifest.get("controller") or {}
+    last_tick = _time(controller.get("last_tick_at"))
+    last_poll = _time(controller.get("last_poll_at"))
+    useful_at = max((at for at in (last_tick, last_poll) if at is not None), default=None)
+    worker_at = max((at for task in manifest["tasks"] for field in ("observed_at", "started_at")
+                     if (at := _time((task.get("execution") or {}).get(field))) is not None), default=None)
+    last_useful = useful_at or worker_at
+    failures = {run.get("id"): run for run in ticks
+                if run.get("status") == "completed" and run.get("conclusion") in FAILED_CONCLUSIONS
+                and (at := _run_time(run)) is not None and (last_tick is None or at > last_tick)}
+    failed_at = max((_run_time(run) for run in failures.values()), default=None)
+    retry_at = failed_at + (POLL_INTERVAL if len(failures) == 1 else
+                           UNCHANGED_POLL_INTERVAL if len(failures) == 2 else
+                           WAITING_POLL_INTERVAL) if failed_at else None
+    active_wakeups = sorted((run for run in wakeups if run.get("status") in ACTIVE_RUN_STATUSES),
+                            key=lambda run: _run_time(run) or minimum, reverse=True)
+    current_syncs = [run for run in syncs if _sync_main(run) == main_sha]
     completed_syncs = [run for run in current_syncs if run.get("status") == "completed"
                        and run.get("conclusion") in FAILED_CONCLUSIONS | {"success"}]
     last_sync = max(completed_syncs, key=lambda run: _run_time(run) or minimum, default=None)
     attention = []
     proposals = []
-    repository = config.get("repository", "")
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
         changed_at = max((at for field in ("observed_at", "started_at")
@@ -183,18 +206,48 @@ def assess_health(
         "next_task_age_seconds": max(0, int((now - last_at).total_seconds())) if last_at else None,
         "last_sync": _run_summary(last_sync), "attention": attention,
         "research_next_at": None, "due_at": None,
+        "scheduler": {
+            "last_tick_at": _iso(last_tick) if last_tick else None,
+            "last_poll_at": _iso(last_poll) if last_poll else None,
+            "due_at": None, "overdue_seconds": 0, "state": "blocked",
+            "retry_at": _iso(retry_at) if retry_at else None, "failed_ticks": len(failures),
+            "wakeup_run": _run_summary(next((run for run in active_wakeups
+                                             if run.get("status") == "in_progress"), None)),
+            "pending_wakeups": [_run_summary(run) for run in active_wakeups
+                                if run.get("status") != "in_progress"],
+        },
     }
 
     def decision(reason: str, action: str = "none", *, due: bool = False, delay: int = 0) -> dict:
-        stalled = due and (last_at is None or now - last_at > STALL_AFTER)
+        deadline = _time(result["due_at"])
+        if action == "next_task" or due:
+            deadline = deadline or last_useful or now
+        if retry_at and (action == "next_task" or deadline is not None) and retry_at > (deadline or now):
+            deadline = retry_at
+            if now < retry_at and action == "next_task":
+                action, reason = "none", "tick_backoff"
+        if deadline is not None:
+            result["due_at"] = _iso(deadline)
+            delay = max(0, int((deadline - now).total_seconds()))
+            if deadline > now:
+                delay = max(1, delay)
+        overdue = max(0, int((now - deadline).total_seconds())) if deadline else 0
+        scheduler_state = ("waiting" if deadline and deadline > now else
+                           "overdue" if overdue else "ready" if action != "none" else "blocked")
+        result["scheduler"].update(due_at=result["due_at"], overdue_seconds=overdue, state=scheduler_state)
+        stalled = due and not delay and (last_useful is None or now - last_useful > STALL_AFTER)
         result.update(reason=reason, action=action, delay_seconds=delay,
                       health="attention" if attention else "stalled" if stalled else "ok")
         if stalled:
-            result["attention"].append({"reason": "next_task_stalled", "observed_at": _iso(last_at) if last_at else None})
+            result["attention"].append({"reason": "next_task_stalled",
+                                        "observed_at": _iso(last_useful) if last_useful else None})
         return result
 
     def polling(reason: str, tasks: Sequence[dict]) -> dict:
-        deadline = poll_due_at(tasks, completed_at, now)
+        deadline = poll_due_at(tasks, useful_at, now)
+        research_at = _time(result["research_next_at"])
+        if research_at is not None:
+            deadline = min(deadline, research_at)
         result["due_at"] = _iso(deadline)
         waiting = [worker_observation(task, now) for task in tasks
                    if (task.get("execution") or {}).get("session_state") in WAITING_REASONS]
@@ -202,16 +255,18 @@ def assess_health(
             reason = waiting[0]["reason"]
         if now < deadline:
             return decision(reason, delay=max(1, int((deadline - now).total_seconds())))
-        # Human waiting is informational, not a controller failure or stalled processing.
-        # Scheduled observations remain visible through next_task_age_seconds.
+        # Human waiting is informational; scheduler lateness remains independently visible.
         return decision(reason, "next_task", due=not waiting)
 
     if not enabled:
         result.update(health="disabled", reason="loop_disabled")
+        result["scheduler"]["state"] = "disabled"
         return result
-    if any(run.get("status") in ACTIVE_RUN_STATUSES for run in runs):
+    # A nonempty id is only supplied under the shared queue writer mutex. Other
+    # in-progress workflows may be waiting for that mutex or finishing handoff.
+    if not current_run_id and any(run.get("status") in ACTIVE_RUN_STATUSES for run in ticks):
         return decision("next_task_running", due=True)
-    if any(run.get("status") in ACTIVE_RUN_STATUSES for run in sync_runs):
+    if any(run.get("status") in ACTIVE_RUN_STATUSES for run in syncs):
         return decision("sync_running")
 
     data = copy.deepcopy(manifest)
@@ -256,6 +311,9 @@ def assess_health(
     result["research_next_at"] = research["research_next_at"] or None
     if unresolved:
         return polling("active_polling", unresolved)
+    research_at = _time(result["research_next_at"])
+    if research_at is not None:
+        result["due_at"] = _iso(research_at)
     return decision(research["research_reason"])
 
 
@@ -266,6 +324,8 @@ def main(argv=None) -> int:
     parser.add_argument("--enabled", required=True, choices=("true", "false"))
     parser.add_argument("--state-revision", type=Path)
     parser.add_argument("--sync-result", type=Path)
+    parser.add_argument("--wakeup-runs", type=Path)
+    parser.add_argument("--current-run-id", default="")
     parser.add_argument("--now")
     args = parser.parse_args(argv)
     try:
@@ -291,6 +351,8 @@ def main(argv=None) -> int:
             pull_requests=json.loads(args.pull_requests.read_text(encoding="utf-8")),
             state_sha=(json.loads(args.state_revision.read_text(encoding="utf-8")).get("state_sha") or "") if args.state_revision else "",
             sync_result=json.loads(args.sync_result.read_text(encoding="utf-8")) if args.sync_result else None,
+            wakeup_runs=workflow_runs(json.loads(args.wakeup_runs.read_text(encoding="utf-8"))) if args.wakeup_runs else (),
+            current_run_id=args.current_run_id,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

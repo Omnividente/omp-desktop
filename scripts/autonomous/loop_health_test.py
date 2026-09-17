@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
 from research_cycle import plan_research
-from health_snapshot import snapshot_proposals, snapshot_runs
+from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
 from urllib.parse import parse_qs, urlsplit
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
@@ -85,14 +85,17 @@ class DecisionTest(unittest.TestCase):
         result = health(queue(task()), enabled=False, main_is_ancestor=False, runs=[])
         self.assertEqual((result["health"], result["action"], result["reason"]), ("disabled", "none", "loop_disabled"))
 
-    def test_due_work_uses_actual_tick_not_queue_creation_or_other_branch_run(self):
-        old = run(NOW - timedelta(minutes=91), id=7)
-        result = health(queue(task(task_type="project_discovery", created_at=NOW.isoformat())), runs=[old, run(id=8, head_branch="feature/untrusted")])
+    def test_due_work_uses_useful_tick_not_empty_completion(self):
+        old = NOW - timedelta(minutes=91)
+        data = queue(task(task_type="project_discovery", created_at=NOW.isoformat()))
+        data["controller"] = {"last_tick_at": old.isoformat(), "run_id": "7"}
+        result = health(data, runs=[run(old, id=7), run(id=8), run(id=9, head_branch="feature/untrusted")])
         self.assertEqual((result["health"], result["action"], result["reason"]), ("stalled", "next_task", "work_due"))
-        self.assertEqual(result["last_next_task"]["id"], 7)
-        self.assertEqual(result["next_task_age_seconds"], 91 * 60)
-        boundary = health(queue(task()), runs=[run(NOW - timedelta(minutes=90))])
-        self.assertEqual(boundary["health"], "ok")
+        self.assertEqual(result["last_next_task"]["id"], 8)
+        self.assertEqual(result["scheduler"]["overdue_seconds"], 91 * 60)
+        self.assertEqual(result["scheduler"]["state"], "overdue")
+        data["controller"]["last_tick_at"] = (NOW - timedelta(minutes=90)).isoformat()
+        self.assertEqual(health(data)["health"], "ok")
         self.assertEqual(health(queue(task()), runs=[])["health"], "stalled")
         stuck = health(queue(task()), runs=[run(NOW - timedelta(hours=2), status="queued", conclusion=None)])
         self.assertEqual((stuck["health"], stuck["action"]), ("stalled", "none"))
@@ -112,6 +115,8 @@ class DecisionTest(unittest.TestCase):
         result = health(data, config, runs=[])
         self.assertEqual((result["health"], result["action"], result["reason"]), ("ok", "none", "cooldown"))
         self.assertEqual(result["research_next_at"], "2026-09-14T12:00:00Z")
+        self.assertEqual((result["due_at"], result["delay_seconds"], result["scheduler"]["state"]),
+                         ("2026-09-14T12:00:00Z", 86400, "waiting"))
         self.assertEqual(data, before)
         config["research"]["max_sessions_per_day"] = 1
         self.assertEqual(health(data, config)["reason"], "daily_cap")
@@ -173,10 +178,12 @@ class DecisionTest(unittest.TestCase):
         result = health(main_is_ancestor=False, sync_runs=[failed])
         self.assertEqual((result["health"], result["action"], result["reason"]), ("attention", "none", "sync_failed"))
         self.assertEqual(result["attention"][0]["run"]["conclusion"], "failure")
+        self.assertIsNone(result["due_at"])
+        self.assertEqual((result["delay_seconds"], result["scheduler"]["state"]), (0, "blocked"))
         result = health(main_is_ancestor=False, main_sha="e" * 40, sync_runs=[failed])
         self.assertEqual((result["action"], result["reason"]), ("sync", "sync_required"))
         result = health(main_is_ancestor=True, sync_runs=[failed])
-        self.assertEqual((result["health"], result["action"]), ("ok", "next_task"))
+        self.assertEqual((result["health"], result["action"]), ("stalled", "next_task"))
 
     def test_successful_manual_sync_supersedes_failure_for_same_revision(self):
         failed = run(NOW - timedelta(hours=1), conclusion="failure", display_title="Sync main " + MAIN)
@@ -225,20 +232,26 @@ class DecisionTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             workflow_runs({"unrelated": []})
 
-    def test_fresh_completion_not_old_state_timestamp_anchors_poll_deadline(self):
+    def test_durable_poll_anchors_unchanged_worker_not_duplicate_completions(self):
         old = NOW - timedelta(hours=2)
         data = queue(task(task_type="project_discovery", status="in_progress", execution={"state": "dispatched", "session_id": "123",
                      "dispatch_key": "attempt-one", "attempts": 1, "started_at": old.isoformat(),
                      "observed_at": old.isoformat(), "session_state": "IN_PROGRESS"}))
-        recent = run(NOW - timedelta(minutes=1))
-        result = health(data, runs=[recent])
+        data["controller"] = {"last_poll_at": (NOW - timedelta(minutes=1)).isoformat()}
+        recent = [run(NOW - timedelta(minutes=1)), run(id=2), run(id=3, conclusion="skipped")]
+        result = health(data, runs=recent)
         self.assertEqual((result["action"], result["delay_seconds"], result["due_at"]),
                          ("none", 14 * 60, "2026-09-13T12:14:00Z"))
-        self.assertEqual(health(data, runs=[recent], now=NOW + timedelta(minutes=14))["action"], "next_task")
-        data["tasks"][0]["execution"].update(session_state="IN_PROGRESS", observed_at=NOW.isoformat())
-        resumed = health(data, runs=[run()])
+        self.assertEqual(health(data, runs=recent, now=NOW + timedelta(minutes=14))["action"], "next_task")
+        data["tasks"][0]["execution"].update(observed_at=NOW.isoformat())
+        resumed = health(data, runs=recent)
         self.assertEqual((resumed["action"], resumed["due_at"]), ("none", "2026-09-13T12:05:00Z"))
-        self.assertEqual(health(data, runs=[run()], now=NOW + timedelta(minutes=5))["action"], "next_task")
+        self.assertEqual(health(data, runs=recent, now=NOW + timedelta(minutes=5))["action"], "next_task")
+        del data["controller"]
+        data["tasks"][0]["execution"]["observed_at"] = old.isoformat()
+        legacy = health(data, runs=recent)
+        self.assertEqual((legacy["action"], legacy["due_at"]), ("next_task", "2026-09-13T10:15:00Z"))
+        self.assertEqual(legacy["scheduler"]["overdue_seconds"], 105 * 60)
 
     def test_human_wait_keeps_identity_and_thirty_minute_cadence_without_false_failure(self):
         for state, reason in (("AWAITING_USER_FEEDBACK", "worker_awaiting_feedback"),
@@ -251,11 +264,13 @@ class DecisionTest(unittest.TestCase):
                              "observed_at": old, "session_state": state}))
                 config = settings()
                 config["research"]["enabled"] = False
+                data["controller"] = {"last_tick_at": NOW.isoformat()}
                 result = health(data, config)
                 self.assertEqual((result["action"], result["reason"], result["due_at"]),
                                  ("none", reason, "2026-09-13T12:30:00Z"))
                 self.assertEqual(result["waiting_workers"][0]["session_url"], "https://jules.google.com/session/123")
                 self.assertEqual(result["waiting_workers"][0]["task_id"], "fix")
+                del data["controller"]
                 overdue = health(data, config, runs=[run(NOW - timedelta(hours=3))])
                 self.assertEqual((overdue["health"], overdue["action"], overdue["reason"]),
                                  ("ok", "next_task", reason))
@@ -311,7 +326,7 @@ class DecisionTest(unittest.TestCase):
         config["research"]["max_sessions_per_day"] = 1
         self.assertEqual(health(data, config)["due_at"], "2026-09-13T12:30:00Z")
 
-    def test_idle_implementation_poll_anchors_completion_instead_of_chaining(self):
+    def test_idle_implementation_poll_anchors_useful_tick_without_chaining(self):
         config = settings()
         config["research"]["enabled"] = False
         old = (NOW - timedelta(hours=2)).isoformat()
@@ -319,11 +334,13 @@ class DecisionTest(unittest.TestCase):
             "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
             "started_at": old, "observed_at": old, "session_state": "IN_PROGRESS",
         }))
-        result = health(data, config, runs=[run(NOW - timedelta(minutes=1))])
+        data["controller"] = {"last_tick_at": (NOW - timedelta(minutes=1)).isoformat()}
+        result = health(data, config)
         self.assertEqual((result["action"], result["delay_seconds"]), ("none", 29 * 60))
-        due = health(data, config, runs=[run(NOW - timedelta(minutes=30))])
-        self.assertEqual(due["action"], "next_task")
-        self.assertEqual(health(data, config, runs=[run()])["action"], "none")
+        data["controller"]["last_tick_at"] = (NOW - timedelta(minutes=30)).isoformat()
+        self.assertEqual(health(data, config)["action"], "next_task")
+        del data["controller"]
+        self.assertEqual(health(data, config)["action"], "next_task")
 
     def test_disabled_research_does_not_dispatch_existing_research_or_approved_proposal(self):
         config = settings()
@@ -335,6 +352,94 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual((result["action"], result["reason"]), ("none", "research_disabled"))
         self.assertEqual(result["approved_proposals"], 1)
 
+    def test_locked_automatic_guard_ignores_workflow_waiters_and_old_handoffs(self):
+        active = [run(id=11, status="in_progress", conclusion=None),
+                  run(id=12, status="pending", conclusion=None),
+                  run(id=13, status="queued", conclusion=None)]
+        data = queue(task(task_type="project_discovery"))
+        self.assertEqual(health(data, runs=active)["reason"], "next_task_running")
+        before = copy.deepcopy(data)
+        result = health(data, runs=active, current_run_id="11")
+        self.assertEqual((result["action"], result["reason"]), ("next_task", "work_due"))
+        self.assertEqual(data, before)
+        active.append(run(id=14, status="in_progress", conclusion=None))
+        self.assertEqual(health(data, runs=active, current_run_id="11")["action"], "next_task")
+        self.assertEqual(health(data, runs=active)["reason"], "next_task_running")
+
+    def test_foreign_runs_cannot_block_or_delay_local_research(self):
+        foreign = [run(id=1, status="in_progress", head_branch="untrusted"),
+                   run(id=2, status="pending", head_repository={"full_name": "foreign/repo"}),
+                   run(id=3, conclusion="failure", event="pull_request")]
+        result = health(runs=foreign, sync_runs=foreign, wakeup_runs=foreign)
+        self.assertEqual((result["action"], result["reason"]), ("next_task", "research_due"))
+        self.assertEqual(result["scheduler"]["failed_ticks"], 0)
+        self.assertIsNone(result["scheduler"]["wakeup_run"])
+        self.assertEqual(result["scheduler"]["pending_wakeups"], [])
+
+    def test_main_push_sync_blocks_duplicate_dispatch_and_preserves_failure_gate(self):
+        pushed = run(event="push", status="in_progress", conclusion=None,
+                     head_repository={"full_name": "owner/repo"})
+        result = health(main_is_ancestor=False, sync_runs=[pushed], runs=[])
+        self.assertEqual((result["action"], result["reason"]), ("none", "sync_running"))
+        pushed.update(status="completed", conclusion="failure")
+        result = health(main_is_ancestor=False, sync_runs=[pushed], runs=[])
+        self.assertEqual((result["action"], result["reason"]), ("none", "sync_failed"))
+        self.assertIsNone(result["due_at"])
+
+    def test_failed_ticks_back_off_without_green_or_skipped_run_reset(self):
+        data = queue(task(task_type="project_discovery"))
+        data["controller"] = {"last_tick_at": (NOW - timedelta(hours=1)).isoformat(), "run_id": "10"}
+        failures = []
+        data["controller"]["last_poll_at"] = NOW.isoformat()
+        for number, delay in ((1, 300), (2, 900), (3, 1800), (4, 1800)):
+            failures.append(run(id=number, conclusion="failure"))
+            observations = failures + [run(id=20), run(id=21, conclusion="skipped")]
+            result = health(data, runs=observations)
+            self.assertEqual((result["action"], result["reason"], result["delay_seconds"]),
+                             ("none", "tick_backoff", delay))
+            self.assertEqual(result["scheduler"]["state"], "waiting")
+            self.assertEqual(health(data, runs=observations, now=NOW + timedelta(seconds=delay))["action"], "next_task")
+        data["controller"]["last_tick_at"] = (NOW + timedelta(seconds=1)).isoformat()
+        recovered = health(data, runs=observations, now=NOW + timedelta(seconds=1))
+        self.assertEqual((recovered["action"], recovered["scheduler"]["failed_ticks"]), ("next_task", 0))
+
+    def test_old_failure_before_durable_tick_cannot_delay_poll(self):
+        data = queue(task(task_type="project_discovery", status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "attempt", "attempts": 1,
+            "started_at": (NOW - timedelta(hours=2)).isoformat(), "session_state": "IN_PROGRESS",
+        }))
+        data["controller"] = {"last_tick_at": (NOW - timedelta(minutes=15)).isoformat()}
+        result = health(data, runs=[run(NOW - timedelta(minutes=16), conclusion="failure"), run(id=2)])
+        self.assertEqual((result["action"], result["due_at"]), ("next_task", "2026-09-13T12:00:00Z"))
+        self.assertEqual(result["scheduler"]["failed_ticks"], 0)
+
+    def test_proposal_attention_cannot_hide_overdue_scheduler(self):
+        pending, pr = proposal()
+        pr.update(updated_at=(NOW - timedelta(days=8)).isoformat())
+        data = queue(pending)
+        data["controller"] = {"last_tick_at": (NOW - timedelta(hours=2)).isoformat()}
+        result = health(data, pull_requests=[pr], runs=[run(), run(id=2, conclusion="skipped")],
+                        wakeup_runs=[run(id=30, status="in_progress"), run(id=31, status="pending")])
+        self.assertEqual((result["health"], result["action"]), ("attention", "next_task"))
+        self.assertEqual((result["scheduler"]["state"], result["scheduler"]["overdue_seconds"]), ("overdue", 7200))
+        self.assertIn("proposal_stale", {entry["reason"] for entry in result["attention"]})
+        self.assertEqual(result["scheduler"]["wakeup_run"]["id"], 30)
+        self.assertEqual([item["id"] for item in result["scheduler"]["pending_wakeups"]], [31])
+
+    def test_waiting_worker_does_not_hide_earlier_research_cooldown(self):
+        config = settings()
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64}, now=NOW - timedelta(hours=24) + timedelta(minutes=10))
+        data["tasks"][0].update(status="blocked", execution={"state": "exhausted", "attempts": 2,
+                               "outcome": "failed", "finished_at": data["tasks"][0]["created_at"]})
+        data["tasks"].append(task(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "attempt", "attempts": 1,
+            "started_at": NOW.isoformat(), "session_state": "PAUSED",
+        }))
+        result = health(data, config)
+        self.assertEqual((result["action"], result["due_at"], result["delay_seconds"]),
+                         ("none", "2026-09-13T12:10:00Z", 600))
+        self.assertEqual(health(data, config, now=NOW + timedelta(minutes=10))["reason"], "research_due")
+
     def test_active_snapshot_keeps_old_pending_run_beyond_completed_window(self):
         old = run(NOW - timedelta(days=10), id=1, status="pending", conclusion=None)
         def get(path, paginate=False):
@@ -343,6 +448,19 @@ class DecisionTest(unittest.TestCase):
             if state == "completed":
                 return {"total_count": 50000, "workflow_runs": [run(id=number) for number in range(100, 200)]}
             return [{"total_count": len(values), "workflow_runs": values}]
+        observed = snapshot_runs(get, "autonomous_next_task.yml")
+        result = health(queue(task()), runs=observed)
+        self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
+
+    def test_active_transition_between_filters_cannot_claim_idle(self):
+        active = run(id=42, status="pending", conclusion=None)
+        def get(path, paginate=False):
+            state = parse_qs(urlsplit(path).query)["status"][0]
+            values = [dict(active)] if active["status"] == state else []
+            if state == "in_progress":
+                active["status"] = "in_progress"
+            page = {"total_count": len(values), "workflow_runs": values}
+            return [page] if paginate else page
         observed = snapshot_runs(get, "autonomous_next_task.yml")
         result = health(queue(task()), runs=observed)
         self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
@@ -382,12 +500,13 @@ class GitReadinessTest(unittest.TestCase):
             git("init", "-b", "main")
             git("config", "user.name", "Fixture")
             git("config", "user.email", "fixture@example.invalid")
-            (repo / "product.txt").write_text("base", encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "terminal.ts").write_text("base", encoding="utf-8")
             git("add", ".")
             git("commit", "-m", "base")
             initial = git("rev-parse", "HEAD")
             git("branch", "lab")
-            (repo / "product.txt").write_text("accepted", encoding="utf-8")
+            (repo / "src" / "terminal.ts").write_text("accepted", encoding="utf-8")
             git("commit", "-am", "accepted main")
             accepted = git("rev-parse", "HEAD")
             git("update-ref", "refs/remotes/origin/main", accepted)
@@ -395,12 +514,41 @@ class GitReadinessTest(unittest.TestCase):
             data = queue(task())
             config = settings()
             config["research"]["enabled"] = False
-            paths = {name: root / (name + ".json") for name in ("manifest", "config", "runs", "sync-runs", "pull-requests")}
-            for name, value in (("manifest", data), ("config", config), ("runs", [run()]), ("sync-runs", []), ("pull-requests", [])):
+            own = run(id=11, status="in_progress", conclusion=None)
+            pending = run(NOW - timedelta(days=10), id=12, status="pending", conclusion=None)
+            wakeup = run(id=30, status="pending", conclusion=None)
+            active_syncs = []
+
+            def get(path, *, paginate=False):
+                workflow = path.split("/")[2]
+                status = parse_qs(urlsplit(path).query)["status"][0]
+                values = []
+                if workflow == "autonomous_next_task.yml":
+                    values = [item for item in (own, pending) if item["status"] == status]
+                elif workflow == "autonomous_continue.yml" and status == "pending":
+                    values = [wakeup]
+                elif workflow == "autonomous_sync.yml":
+                    values = [item for item in active_syncs if item["status"] == status]
+                page = {"total_count": len(values), "workflow_runs": values}
+                return [page] if paginate else page
+
+            inspected = inspect_health(data, config, repo=repo, enabled=True, now=NOW,
+                                       state_sha="e" * 40, current_run_id="11", get=get)
+            self.assertEqual((inspected["action"], inspected["main_sha"], inspected["lab_sha"]),
+                             ("sync", accepted, initial))
+            self.assertEqual(inspected["state_sha"], "e" * 40)
+            self.assertEqual(inspected["scheduler"]["pending_wakeups"][0]["id"], 30)
+            active_syncs.append(run(NOW - timedelta(days=10), id=40, status="waiting", conclusion=None))
+            busy = inspect_health(data, config, repo=repo, enabled=True, now=NOW, current_run_id="11", get=get)
+            self.assertEqual((busy["action"], busy["reason"]), ("none", "sync_running"))
+            active_syncs.clear()
+            paths = {name: root / (name + ".json") for name in ("manifest", "config", "runs", "sync-runs", "pull-requests", "wakeup-runs")}
+            for name, value in (("manifest", data), ("config", config), ("runs", [own, pending]),
+                                ("sync-runs", []), ("pull-requests", []), ("wakeup-runs", [wakeup])):
                 paths[name].write_text(json.dumps(value) + "\n", encoding="utf-8")
             before = paths["manifest"].read_bytes()
             arguments = [value for name, path in paths.items() for value in ("--" + name, str(path))]
-            arguments += ["--repo", str(repo), "--enabled", "true", "--now", NOW.isoformat()]
+            arguments += ["--repo", str(repo), "--enabled", "true", "--now", NOW.isoformat(), "--current-run-id", "11"]
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(main(arguments), 0)
@@ -413,6 +561,15 @@ class GitReadinessTest(unittest.TestCase):
             result = json.loads(output.getvalue())
             self.assertEqual((result["action"], result["reason"]), ("none", "research_disabled"))
             self.assertEqual(paths["manifest"].read_bytes(), before)
+            config["research"]["enabled"] = True
+            inspected = inspect_health(data, config, repo=repo, enabled=True, now=NOW,
+                                       current_run_id="11", get=get)
+            self.assertTrue(inspected["main_is_ancestor"])
+            self.assertEqual((inspected["action"], inspected["reason"]), ("next_task", "research_due"))
+            self.assertEqual(paths["manifest"].read_bytes(), before)
+            git("update-ref", "-d", "refs/remotes/origin/main")
+            with self.assertRaises(subprocess.CalledProcessError):
+                inspect_health(data, config, repo=repo, enabled=True, now=NOW, get=get)
 
 
 if __name__ == "__main__":

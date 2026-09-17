@@ -273,6 +273,16 @@ def validate(manifest: Any) -> list:
         return ["manifest must be a JSON object"]
     if not isinstance(manifest.get("version"), int):
         errors.append("version must be an integer")
+    controller = manifest.get("controller")
+    if controller is not None:
+        if not isinstance(controller, dict):
+            errors.append("controller must be an object")
+        else:
+            for field in ("last_tick_at", "last_poll_at"):
+                if field in controller and not _utc_timestamp(controller[field]):
+                    errors.append("controller." + field + " must be a UTC timestamp")
+            if "run_id" in controller and not re.fullmatch(r"[1-9][0-9]*", str(controller["run_id"])):
+                errors.append("controller.run_id must identify a workflow run")
     policy = manifest.get("autonomous_loop_policy")
     if not isinstance(policy, dict):
         errors.append("autonomous_loop_policy must be an object")
