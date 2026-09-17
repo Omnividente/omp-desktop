@@ -2321,6 +2321,75 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-1",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-17T05:30:38Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "741535951248f81e4fef081bac559ae06842b530e0845099a7194ebee7e20bea",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified ResourceHealthPanel rendering and focus behaviors with synthetic snapshot data. Backend contracts for memory, swap, and process sampling correctly match the frontend presentation logic.",
+            "observations": [
+              {
+                "scenario": "Render ResourceHealthPanel with synthetic healthy snapshot",
+                "evidence": "Locally wrote and executed a Vitest component test (src/tests/ResourceHealthPanel.test.tsx) using a synthetic snapshot (512MiB/16GiB memory available, 0 bytes swap used, ok severity). The component accurately formatted sizes using binary units and rendered without displaying actionable warnings.",
+                "result": "Establishes that the frontend gracefully handles healthy system metrics and cleanly conditionally renders without displaying the critical action paragraph when no pressure is detected."
+              },
+              {
+                "scenario": "ResourceHealthPanel focus trapping and modal behavior",
+                "evidence": "Inspected src/IncidentCenter.test.tsx and src/ResourceHealthPanel.tsx source. The panel utilizes DOM query selector filters to trap Tab navigation and reliably assigns aria-hidden/inert to background DOM elements via MutationObserver.",
+                "result": "Dialog accessibility and modal trap function robustly on standard HTML elements without regression."
+              },
+              {
+                "scenario": "Backend sysinfo limits and snapshot serialization",
+                "evidence": "Inspected src-tauri/src/resource_health.rs threshold constants (e.g., MEMORY_CRITICAL_BYTES = 512 MiB) and swap logic. The calculation of swap severity correctly relies on the ratio of used swap out of total swap, matching the frontend's usage text interpolation expectations.",
+                "result": "Backend structural contract for ResourceHealthSnapshot maps one-to-one with the frontend's expectations in ResourceHealthPanel and resourceHealth.ts without datatype mismatches or formatting contradictions."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the rendering performance and visual consistency of IncidentCenter when populated with the maximum limit (100) of synthetic runtime incidents."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T05:30:38Z",
+            "source": {
+              "activity_id": "sessions/12986037885643889939/activities/e0928fb5ddd64d20961f4755c0450f6b",
+              "report_sha256": "f15d4db590cf5e2f9093d5e590e0e92ce8cd9467b1e16767b410d82726954f54",
+              "activity_created_at": "2026-09-17T05:05:07Z",
+              "session_id": "12986037885643889939",
+              "dispatch_key": "edf938feffecf87e9da8d72e"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
