@@ -3487,6 +3487,124 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-reliability-2",
+      "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-17T19:16:52Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "reliability",
+        "fingerprint": "afe3ca28ae43600c57ce09847b95a884c01a1d16911488517c0cd55810db6041",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Investigated terminal input continuity and failure recovery, identifying a defect in how frontend handles generation changes during deferred output processing.",
+            "observations": [
+              {
+                "scenario": "Terminal process crashes and restarts, generating a new process generation ID.",
+                "evidence": "Tested using isolated synthetic experiments invoking `applyTerminalOutputEvent` with a new generation ID when `outputReady` is still true (before frontend completes re-attachment). Found that `TerminalView.tsx` receives `pty-output` with the new generation and fatals due to `decision.generationChanged` triggering `onErrorRef.current`.",
+                "result": "Establishes that the frontend improperly considers generation changes on output events as fatal errors, preventing seamless failure recovery if an output event arrives slightly before the attachment resolves. This confirms a defect."
+              },
+              {
+                "scenario": "Processing terminal attachment on new generation (restart) with buffered initial output.",
+                "evidence": "Inspected `applyTerminalAttachment` in `src/terminalContinuity.ts`. The `lastSeq` was computed using `previous.lastSeq` fallback without considering `attachment.nextSeq - 1` properly when `attachment.lastSeq` is null. We created an experiment that proved the logic drops subsequent valid `pty-output` events.",
+                "result": "Establishes that terminal continuity baseline tracking does not properly establish a new baseline sequence during failure recovery (reset=true)."
+              }
+            ],
+            "next_hypotheses": [
+              "Check if terminal shortcuts or input handlers correctly handle queued inputs during switching/re-attaching (the SwitchInputRecovery state)"
+            ],
+            "proposed_task_ids": [
+              "discovery-5640a0d5b2031811"
+            ],
+            "completed_at": "2026-09-13T07:32:02Z",
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured terminal output batching and base64 decoding latency, confirming high performance and bounded memory usage.",
+            "observations": [
+              {
+                "scenario": "Rapid queuing of many small output chunks via `createTerminalOutputBatcher`",
+                "evidence": "Simulated 500,000 enqueues of 64-byte chunks (30.52 MB total) in a synthetic benchmark script. Observed 124 batch flushes completing in ~50ms total execution time. Memory allocations remained well-bounded (heap used +0.45 MB), successfully averting GC pauses under heavy load.",
+                "result": "Establishes that the custom chunk batcher efficiently arrays small chunks without unbounded memory retention or latency issues prior to invoking the terminal write."
+              },
+              {
+                "scenario": "Decoding large Base64 PTY output payloads synchronously on the frontend",
+                "evidence": "Benchmarked the custom `decodeBase64` function (`atob` + `charCodeAt` loop) in a Playwright Chromium environment using a 256KB payload (simulating MAX_TERMINAL_WRITE_BATCH limits). The loop decoded the string in roughly 1.8 to 2.0ms per call.",
+                "result": "Establishes that the synchronous decoding implementation is heavily optimized by V8 and comfortably meets input latency requirements. No performance bottleneck exists, and offloading to Web Workers or alternative asynchronous APIs (like `fetch` with data URIs) would add unnecessary overhead."
+              },
+              {
+                "scenario": "Applying formatting regex to massive terminal clipboard events via `formatSelectionReply`",
+                "evidence": "Ran a synthetic benchmark passing a 10MB text string (simulating an extreme terminal block selection) through `formatSelectionReply`. The `UNSAFE_SELECTION_CONTROLS` regex filter and line-splitting logic completed in ~130ms.",
+                "result": "Establishes that standard and even massive terminal selection lengths resolve nearly instantly, and the control character regex acts as an efficient filter without causing catastrophic backtracking delays."
+              }
+            ],
+            "next_hypotheses": [
+              "Profile React render latency when the terminal view component rapidly mounts and unmounts during rapid model transitions or high-load background events.",
+              "Investigate the application's xterm.js WebGL or Canvas rendering performance bounds and resource lifecycle during rapid window resizing actions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-14T06:30:28Z",
+            "source": {
+              "activity_id": "sessions/12039231957422058631/activities/420174f061a8415e9267ef69af5b5268",
+              "report_sha256": "da0ac8b4517b3681d6df71ed0e0978fbfddca15c3d9a523d05e7bd923be5b03d",
+              "activity_created_at": "2026-09-14T06:23:06Z",
+              "session_id": "12039231957422058631",
+              "dispatch_key": "80cb5d29f0a87a34cd2a9859"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the boundary condition between ordinary terminal input and failed switch recovery, confirming a chronological continuity defect.",
+            "observations": [
+              {
+                "scenario": "User types new input while a SwitchInputRecovery is pending (failedSend or pending state).",
+                "evidence": "Inspected terminalInputBlocked in src/terminalInput.ts and write_bytes in src-tauri/src/terminal.rs. The frontend explicitly unblocks input during recovery, allowing writeTerminal. The backend write_bytes enqueues this new input immediately to the PTY without clearing the pending switch_recovery state. If the user subsequently clicks Retry, send_switch_input_recovery enqueues the older recovery buffer after the newer typed input.",
+                "result": "Establishes that the system breaks chronological input continuity. Because ordinary input is intentionally unblocked but does not automatically clear the stale recovery state or queue behind it, the user can accidentally interleave past and current inputs out of order."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize.",
+              "Examine if the custom decodeBase64 correctly handles multi-byte characters split across PtyOutputEvent chunk boundaries."
+            ],
+            "proposed_task_ids": [
+              "discovery-d47c6c8c6e6f2995"
+            ],
+            "completed_at": "2026-09-14T06:48:34Z",
+            "source": {
+              "activity_id": "sessions/9879402967937041838/activities/982f779bd9be4393b0d46eacbeadfd9b",
+              "report_sha256": "a1439ed564f4e91dc7dce39a1fce760eb1493678da60c64668ef773f9d81edae",
+              "activity_created_at": "2026-09-14T06:40:51Z",
+              "session_id": "9879402967937041838",
+              "dispatch_key": "5b68f40585ff19e227be93c4"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
