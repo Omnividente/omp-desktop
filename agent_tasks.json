@@ -2435,7 +2435,7 @@
       "id": "research-diagnostics-resources-performance-1",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -2524,18 +2524,46 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15305078608278735298",
         "dispatch_key": "13ed08f728d543358a705f9c",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-13ed08f728d543358a705f9c",
         "started_at": "2026-09-17T06:06:01Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T10:28:32Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T06:06:01Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T10:28:32Z"
+      },
+      "research_result": {
+        "summary": "Verified state recovery behavior of clearResolvedRuntimeIncidents and performance of processing bursts of incidents in runtimeIncidents.",
+        "observations": [
+          {
+            "scenario": "Execute clearResolvedRuntimeIncidents with state containing only active incidents",
+            "evidence": "Wrote and executed a Vitest unit test locally to verify clearResolvedRuntimeIncidents idempotency. The function correctly returns the exact same state reference without reallocating arrays when no resolved incidents exist, ensuring React renders are not unnecessarily triggered.",
+            "result": "Establishes that clearResolvedRuntimeIncidents is idempotent and efficiently skips reallocation when there's no work to do."
+          },
+          {
+            "scenario": "Process a burst of 5000 identical runtime incidents",
+            "evidence": "Wrote and executed a Vitest unit test locally measuring applyRuntimeIncidentEvent. The function processes a synthetic stream of 5000 occurrences in ~2ms. State growth remains bounded to MAX_RUNTIME_INCIDENTS (100) and memory use remains perfectly constrained due to deduplication.",
+            "result": "Establishes that the incident processing logic correctly implements unbounded stream coalescing without severe latency or memory leaks."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate ResourceHealthPanel layout bounds when swap or processes display extremely large multi-line string paths."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T10:28:32Z",
+        "source": {
+          "activity_id": "sessions/15305078608278735298/activities/91d29dca60614f70be29cb7824ee21e1",
+          "report_sha256": "cb41bb490f8d7f71eea65e8f1edea435e6a9cd9acf1239dd6d382497386fccbf",
+          "activity_created_at": "2026-09-17T06:26:01Z",
+          "session_id": "15305078608278735298",
+          "dispatch_key": "13ed08f728d543358a705f9c"
+        },
+        "deferred_findings": []
       }
     }
   ]
