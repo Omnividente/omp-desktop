@@ -3485,7 +3485,8 @@
         "feedback_nudge": {
           "at": "2026-09-17T19:16:52Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8000c00a365928be398f7b60"
       },
       "research_result": {
         "summary": "Investigated terminal input boundary behaviors regarding text selection wrapping, base64 data decoding limits, and chronological input continuity recovery state resolution. Confirmed that terminal input correctly handles resize re-wrapping natively in xterm and safely splits multibyte characters. A proposed fix is formulated for chronological continuity where typing implicitly abandons the stale pending recovery input.",
