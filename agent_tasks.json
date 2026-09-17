@@ -2285,7 +2285,8 @@
         "outcome": "failed",
         "note": "Jules reported a terminal failure",
         "session_state": "FAILED",
-        "observed_at": "2026-09-17T04:52:20Z"
+        "observed_at": "2026-09-17T04:52:20Z",
+        "released_attempt_ref": "autonomous/attempt-d788ffd101dfe3b269591d43"
       }
     }
   ]
