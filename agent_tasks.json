@@ -4083,7 +4083,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T22:16:37Z"
+        "observed_at": "2026-09-17T22:16:37Z",
+        "released_attempt_ref": "autonomous/attempt-6a4adab8a2cb78201aff2de9"
       },
       "research_result": {
         "summary": "Investigated terminal shortcut handling for non-Latin layouts and the accessibility of the terminal input help toggle.",
