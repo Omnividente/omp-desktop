@@ -2566,6 +2566,127 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-1",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-17T10:28:32Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "741535951248f81e4fef081bac559ae06842b530e0845099a7194ebee7e20bea",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified ResourceHealthPanel rendering and focus behaviors with synthetic snapshot data. Backend contracts for memory, swap, and process sampling correctly match the frontend presentation logic.",
+            "observations": [
+              {
+                "scenario": "Render ResourceHealthPanel with synthetic healthy snapshot",
+                "evidence": "Locally wrote and executed a Vitest component test (src/tests/ResourceHealthPanel.test.tsx) using a synthetic snapshot (512MiB/16GiB memory available, 0 bytes swap used, ok severity). The component accurately formatted sizes using binary units and rendered without displaying actionable warnings.",
+                "result": "Establishes that the frontend gracefully handles healthy system metrics and cleanly conditionally renders without displaying the critical action paragraph when no pressure is detected."
+              },
+              {
+                "scenario": "ResourceHealthPanel focus trapping and modal behavior",
+                "evidence": "Inspected src/IncidentCenter.test.tsx and src/ResourceHealthPanel.tsx source. The panel utilizes DOM query selector filters to trap Tab navigation and reliably assigns aria-hidden/inert to background DOM elements via MutationObserver.",
+                "result": "Dialog accessibility and modal trap function robustly on standard HTML elements without regression."
+              },
+              {
+                "scenario": "Backend sysinfo limits and snapshot serialization",
+                "evidence": "Inspected src-tauri/src/resource_health.rs threshold constants (e.g., MEMORY_CRITICAL_BYTES = 512 MiB) and swap logic. The calculation of swap severity correctly relies on the ratio of used swap out of total swap, matching the frontend's usage text interpolation expectations.",
+                "result": "Backend structural contract for ResourceHealthSnapshot maps one-to-one with the frontend's expectations in ResourceHealthPanel and resourceHealth.ts without datatype mismatches or formatting contradictions."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the rendering performance and visual consistency of IncidentCenter when populated with the maximum limit (100) of synthetic runtime incidents."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T05:30:38Z",
+            "source": {
+              "activity_id": "sessions/12986037885643889939/activities/e0928fb5ddd64d20961f4755c0450f6b",
+              "report_sha256": "f15d4db590cf5e2f9093d5e590e0e92ce8cd9467b1e16767b410d82726954f54",
+              "activity_created_at": "2026-09-17T05:05:07Z",
+              "session_id": "12986037885643889939",
+              "dispatch_key": "edf938feffecf87e9da8d72e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified IncidentCenter rendering performance and DOM state when populated with the maximum limit of 100 runtime incidents.",
+            "observations": [
+              {
+                "scenario": "Render IncidentCenter with a full capacity list (100) of synthetic active runtime incidents",
+                "evidence": "Wrote and executed a Vitest component test rendering IncidentCenter with 100 synthetic incidents (equal to MAX_RUNTIME_INCIDENTS). The render took ~470ms within jsdom, rendering all 100 incident-row elements correctly.",
+                "result": "Establishes that the IncidentCenter successfully processes and renders a large number of incidents without crashing. The component does not implement virtualization, but handles the maximum bounded limit of 100 list items acceptably without severe performance degradation in a test environment."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the interaction between IncidentCenter's focus trapping and concurrent background toast notifications.",
+              "Verify state recovery and idempotency of clearResolvedRuntimeIncidents when triggered by clear resolved button."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T06:06:01Z",
+            "source": {
+              "activity_id": "sessions/7690927672886096471/activities/d710a3d4eb6e4db5ac29bca826a9473b",
+              "report_sha256": "fa6c60ff715edb12fcca326479b31b63870370b6f616413aeaf52c7ee0c0ddc3",
+              "activity_created_at": "2026-09-17T05:37:25Z",
+              "session_id": "7690927672886096471",
+              "dispatch_key": "eaeb39b2d4cf5528c7f09e72"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified state recovery behavior of clearResolvedRuntimeIncidents and performance of processing bursts of incidents in runtimeIncidents.",
+            "observations": [
+              {
+                "scenario": "Execute clearResolvedRuntimeIncidents with state containing only active incidents",
+                "evidence": "Wrote and executed a Vitest unit test locally to verify clearResolvedRuntimeIncidents idempotency. The function correctly returns the exact same state reference without reallocating arrays when no resolved incidents exist, ensuring React renders are not unnecessarily triggered.",
+                "result": "Establishes that clearResolvedRuntimeIncidents is idempotent and efficiently skips reallocation when there's no work to do."
+              },
+              {
+                "scenario": "Process a burst of 5000 identical runtime incidents",
+                "evidence": "Wrote and executed a Vitest unit test locally measuring applyRuntimeIncidentEvent. The function processes a synthetic stream of 5000 occurrences in ~2ms. State growth remains bounded to MAX_RUNTIME_INCIDENTS (100) and memory use remains perfectly constrained due to deduplication.",
+                "result": "Establishes that the incident processing logic correctly implements unbounded stream coalescing without severe latency or memory leaks."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate ResourceHealthPanel layout bounds when swap or processes display extremely large multi-line string paths."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T10:28:32Z",
+            "source": {
+              "activity_id": "sessions/15305078608278735298/activities/91d29dca60614f70be29cb7824ee21e1",
+              "report_sha256": "cb41bb490f8d7f71eea65e8f1edea435e6a9cd9acf1239dd6d382497386fccbf",
+              "activity_created_at": "2026-09-17T06:26:01Z",
+              "session_id": "15305078608278735298",
+              "dispatch_key": "13ed08f728d543358a705f9c"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
