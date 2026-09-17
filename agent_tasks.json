@@ -2825,7 +2825,7 @@
       "id": "research-transcript-links-reliability-1",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -2890,18 +2890,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13764414488262800498",
         "dispatch_key": "999de2cc1526526b42420290",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-999de2cc1526526b42420290",
         "started_at": "2026-09-17T13:16:06Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T15:20:26Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-17T13:29:05Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T15:20:26Z"
+      },
+      "research_result": {
+        "summary": "Verified the resilience and state persistence of Transcript loading and virtual list rendering.",
+        "observations": [
+          {
+            "scenario": "Simulating a concurrent or interrupted load Transcript session",
+            "evidence": "Tested `useTranscript` loading the same or different transcripts rapidly, simulating interruption. Asserted that older or interrupted load promises are properly ignored and don't overwrite current state upon resolving later.",
+            "result": "The transcript hook is robust against concurrent interruptions and correctly handles race conditions to avoid loading incorrect data."
+          },
+          {
+            "scenario": "Simulating failure during transcript loading and user recovery/retry",
+            "evidence": "Mocked `readSessionTranscript` to throw an error and checked if `useTranscript` fails cleanly by showing an error state, while retaining the session data, then simulated a retry by returning successful data.",
+            "result": "The state recovers correctly from API errors. It sets `transcriptError` properly without dropping the `transcriptSession` path, allowing accurate retries."
+          },
+          {
+            "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List",
+            "evidence": "Manually adjusted the scroll container's `clientHeight` to zero then back to normal to simulate being hidden/restored. Fired scroll events past loaded bounds to ensure items were generated correctly.",
+            "result": "The virtual list successfully maintains internal sizing measurements and bounds checking, correctly rendering list components even after recovering from a 0-height collapse or large scroll jumps."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+          "Investigate failure handling of copying very large transcript selections."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T15:20:26Z",
+        "source": {
+          "activity_id": "sessions/13764414488262800498/activities/3147b6b2df5849b3ae791151dc9dbdfa",
+          "report_sha256": "e53ae7b1654ffd0101d42f76b87090cb2fc07946a299ef0a2f67f7e77077fb9f",
+          "activity_created_at": "2026-09-17T13:23:35Z",
+          "session_id": "13764414488262800498",
+          "dispatch_key": "999de2cc1526526b42420290"
+        },
+        "deferred_findings": []
       }
     }
   ]
