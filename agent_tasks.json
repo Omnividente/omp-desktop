@@ -3944,7 +3944,7 @@
       "id": "research-terminal-input-ux-2",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -4072,18 +4072,90 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6905970117625246766",
         "dispatch_key": "6a4adab8a2cb78201aff2de9",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-6a4adab8a2cb78201aff2de9",
         "started_at": "2026-09-17T21:03:28Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T22:16:37Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-17T21:23:08Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T22:16:37Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal shortcut handling for non-Latin layouts and the accessibility of the terminal input help toggle.",
+        "observations": [
+          {
+            "scenario": "User types Ctrl+C using a non-Latin keyboard layout (e.g., Cyrillic 'с') while focused in the terminal.",
+            "evidence": "Executed an isolated Node.js script calling `terminalShortcutInput` with a mock KeyboardEvent (`{ type: 'keydown', code: 'KeyC', key: 'с', ctrlKey: true }`). The function correctly resolved `physicalLetter = 67` ('C') and returned `\\x03` (ETX).",
+            "result": "Establishes that the product successfully preserves physical Ctrl shortcuts across localized text layouts without breaking xterm's native ASCII encoding."
+          },
+          {
+            "scenario": "Screen reader user activates the terminal input help button in an agent tab.",
+            "evidence": "Inspected `TerminalView.tsx` rendering logic. The help toggle `<button>` defines `aria-expanded={inputHelpOpen}` but lacks an `aria-controls` attribute linking it to the dynamically rendered `<div className=\"terminal-input-help\" role=\"note\">`. When rendered, the help container lacks a unique `id`.",
+            "result": "Establishes an accessibility defect where assistive technologies are informed of an expansion state change but cannot deterministically locate or describe the newly revealed help content."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal focus restoration on tab switch incorrectly traps keyboard focus away from the help button.",
+          "Examine if clipboard copying correctly preserves multi-byte strings spanning xterm lines across wrapped windows using real DOM selection."
+        ],
+        "proposed_task_ids": [
+          "discovery-e1a64022fb094a98"
+        ],
+        "completed_at": "2026-09-17T22:16:37Z",
+        "source": {
+          "activity_id": "sessions/6905970117625246766/activities/632487744d1f4b38a1c952ab7aab3d3e",
+          "report_sha256": "2d377df8408142a6c51bd66480b2e48ae77354df747a1dee0721d942e59d3905",
+          "activity_created_at": "2026-09-17T21:17:49Z",
+          "session_id": "6905970117625246766",
+          "dispatch_key": "6a4adab8a2cb78201aff2de9"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-e1a64022fb094a98",
+      "title": "Link terminal help button to its content via aria-controls",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-17T22:16:37Z",
+      "acceptance": [
+        "The terminal help trigger button includes an aria-controls attribute",
+        "The terminal help content container has a unique id matching the button's aria-controls"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Static inspection of src/TerminalView.tsx during a11y interaction research. The button declares aria-expanded but lacks aria-controls.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open an agent terminal tab",
+            "Inspect the 'terminalInputHelp' button element"
+          ],
+          "expected": "The button has an aria-controls attribute pointing to the ID of the help text container",
+          "actual": "The button has aria-expanded but no aria-controls attribute, and the container has no ID"
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-ux-2",
+        "activity_id": "sessions/6905970117625246766/activities/632487744d1f4b38a1c952ab7aab3d3e",
+        "report_sha256": "2d377df8408142a6c51bd66480b2e48ae77354df747a1dee0721d942e59d3905",
+        "activity_created_at": "2026-09-17T21:17:49Z",
+        "session_id": "6905970117625246766",
+        "dispatch_key": "6a4adab8a2cb78201aff2de9"
       }
     }
   ]
