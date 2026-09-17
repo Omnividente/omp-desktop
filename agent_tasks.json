@@ -2700,7 +2700,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T11:35:49Z"
+        "observed_at": "2026-09-17T11:35:49Z",
+        "released_attempt_ref": "autonomous/attempt-e0abea2e5b24075f33d3b920"
       },
       "research_result": {
         "summary": "Verified interactions between IncidentCenter and background toasts, confirmed ResourceHealthPanel layout resilience to extremely long strings, and validated idempotency in clearResolvedRuntimeIncidents state updates.",
