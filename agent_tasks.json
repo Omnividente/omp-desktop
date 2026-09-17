@@ -2403,7 +2403,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T06:06:01Z"
+        "observed_at": "2026-09-17T06:06:01Z",
+        "released_attempt_ref": "autonomous/attempt-eaeb39b2d4cf5528c7f09e72"
       },
       "research_result": {
         "summary": "Verified IncidentCenter rendering performance and DOM state when populated with the maximum limit of 100 runtime incidents.",
