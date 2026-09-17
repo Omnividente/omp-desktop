@@ -3133,7 +3133,7 @@
       "id": "research-transcript-links-ux-1",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -3263,18 +3263,87 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3419912698313916968",
         "dispatch_key": "7b078476a4a049af3a15f629",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-7b078476a4a049af3a15f629",
         "started_at": "2026-09-17T15:39:08Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T17:00:04Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T15:39:08Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T17:00:04Z"
+      },
+      "research_result": {
+        "summary": "Verified context menu interaction when triggered by a keyboard shortcut in the Transcript area.",
+        "observations": [
+          {
+            "scenario": "Simulating a keyboard-triggered context menu (Shift+F10 or Context Menu key) on a LinkedText element inside a virtual list, which dispatches a contextmenu event with clientX=0 and clientY=0.",
+            "evidence": "Created a synthetic JSDOM test simulating `new MouseEvent('contextmenu', { clientX: 0, clientY: 0 })` on `<a>` tags in `TranscriptModal` and `LinkedText` to observe how coordinates are passed. `TranscriptModal` maps `event.clientX` and `event.clientY` directly to the `left` and `top` properties of the menu.",
+            "result": "Establishes that the context menu is successfully opened on keyboard interaction, but always rendered near the top-left of the viewport (0,0) because it blindly relies on `clientX` and `clientY`, which represent the mouse cursor and not the focused element when triggered by a keyboard shortcut."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+          "Investigate failure handling of copying very large transcript selections."
+        ],
+        "proposed_task_ids": [
+          "discovery-ccd17b3cdd6d7d64"
+        ],
+        "completed_at": "2026-09-17T17:00:04Z",
+        "source": {
+          "activity_id": "sessions/3419912698313916968/activities/f60a95ba954a41fb97a5623bf82ab0aa",
+          "report_sha256": "71afe111a9adf0a5b1899a69fc3a947ed6fdd5fa578150bb2b479ae6855766ff",
+          "activity_created_at": "2026-09-17T16:03:18Z",
+          "session_id": "3419912698313916968",
+          "dispatch_key": "7b078476a4a049af3a15f629"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-ccd17b3cdd6d7d64",
+      "title": "Fix context menu placement when triggered via keyboard in transcript links",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-17T17:00:04Z",
+      "acceptance": [
+        "When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0)."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a transcript containing a local file or artifact link.",
+            "Tab through to focus the link element.",
+            "Press Shift+F10 or the Context Menu key to open the context menu."
+          ],
+          "expected": "The context menu is positioned centered over or below the link element that has focus.",
+          "actual": "The context menu appears at the top left corner (0,0) of the viewport."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/LinkedText.tsx",
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-1",
+        "activity_id": "sessions/3419912698313916968/activities/f60a95ba954a41fb97a5623bf82ab0aa",
+        "report_sha256": "71afe111a9adf0a5b1899a69fc3a947ed6fdd5fa578150bb2b479ae6855766ff",
+        "activity_created_at": "2026-09-17T16:03:18Z",
+        "session_id": "3419912698313916968",
+        "dispatch_key": "7b078476a4a049af3a15f629"
       }
     }
   ]
