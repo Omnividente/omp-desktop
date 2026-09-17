@@ -3351,7 +3351,7 @@
       "id": "research-terminal-input-behavior-2",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -3463,6 +3463,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "8000c00a365928be398f7b60",
+        "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
+        "starting_branch": "autonomous/attempt-8000c00a365928be398f7b60",
+        "started_at": "2026-09-17T17:00:04Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
