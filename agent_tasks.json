@@ -2088,7 +2088,7 @@
       "id": "research-settings-models-ux-1",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -2218,7 +2218,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "14048779049664362841",
         "dispatch_key": "641f6e7c12f2a07601c0abd6",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
@@ -2226,10 +2226,15 @@
         "started_at": "2026-09-17T00:36:58Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-17T00:36:58Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T01:03:54Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-17T01:03:54Z"
+        }
       }
     }
   ]
