@@ -3351,7 +3351,7 @@
       "id": "research-terminal-input-behavior-2",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -3466,18 +3466,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13242639150318060504",
         "dispatch_key": "8000c00a365928be398f7b60",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-8000c00a365928be398f7b60",
         "started_at": "2026-09-17T17:00:04Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T20:46:35Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-17T19:16:52Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T20:46:35Z",
         "research_detached": {
           "at": "2026-09-17T19:16:52Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -3486,6 +3486,42 @@
           "at": "2026-09-17T19:16:52Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated terminal input boundary behaviors regarding text selection wrapping, base64 data decoding limits, and chronological input continuity recovery state resolution. Confirmed that terminal input correctly handles resize re-wrapping natively in xterm and safely splits multibyte characters. A proposed fix is formulated for chronological continuity where typing implicitly abandons the stale pending recovery input.",
+        "observations": [
+          {
+            "scenario": "Cursor boundary calculations when lines are re-wrapped dynamically by terminal resize in `terminalInput.ts`",
+            "evidence": "Ran a synthetic test using `@xterm/xterm` in isolation (using Node `.cjs` script with package resolution and `isWrapped` inspections) that simulated resizing `cols` from 10 to 12. Demonstrated that the frontend's linearly calculated sequence offset (`(target.y - cursor.y) * terminal.cols + target.x - cursor.x`) accurately matches xterm's internal cell buffering array structure, meaning `cursorMoveInput` reliably evaluates selection targets even if previous wraps shifted.",
+            "result": "Establishes that terminal dragging correctly crosses wrapped bounds because xterm.js guarantees viewport row logic matches the actual row boundary width tracking (via cols)."
+          },
+          {
+            "scenario": "Multibyte UTF-8 input processing split randomly across PTY base64 output events in `TerminalView.tsx`",
+            "evidence": "Executed an isolated node script writing `8J8=` (Base64 for [0xF0, 0x9F], half of the 4-byte 0xF09F988A emoji) to xterm.js via `terminalOutputBatcher.ts`, then writing the second half `mIo=` (Base64 for [0x98, 0x8A]). Inspected cell 0 via `terminal.buffer.active.getLine(0)`. Output correctly displayed 😊.",
+            "result": "Establishes that `decodeBase64` correctly proxies raw bytes and `xterm.js` handles UTF-8 split-sequencing seamlessly across queued boundaries, causing no display tearing."
+          },
+          {
+            "scenario": "Resolution mechanism for chronological discontinuity when new input occurs while a switch input recovery state is still pending",
+            "evidence": "Analyzed `write_bytes` in `src-tauri/src/terminal.rs` and `App.tsx` recovery state logic. The frontend UI catches a `terminal_switch_recovery_stale` (via `discardSwitchInputRecovery` and `sendSwitchInputRecovery`) and automatically removes the recovery state banner if a user discards it. Modifying `write_bytes` to drop `switch_recovery` when new input is written explicitly aligns the product with the implicit user choice to abandon the stale state by typing.",
+            "result": "Establishes that the most resilient solution for the interleaved chronolgy is to clear the backend `process.switch_recovery = None;` inside `write_bytes` if new input appears."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm WebGL renderer capability switching bounds when resizing massive numbers of terminal windows concurrently.",
+          "Examine if clipboard copying correctly preserves multi-byte strings spanning `xterm` lines across wrapped windows."
+        ],
+        "proposed_task_ids": [
+          "discovery-fba4bf1ceccfc72b"
+        ],
+        "completed_at": "2026-09-17T20:46:35Z",
+        "source": {
+          "activity_id": "sessions/13242639150318060504/activities/96b9ecdc783043499691a48caa248eb3",
+          "report_sha256": "010024aea4d0369e94b3b82b905b8e10971cd2d73603b2caaa7e273ac3e152d7",
+          "activity_created_at": "2026-09-17T19:27:44Z",
+          "session_id": "13242639150318060504",
+          "dispatch_key": "8000c00a365928be398f7b60"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -3619,6 +3655,48 @@
         "note": "",
         "session_state": "QUEUED",
         "observed_at": "2026-09-17T19:16:52Z"
+      }
+    },
+    {
+      "id": "discovery-fba4bf1ceccfc72b",
+      "title": "Clear pending switch input recovery automatically upon receiving new user input",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-17T20:46:35Z",
+      "acceptance": [
+        "Any pending or failedSend switch recovery buffer is silently discarded if new bytes are manually written to the terminal",
+        "The UI subsequently processes the resulting stale recovery attempt cleanly without echoing the discarded bytes out of order"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native backend evaluation using source code tracing matched against `xterm.js` buffer characteristics. The `process.switch_recovery` state in `write_bytes` persists during regular terminal inputs.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Initiate a primary provider model switch that enters a pending switch recovery state (e.g. inject a backend failure or block the websocket).",
+            "Ensure the switch recovery UI is visible (`switchRecovery` is populated), but input is unblocked on the terminal view.",
+            "Type new manual characters into the terminal.",
+            "Click Retry on the switch recovery banner."
+          ],
+          "expected": "The new manual characters are accepted and sent to the PTY. The old recovery buffer is abandoned and clicking Retry safely fails because it's stale, maintaining correct chronological order.",
+          "actual": "The new manual characters are accepted and sent to the PTY immediately. Clicking Retry then sends the OLD recovery buffer AFTER the new input."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/terminal.rs"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-behavior-2",
+        "activity_id": "sessions/13242639150318060504/activities/96b9ecdc783043499691a48caa248eb3",
+        "report_sha256": "010024aea4d0369e94b3b82b905b8e10971cd2d73603b2caaa7e273ac3e152d7",
+        "activity_created_at": "2026-09-17T19:27:44Z",
+        "session_id": "13242639150318060504",
+        "dispatch_key": "8000c00a365928be398f7b60"
       }
     }
   ]
