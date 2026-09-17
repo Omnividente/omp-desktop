@@ -2943,7 +2943,7 @@
       "id": "research-transcript-links-performance-1",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -3041,18 +3041,91 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7428136763832868439",
         "dispatch_key": "ea4bec3a3d907b7c3856c49c",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-ea4bec3a3d907b7c3856c49c",
         "started_at": "2026-09-17T15:20:26Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T15:39:08Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T15:20:26Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T15:39:08Z"
+      },
+      "research_result": {
+        "summary": "Verified performance boundaries for content link extraction on large documents and virtual list resizing.",
+        "observations": [
+          {
+            "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List of 100,000 items",
+            "evidence": "Manually bounded a synthetic virtual list test to create 100,000 components and collapse the container to 0 clientHeight, triggering re-render, then recovering it back to normal.",
+            "result": "The virtual list gracefully maintains internal sizing computations (e.g. 5,000,000px height for 50px items) and restores its view without any unrecoverable delays (under 10ms for rendering resize), avoiding unbounded layout calculations on hidden or restored elements."
+          },
+          {
+            "scenario": "Measured contentLink extraction performance on 10,000 repeated unstructured text lines",
+            "evidence": "Called `contentLinks` on a string of 10,000 repeated occurrences containing various URI formats (local:// and artifact://) with typical markdown structures to gauge regex processing performance.",
+            "result": "Regex processing bounded work remained responsive (~28ms for 20,000 found links), demonstrating resilience against potentially complex or repetitive parsing patterns without locking the UI thread."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate failure handling of copying very large transcript selections.",
+          "Investigate persistence of scroll positions per-transcript after closing and reopening."
+        ],
+        "proposed_task_ids": [
+          "discovery-f25052402356bf34"
+        ],
+        "completed_at": "2026-09-17T15:39:08Z",
+        "source": {
+          "activity_id": "sessions/7428136763832868439/activities/484944a0748f4ab79dc38fa8756f374f",
+          "report_sha256": "5b2aaf44df4110c17d07581548338cab087abe87cbff79cbb9996e4a53cf4af1",
+          "activity_created_at": "2026-09-17T15:30:16Z",
+          "session_id": "7428136763832868439",
+          "dispatch_key": "ea4bec3a3d907b7c3856c49c"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-f25052402356bf34",
+      "title": "Retain modal scroll position per session across closes",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-17T15:39:08Z",
+      "acceptance": [
+        "Reopening a previously opened transcript modal restores its last active scroll position without returning to the top"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Transcript view on any session.",
+            "Scroll down midway through the virtual list.",
+            "Close the transcript modal using the interface.",
+            "Reopen the same session transcript."
+          ],
+          "expected": "The list remembers the user's scroll position and restores it upon render.",
+          "actual": "The list forces the scroll position back to the very top (scrollTop = 0)."
+        }
+      },
+      "target_paths": [
+        "src/useTranscript.ts",
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-1",
+        "activity_id": "sessions/7428136763832868439/activities/484944a0748f4ab79dc38fa8756f374f",
+        "report_sha256": "5b2aaf44df4110c17d07581548338cab087abe87cbff79cbb9996e4a53cf4af1",
+        "activity_created_at": "2026-09-17T15:30:16Z",
+        "session_id": "7428136763832868439",
+        "dispatch_key": "ea4bec3a3d907b7c3856c49c"
       }
     }
   ]
