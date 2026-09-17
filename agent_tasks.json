@@ -2900,8 +2900,8 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T13:16:06Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-17T13:29:05Z"
       }
     }
   ]
