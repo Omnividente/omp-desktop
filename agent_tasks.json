@@ -3528,7 +3528,7 @@
       "id": "research-terminal-input-reliability-2",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -3643,18 +3643,44 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15873519811276941138",
         "dispatch_key": "9809f54d048c263fc29a45e2",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-9809f54d048c263fc29a45e2",
         "started_at": "2026-09-17T19:16:52Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T20:46:35Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T19:16:52Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T20:46:35Z"
+      },
+      "research_result": {
+        "summary": "Investigated the boundary condition between ordinary terminal input and failed switch recovery, confirming a chronological continuity defect.",
+        "observations": [
+          {
+            "scenario": "User types new input while a SwitchInputRecovery is pending (failedSend or pending state).",
+            "evidence": "Inspected terminalInputBlocked in src/terminalInput.ts and write_bytes in src-tauri/src/terminal.rs. The frontend explicitly unblocks input during recovery, allowing writeTerminal. The backend write_bytes enqueues this new input immediately to the PTY without clearing the pending switch_recovery state. If the user subsequently clicks Retry, send_switch_input_recovery enqueues the older recovery buffer after the newer typed input. An isolated Rust test `typed_input_clears_recovery` was created that reproduced this behavior; a patch to set `process.switch_recovery = None;` in `write_bytes` successfully fixed it and passed the test suite.",
+            "result": "Establishes that the system breaks chronological input continuity. Because ordinary input is intentionally unblocked but does not automatically clear the stale recovery state or queue behind it, the user can accidentally interleave past and current inputs out of order."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize.",
+          "Examine if the custom decodeBase64 correctly handles multi-byte characters split across PtyOutputEvent chunk boundaries."
+        ],
+        "proposed_task_ids": [
+          "discovery-87e9827baf673422"
+        ],
+        "completed_at": "2026-09-17T20:46:35Z",
+        "source": {
+          "activity_id": "sessions/15873519811276941138/activities/f339ab06640c44d7ab463c3e216e88dc",
+          "report_sha256": "8a5dcada0cc0cc1d8bfc7a241e44036354b4fbd95c6c6666125c971a1c23dca3",
+          "activity_created_at": "2026-09-17T19:34:40Z",
+          "session_id": "15873519811276941138",
+          "dispatch_key": "9809f54d048c263fc29a45e2"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -3697,6 +3723,47 @@
         "activity_created_at": "2026-09-17T19:27:44Z",
         "session_id": "13242639150318060504",
         "dispatch_key": "8000c00a365928be398f7b60"
+      }
+    },
+    {
+      "id": "discovery-87e9827baf673422",
+      "title": "Clear pending terminal input recovery when new input is typed",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-17T20:46:35Z",
+      "acceptance": [
+        "Typing new input clears any pending switch_recovery state so that stale input cannot be retried later."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native rust unit test observation. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a rust test that puts a terminal process into a switch_recovery state.",
+            "Write new bytes to the terminal.",
+            "Attempt to send the switch input recovery."
+          ],
+          "expected": "The switch input recovery should fail because typing new input invalidates the pending recovery.",
+          "actual": "The switch input recovery succeeds and writes the stale input after the new input."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/terminal.rs"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-reliability-2",
+        "activity_id": "sessions/15873519811276941138/activities/f339ab06640c44d7ab463c3e216e88dc",
+        "report_sha256": "8a5dcada0cc0cc1d8bfc7a241e44036354b4fbd95c6c6666125c971a1c23dca3",
+        "activity_created_at": "2026-09-17T19:34:40Z",
+        "session_id": "15873519811276941138",
+        "dispatch_key": "9809f54d048c263fc29a45e2"
       }
     }
   ]
