@@ -3052,7 +3052,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T15:39:08Z"
+        "observed_at": "2026-09-17T15:39:08Z",
+        "released_attempt_ref": "autonomous/attempt-ea4bec3a3d907b7c3856c49c"
       },
       "research_result": {
         "summary": "Verified performance boundaries for content link extraction on large documents and virtual list resizing.",
