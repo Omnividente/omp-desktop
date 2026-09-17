@@ -1892,7 +1892,8 @@
         "feedback_nudge": {
           "at": "2026-09-16T22:53:49Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-42d7079fb8881ffa1ee8904a"
       },
       "research_result": {
         "summary": "Investigated operational settings update failure recovery and model thinking override persistence in the UI when switching models.",
