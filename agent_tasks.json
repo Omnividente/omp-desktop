@@ -4158,6 +4158,122 @@
         "session_id": "6905970117625246766",
         "dispatch_key": "6a4adab8a2cb78201aff2de9"
       }
+    },
+    {
+      "id": "research-sessions-persistence-behavior-2",
+      "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-17T22:16:37Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "behavior",
+        "fingerprint": "e1e7f7e7905862afbf549caa3df17d0168a901e739b030ae11c0bbb92aacf219",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Importing a session is vulnerable to a crash desync between artifacts and the session metadata. During a crash between `rename(&staging, &target_artifacts)` and `write_session`, the target artifacts are updated but the session JSONL remains the old state, and the backup folder is leaked.",
+            "observations": [
+              {
+                "scenario": "A power-loss or uncatchable SIGKILL occurs during `commit_import_with` exactly after moving the new artifacts into place but before writing the JSONL session metadata.",
+                "evidence": "Observed via an explicit simulated test of the commit order defined in `src-tauri/src/sessions.rs`. The backup artifact folder `.session.import.artifacts-backup...` is left permanently in the session directory. The session itself remains on its old content, while the artifact subfolder contains the newly imported artifacts, creating a permanent state desync.",
+                "result": "The current swap mechanism does not have recovery code for resuming a failed atomic swap on a subsequent launch, resulting in lost artifacts (replaced by the new ones before they are persisted in JSONL) and orphaned backup artifacts."
+              }
+            ],
+            "next_hypotheses": [
+              "Write a marker file prior to artifact swaps to allow crash recovery on next read, or implement WAL-based import transactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-e938ec8d92054623"
+            ],
+            "completed_at": "2026-09-16T11:32:18Z",
+            "source": {
+              "activity_id": "sessions/728187137027557012/activities/ab0c71ac80ce440cbd9101c86ce9d5d8",
+              "report_sha256": "b3a5c70d609a9d9358ca0d953b3f84fcb0887cb956c2d66f6e4bae68561137b9",
+              "activity_created_at": "2026-09-16T10:39:00Z",
+              "session_id": "728187137027557012",
+              "dispatch_key": "06dcae2e8488eb0205ec11a5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the performance of `scan_sessions` in the backend for large inputs and repeated accesses. Benchmarked the function directly using synthetic fixtures containing thousands of sessions and large session files.",
+            "observations": [
+              {
+                "scenario": "Scanning a directory containing 20,000 valid session JSONL files on first load (cache empty) vs subsequent load (cached).",
+                "evidence": "Ran a synthetic benchmark in a release build targeting `scan_sessions` with 20,000 generated `.jsonl` session files on disk. The initial scan (uncached) completed in ~544ms. The subsequent scan of the same directory utilizing the `session_summary_cache` completed in ~201ms.",
+                "result": "The in-memory cache successfully avoids repeatedly parsing the contents of unchanged session files, significantly reducing the scan time. However, there is still substantial baseline overhead (~201ms) purely from iterating over the directory and checking file metadata/timestamps for 20,000 files."
+              },
+              {
+                "scenario": "Scanning a directory containing a single huge session file (20,000 message lines).",
+                "evidence": "Ran the synthetic benchmark targeting `scan_sessions` with one large `.jsonl` file. The initial scan completed in ~40ms. The cached scan completed in ~60 microseconds.",
+                "result": "The initial cost of parsing a large session file is bounded, and subsequent reads are extremely fast because the cache hits and completely skips parsing the file if its `SessionFileStamp` (modified time + size) hasn't changed."
+              }
+            ],
+            "next_hypotheses": [
+              "Determine if directory enumeration and stat checks (`collect_jsonl_files` and `session_file_stamp`) can be optimized or run asynchronously to avoid blocking the Tauri IPC thread when the session count grows extremely large (e.g. >10,000).",
+              "Investigate if `list_codex_sessions` implements similar caching for its file scanning logic."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-16T12:13:31Z",
+            "source": {
+              "activity_id": "sessions/5105466292970919735/activities/69444699330d4985ab12f600a9775992",
+              "report_sha256": "fc9ec89632957a66d5c9555d250ad6ce053fdb2bcffc5e323f2d5ed72b2c86ca",
+              "activity_created_at": "2026-09-16T12:01:27Z",
+              "session_id": "5105466292970919735",
+              "dispatch_key": "fdc021df05434d2d90510fac"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigation of session import modals reveals missing keyboard accessibility (Escape to close).",
+            "observations": [
+              {
+                "scenario": "Keyboard interaction for closing ImportSessionModal and CodexImportModal.",
+                "evidence": "Source code for `src/ImportSessionModal.tsx` and `src/CodexImportModal.tsx` lacks `onKeyDown` handlers for the `Escape` key. A synthetic Vitest test simulating the Escape keydown event confirmed that `onClose` is not triggered.",
+                "result": "Establishes that a keyboard-only user cannot close the import modals by pressing Escape, degrading interaction clarity and accessibility."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if focus correctly returns to the button that opened the modal after it closes.",
+              "Check if focus is correctly trapped inside the modal while it is open, preventing keyboard interaction with background elements."
+            ],
+            "proposed_task_ids": [
+              "discovery-2e80f2798c364331"
+            ],
+            "completed_at": "2026-09-16T15:11:11Z",
+            "source": {
+              "activity_id": "sessions/5474976814849461776/activities/af565290f15f4512bf2e324f8bd515cb",
+              "report_sha256": "78fe222ac4c5395e71bbe87e80a3e5cf2aa2072e283e4f8fcc0af2f141ad39e4",
+              "activity_created_at": "2026-09-16T12:26:29Z",
+              "session_id": "5474976814849461776",
+              "dispatch_key": "7321046869a0bea3378b90ed"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
