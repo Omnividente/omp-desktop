@@ -2218,8 +2218,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "14048779049664362841",
         "dispatch_key": "641f6e7c12f2a07601c0abd6",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
