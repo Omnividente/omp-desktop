@@ -2006,7 +2006,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T00:36:58Z"
+        "observed_at": "2026-09-17T00:36:58Z",
+        "released_attempt_ref": "autonomous/attempt-4884d973f51f141b2d50fd84"
       },
       "research_result": {
         "summary": "Investigated responsiveness and resource use of ModelPicker filtering and SettingsPanel fallback chain formatting, finding them highly efficient with large synthetic payloads.",
