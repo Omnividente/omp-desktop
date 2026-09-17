@@ -1812,7 +1812,7 @@
       "id": "research-settings-models-reliability-1",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -1873,18 +1873,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17139642498294375610",
         "dispatch_key": "42d7079fb8881ffa1ee8904a",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-42d7079fb8881ffa1ee8904a",
         "started_at": "2026-09-16T22:13:53Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T00:36:58Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-16T22:53:49Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T00:36:58Z",
         "research_detached": {
           "at": "2026-09-16T22:53:49Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -1893,6 +1893,41 @@
           "at": "2026-09-16T22:53:49Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated operational settings update failure recovery and model thinking override persistence in the UI when switching models.",
+        "observations": [
+          {
+            "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+            "evidence": "Observed `splitSelector` logic coupled with `selectorForModel` in `src/ModelPicker.tsx`. When switching to a new model that supports thinking, `model.thinking.includes(thinking)` evaluates to `false` for base level overrides like `:off` or `:auto` because `model.thinking` natively omits these base overrides from its array (it only contains valid elevated thinking levels like `low`, `high`, `max`). The override is dropped from the returned selector.",
+            "result": "Establishes that the UI drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` omits these base overrides. The `selectorForModel` function fails to preserve standard/base thinking modifiers during model switching."
+          },
+          {
+            "scenario": "Testing frontend component resilience when `saveSettingsBundle` IPC request fails during operational settings drafts save.",
+            "evidence": "Tested the React UI component `SettingsPanel` by injecting an IPC failure. When `saveSettingsBundle` throws an error, the error state is propagated via `setConfigError(message)`. The operational changes drafts remain in the local state `operationDrafts` inside the React component and are not cleared (unlike successful cases where they are cleared).",
+            "result": "Establishes that operational settings drafts are safely kept in UI state upon a failed IPC save request. This prevents data loss for user drafts when the backend rejects changes or fails for network/backend reasons."
+          },
+          {
+            "scenario": "Backend testing environment compatibility with rustc 1.94.0.",
+            "evidence": "Running `cargo test` on backend fails due to `sysinfo@0.39.6` requiring `rustc 1.95`. Attempting to downgrade `sysinfo` to a compatible version failed due to incompatible features between `0.30.13`, `0.31.2` and project's crate features (the `system` feature is not present on older versions), as well as missing native pkg-config dependencies (`glib-2.0` and `gobject-2.0`) in the sandbox.",
+            "result": "Establishes that the native backend testing environment in this sandbox is limited due to the Rust version and missing system dependencies."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+        ],
+        "proposed_task_ids": [
+          "discovery-f94f0fd889c52402"
+        ],
+        "completed_at": "2026-09-17T00:36:58Z",
+        "source": {
+          "activity_id": "sessions/17139642498294375610/activities/9a5ba7c8a76c4ff1ad1bba973db75f7c",
+          "report_sha256": "86b8e01c22ac6369e3fca478f192ac5a7e43ac3f96fa024e7c7e14568a2be5c9",
+          "activity_created_at": "2026-09-16T22:56:17Z",
+          "session_id": "17139642498294375610",
+          "dispatch_key": "42d7079fb8881ffa1ee8904a"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -1971,6 +2006,46 @@
         "note": "",
         "session_state": "QUEUED",
         "observed_at": "2026-09-16T22:53:49Z"
+      }
+    },
+    {
+      "id": "discovery-f94f0fd889c52402",
+      "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-17T00:36:58Z",
+      "acceptance": [
+        "Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Set a model's selector with an `:off` thinking override (e.g., `model:off`).",
+            "Switch the model using the ModelPicker to another model that also supports thinking levels."
+          ],
+          "expected": "The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).",
+          "actual": "The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`)."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-1",
+        "activity_id": "sessions/17139642498294375610/activities/9a5ba7c8a76c4ff1ad1bba973db75f7c",
+        "report_sha256": "86b8e01c22ac6369e3fca478f192ac5a7e43ac3f96fa024e7c7e14568a2be5c9",
+        "activity_created_at": "2026-09-16T22:56:17Z",
+        "session_id": "17139642498294375610",
+        "dispatch_key": "42d7079fb8881ffa1ee8904a"
       }
     }
   ]
