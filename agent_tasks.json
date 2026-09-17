@@ -2535,7 +2535,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T10:28:32Z"
+        "observed_at": "2026-09-17T10:28:32Z",
+        "released_attempt_ref": "autonomous/attempt-13ed08f728d543358a705f9c"
       },
       "research_result": {
         "summary": "Verified state recovery behavior of clearResolvedRuntimeIncidents and performance of processing bursts of incidents in runtimeIncidents.",
