@@ -2088,7 +2088,7 @@
       "id": "research-settings-models-ux-1",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "a11y",
         "i18n",
@@ -2215,6 +2215,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "641f6e7c12f2a07601c0abd6",
+        "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
+        "starting_branch": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
+        "started_at": "2026-09-17T00:36:58Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
