@@ -3655,7 +3655,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T20:46:35Z"
+        "observed_at": "2026-09-17T20:46:35Z",
+        "released_attempt_ref": "autonomous/attempt-9809f54d048c263fc29a45e2"
       },
       "research_result": {
         "summary": "Investigated the boundary condition between ordinary terminal input and failed switch recovery, confirming a chronological continuity defect.",
