@@ -1934,7 +1934,7 @@
       "id": "research-settings-models-performance-1",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -1994,18 +1994,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1597910468720255683",
         "dispatch_key": "4884d973f51f141b2d50fd84",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-4884d973f51f141b2d50fd84",
         "started_at": "2026-09-16T22:53:49Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T00:36:58Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-16T22:53:49Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T00:36:58Z"
+      },
+      "research_result": {
+        "summary": "Investigated responsiveness and resource use of ModelPicker filtering and SettingsPanel fallback chain formatting, finding them highly efficient with large synthetic payloads.",
+        "observations": [
+          {
+            "scenario": "Model picker search evaluation and selector matching with 1,000 synthetic models.",
+            "evidence": "Generated 1000 synthetic OmpModelInfo instances to evaluate match operations via `matchesSelector` and list filtering/sorting logic. Both processes were executed 100 times to test latency.",
+            "result": "Filtering and sorting logic on the frontend processes 1,000 models in roughly ~0.5ms per update. Lookup scan checking `matchesSelector` completes in ~0.4ms per pass. No performance regressions or UI lag spikes exist on realistic large payloads in this area."
+          },
+          {
+            "scenario": "Operational settings draft evaluation inside SettingsPanel handling 1,000 settings drafts.",
+            "evidence": "Tested the iteration check for `hasChanges` logic looking for differences across 1,000 drafts against OmpConfig snapshot fields.",
+            "result": "Checking 1,000 draft operational properties completes in ~0.2ms per evaluation pass using React useMemo, avoiding re-renders effectively."
+          },
+          {
+            "scenario": "SettingsPanel fallback chains drafting via `fallbackDraftsFromSnapshot` with 100 configured fallback chains.",
+            "evidence": "Tested latency of converting a fallback dictionary into array-bound structure used by React view loop.",
+            "result": "Converting 100 fallback chains processes rapidly (~0.04ms per layout pass). No performance regression found."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the cost of serialization and IPC overhead during the save of large fallback chains or operational settings, rather than React memory mapping.",
+          "Examine if `fallbackDraftSequence` state sequence leaks uncollected arrays on extreme usage."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T00:36:58Z",
+        "source": {
+          "activity_id": "sessions/1597910468720255683/activities/86c9e803c40b49108ffd5d7476edb6a5",
+          "report_sha256": "4ddb0b0a4706ade638fa0273b65c9a98723c6ba9fc5eb45efdb1d7a0aaf403b8",
+          "activity_created_at": "2026-09-16T23:19:33Z",
+          "session_id": "1597910468720255683",
+          "dispatch_key": "4884d973f51f141b2d50fd84"
+        },
+        "deferred_findings": []
       }
     },
     {
