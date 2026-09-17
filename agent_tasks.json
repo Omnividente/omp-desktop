@@ -2242,7 +2242,7 @@
       "id": "research-diagnostics-resources-behavior-1",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "todo",
       "focus": [
         "quality",
         "bugfix",
@@ -2274,18 +2274,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "retry",
         "session_id": "11751480220668870610",
         "dispatch_key": "d788ffd101dfe3b269591d43",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-d788ffd101dfe3b269591d43",
         "started_at": "2026-09-17T01:03:54Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T04:52:20Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T01:03:54Z"
+        "outcome": "failed",
+        "note": "Jules reported a terminal failure",
+        "session_state": "FAILED",
+        "observed_at": "2026-09-17T04:52:20Z"
       }
     }
   ]
