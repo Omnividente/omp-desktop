@@ -3274,7 +3274,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T17:00:04Z"
+        "observed_at": "2026-09-17T17:00:04Z",
+        "released_attempt_ref": "autonomous/attempt-7b078476a4a049af3a15f629"
       },
       "research_result": {
         "summary": "Verified context menu interaction when triggered by a keyboard shortcut in the Transcript area.",
