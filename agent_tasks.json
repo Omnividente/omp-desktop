@@ -2742,7 +2742,7 @@
       "id": "research-transcript-links-behavior-1",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -2773,18 +2773,51 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4713677984387697352",
         "dispatch_key": "9c568ab267b3746533f049a8",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-9c568ab267b3746533f049a8",
         "started_at": "2026-09-17T11:35:49Z",
-        "finished_at": "",
+        "finished_at": "2026-09-17T13:16:06Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-17T11:35:49Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-17T13:16:06Z"
+      },
+      "research_result": {
+        "summary": "Verified the behavior of Transcript content links handling boundaries and interactions.",
+        "observations": [
+          {
+            "scenario": "Verifying Link extraction on various schemes including edge cases",
+            "evidence": "Ran unit tests demonstrating `contentLinks` properly extracting URIs (e.g., `artifact://img.png`, `local://test.txt`) from markdown and unstructured text formats, whilst correctly ignoring unsafe protocols (e.g. `javascript:alert(1)`) per `isContentLink` restrictions.",
+            "result": "The frontend successfully differentiates content links that are active DOM anchors from those that are not, correctly rejecting unsupported protocols."
+          },
+          {
+            "scenario": "Middle-click link behavior for open on content link anchors",
+            "evidence": "Observed `LinkedText` components triggering `onOpen(uri)` explicitly when processing `auxclick` with `event.button === 1` via a synthetic test environment. Regular left click successfully triggers `onOpen` with `event.preventDefault()` to ignore typical anchor follow actions.",
+            "result": "Middle click opening works as designed on the React elements displaying the markdown URLs."
+          },
+          {
+            "scenario": "Context menu interaction for non-URL local file content links",
+            "evidence": "Verified via test that `LinkedText` suppresses invoking `onLinkContextMenu` if the clicked link doesn't conform to `isFileContentLink` (e.g. it is an `https://` link). If it is a file/local/artifact link, `onLinkContextMenu` is properly invoked.",
+            "result": "Context menus correctly filter out web URLs to only show file context interactions for resources the backend is responsible for."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate large transcript rendering scrolling and memory usage during virtual list scroll bounds resizing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-17T13:16:06Z",
+        "source": {
+          "activity_id": "sessions/4713677984387697352/activities/f66f7d8c308140c69af32c85e59d7e0f",
+          "report_sha256": "05c10fc79b61c2603ab2058a2df6938e12b6b5448f01265428f10cc1d119a1b6",
+          "activity_created_at": "2026-09-17T11:42:48Z",
+          "session_id": "4713677984387697352",
+          "dispatch_key": "9c568ab267b3746533f049a8"
+        },
+        "deferred_findings": []
       }
     }
   ]
