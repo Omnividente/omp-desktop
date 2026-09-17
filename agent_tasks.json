@@ -2784,7 +2784,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-17T13:16:06Z"
+        "observed_at": "2026-09-17T13:16:06Z",
+        "released_attempt_ref": "autonomous/attempt-9c568ab267b3746533f049a8"
       },
       "research_result": {
         "summary": "Verified the behavior of Transcript content links handling boundaries and interactions.",
