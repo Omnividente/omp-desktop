@@ -2943,7 +2943,7 @@
       "id": "research-transcript-links-performance-1",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -3038,6 +3038,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "ea4bec3a3d907b7c3856c49c",
+        "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
+        "starting_branch": "autonomous/attempt-ea4bec3a3d907b7c3856c49c",
+        "started_at": "2026-09-17T15:20:26Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ]
