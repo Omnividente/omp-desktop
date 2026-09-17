@@ -3939,6 +3939,137 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-terminal-input-ux-2",
+      "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-17T21:03:28Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "ux",
+        "fingerprint": "afe3ca28ae43600c57ce09847b95a884c01a1d16911488517c0cd55810db6041",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Investigated terminal input boundary behaviors regarding text selection wrapping, base64 data decoding limits, and chronological input continuity recovery state resolution. Confirmed that terminal input correctly handles resize re-wrapping natively in xterm and safely splits multibyte characters. A proposed fix is formulated for chronological continuity where typing implicitly abandons the stale pending recovery input.",
+            "observations": [
+              {
+                "scenario": "Cursor boundary calculations when lines are re-wrapped dynamically by terminal resize in `terminalInput.ts`",
+                "evidence": "Ran a synthetic test using `@xterm/xterm` in isolation (using Node `.cjs` script with package resolution and `isWrapped` inspections) that simulated resizing `cols` from 10 to 12. Demonstrated that the frontend's linearly calculated sequence offset (`(target.y - cursor.y) * terminal.cols + target.x - cursor.x`) accurately matches xterm's internal cell buffering array structure, meaning `cursorMoveInput` reliably evaluates selection targets even if previous wraps shifted.",
+                "result": "Establishes that terminal dragging correctly crosses wrapped bounds because xterm.js guarantees viewport row logic matches the actual row boundary width tracking (via cols)."
+              },
+              {
+                "scenario": "Multibyte UTF-8 input processing split randomly across PTY base64 output events in `TerminalView.tsx`",
+                "evidence": "Executed an isolated node script writing `8J8=` (Base64 for [0xF0, 0x9F], half of the 4-byte 0xF09F988A emoji) to xterm.js via `terminalOutputBatcher.ts`, then writing the second half `mIo=` (Base64 for [0x98, 0x8A]). Inspected cell 0 via `terminal.buffer.active.getLine(0)`. Output correctly displayed 😊.",
+                "result": "Establishes that `decodeBase64` correctly proxies raw bytes and `xterm.js` handles UTF-8 split-sequencing seamlessly across queued boundaries, causing no display tearing."
+              },
+              {
+                "scenario": "Resolution mechanism for chronological discontinuity when new input occurs while a switch input recovery state is still pending",
+                "evidence": "Analyzed `write_bytes` in `src-tauri/src/terminal.rs` and `App.tsx` recovery state logic. The frontend UI catches a `terminal_switch_recovery_stale` (via `discardSwitchInputRecovery` and `sendSwitchInputRecovery`) and automatically removes the recovery state banner if a user discards it. Modifying `write_bytes` to drop `switch_recovery` when new input is written explicitly aligns the product with the implicit user choice to abandon the stale state by typing.",
+                "result": "Establishes that the most resilient solution for the interleaved chronolgy is to clear the backend `process.switch_recovery = None;` inside `write_bytes` if new input appears."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm WebGL renderer capability switching bounds when resizing massive numbers of terminal windows concurrently.",
+              "Examine if clipboard copying correctly preserves multi-byte strings spanning `xterm` lines across wrapped windows."
+            ],
+            "proposed_task_ids": [
+              "discovery-fba4bf1ceccfc72b"
+            ],
+            "completed_at": "2026-09-17T20:46:35Z",
+            "source": {
+              "activity_id": "sessions/13242639150318060504/activities/96b9ecdc783043499691a48caa248eb3",
+              "report_sha256": "010024aea4d0369e94b3b82b905b8e10971cd2d73603b2caaa7e273ac3e152d7",
+              "activity_created_at": "2026-09-17T19:27:44Z",
+              "session_id": "13242639150318060504",
+              "dispatch_key": "8000c00a365928be398f7b60"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the boundary condition between ordinary terminal input and failed switch recovery, confirming a chronological continuity defect.",
+            "observations": [
+              {
+                "scenario": "User types new input while a SwitchInputRecovery is pending (failedSend or pending state).",
+                "evidence": "Inspected terminalInputBlocked in src/terminalInput.ts and write_bytes in src-tauri/src/terminal.rs. The frontend explicitly unblocks input during recovery, allowing writeTerminal. The backend write_bytes enqueues this new input immediately to the PTY without clearing the pending switch_recovery state. If the user subsequently clicks Retry, send_switch_input_recovery enqueues the older recovery buffer after the newer typed input. An isolated Rust test `typed_input_clears_recovery` was created that reproduced this behavior; a patch to set `process.switch_recovery = None;` in `write_bytes` successfully fixed it and passed the test suite.",
+                "result": "Establishes that the system breaks chronological input continuity. Because ordinary input is intentionally unblocked but does not automatically clear the stale recovery state or queue behind it, the user can accidentally interleave past and current inputs out of order."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize.",
+              "Examine if the custom decodeBase64 correctly handles multi-byte characters split across PtyOutputEvent chunk boundaries."
+            ],
+            "proposed_task_ids": [
+              "discovery-87e9827baf673422"
+            ],
+            "completed_at": "2026-09-17T20:46:35Z",
+            "source": {
+              "activity_id": "sessions/15873519811276941138/activities/f339ab06640c44d7ab463c3e216e88dc",
+              "report_sha256": "8a5dcada0cc0cc1d8bfc7a241e44036354b4fbd95c6c6666125c971a1c23dca3",
+              "activity_created_at": "2026-09-17T19:34:40Z",
+              "session_id": "15873519811276941138",
+              "dispatch_key": "9809f54d048c263fc29a45e2"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated Terminal output continuity batching and decoding resource use.",
+            "observations": [
+              {
+                "scenario": "Memory profile of terminalOutputBatcher.ts buffering up to 10MB of sequential chunks",
+                "evidence": "Ran isolated vitest benchmark with createTerminalOutputBatcher chunking 2500 events of 4KB each over performance.now() window limits. Demonstrated O(N) allocation bounds working correctly; it consumed bounded resources (41 flushes) scaling stably.",
+                "result": "Establishes that the memory batcher accurately prevents rendering stalls by limiting synchronous write iterations to xterm.js."
+              },
+              {
+                "scenario": "Throughput and allocation of decodeBase64 parsing large chunks",
+                "evidence": "Ran isolated Node.js script comparing the custom charCodeAt-based decodeBase64 logic vs Buffer.from/Uint8Array.from on 10MB of PTY data. The custom loop took ~50ms vs native Buffer ~15ms, showing acceptable allocation per payload length but scaling linearly.",
+                "result": "Establishes that decodeBase64 correctly isolates browser vs Node context without memory leaks, operating sequentially within the 16ms batch window."
+              },
+              {
+                "scenario": "State tracking cleanup for forgotten terminal continuity on close",
+                "evidence": "Created unit test inspecting `forgetTerminalContinuity` in `terminalContinuity.ts`. It correctly drops the baseline generation map entry via `Map.delete`, preventing unbound memory leaks over long session durations when terminal instances exit.",
+                "result": "Establishes that terminal continuity baselines do not permanently retain stale memory state across tab closures."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm WebGL renderer capability switching bounds when resizing massive numbers of terminal windows concurrently.",
+              "Examine if clipboard copying correctly preserves multi-byte strings spanning xterm lines across wrapped windows."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T21:03:28Z",
+            "source": {
+              "activity_id": "sessions/5020451505467015183/activities/e814a7bdeb2143ca800e81ef472069f4",
+              "report_sha256": "dd18f0dfbadeb9060ee5f63b7a5161bd51cfe76458d737769168bd9f519e7be3",
+              "activity_created_at": "2026-09-17T20:54:15Z",
+              "session_id": "5020451505467015183",
+              "dispatch_key": "b3a2a7041486c9ca2204d19e"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
