@@ -3128,6 +3128,139 @@
         "session_id": "7428136763832868439",
         "dispatch_key": "ea4bec3a3d907b7c3856c49c"
       }
+    },
+    {
+      "id": "research-transcript-links-ux-1",
+      "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-17T15:39:08Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "ux",
+        "fingerprint": "fa5cba1be5af48d356a661cbf27c04e1ff6633d8a9b33fda45c9e03594016d1a",
+        "cycle": 1,
+        "previous_reports": [
+          {
+            "summary": "Verified the behavior of Transcript content links handling boundaries and interactions.",
+            "observations": [
+              {
+                "scenario": "Verifying Link extraction on various schemes including edge cases",
+                "evidence": "Ran unit tests demonstrating `contentLinks` properly extracting URIs (e.g., `artifact://img.png`, `local://test.txt`) from markdown and unstructured text formats, whilst correctly ignoring unsafe protocols (e.g. `javascript:alert(1)`) per `isContentLink` restrictions.",
+                "result": "The frontend successfully differentiates content links that are active DOM anchors from those that are not, correctly rejecting unsupported protocols."
+              },
+              {
+                "scenario": "Middle-click link behavior for open on content link anchors",
+                "evidence": "Observed `LinkedText` components triggering `onOpen(uri)` explicitly when processing `auxclick` with `event.button === 1` via a synthetic test environment. Regular left click successfully triggers `onOpen` with `event.preventDefault()` to ignore typical anchor follow actions.",
+                "result": "Middle click opening works as designed on the React elements displaying the markdown URLs."
+              },
+              {
+                "scenario": "Context menu interaction for non-URL local file content links",
+                "evidence": "Verified via test that `LinkedText` suppresses invoking `onLinkContextMenu` if the clicked link doesn't conform to `isFileContentLink` (e.g. it is an `https://` link). If it is a file/local/artifact link, `onLinkContextMenu` is properly invoked.",
+                "result": "Context menus correctly filter out web URLs to only show file context interactions for resources the backend is responsible for."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate large transcript rendering scrolling and memory usage during virtual list scroll bounds resizing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T13:16:06Z",
+            "source": {
+              "activity_id": "sessions/4713677984387697352/activities/f66f7d8c308140c69af32c85e59d7e0f",
+              "report_sha256": "05c10fc79b61c2603ab2058a2df6938e12b6b5448f01265428f10cc1d119a1b6",
+              "activity_created_at": "2026-09-17T11:42:48Z",
+              "session_id": "4713677984387697352",
+              "dispatch_key": "9c568ab267b3746533f049a8"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the resilience and state persistence of Transcript loading and virtual list rendering.",
+            "observations": [
+              {
+                "scenario": "Simulating a concurrent or interrupted load Transcript session",
+                "evidence": "Tested `useTranscript` loading the same or different transcripts rapidly, simulating interruption. Asserted that older or interrupted load promises are properly ignored and don't overwrite current state upon resolving later.",
+                "result": "The transcript hook is robust against concurrent interruptions and correctly handles race conditions to avoid loading incorrect data."
+              },
+              {
+                "scenario": "Simulating failure during transcript loading and user recovery/retry",
+                "evidence": "Mocked `readSessionTranscript` to throw an error and checked if `useTranscript` fails cleanly by showing an error state, while retaining the session data, then simulated a retry by returning successful data.",
+                "result": "The state recovers correctly from API errors. It sets `transcriptError` properly without dropping the `transcriptSession` path, allowing accurate retries."
+              },
+              {
+                "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List",
+                "evidence": "Manually adjusted the scroll container's `clientHeight` to zero then back to normal to simulate being hidden/restored. Fired scroll events past loaded bounds to ensure items were generated correctly.",
+                "result": "The virtual list successfully maintains internal sizing measurements and bounds checking, correctly rendering list components even after recovering from a 0-height collapse or large scroll jumps."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate failure handling of copying very large transcript selections."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T15:20:26Z",
+            "source": {
+              "activity_id": "sessions/13764414488262800498/activities/3147b6b2df5849b3ae791151dc9dbdfa",
+              "report_sha256": "e53ae7b1654ffd0101d42f76b87090cb2fc07946a299ef0a2f67f7e77077fb9f",
+              "activity_created_at": "2026-09-17T13:23:35Z",
+              "session_id": "13764414488262800498",
+              "dispatch_key": "999de2cc1526526b42420290"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified performance boundaries for content link extraction on large documents and virtual list resizing.",
+            "observations": [
+              {
+                "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List of 100,000 items",
+                "evidence": "Manually bounded a synthetic virtual list test to create 100,000 components and collapse the container to 0 clientHeight, triggering re-render, then recovering it back to normal.",
+                "result": "The virtual list gracefully maintains internal sizing computations (e.g. 5,000,000px height for 50px items) and restores its view without any unrecoverable delays (under 10ms for rendering resize), avoiding unbounded layout calculations on hidden or restored elements."
+              },
+              {
+                "scenario": "Measured contentLink extraction performance on 10,000 repeated unstructured text lines",
+                "evidence": "Called `contentLinks` on a string of 10,000 repeated occurrences containing various URI formats (local:// and artifact://) with typical markdown structures to gauge regex processing performance.",
+                "result": "Regex processing bounded work remained responsive (~28ms for 20,000 found links), demonstrating resilience against potentially complex or repetitive parsing patterns without locking the UI thread."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate failure handling of copying very large transcript selections.",
+              "Investigate persistence of scroll positions per-transcript after closing and reopening."
+            ],
+            "proposed_task_ids": [
+              "discovery-f25052402356bf34"
+            ],
+            "completed_at": "2026-09-17T15:39:08Z",
+            "source": {
+              "activity_id": "sessions/7428136763832868439/activities/484944a0748f4ab79dc38fa8756f374f",
+              "report_sha256": "5b2aaf44df4110c17d07581548338cab087abe87cbff79cbb9996e4a53cf4af1",
+              "activity_created_at": "2026-09-17T15:30:16Z",
+              "session_id": "7428136763832868439",
+              "dispatch_key": "ea4bec3a3d907b7c3856c49c"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
