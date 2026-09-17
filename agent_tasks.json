@@ -2285,7 +2285,7 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "observed_at": "2026-09-17T05:30:38Z",
-        "released_attempt_ref": "autonomous/attempt-d788ffd101dfe3b269591d43",
+        "released_attempt_ref": "autonomous/attempt-edf938feffecf87e9da8d72e",
         "session_state": "COMPLETED"
       },
       "research_result": {
