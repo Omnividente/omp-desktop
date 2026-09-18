@@ -4829,6 +4829,124 @@
         "session_id": "15633779958290240504",
         "dispatch_key": "b2fdc575fea2cde3d1f469df"
       }
+    },
+    {
+      "id": "research-sessions-persistence-ux-2",
+      "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-18T04:43:10Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "ux",
+        "fingerprint": "e1e7f7e7905862afbf549caa3df17d0168a901e739b030ae11c0bbb92aacf219",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Observation of missing focus trap and lack of focus restoration for the session import modals (ImportSessionModal and CodexImportModal).",
+            "observations": [
+              {
+                "scenario": "Tab and focus movement inside ImportSessionModal and CodexImportModal.",
+                "evidence": "A synthetic Vitest test simulating tabbing and external focus showed that background elements (outside the modal) remain accessible and focus is not trapped inside the modal.",
+                "result": "Establishes that the modals lack a focus trap, meaning keyboard users can tab out of the modal into background elements, degrading accessibility."
+              },
+              {
+                "scenario": "Modal close and focus restoration.",
+                "evidence": "A synthetic Vitest test simulating modal closure verified that focus drops to the document body rather than returning to the button that originally triggered the modal.",
+                "result": "Establishes that focus is not correctly restored upon modal closure, meaning keyboard users lose their contextual position in the UI."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if ARIA attributes like aria-hidden are properly applied to the background when modals are open.",
+              "Investigate if similar accessibility issues exist in other modals like SettingsPanel or TranscriptModal."
+            ],
+            "proposed_task_ids": [
+              "discovery-efae45ef6cb2274b",
+              "discovery-aea9a8e6e1603271"
+            ],
+            "completed_at": "2026-09-18T00:27:59Z",
+            "source": {
+              "activity_id": "sessions/5281172529465129648/activities/ff31367da0bf4aa29ddf4f39994b7aa7",
+              "report_sha256": "e380f1a42229d2ce2f65ad6d690e9abacfaabc100e5a6a1466a7201efe7f29eb",
+              "activity_created_at": "2026-09-17T22:32:50Z",
+              "session_id": "5281172529465129648",
+              "dispatch_key": "834737434002f519954a86a3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated `list_codex_sessions` performance, confirming it lacks the caching optimization present in standard session scanning.",
+            "observations": [
+              {
+                "scenario": "Scanning a directory containing 10,000 synthetic valid Codex session_meta `.jsonl` files on first load vs subsequent load.",
+                "evidence": "Created a synthetic benchmark (`ten_thousand_codex_session_discovery_meets_cold_and_warm_budgets`) in `src-tauri/src/sessions.rs`. The test ran `list_codex_sessions` on 10,000 `.jsonl` files. Both cold and warm scans took ~440ms, indicating no cache logic is being applied across repeated accesses.",
+                "result": "Establishes that `list_codex_sessions` repeatedly parses the contents of Codex session files on every invocation, unlike `scan_sessions` which correctly implements `session_summary_cache` to skip re-parsing unchanged files. This means large Codex histories cause linear re-parsing overhead."
+              }
+            ],
+            "next_hypotheses": [
+              "Determine if directory enumeration (`collect_jsonl_files`) for both normal and Codex sessions can be optimized further via parallel iteration (e.g. `ignore` crate or `rayon`)."
+            ],
+            "proposed_task_ids": [
+              "discovery-9881e0c7ffe77346"
+            ],
+            "completed_at": "2026-09-18T04:43:10Z",
+            "source": {
+              "activity_id": "sessions/15633779958290240504/activities/9a4f099946804e51957c01b7da87856f",
+              "report_sha256": "e76378d8f2f16d30296255007f27a1bf37682149eeca9e2534dac86a5fa9a25a",
+              "activity_created_at": "2026-09-18T01:03:11Z",
+              "session_id": "15633779958290240504",
+              "dispatch_key": "b2fdc575fea2cde3d1f469df"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated modal accessibility issues related to missing focus traps, focus restoration, and Escape key handling in ImportSessionModal, CodexImportModal, SettingsPanel, and TranscriptModal.",
+            "observations": [
+              {
+                "scenario": "Modal close and focus restoration via 'useModalFocus' hook",
+                "evidence": "Locally prototyped a new React hook 'useModalFocus' to trap focus within modals and handle 'Escape' and 'Tab' keys. Wrote synthetic vitest scripts to test focus trapping and 'Escape' functionality against patched instances of 'ImportSessionModal' and 'CodexImportModal'. Tests demonstrated the focus is successfully trapped, 'Escape' accurately triggers the 'onClose' callback, and previous focus is restored.",
+                "result": "Established that a generalized focus management hook is a viable approach to resolve the lack of focus traps and keyboard accessibility issues across all the application's modals."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if implementing focus restoration to the specific trigger button (rather than previous active element) improves accessibility context in edge cases where the previous element is removed from the DOM."
+            ],
+            "proposed_task_ids": [
+              "discovery-ecab55df9b8166cc"
+            ],
+            "completed_at": "2026-09-18T04:43:10Z",
+            "source": {
+              "activity_id": "sessions/17223006827719095491/activities/71821155b1cb4f99839331ef68418569",
+              "report_sha256": "fa17fdc27c7ca655f846d14eef3422a1b054cf9d21b19134d442efd2887eb3c3",
+              "activity_created_at": "2026-09-18T00:52:19Z",
+              "session_id": "17223006827719095491",
+              "dispatch_key": "70d05528915dd26b45dffb10"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ]
 }
