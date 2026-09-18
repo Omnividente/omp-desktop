@@ -8061,12 +8061,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T17:00:53.026571Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T17:01:15.638064Z",
+    "last_poll_at": "2026-09-18T17:02:44.756541Z",
     "last_tick_at": "2026-09-18T16:39:37.368354Z",
     "run_id": "35369723196"
   }
