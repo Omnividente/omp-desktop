@@ -2048,7 +2048,7 @@
       "id": "discovery-f94f0fd889c52402",
       "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -2082,6 +2082,12 @@
         "activity_created_at": "2026-09-16T22:56:17Z",
         "session_id": "17139642498294375610",
         "dispatch_key": "42d7079fb8881ffa1ee8904a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:41:06Z",
+        "note": "Duplicate of discovery-21935d2cee4d8a7e: same ModelPicker off/auto capability mismatch and same fix. Canonical proposal retained open until its independently reviewed main PR is merged."
       }
     },
     {
