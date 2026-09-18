@@ -4411,7 +4411,7 @@
       "id": "research-sessions-persistence-reliability-2",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -4531,18 +4531,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17223006827719095491",
         "dispatch_key": "70d05528915dd26b45dffb10",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-70d05528915dd26b45dffb10",
         "started_at": "2026-09-18T00:27:59Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T04:43:10Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-18T00:49:25Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T04:43:10Z",
         "research_detached": {
           "at": "2026-09-18T00:49:25Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -4551,6 +4551,31 @@
           "at": "2026-09-18T00:49:25Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated modal accessibility issues related to missing focus traps, focus restoration, and Escape key handling in ImportSessionModal, CodexImportModal, SettingsPanel, and TranscriptModal.",
+        "observations": [
+          {
+            "scenario": "Modal close and focus restoration via 'useModalFocus' hook",
+            "evidence": "Locally prototyped a new React hook 'useModalFocus' to trap focus within modals and handle 'Escape' and 'Tab' keys. Wrote synthetic vitest scripts to test focus trapping and 'Escape' functionality against patched instances of 'ImportSessionModal' and 'CodexImportModal'. Tests demonstrated the focus is successfully trapped, 'Escape' accurately triggers the 'onClose' callback, and previous focus is restored.",
+            "result": "Established that a generalized focus management hook is a viable approach to resolve the lack of focus traps and keyboard accessibility issues across all the application's modals."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if implementing focus restoration to the specific trigger button (rather than previous active element) improves accessibility context in edge cases where the previous element is removed from the DOM."
+        ],
+        "proposed_task_ids": [
+          "discovery-ecab55df9b8166cc"
+        ],
+        "completed_at": "2026-09-18T04:43:10Z",
+        "source": {
+          "activity_id": "sessions/17223006827719095491/activities/71821155b1cb4f99839331ef68418569",
+          "report_sha256": "fa17fdc27c7ca655f846d14eef3422a1b054cf9d21b19134d442efd2887eb3c3",
+          "activity_created_at": "2026-09-18T00:52:19Z",
+          "session_id": "17223006827719095491",
+          "dispatch_key": "70d05528915dd26b45dffb10"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -4688,6 +4713,53 @@
         "note": "",
         "session_state": "QUEUED",
         "observed_at": "2026-09-18T00:49:25Z"
+      }
+    },
+    {
+      "id": "discovery-ecab55df9b8166cc",
+      "title": "Fix focus trapping and Escape key accessibility in Application Modals",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "quality"
+      ],
+      "created_at": "2026-09-18T04:43:10Z",
+      "acceptance": [
+        "Pressing Escape closes the active modal",
+        "Focus is trapped inside the active modal during Tab navigation",
+        "Focus is returned to the original active element when the modal closes"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the ImportSessionModal or CodexImportModal",
+            "Attempt to navigate using Tab; verify focus stays within the modal",
+            "Press the Escape key; verify the modal closes"
+          ],
+          "expected": "The modal traps focus on Tab navigation and closes when Escape is pressed.",
+          "actual": "Focus escapes the modal into the background document, and the Escape key does not close the modal."
+        }
+      },
+      "target_paths": [
+        "src/useModalFocus.ts",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src/SettingsPanel.tsx",
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-2",
+        "activity_id": "sessions/17223006827719095491/activities/71821155b1cb4f99839331ef68418569",
+        "report_sha256": "fa17fdc27c7ca655f846d14eef3422a1b054cf9d21b19134d442efd2887eb3c3",
+        "activity_created_at": "2026-09-18T00:52:19Z",
+        "session_id": "17223006827719095491",
+        "dispatch_key": "70d05528915dd26b45dffb10"
       }
     }
   ]
