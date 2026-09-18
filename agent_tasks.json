@@ -5408,7 +5408,7 @@
       "id": "research-workspace-navigation-performance-2",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -5521,6 +5521,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "c0e81ac453a4912f3365302a",
+        "base_sha": "2b994bb916e289f39d15ccb636cd458c3f6e5ada",
+        "starting_branch": "autonomous/attempt-c0e81ac453a4912f3365302a",
+        "started_at": "2026-09-18T08:07:33.679544Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
