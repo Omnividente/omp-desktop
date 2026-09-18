@@ -8306,7 +8306,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T21:20:10.555181Z"
+        "observed_at": "2026-09-18T21:20:10.555181Z",
+        "released_attempt_ref": "autonomous/attempt-6753bd5fe8cfafab17910354"
       },
       "research_result": {
         "summary": "Investigated the boundary condition of multi-byte characters split across PtyOutputEvent chunk boundaries during base64 decoding.",
