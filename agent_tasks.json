@@ -7384,7 +7384,7 @@
       "id": "research-transcript-links-behavior-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -7507,7 +7507,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "7801058078139277203",
         "dispatch_key": "d1b8264874b0cdcfa51eab55",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
@@ -7515,15 +7515,39 @@
         "started_at": "2026-09-18T13:16:55.112874Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T13:24:23.115485Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T13:43:25.604088Z",
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+          "reported_at": "2026-09-18T13:43:25.604088Z",
+          "source": {
+            "activity_id": "sessions/7801058078139277203/activities/207884197907401fb78b48af470c8c1a",
+            "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
+            "activity_created_at": "2026-09-18T13:33:15.880272Z",
+            "session_id": "7801058078139277203",
+            "dispatch_key": "d1b8264874b0cdcfa51eab55"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T13:43:50.879986Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/7801058078139277203/activities/207884197907401fb78b48af470c8c1a",
+            "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
+            "activity_created_at": "2026-09-18T13:33:15.880272Z",
+            "session_id": "7801058078139277203",
+            "dispatch_key": "d1b8264874b0cdcfa51eab55"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T13:43:45.996514Z",
+    "last_poll_at": "2026-09-18T13:43:48.934914Z",
     "last_tick_at": "2026-09-18T13:37:28.328232Z",
     "run_id": "35351231519"
   }
