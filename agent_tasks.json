@@ -7857,7 +7857,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T16:07:50.041233Z"
+        "observed_at": "2026-09-18T16:07:50.041233Z",
+        "released_attempt_ref": "autonomous/attempt-9361872bb4a05d8ae45bdf9a"
       },
       "research_result": {
         "summary": "Verified the handling of extremely long URIs within LinkedText boundaries and their interaction with the DOM.",
