@@ -5631,7 +5631,7 @@
       "id": "research-workspace-navigation-ux-2",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -5749,7 +5749,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "11216076119679930141",
         "dispatch_key": "a71c893f97a937506694a354",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
@@ -5757,15 +5757,39 @@
         "started_at": "2026-09-18T08:37:53.917901Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T08:45:12.049734Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T08:51:22.563670Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-18T08:51:22.563670Z",
+          "source": {
+            "activity_id": "sessions/11216076119679930141/activities/0c210d26035b4956bdc7f8d893b07fa0",
+            "report_sha256": "e0e1eb0ce2d4d5ff38f964835e9752f62ff01726e76f9a045bce544d6c76ce6d",
+            "activity_created_at": "2026-09-18T08:44:19.483003Z",
+            "session_id": "11216076119679930141",
+            "dispatch_key": "a71c893f97a937506694a354"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T08:51:51.254064Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/11216076119679930141/activities/0c210d26035b4956bdc7f8d893b07fa0",
+            "report_sha256": "e0e1eb0ce2d4d5ff38f964835e9752f62ff01726e76f9a045bce544d6c76ce6d",
+            "activity_created_at": "2026-09-18T08:44:19.483003Z",
+            "session_id": "11216076119679930141",
+            "dispatch_key": "a71c893f97a937506694a354"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:51:46.459692Z",
+    "last_poll_at": "2026-09-18T08:51:49.671535Z",
     "last_tick_at": "2026-09-18T08:45:34.060431Z",
     "run_id": "35325958934"
   }
