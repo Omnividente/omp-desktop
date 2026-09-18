@@ -8304,12 +8304,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T20:47:57.605819Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T20:48:20.678504Z",
+    "last_poll_at": "2026-09-18T20:49:43.913582Z",
     "last_tick_at": "2026-09-18T20:46:38.740705Z",
     "run_id": "35393230402"
   }
