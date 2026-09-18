@@ -8651,6 +8651,116 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-terminal-input-ux-3",
+      "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-18T22:29:10Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-d47c6c8c6e6f2995\",\"status\":\"blocked\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\",\"src/terminalInput.ts\"],\"observed_contract\":{\"detail\":\"Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order.\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]}},{\"canonical_id\":\"discovery-e1a64022fb094a98\",\"status\":\"proposed\",\"title\":\"Link terminal help button to its content via aria-controls\",\"target_paths\":[\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Static inspection of src/TerminalView.tsx during a11y interaction research. The button declares aria-expanded but lacks aria-controls.\",\"expected\":\"The button has an aria-controls attribute pointing to the ID of the help text container\",\"actual\":\"The button has aria-expanded but no aria-controls attribute, and the container has no ID\",\"acceptance\":[\"The terminal help trigger button includes an aria-controls attribute\",\"The terminal help content container has a unique id matching the button's aria-controls\"]}},{\"canonical_id\":\"discovery-5640a0d5b2031811\",\"status\":\"done\",\"title\":\"Fix terminal continuity generation changes during failure recovery\",\"target_paths\":[\"src/terminalContinuity.ts\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is  [excerpt]\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTermina [excerpt]\"]}},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-87e9827baf673422\",\"status\":\"done\",\"title\":\"Clear pending terminal input recovery when new input is typed\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch input recovery should fail because typing new input invalidates the pending recovery.\",\"actual\":\"The switch input recovery succeeds and writes the stale input after the new input.\",\"acceptance\":[\"Typing new input clears any pending switch_recovery state so that stale input cannot be retried later.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-fba4bf1ceccfc72b\",\"status\":\"done\",\"title\":\"Clear pending switch input recovery automatically upon receiving new user input\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native backend evaluation using source code tracing matched against `xterm.js` buffer characteristics. The `process.switch_recovery` state in `write_bytes` persists during regular terminal inputs.\",\"expected\":\"The new manual characters are accepted and sent to the PTY. The old recovery buffer is abandoned and clicking Retry safely fails because it's stale, maintaining correct chronological order.\",\"actual\":\"The new manual characters are accepted and sent to the PTY immediately. Clicking Retry then sends the OLD recovery buffer AFTER the new input.\",\"acceptance\":[\"Any pending or failedSend switch recovery buffer is silently discarded if new bytes are manually written to the terminal\",\"The UI subsequently processes the resulting stale recovery attempt cleanly without echoing the discarded bytes out of order\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "ux",
+        "fingerprint": "afe3ca28ae43600c57ce09847b95a884c01a1d16911488517c0cd55810db6041",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Investigated the boundary condition of multi-byte characters split across PtyOutputEvent chunk boundaries during base64 decoding.",
+            "observations": [
+              {
+                "scenario": "A multi-byte UTF-8 character (e.g., Cyrillic text or an emoji) is split across two separate PtyOutputEvent chunks, encoded in base64, and decoded using the custom decodeBase64 function before being written to xterm.js.",
+                "evidence": "Created an isolated Node.js script that split a Buffer containing 'Привет мир 🌍' across a 2-byte sequence and the emoji sequence. Encoded both chunks to base64, decoded them via decodeBase64 (which returns a Uint8Array), and sequentially called terminal.write(chunk). The resulting terminal buffer translated to the correct intact string.",
+                "result": "Establishes that the custom decodeBase64 implementation correctly preserves multi-byte characters split across PtyOutputEvent chunk boundaries. By yielding raw Uint8Array bytes rather than coercing to a string prematurely, it relies on xterm.js's native UTF-8 decoder which safely buffers and resumes incomplete byte sequences without emitting replacement characters."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T21:20:10.555181Z",
+            "source": {
+              "activity_id": "sessions/5944346094578357680/activities/98ccbe55cb9549c1acd5e13c2bdb92be",
+              "report_sha256": "be54b4294c90aec5845dcde1012bc7fc33ceb388a81c100b9fb5d243d24637b1",
+              "activity_created_at": "2026-09-18T21:07:37.584938Z",
+              "session_id": "5944346094578357680",
+              "dispatch_key": "6753bd5fe8cfafab17910354"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal input behavior when a switch recovery state is pending to verify if new manual input properly abandons the stale recovery.",
+            "observations": [
+              {
+                "scenario": "A terminal process is in a switch_recovery state (e.g. FailedSend) and new input bytes are written to it via write_bytes.",
+                "evidence": "Created a local patch adding a Rust test case in `src-tauri/src/terminal.rs` that explicitly calls `write_bytes` on a terminal process with a known `FailedSend` recovery state. The test expected `process.switch_recovery.is_none()` to be true after the write, but failed because the recovery state remained present in memory.",
+                "result": "Establishes that the backend does not proactively discard pending or failed switch_recovery states when new terminal input arrives, reproducing the same contract defect as reported in `discovery-d47c6c8c6e6f2995` and `discovery-87e9827baf673422`. This risks an out-of-order execution if the stale recovery buffer is later retried after the new input."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab.",
+              "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T22:08:52.118864Z",
+            "source": {
+              "activity_id": "sessions/17847944591175494507/activities/2f5ab885db8a45b2ae6faeeebcf5c667",
+              "report_sha256": "c430be2094f44a34dd9e1527f5b60d8a25b58b70f4479cfd66e3976305cc041e",
+              "activity_created_at": "2026-09-18T21:46:26.083319Z",
+              "session_id": "17847944591175494507",
+              "dispatch_key": "4756ef32bc17a8ae9a9ae32d"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated performance and latency of terminal continuity attachment and chunk handling for very large outputs.",
+            "observations": [
+              {
+                "scenario": "A massive 2MB base64 snapshot chunk arrives via attachTerminal (representing MAX_REPLAY_OUTPUT), and decodeBase64 decodes it into a Uint8Array, and it is passed to xterm.js via TerminalView.",
+                "evidence": "Ran isolated benchmarks showing decodeBase64 (manual loop) completes 2MB in ~17ms, which is well bounded for UI interactions. xterm.js headless `term.write(buf)` handles 2MB synchronously in under 1ms. When testing alternative browser-compatible decodings like `fetch(data:uri)`, latency exceeded 100ms. Array.from and split-map strategies were around 360ms. Buffer.from polyfill would be around 2ms but is not bundled by Vite by default.",
+                "result": "Establishes that the current custom decodeBase64 block correctly preserves main-thread responsiveness without introducing unbounded hangs during massive attachment recovery limits (2MB). Memory use and iteration counts remain tightly constrained."
+              },
+              {
+                "scenario": "Rapid enqueueing of many small output chunks via terminalOutputBatcher.",
+                "evidence": "Ran synthetic tests measuring enqueue performance. Coalescing 256 chunks of 1KB each into a single 256KB buffer inside terminalOutputBatcher completed in under 1ms, and flushing to xterm.js performs well due to the 16ms delayed scheduling pattern.",
+                "result": "Establishes that terminal output batching effectively limits the number of writes to xterm without excessive garbage collection or chunk-copy overhead."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if deeply nested ANSI escape sequences in a massive 2MB recovery buffer cause the xterm.js parsing loop to freeze the main thread despite fast initial ingestion times."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T22:29:10.909609Z",
+            "source": {
+              "activity_id": "sessions/6004965096351350631/activities/1407e2f2e2f84db5b8e55559d719ae96",
+              "report_sha256": "b804e31766d21d2981caad83dbd451c56629840949bb60a2e899408b150d9323",
+              "activity_created_at": "2026-09-18T22:20:43.138692Z",
+              "session_id": "6004965096351350631",
+              "dispatch_key": "c2e73d67111511712dfa34bc"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
