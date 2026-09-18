@@ -5533,12 +5533,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T08:07:33.679544Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:07:59.910923Z",
+    "last_poll_at": "2026-09-18T08:09:09.250107Z",
     "last_tick_at": "2026-09-18T07:38:53.439166Z",
     "run_id": "35320286865"
   }
