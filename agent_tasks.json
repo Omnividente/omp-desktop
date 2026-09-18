@@ -5626,6 +5626,127 @@
         "session_id": "16270267467681226289",
         "dispatch_key": "c0e81ac453a4912f3365302a"
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-2",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-18T08:37:53Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-7f98db57491c0c0d\",\"status\":\"proposed\",\"title\":\"Persist selected workspace across application restarts\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of src/App.tsx shows selectedWorkspaceKey is a React state initialized to null. There is no read or write to localStorage or any other persistent store. The refresh() effect triggers applyPayload without a preferred workspace, forcing a fallback to the first workspace on mount.\",\"expected\":\"The second workspace remains selected after the restart.\",\"actual\":\"The selected workspace reverts to the first workspace in the list.\",\"acceptance\":[\"The application restores the previously selected workspace upon restart\"]}},{\"canonical_id\":\"discovery-e0f2bce9ebc246e7\",\"status\":\"proposed\",\"title\":\"Virtualize the workspace list in ProjectRail\",\"target_paths\":[\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Measured rendering and update latencies of ProjectRail with varying synthetic input sizes (100, 1000, 5000 workspaces) using React Testing Library. No real user data or network calls were used.\",\"expected\":\"The rendering and update latencies remain relatively constant or grow sublinearly due to DOM virtualization.\",\"actual\":\"The rendering latency scales linearly O(N), taking over 7 seconds for initial render and nearly 2 seconds for a workspace switch with 5000 items.\",\"acceptance\":[\"The ProjectRail component utilizes virtualization to render the workspace list\",\"Rendering time and DOM size remain bounded regardless of the number of workspaces\"]}},{\"canonical_id\":\"discovery-741923afb429da5a\",\"status\":\"proposed\",\"title\":\"Restore focus after deleting a workspace\",\"target_paths\":[\"src/App.tsx\",\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard navigation observation in synthetic test suite against `<ProjectRail />`. A deleted workspace leaves focus stranded on `document.body` because its corresponding remove button is unmounted.\",\"expected\":\"Focus correctly shifts to another relevant interactive element in the rail.\",\"actual\":\"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\",\"acceptance\":[\"Focus moves to a reasonable fallback element, like the open folder button, when the currently focused workspace removal button is deleted.\"]}},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"proposed\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]}},{\"canonical_id\":\"discovery-a6a63bbab9e7a7e3\",\"status\":\"proposed\",\"title\":\"Fix race condition during concurrent single-instance workspace switching\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic testing of `listen<SingleInstanceEvent>(\\\"single-instance\\\")` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace will mistakenly reflect the slower, older request instead of the newer one.\",\"expected\":\"The application should remain on workspace B, as it was the most recently requested workspace.\",\"actual\":\"The application overwrites the UI state and switches to workspace A because `applyPayload(next, A)` is called blindly without tracking if a newer request superseded it.\",\"acceptance\":[\"Rapid successive single-instance switch requests safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwrites by stale requests.\"]}}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "8c83133110756e3dd7ea280616db8bb8841e0526b76f86e4f532d74276e9cbf3",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Verified frontend focus management during session deletion. The application currently loses keyboard focus when a session is removed, as the unmounted remove button leaves focus on document.body.",
+            "observations": [
+              {
+                "scenario": "Removing a session using the keyboard.",
+                "evidence": "Locally wrote a jsdom synthetic test suite against `<SessionList />`. Selecting and activating the `.session-delete` button successfully initiates session deletion. However, after the component re-renders without the deleted session, focus is returned to `document.body` because no logic restores it to a fallback element. Confirmed in `src/SessionList.tsx` and `src/App.tsx` deleteOmpSession function not manually handling focus.",
+                "result": "Establishes that the frontend lacks focus restoration logic upon deleting a session from the session list, degrading keyboard accessibility, mirroring the similar defect observed with workspaces."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate how the frontend components behave when navigating to a workspace whose directory has been externally deleted or permissions revoked (invalid/inaccessible path handling).",
+              "Investigate single-instance workspace switching and how it overrides or merges with ongoing terminal session states."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T07:37:16.034117Z",
+            "source": {
+              "activity_id": "sessions/11268953244672822821/activities/9a14d20e51464ed5a854fd329876e825",
+              "report_sha256": "3f145d1a8ed378b4d6fb18856fdcf8a0422e62f701733c3649d60e978de4e032",
+              "activity_created_at": "2026-09-18T06:07:39.320547Z",
+              "session_id": "11268953244672822821",
+              "dispatch_key": "87764bb4f9261b179c161d48"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore keyboard focus after session deletion",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-741923afb429da5a; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library tests rendering <SessionList> and simulating deletion of a session.\", \"reproduction\": {\"actual\": \"Focus is dropped to document.body.\", \"expected\": \"Focus is restored to the next available session row or the list container.\", \"steps\": [\"Focus the delete button of a session in the session list using keyboard navigation.\", \"Activate the delete button using Enter or Space.\", \"Observe the active element after the deletion completes.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/SessionList.tsx",
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Deleting a session using the keyboard restores focus to a logical adjacent element (like the next session or the session list container) instead of dropping to document.body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified frontend failure recovery when navigating to an inaccessible workspace or launching a session with a missing directory. The application handles these conditions gracefully without state loss or corruption.",
+            "observations": [
+              {
+                "scenario": "Navigating to a workspace with an inaccessible path and attempting to launch a session.",
+                "evidence": "Wrote a synthetic React Testing Library suite (`src/workspace-inaccessible.test.tsx`) against `<App />`. Mocked `api.bootstrap` with a valid and an invalid workspace path. Simulated clicking the invalid workspace. The `api.loadOmpConfig` mock rejected with 'Path not found', which was gracefully caught and rendered as an `.app-notice` warning without crashing the app. Next, simulated clicking 'New Session', causing `api.startTerminal` to reject with 'Directory not found'. This error was also gracefully caught and displayed as a toast error via `showError(errorMessage(error, lang))`, and `launchingRef.current` was correctly reset. Finally, clicking back to the valid workspace successfully restored normal state.",
+                "result": "Establishes that the frontend correctly recovers from inaccessible directories and failed backend process launches without locking up or corrupting session state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the robustness of the single-instance workspace switching feature when a concurrent switch request occurs before the first one completes.",
+              "Investigate state recovery when removing a workspace that is actively being indexed or scanned in the background."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T08:07:33.679544Z",
+            "source": {
+              "activity_id": "sessions/6713997507103923497/activities/0a62a79bc6674d46b8fdffcfc6e80939",
+              "report_sha256": "46af63eff31077be405ba8d1a761e34f9e9d9e7175f65b610abe1c16d6ed1344",
+              "activity_created_at": "2026-09-18T07:51:43.928624Z",
+              "session_id": "6713997507103923497",
+              "dispatch_key": "658af61493569df825980a1e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified frontend handling of concurrent single-instance workspace switching requests. The application currently fails to serialize or correctly sequence rapidly successive switch events, resulting in the possibility of an earlier request overwriting the later request if promises resolve out of order.",
+            "observations": [
+              {
+                "scenario": "Handling concurrent 'single-instance' events that request to switch or open a workspace in App.tsx.",
+                "evidence": "Locally wrote a synthetic vitest test using React Testing Library (`src/single-instance.test.tsx`, mimicking how the App registers the `listen<SingleInstanceEvent>` and triggers `addWorkspace` api calls). Configured `addWorkspace` for two different paths to resolve asynchronously out of order (path3 requested after path2, but path3 resolving before path2). Verified that the final selected workspace becomes path2 because the frontend lacks a cancellation or latest-request tracking mechanism in `App.tsx`'s `useEffect` listening for `single-instance`, leading to a race condition where stale responses overwrite the UI state.",
+                "result": "Establishes that rapid concurrent workspace switch requests via the single-instance IPC mechanism can cause the application state to fall out of sync with the user's latest requested action, selecting the wrong workspace."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if similar race conditions exist when refreshing session transcripts rapidly (e.g. `loadTranscript`).",
+              "Investigate frontend state behavior if `refreshOmpConfig` fails concurrently while a background settings sync is in progress."
+            ],
+            "proposed_task_ids": [
+              "discovery-a6a63bbab9e7a7e3"
+            ],
+            "completed_at": "2026-09-18T08:37:53.917901Z",
+            "source": {
+              "activity_id": "sessions/16270267467681226289/activities/9bf9ac8d6ae24216bf1e49f9e433b525",
+              "report_sha256": "e43b9c0d870ea1eec908ecdb0648162e5df6ce0986df864a3846e24688f8449e",
+              "activity_created_at": "2026-09-18T08:21:52.556093Z",
+              "session_id": "16270267467681226289",
+              "dispatch_key": "c0e81ac453a4912f3365302a"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
