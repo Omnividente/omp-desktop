@@ -8062,13 +8062,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T17:00:53.026571Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T17:08:29.394652Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T17:08:48.335987Z",
+    "last_poll_at": "2026-09-18T17:08:50.866541Z",
     "last_tick_at": "2026-09-18T17:02:46.736774Z",
     "run_id": "35371811945"
   }
