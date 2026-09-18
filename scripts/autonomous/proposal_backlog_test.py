@@ -144,6 +144,10 @@ class BacklogStoreTests(unittest.TestCase):
         self.remote = self.root / "remote.git"
         self.git(self.root, "init", "--bare", str(self.remote))
         self.git(self.root, "init", str(self.repo))
+        # Housekeeping must finish before cleanup removes these disposable repos.
+        for repo in (self.repo, self.remote):
+            self.git(repo, "config", "gc.autoDetach", "false")
+            self.git(repo, "config", "maintenance.autoDetach", "false")
         self.git(self.repo, "config", "user.name", "fixture")
         self.git(self.repo, "config", "user.email", "fixture@example.invalid")
         self.git(self.repo, "config", "commit.gpgsign", "false")

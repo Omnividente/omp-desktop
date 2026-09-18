@@ -1,4 +1,5 @@
 name: Autonomous Next Task
+run-name: ${{ inputs.continuation_key != '' && format('Next {0}', inputs.continuation_key) || 'Autonomous Next Task' }}
 
 # The trusted controller reads code from main, product from lab and mutable
 # metadata from autonomous/state. Research and explicitly selected implementation
@@ -24,16 +25,19 @@ on:
         type: choice
         options: [low, medium, high]
         default: medium
+      automatic:
+        description: Recheck the due time before a research-only automatic tick
+        type: boolean
+        default: false
+      continuation_key:
+        description: Correlation key for an automatic handoff
+        type: string
+        default: ""
 
 permissions:
   contents: write
   pull-requests: write
   actions: read
-
-concurrency:
-  group: autonomous-lab-queue
-  queue: max
-  cancel-in-progress: false
 
 jobs:
   dispatch:
@@ -41,6 +45,10 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: autonomous-lab-queue
+      queue: max
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
     steps:
@@ -68,17 +76,19 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           RISK_CEILING: ${{ inputs.risk_ceiling }}
           RECOVER_REPORT: ${{ inputs.recover_report }}
+          AUTOMATIC: ${{ inputs.automatic }}
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
         run: |
           set -euo pipefail
           options=()
           if [ "${RECOVER_REPORT}" = true ]; then options+=(--recover-report); fi
+          if [ "${AUTOMATIC}" = true ]; then options+=(--automatic); fi
           python3 control/scripts/autonomous/lab_controller.py \
             --repo lab --config control/autonomous-project.json \
             --manifest queue.json --revision-file queue-revision.json \
             --task-id "${TASK_ID}" --focus "${FOCUS}" \
-            --risk-ceiling "${RISK_CEILING:-medium}" \
+            --risk-ceiling "${RISK_CEILING:-medium}" --run-id "${GITHUB_RUN_ID}" \
             --out lab-result.json "${options[@]}"
 
       - name: Preserve laboratory outcome and redacted report diagnostics
@@ -89,5 +99,36 @@ jobs:
           path: |
             lab-result.json
             research-diagnostics.json
+          retention-days: 14
+          if-no-files-found: error
+
+  handoff:
+    needs: dispatch
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.dispatch.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+    steps:
+      - name: Check out the trusted continuation controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: control
+          persist-credentials: false
+      - name: Hand off outside the queue writer lock
+        run: >-
+          python3 control/scripts/autonomous/continue_loop.py
+          --repo control --config control/autonomous-project.json
+          --handoff --out continuation-result.json
+      - name: Retain observed handoff
+        if: ${{ always() && hashFiles('continuation-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tick-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: continuation-result.json
           retention-days: 14
           if-no-files-found: error

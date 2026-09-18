@@ -33,6 +33,10 @@ lint pass or an audit of the automation itself.
 1. Read previous reports and next hypotheses before choosing an experiment.
    Investigate a different untested path, boundary or interaction. Do not repeat
    the same check on unchanged code and call it a new investigation.
+   Read the labeled existing-proposal context too. For the same observed contract,
+   cite its canonical ID in observations rather than submitting a renamed task.
+   A shared file is not a duplicate; preserve independent findings and explain
+   uncertain overlap. Closed work does not disprove a newly reproduced regression.
 2. Exercise the actual behavior where the environment permits: input and focus,
    persistence and restart, a long transcript, cancellation, a large session
    list, accessibility, or another scenario relevant to this task's perspective.
@@ -97,9 +101,11 @@ AUTONOMOUS_DISPATCH_KEY: <copy the exact key from the top of this prompt>
 The task array may be omitted entirely when there are no actionable findings,
 but the complete research block with real observations remains mandatory. If
 either task delimiter is present, both ordered delimiters and a valid JSON array
-are required. A malformed final report parks this same completed attempt for
-inspection and explicit report reharvesting; it does not launch another research
-session or silently fall back to an older report.
+are required. A malformed final report parks this same completed attempt. The
+controller may request one formatting-only repair using observations already
+obtained in the same session. Do not investigate further, use tools, implement or
+open a PR for that request. It never authorizes a new research attempt or fallback
+to an older report.
 
 Replace the empty task array only when there are actionable findings. Each entry
 must contain `title`, `task_type` (`bugfix` or `product_improvement`), `risk`,

@@ -134,6 +134,12 @@ def _previous_reports(history: list[dict]) -> list[dict]:
             continue
         report = copy.deepcopy(task["research_result"])
         if len(json.dumps(report, ensure_ascii=False)) > MAX_PREVIOUS_REPORT_CHARS // 2:
+            report["context_excerpt"] = {
+                "source_task_id": task["id"],
+                "notice": "Truncated controller context, not the complete immutable worker report",
+                "original_counts": {field: len(report.get(field, [])) for field in (
+                    "observations", "next_hypotheses", "proposed_task_ids", "deferred_findings")},
+            }
             def excerpt(text: str, limit: int = 300) -> str:
                 return text if len(text) <= limit else text[:limit] + " [excerpt]"
             report["summary"] = excerpt(report["summary"], 1000)
@@ -156,6 +162,56 @@ def _previous_reports(history: list[dict]) -> list[dict]:
         if len(reports) == MAX_PREVIOUS_REPORTS:
             break
     return list(reversed(reports))
+
+
+def _proposal_context(tasks: list[dict], paths: list[str]) -> str:
+    """A labeled queue snapshot, not a modification to immutable worker reports."""
+    roots = [path.rstrip("/") for path in paths]
+    relevant = [task for task in tasks if task.get("task_type") != "project_discovery"
+                and any(path == root or path.startswith(root + "/")
+                        for path in task.get("target_paths", []) for root in roots)]
+    relevant.sort(key=lambda task: (task["status"] == "done",
+                                    task.get("created_at", ""), task["id"]))
+    context = []
+
+    def excerpt(value: str, limit: int = 300) -> str:
+        return value if len(value) <= limit else value[:limit] + " [excerpt]"
+
+    for task in relevant:
+        evidence = task.get("evidence") or {}
+        reproduction = evidence.get("reproduction") or {}
+        item = {
+            "canonical_id": task["id"], "status": task["status"],
+            "title": excerpt(task["title"], 160),
+            "target_paths": task.get("target_paths", [])[:8],
+            "observed_contract": {
+                "detail": excerpt(evidence.get("detail", "")),
+                "expected": excerpt(reproduction.get("expected", "")),
+                "actual": excerpt(reproduction.get("actual", "")),
+                "acceptance": [excerpt(value, 200) for value in task.get("acceptance", [])[:3]],
+            },
+        }
+        decision = (task.get("proposal_decision") or {}).get("action")
+        if decision:
+            item["decision"] = decision
+        if len(json.dumps([*context, item], ensure_ascii=False)) > MAX_PREVIOUS_REPORT_CHARS // 3:
+            break
+        context.append(item)
+        if len(context) == 10:
+            break
+    if not context:
+        return ""
+    return (
+        "\n\nController existing-proposal context (queue snapshot, not a worker report; "
+        "reported claims are not verified):\n"
+        + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+        + "\nFor the same observed contract, cite the canonical_id in your observations "
+        "instead of proposing a renamed duplicate. A shared file is not a duplicate. "
+        "Preserve independent findings; explain uncertain overlap. Closed or rejected "
+        "work is historical context, not evidence against a newly reproduced regression."
+        + ("\nContext is truncated; other relevant proposals may exist."
+           if len(context) < len(relevant) else "")
+    )
 
 
 def plan_research(
@@ -277,7 +333,8 @@ def plan_research(
                       + " Use isolated synthetic data, never live sessions or credentials. "
                       "Record observed findings or explicit no-change with evidence in "
                       "AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in "
-                      "AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.",
+                      "AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+                      + _proposal_context(tasks, area["paths"]),
         },
         "research": {
             "area_id": area["id"], "perspective_id": perspective["id"],

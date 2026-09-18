@@ -11,9 +11,10 @@ discovery prompt therefore requires a machine-readable block:
     ```
     <!-- AUTONOMOUS_TASKS_END -->
 
-This script parses that block, normalises actionable reports, drops duplicates
-and appends reported (not verified) claims to the queue. Findings without a
-reproduction stay deferred; malformed packaging still fails loudly. The resulting
+This script parses that block, normalises actionable reports, links exact replays
+and defers uncertain overlaps without discarding their evidence. It appends reported
+claims, not verified facts. Missing reproduction stays deferred; malformed packaging
+fails loudly. The resulting
 manifest must pass the ordinary validator before the controller persists it.
 
 "Loudly" is the whole point: a JSON error used to be swallowed into an empty
@@ -25,6 +26,7 @@ caller still commits whatever other queue changes it made, then fails the job.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -210,10 +212,100 @@ def finding_error(entry: Mapping[str, Any], config: Mapping[str, Any]) -> str:
     return ""
 
 
-def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
-                 now: str | None = None, config: Mapping[str, Any] | None = None,
+# Boilerplate and location names cannot establish a shared behavioral contract.
+_COMMON_WORDS = frozenset("""
+a an the and or to of in on at by for from with without when while then that this
+these those it its is are was were be been being as also can could should would
+will must not no new old current another using use used set get has have had
+support supports supported file files path paths src test tests ts tsx js jsx
+fix issue bug defect problem regression failing first proves change expected actual
+observed observe observation result returns returned return explicit explicitly
+model models selector string value values state data ui component application
+""".split())
+
+
+def _finding_profile(task: Mapping[str, Any]) -> dict:
+    paths = {path for path in task.get("target_paths", []) if isinstance(path, str)
+             and not any(char in path for char in "*?[]")}
+    location_words = set()
+    for path in paths:
+        location_words.update(re.findall(r"[a-z0-9]+", path.lower()))
+
+    def words(text: str) -> set[str]:
+        tokens = set()
+        for token in re.findall(r"[a-z][a-z0-9]+", text.lower()):
+            if token in _COMMON_WORDS or token in location_words:
+                continue
+            # Inflection only: no domain-specific synonym map or fuzzy spelling.
+            if len(token) > 5 and token.endswith("ing"):
+                token = token[:-3]
+            elif len(token) > 4 and token.endswith("ed"):
+                token = token[:-2]
+            elif len(token) > 4 and token.endswith("s"):
+                token = token[:-1]
+            tokens.add(token)
+        return tokens
+
+    evidence = task.get("evidence") or {}
+    reproduction = evidence.get("reproduction") or {}
+    fields = {
+        "title": str(task.get("title") or ""),
+        "acceptance": " ".join(task.get("acceptance") or []),
+        "expected": str(reproduction.get("expected") or ""),
+        "actual": str(reproduction.get("actual") or ""),
+        "detail": str(evidence.get("detail") or ""),
+        "steps": " ".join(reproduction.get("steps") or []),
+    }
+    # Exact code identifiers and literal modifiers are useful anchors, but a
+    # shared path or function name alone never proves a duplicate.
+    def anchors(text: str) -> set[str]:
+        for path in paths:
+            text = text.replace(path, " ")
+        return {value.lower() for value in re.findall(
+            r":[a-zA-Z][\w-]*|\b[a-z]+(?:[A-Z][a-zA-Z0-9]*)+\b|\b[a-z]+_[a-z_]+\b", text
+        ) if value.lower() not in location_words}
+
+    return {"task": task, "paths": paths, "fields": fields,
+            "words": {key: words(value) for key, value in fields.items()},
+            "anchors": anchors(" ".join(fields.values())),
+            "contract": (task.get("task_type"), task.get("target_paths"), fields["title"],
+                         tuple(task.get("acceptance") or []), fields["detail"],
+                         tuple(reproduction.get("steps") or []), fields["expected"], fields["actual"])}
+
+
+def _overlap(left: set[str], right: set[str]) -> float:
+    return len(left & right) / max(len(left), len(right), 1)
+
+
+def _finding_match(left: dict, right: dict) -> str:
+    if not left["paths"].intersection(right["paths"]):
+        return ""
+    a, b = left["words"], right["words"]
+    # Token similarity can only identify a review lead. Negation, preconditions
+    # and ordered reproduction steps must never be lost in a proven duplicate.
+    title_overlap = _overlap(a["title"], b["title"])
+    acceptance_overlap = _overlap(a["acceptance"], b["acceptance"])
+    shared_contract = (a["title"] | a["acceptance"]) & (b["title"] | b["acceptance"])
+    shared_anchors = left["anchors"] & right["anchors"]
+    if (left["paths"] == right["paths"] and left["contract"] == right["contract"]
+            and not validate_reproduction((left["task"].get("evidence") or {}).get("reproduction"))):
+        return "duplicate"
+    # Similarity is a review lead, never silently promoted to a proven match.
+    if (len(shared_contract) >= 3 and max(title_overlap, acceptance_overlap) >= 0.45
+            and (shared_anchors or len(a["actual"] & b["actual"]) >= 2)):
+        return "possible_duplicate"
+    return ""
+
+
+def _closed_finding(task: Mapping[str, Any]) -> bool:
+    return (task.get("status") in {"done", "closed", "rejected", "cancelled"}
+            or (task.get("proposal_decision") or {}).get("action") == "reject")
+
+
+def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
+                 max_new: int = DEFAULT_MAX_NEW, now: str | None = None,
                  origin: Mapping[str, str] | None = None) -> dict:
-    stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = now or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     if not isinstance(origin, Mapping):
         raise ValueError("discovery import requires an accepted session report origin")
     source = find_task(manifest, origin.get("task_id"))
@@ -227,19 +319,28 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
             or not re.fullmatch(re.escape(resource) + r"/activities/[^/]+", str(origin.get("activity_id") or ""))
             or origin.get("report_sha256") != hashlib.sha256(body.encode("utf-8")).hexdigest()):
         raise ValueError("discovery origin does not identify the accepted session report")
+    if not isinstance(config, Mapping):
+        raise ValueError("discovery import requires trusted product configuration")
+    receipt = source.get("discovery_import")
+    if receipt is not None:
+        if validate(manifest) or receipt.get("source") != accepted:
+            raise ValueError("invalid discovery import receipt")
+        result = copy.deepcopy(receipt["result"])
+        result["skipped"].extend({"id": identifier, "reason": "duplicate_id",
+                                  "existing_task_id": identifier} for identifier in result["added"])
+        result.update(changed=False, duplicates=list(dict.fromkeys(result["added"] + result["duplicates"])), added=[])
+        return result
     block = parse_block(body)
     tasks = manifest.get("tasks", [])
-    known_ids = {str(t.get("id")): t for t in tasks if isinstance(t, dict)}
-    known_titles = {str(t.get("title") or "").strip().lower(): str(t.get("id"))
-                    for t in tasks if isinstance(t, dict)}
+    known_ids = {str(task.get("id")): task for task in tasks if isinstance(task, dict)}
+    profiles = [_finding_profile(task) for task in tasks
+                if isinstance(task, dict) and task.get("task_type") != "project_discovery"
+                and (not _closed_finding(task) or task.get("origin") == origin)]
     pending, added, skipped, duplicates, deferred = [], [], [], [], []
     invalid = block["status"] == STATUS_MALFORMED
     for entry in block["entries"]:
         candidate = normalize(entry, now=stamp)
-        reason = finding_error(entry, config) if config is not None else (
-            "missing_title" if not candidate["title"] else
-            "missing_evidence" if not candidate["evidence"]["detail"] else ""
-        )
+        reason = finding_error(entry, config)
         if not reason and "reproduction" not in candidate["evidence"]:
             reason = "unverified_finding"
         if reason:
@@ -248,52 +349,86 @@ def import_tasks(manifest: dict, body: str, *, max_new: int = DEFAULT_MAX_NEW,
             invalid = invalid or not can_defer
             if can_defer:
                 deferred.append({"title": candidate["title"], "reason": reason,
-                                 "evidence": candidate["evidence"]["detail"],
+                                 "evidence": json.dumps(entry["evidence"], ensure_ascii=False, sort_keys=True),
                                  "target_paths": candidate.get("target_paths", []),
                                  "acceptance": candidate["acceptance"]})
             continue
         existing = known_ids.get(candidate["id"])
         title = candidate["title"].strip().lower()
-        if existing is not None:
-            if config is not None and str(existing.get("title") or "").strip().lower() != title:
-                skipped.append({"id": candidate["id"], "reason": "conflicting_id"})
-                invalid = True
-            else:
-                skipped.append({"id": candidate["id"], "reason": "duplicate_id"})
-                duplicates.append(candidate["id"])
+        if existing is not None and _closed_finding(existing) and existing.get("origin") != origin:
+            # A new accepted report may describe a regression; replay instead
+            # returns the durable decision above, even after canonical work closes.
+            material = json.dumps({"id": candidate["id"], "origin": dict(origin),
+                                   "evidence": candidate["evidence"]}, sort_keys=True)
+            candidate["id"] = "discovery-" + _fingerprint(material)
+            existing = known_ids.get(candidate["id"])
+        profile = _finding_profile(candidate)
+        if existing is not None and (existing.get("task_type") == "project_discovery"
+                or _finding_match(profile, _finding_profile(existing)) != "duplicate"):
+            skipped.append({"id": candidate["id"], "reason": "conflicting_id"})
+            invalid = True
             continue
-        if title in known_titles:
-            skipped.append({"id": candidate["id"], "reason": "duplicate_title"})
-            duplicates.append(known_titles[title])
+        match, suspicion = None, None
+        for previous in profiles:
+            verdict = _finding_match(profile, previous)
+            if verdict == "duplicate":
+                match = previous["task"]
+                break
+            same_title = str(previous["task"].get("title") or "").strip().lower() == title
+            if suspicion is None and (verdict == "possible_duplicate" or same_title):
+                suspicion = previous["task"]
+        if match is not None:
+            skipped.append({"id": candidate["id"], "reason": "duplicate_contract",
+                            "existing_task_id": match["id"]})
+            if match["id"] not in duplicates:
+                duplicates.append(match["id"])
+            continue
+        if suspicion is not None:
+            skipped.append({"id": candidate["id"], "reason": "possible_duplicate",
+                            "existing_task_id": suspicion["id"]})
+            deferred.append({
+                "title": candidate["title"], "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task " + suspicion["id"]
+                            + "; not established as a duplicate. "
+                            + json.dumps(entry["evidence"], ensure_ascii=False, sort_keys=True),
+                "target_paths": candidate.get("target_paths", []), "acceptance": candidate["acceptance"],
+            })
             continue
         if len(added) >= max_new:
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
             invalid = True
             continue
-        if origin:
-            candidate["origin"] = dict(origin)
+        candidate["origin"] = dict(origin)
         pending.append(candidate)
         known_ids[candidate["id"]] = candidate
-        known_titles[title] = candidate["id"]
+        profiles.append(profile)
         added.append(candidate["id"])
 
-    if config is not None and invalid:
-        return {"changed": False, "added": [], "duplicates": duplicates, "skipped": skipped,
-                "status": STATUS_MALFORMED, "detail": "incomplete or unsafe discovery findings"}
-    if pending:
-        manifest.setdefault("tasks", []).extend(pending)
-    return {
-        "changed": bool(added), "added": added, "duplicates": duplicates, "skipped": skipped,
-        "deferred": deferred,
+    if invalid:
+        return {"changed": False, "added": [], "duplicates": [], "skipped": skipped,
+                "deferred": deferred, "status": STATUS_MALFORMED,
+                "detail": "incomplete discovery findings; nothing imported"}
+    result = {
+        "changed": bool(added or duplicates or deferred), "added": added,
+        "duplicates": duplicates, "skipped": skipped, "deferred": deferred,
         "unverified_count": sum(item["reason"] == "unverified_finding" for item in deferred),
         "status": block["status"], "detail": block["detail"],
     }
+    if result["changed"]:
+        receipt = {"source": copy.deepcopy(accepted), "result": copy.deepcopy(result)}
+        staged_source = dict(source, discovery_import=receipt)
+        staged = dict(manifest, tasks=[staged_source if task is source else task for task in tasks] + pending)
+        if validate(staged):
+            raise ValueError("discovery import would create an invalid queue")
+        source["discovery_import"] = receipt
+        tasks.extend(pending)
+    return result
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--config", type=Path)
+    parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--source-task-id", default="")
     parser.add_argument("--body-file", type=Path)
     parser.add_argument("--body", default="")
@@ -307,7 +442,7 @@ def main(argv=None) -> int:
         body = args.body_file.read_text(encoding="utf-8")
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    config = json.loads(args.config.read_text(encoding="utf-8")) if args.config else None
+    config = json.loads(args.config.read_text(encoding="utf-8"))
     source = find_task(manifest, args.source_task_id)
     report_source = (source or {}).get("research_result", {}).get("source")
     if not isinstance(report_source, dict):

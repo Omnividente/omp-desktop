@@ -213,7 +213,13 @@ class CompletionTest(unittest.TestCase):
 
     def test_capped_findings_are_failed_transaction_not_successful_empty_result(self):
         data = manifest()
-        findings = [FINDING, dict(FINDING, id="fix-other", title="Fix another clock")]
+        other = copy.deepcopy(FINDING)
+        other.update(id="fix-calendar", title="Fix calendar date after midnight",
+                     target_paths=["src/calendar.ts"], acceptance=["Calendar advances at midnight"])
+        other["evidence"]["reproduction"].update(
+            steps=["Open the calendar with a synthetic clock", "Advance across midnight"],
+            expected="Calendar shows the next date", actual="Calendar keeps yesterday's date")
+        findings = [FINDING, other]
         result = run(data, API([[activity(report(findings))]]), max_new=1)
         self.assertEqual(result["reason"], "report_invalid")
         self.assertEqual(result["imported_count"], 0)
@@ -289,7 +295,7 @@ class CompletionTest(unittest.TestCase):
         identity = copy.deepcopy(data["tasks"][0]["execution"])
         bare = dict(FINDING, id="suspected", title="Suspected leak",
                     evidence={"source": "reading", "detail": "Might retain clock objects"})
-        api = API([[activity(report([bare, FINDING]))]])
+        api = API([[activity(report([bare, FINDING]), 2)]])
         result = run(data, api, retry_report=True)
         self.assertEqual(result["reason"], "researched")
         self.assertEqual(result["imported_count"], 1)
@@ -352,12 +358,46 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(result["reason"], "report_invalid")
         self.assertEqual(len(data["tasks"]), 1)
 
+    def test_recovery_rejects_rewritten_or_older_activity_even_when_schema_is_valid(self):
+        data = manifest()
+        run(data, API([[activity("Final prose without structured report", 3)]]))
+        before = copy.deepcopy(data)
+        for replacement in (activity(report([FINDING]), 3), activity(report([FINDING]), 2)):
+            with self.subTest(activity=replacement["name"]):
+                self.assertEqual(run(data, API([[replacement]]), retry_report=True)["reason"], "report_unchanged")
+                self.assertEqual(data, before)
+
+    def test_new_report_within_same_second_recovers_without_another_request(self):
+        data = manifest()
+        first = dict(activity("Unmarked report"), createTime="2026-09-13T12:00:01.100Z")
+        run(data, API([[first]]))
+        execution = data["tasks"][0]["execution"]
+        execution["report_repair"] = {"at": "2026-09-13T12:00:01.200Z",
+                                      "result": "sent", "status": "pending"}
+        invalid = dict(activity("Still unmarked", 2), createTime="2026-09-13T12:00:01.300Z")
+        self.assertEqual(run(data, API([[first, invalid]]), retry_report=True)["reason"], "report_invalid")
+        newer = dict(activity(report([FINDING]), 3), createTime="2026-09-13T12:00:01.900Z")
+        self.assertEqual(run(data, API([[first, invalid, newer]]), retry_report=True)["reason"], "researched")
+        self.assertEqual(data["tasks"][0]["execution"]["report_repair"]["status"], "resolved")
+        self.assertEqual(data["tasks"][0]["execution"]["attempts"], 1)
+
+    def test_valid_report_before_subsecond_request_boundary_is_not_recovery(self):
+        data = manifest()
+        first = dict(activity("Unmarked report"), createTime="2026-09-13T12:00:01.100Z")
+        run(data, API([[first]]))
+        data["tasks"][0]["execution"]["report_repair"] = {
+            "at": "2026-09-13T12:00:01.800Z", "result": "sent", "status": "pending"}
+        before = copy.deepcopy(data)
+        older = dict(activity(report([FINDING]), 2), createTime="2026-09-13T12:00:01.600Z")
+        self.assertEqual(run(data, API([[first, older]]), retry_report=True)["reason"], "report_unchanged")
+        self.assertEqual(data, before)
+
     def test_explicit_reharvest_recovers_without_dispatch_or_history_reset(self):
         data = manifest()
         data["tasks"][0]["execution"]["history"] = [{"session_id": "older", "outcome": "failed"}]
         run(data, API([[activity("AUTONOMOUS_RESEARCH_BEGIN {broken")]]))
         original = copy.deepcopy(data["tasks"][0]["execution"])
-        api = API([[activity(report([FINDING]))]])
+        api = API([[activity(report([FINDING]), 2)]])
         self.assertFalse(run(data, api)["changed"])
         self.assertEqual(api.requests, [])
         self.assertEqual(run(data, api, retry_report=True)["reason"], "researched")
