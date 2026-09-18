@@ -6087,12 +6087,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T09:05:06.341085Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:05:33.887454Z",
+    "last_poll_at": "2026-09-18T09:06:40.886685Z",
     "last_tick_at": "2026-09-18T08:59:22.282045Z",
     "run_id": "35327112968"
   }
