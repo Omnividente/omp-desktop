@@ -8656,7 +8656,7 @@
       "id": "research-terminal-input-ux-3",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -8763,7 +8763,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "17793537861787869447",
         "dispatch_key": "8a2cad01e88bcabf8e0aaa46",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
@@ -8771,15 +8771,39 @@
         "started_at": "2026-09-18T22:29:10.909609Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T22:37:29.028893Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T22:55:53.593518Z",
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+          "reported_at": "2026-09-18T22:55:53.593518Z",
+          "source": {
+            "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+            "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+            "activity_created_at": "2026-09-18T22:42:37.210573Z",
+            "session_id": "17793537861787869447",
+            "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T22:56:17.561113Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+            "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+            "activity_created_at": "2026-09-18T22:42:37.210573Z",
+            "session_id": "17793537861787869447",
+            "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T22:56:13.205912Z",
+    "last_poll_at": "2026-09-18T22:56:15.992861Z",
     "last_tick_at": "2026-09-18T22:50:02.129281Z",
     "run_id": "35403202758"
   }
