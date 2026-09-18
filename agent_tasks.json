@@ -7516,12 +7516,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T13:16:55.112874Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T13:17:14.163078Z",
+    "last_poll_at": "2026-09-18T13:18:36.540037Z",
     "last_tick_at": "2026-09-18T13:00:45.158644Z",
     "run_id": "35347690114"
   }
