@@ -7550,7 +7550,7 @@
       "id": "research-transcript-links-reliability-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -7670,6 +7670,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "5f11c9fc01d549e69210d5f5",
+        "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
+        "starting_branch": "autonomous/attempt-5f11c9fc01d549e69210d5f5",
+        "started_at": "2026-09-18T15:21:19.372221Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
