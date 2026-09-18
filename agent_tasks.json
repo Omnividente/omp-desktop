@@ -7278,7 +7278,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T11:57:54.587232Z"
+        "observed_at": "2026-09-18T11:57:54.587232Z",
+        "released_attempt_ref": "autonomous/attempt-08f134f646a0b4c0cf6c0062"
       },
       "research_result": {
         "summary": "Investigated toast notifications layout, OS suspend behavior for toast timers, and large workspace switching performance. Found that toasts stack correctly via flexbox without overlap, workspace switching with many sessions handles filtering extremely quickly, and OS suspend pauses native setTimeout timers, which could leave stale toasts on screen after resuming.",
