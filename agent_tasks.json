@@ -4582,7 +4582,7 @@
       "id": "research-sessions-persistence-performance-2",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -4701,18 +4701,43 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15633779958290240504",
         "dispatch_key": "b2fdc575fea2cde3d1f469df",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-b2fdc575fea2cde3d1f469df",
         "started_at": "2026-09-18T00:49:25Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T04:43:10Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T00:49:25Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T04:43:10Z"
+      },
+      "research_result": {
+        "summary": "Investigated `list_codex_sessions` performance, confirming it lacks the caching optimization present in standard session scanning.",
+        "observations": [
+          {
+            "scenario": "Scanning a directory containing 10,000 synthetic valid Codex session_meta `.jsonl` files on first load vs subsequent load.",
+            "evidence": "Created a synthetic benchmark (`ten_thousand_codex_session_discovery_meets_cold_and_warm_budgets`) in `src-tauri/src/sessions.rs`. The test ran `list_codex_sessions` on 10,000 `.jsonl` files. Both cold and warm scans took ~440ms, indicating no cache logic is being applied across repeated accesses.",
+            "result": "Establishes that `list_codex_sessions` repeatedly parses the contents of Codex session files on every invocation, unlike `scan_sessions` which correctly implements `session_summary_cache` to skip re-parsing unchanged files. This means large Codex histories cause linear re-parsing overhead."
+          }
+        ],
+        "next_hypotheses": [
+          "Determine if directory enumeration (`collect_jsonl_files`) for both normal and Codex sessions can be optimized further via parallel iteration (e.g. `ignore` crate or `rayon`)."
+        ],
+        "proposed_task_ids": [
+          "discovery-9881e0c7ffe77346"
+        ],
+        "completed_at": "2026-09-18T04:43:10Z",
+        "source": {
+          "activity_id": "sessions/15633779958290240504/activities/9a4f099946804e51957c01b7da87856f",
+          "report_sha256": "e76378d8f2f16d30296255007f27a1bf37682149eeca9e2534dac86a5fa9a25a",
+          "activity_created_at": "2026-09-18T01:03:11Z",
+          "session_id": "15633779958290240504",
+          "dispatch_key": "b2fdc575fea2cde3d1f469df"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -4760,6 +4785,47 @@
         "activity_created_at": "2026-09-18T00:52:19Z",
         "session_id": "17223006827719095491",
         "dispatch_key": "70d05528915dd26b45dffb10"
+      }
+    },
+    {
+      "id": "discovery-9881e0c7ffe77346",
+      "title": "Implement caching for list_codex_sessions",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "medium",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-18T04:43:10Z",
+      "acceptance": [
+        "list_codex_sessions avoids re-parsing unchanged files across subsequent calls",
+        "Repeated calls to list_codex_sessions run significantly faster than the first call for the same file state"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic benchmark that `list_codex_sessions` took ~440ms for both cold and warm scans on 10,000 synthetic files, missing the caching logic used by `scan_sessions`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a directory with 10,000 valid Codex `.jsonl` session files.",
+            "Run `list_codex_sessions` twice in succession.",
+            "Measure the execution time of both calls."
+          ],
+          "expected": "The second call is significantly faster (a fraction of the first call's time) due to caching.",
+          "actual": "The second call takes roughly the same amount of time as the first call, parsing every file again."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-2",
+        "activity_id": "sessions/15633779958290240504/activities/9a4f099946804e51957c01b7da87856f",
+        "report_sha256": "e76378d8f2f16d30296255007f27a1bf37682149eeca9e2534dac86a5fa9a25a",
+        "activity_created_at": "2026-09-18T01:03:11Z",
+        "session_id": "15633779958290240504",
+        "dispatch_key": "b2fdc575fea2cde3d1f469df"
       }
     }
   ]
