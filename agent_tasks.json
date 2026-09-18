@@ -8620,7 +8620,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T22:29:10.909609Z"
+        "observed_at": "2026-09-18T22:29:10.909609Z",
+        "released_attempt_ref": "autonomous/attempt-c2e73d67111511712dfa34bc"
       },
       "research_result": {
         "summary": "Investigated performance and latency of terminal continuity attachment and chunk handling for very large outputs.",
