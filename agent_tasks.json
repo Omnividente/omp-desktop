@@ -5246,7 +5246,7 @@
       "id": "research-workspace-navigation-reliability-2",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -5365,23 +5365,47 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6713997507103923497",
         "dispatch_key": "658af61493569df825980a1e",
         "base_sha": "2b994bb916e289f39d15ccb636cd458c3f6e5ada",
         "starting_branch": "autonomous/attempt-658af61493569df825980a1e",
         "started_at": "2026-09-18T07:37:16.034117Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T08:07:33.679544Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T07:37:16.034117Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T08:07:33.679544Z"
+      },
+      "research_result": {
+        "summary": "Verified frontend failure recovery when navigating to an inaccessible workspace or launching a session with a missing directory. The application handles these conditions gracefully without state loss or corruption.",
+        "observations": [
+          {
+            "scenario": "Navigating to a workspace with an inaccessible path and attempting to launch a session.",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/workspace-inaccessible.test.tsx`) against `<App />`. Mocked `api.bootstrap` with a valid and an invalid workspace path. Simulated clicking the invalid workspace. The `api.loadOmpConfig` mock rejected with 'Path not found', which was gracefully caught and rendered as an `.app-notice` warning without crashing the app. Next, simulated clicking 'New Session', causing `api.startTerminal` to reject with 'Directory not found'. This error was also gracefully caught and displayed as a toast error via `showError(errorMessage(error, lang))`, and `launchingRef.current` was correctly reset. Finally, clicking back to the valid workspace successfully restored normal state.",
+            "result": "Establishes that the frontend correctly recovers from inaccessible directories and failed backend process launches without locking up or corrupting session state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the robustness of the single-instance workspace switching feature when a concurrent switch request occurs before the first one completes.",
+          "Investigate state recovery when removing a workspace that is actively being indexed or scanned in the background."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T08:07:33.679544Z",
+        "source": {
+          "activity_id": "sessions/6713997507103923497/activities/0a62a79bc6674d46b8fdffcfc6e80939",
+          "report_sha256": "46af63eff31077be405ba8d1a761e34f9e9d9e7175f65b610abe1c16d6ed1344",
+          "activity_created_at": "2026-09-18T07:51:43.928624Z",
+          "session_id": "6713997507103923497",
+          "dispatch_key": "658af61493569df825980a1e"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:07:56.881666Z",
+    "last_poll_at": "2026-09-18T08:07:59.910923Z",
     "last_tick_at": "2026-09-18T07:38:53.439166Z",
     "run_id": "35320286865"
   }
