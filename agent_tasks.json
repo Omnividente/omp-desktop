@@ -7937,7 +7937,7 @@
       "id": "research-transcript-links-ux-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -8052,7 +8052,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "15338912817987174318",
         "dispatch_key": "5d7225c77d7bb5f282d81fbe",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
@@ -8060,15 +8060,39 @@
         "started_at": "2026-09-18T17:00:53.026571Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T17:08:29.394652Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T17:27:00.332531Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-18T17:27:00.332531Z",
+          "source": {
+            "activity_id": "sessions/15338912817987174318/activities/4f9ee1d6573e4b038dc9ddfd9bd5113f",
+            "report_sha256": "64c031d95ce5d842a981ca439781f331ca2147c6e3e4f6a308d5909405054ddb",
+            "activity_created_at": "2026-09-18T17:14:55.071782Z",
+            "session_id": "15338912817987174318",
+            "dispatch_key": "5d7225c77d7bb5f282d81fbe"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T17:27:25.522608Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/15338912817987174318/activities/4f9ee1d6573e4b038dc9ddfd9bd5113f",
+            "report_sha256": "64c031d95ce5d842a981ca439781f331ca2147c6e3e4f6a308d5909405054ddb",
+            "activity_created_at": "2026-09-18T17:14:55.071782Z",
+            "session_id": "15338912817987174318",
+            "dispatch_key": "5d7225c77d7bb5f282d81fbe"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T17:27:20.709847Z",
+    "last_poll_at": "2026-09-18T17:27:23.704061Z",
     "last_tick_at": "2026-09-18T17:21:19.479498Z",
     "run_id": "35373777001"
   }
