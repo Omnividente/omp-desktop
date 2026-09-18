@@ -6970,7 +6970,7 @@
       "id": "discovery-56c204d8381f8989",
       "title": "Add CSS transitions to resource-summary color classes",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -7005,6 +7005,12 @@
         "activity_created_at": "2026-09-18T11:08:51.671833Z",
         "session_id": "17542460309039134485",
         "dispatch_key": "6aa7f1f15f737a06cbc02aa2"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:42:09Z",
+        "note": "Duplicate of discovery-e53a37688e2893a4: identical optional resource-summary color transition, no independent defect or evidence."
       }
     },
     {
