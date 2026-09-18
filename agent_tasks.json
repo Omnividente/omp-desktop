@@ -8075,7 +8075,8 @@
             "session_id": "15338912817987174318",
             "dispatch_key": "5d7225c77d7bb5f282d81fbe"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-5d7225c77d7bb5f282d81fbe"
       },
       "research_result": {
         "summary": "Verified keyboard accessibility of the transcript scrolling container.",
