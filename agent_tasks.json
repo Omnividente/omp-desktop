@@ -5943,6 +5943,139 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-settings-models-reliability-2",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-18T09:05:06Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"proposed\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]}},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"proposed\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]}},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"proposed\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]}}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "ff8a2e7c5b38f3517fa15a9157508243cb7844d0f9aed918770a4d2fdb2f82eb",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Investigated the settings recovery flow and model selection component behavior against backend contracts and observable behavior.",
+            "observations": [
+              {
+                "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+                "evidence": "Tested `selectorForModel` logic with synthetic model data mapping 'provider/model:off' to a new model that also supports thinking. The :off modifier is lost.",
+                "result": "Establishes that the UI incorrectly drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` natively omits these base overrides from its array."
+              },
+              {
+                "scenario": "Parsing of settings_unavailable error from the backend.",
+                "evidence": "Tested serialization of SettingsFailureWire with missing fields like backupPath against backend struct AppError and frontend settingsUnavailableDetails parser.",
+                "result": "Establishes that settings unavailable recovery correctly propagates backup paths when null (using skip_serializing_if or default serde logic in Rust), and the frontend correctly manages fallback cases to keep the UI from crashing."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+            ],
+            "proposed_task_ids": [
+              "discovery-21935d2cee4d8a7e"
+            ],
+            "completed_at": "2026-09-16T22:13:53Z",
+            "source": {
+              "activity_id": "sessions/9057746085564018396/activities/6edffc59ef784821ae23e0b28630afb4",
+              "report_sha256": "c590e94148931c4ee8ab4618bffafd59d4468329d3556821d426ed0fe14454e2",
+              "activity_created_at": "2026-09-16T21:32:00Z",
+              "session_id": "9057746085564018396",
+              "dispatch_key": "8687b570b2a5fdaff879d0c9"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated responsiveness and resource use of ModelPicker filtering and SettingsPanel fallback chain formatting, finding them highly efficient with large synthetic payloads.",
+            "observations": [
+              {
+                "scenario": "Model picker search evaluation and selector matching with 1,000 synthetic models.",
+                "evidence": "Generated 1000 synthetic OmpModelInfo instances to evaluate match operations via `matchesSelector` and list filtering/sorting logic. Both processes were executed 100 times to test latency.",
+                "result": "Filtering and sorting logic on the frontend processes 1,000 models in roughly ~0.5ms per update. Lookup scan checking `matchesSelector` completes in ~0.4ms per pass. No performance regressions or UI lag spikes exist on realistic large payloads in this area."
+              },
+              {
+                "scenario": "Operational settings draft evaluation inside SettingsPanel handling 1,000 settings drafts.",
+                "evidence": "Tested the iteration check for `hasChanges` logic looking for differences across 1,000 drafts against OmpConfig snapshot fields.",
+                "result": "Checking 1,000 draft operational properties completes in ~0.2ms per evaluation pass using React useMemo, avoiding re-renders effectively."
+              },
+              {
+                "scenario": "SettingsPanel fallback chains drafting via `fallbackDraftsFromSnapshot` with 100 configured fallback chains.",
+                "evidence": "Tested latency of converting a fallback dictionary into array-bound structure used by React view loop.",
+                "result": "Converting 100 fallback chains processes rapidly (~0.04ms per layout pass). No performance regression found."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the cost of serialization and IPC overhead during the save of large fallback chains or operational settings, rather than React memory mapping.",
+              "Examine if `fallbackDraftSequence` state sequence leaks uncollected arrays on extreme usage."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T00:36:58Z",
+            "source": {
+              "activity_id": "sessions/1597910468720255683/activities/86c9e803c40b49108ffd5d7476edb6a5",
+              "report_sha256": "4ddb0b0a4706ade638fa0273b65c9a98723c6ba9fc5eb45efdb1d7a0aaf403b8",
+              "activity_created_at": "2026-09-16T23:19:33Z",
+              "session_id": "1597910468720255683",
+              "dispatch_key": "4884d973f51f141b2d50fd84"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated operational settings update failure recovery and model thinking override persistence in the UI when switching models.",
+            "observations": [
+              {
+                "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+                "evidence": "Observed `splitSelector` logic coupled with `selectorForModel` in `src/ModelPicker.tsx`. When switching to a new model that supports thinking, `model.thinking.includes(thinking)` evaluates to `false` for base level overrides like `:off` or `:auto` because `model.thinking` natively omits these base overrides from its array (it only contains valid elevated thinking levels like `low`, `high`, `max`). The override is dropped from the returned selector.",
+                "result": "Establishes that the UI drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` omits these base overrides. The `selectorForModel` function fails to preserve standard/base thinking modifiers during model switching."
+              },
+              {
+                "scenario": "Testing frontend component resilience when `saveSettingsBundle` IPC request fails during operational settings drafts save.",
+                "evidence": "Tested the React UI component `SettingsPanel` by injecting an IPC failure. When `saveSettingsBundle` throws an error, the error state is propagated via `setConfigError(message)`. The operational changes drafts remain in the local state `operationDrafts` inside the React component and are not cleared (unlike successful cases where they are cleared).",
+                "result": "Establishes that operational settings drafts are safely kept in UI state upon a failed IPC save request. This prevents data loss for user drafts when the backend rejects changes or fails for network/backend reasons."
+              },
+              {
+                "scenario": "Backend testing environment compatibility with rustc 1.94.0.",
+                "evidence": "Running `cargo test` on backend fails due to `sysinfo@0.39.6` requiring `rustc 1.95`. Attempting to downgrade `sysinfo` to a compatible version failed due to incompatible features between `0.30.13`, `0.31.2` and project's crate features (the `system` feature is not present on older versions), as well as missing native pkg-config dependencies (`glib-2.0` and `gobject-2.0`) in the sandbox.",
+                "result": "Establishes that the native backend testing environment in this sandbox is limited due to the Rust version and missing system dependencies."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+            ],
+            "proposed_task_ids": [
+              "discovery-f94f0fd889c52402"
+            ],
+            "completed_at": "2026-09-17T00:36:58Z",
+            "source": {
+              "activity_id": "sessions/17139642498294375610/activities/9a5ba7c8a76c4ff1ad1bba973db75f7c",
+              "report_sha256": "86b8e01c22ac6369e3fca478f192ac5a7e43ac3f96fa024e7c7e14568a2be5c9",
+              "activity_created_at": "2026-09-16T22:56:17Z",
+              "session_id": "17139642498294375610",
+              "dispatch_key": "42d7079fb8881ffa1ee8904a"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
