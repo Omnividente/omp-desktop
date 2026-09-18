@@ -7856,13 +7856,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T15:48:06.288193Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T15:55:16.265786Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T15:55:36.486044Z",
+    "last_poll_at": "2026-09-18T15:55:39.665459Z",
     "last_tick_at": "2026-09-18T15:49:36.393660Z",
     "run_id": "35364603175"
   }
