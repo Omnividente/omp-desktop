@@ -8467,13 +8467,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T21:20:10.555181Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T21:27:52.211468Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T21:28:13.746261Z",
+    "last_poll_at": "2026-09-18T21:28:16.891118Z",
     "last_tick_at": "2026-09-18T21:22:04.974294Z",
     "run_id": "35396226329"
   }
