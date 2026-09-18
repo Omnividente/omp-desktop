@@ -6354,8 +6354,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T09:52:27.870677Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T09:58:43.571566Z",
         "report_error": {
           "code": "findings_invalid",
           "detail": "incomplete discovery findings; nothing imported: conflicting_id",
@@ -6371,14 +6371,15 @@
         "report_repair": {
           "at": "2026-09-18T09:45:41.670195Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/15220953140120496057/activities/7dd81efbdbf042f4b15750f51f3a6a05",
+            "activity_id": "sessions/15220953140120496057/activities/3981a2c748f244679624f5b7910f76c1",
             "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
-            "activity_created_at": "2026-09-18T09:34:12.542276Z",
+            "activity_created_at": "2026-09-18T09:46:25.548983Z",
             "session_id": "15220953140120496057",
             "dispatch_key": "6d589303dad7e3843ce4fb4a"
-          }
+          },
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id"
         }
       }
     },
@@ -6521,7 +6522,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:59:03.427691Z",
+    "last_poll_at": "2026-09-18T09:59:06.541985Z",
     "last_tick_at": "2026-09-18T09:52:53.587966Z",
     "run_id": "35331785700"
   }
