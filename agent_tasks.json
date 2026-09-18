@@ -7277,13 +7277,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T11:37:59.953246Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T11:45:39.471213Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T11:46:00.150237Z",
+    "last_poll_at": "2026-09-18T11:46:03.150566Z",
     "last_tick_at": "2026-09-18T11:39:50.611329Z",
     "run_id": "35340579876"
   }
