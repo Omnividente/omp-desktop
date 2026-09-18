@@ -8763,8 +8763,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "17793537861787869447",
         "dispatch_key": "8a2cad01e88bcabf8e0aaa46",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-8a2cad01e88bcabf8e0aaa46",
