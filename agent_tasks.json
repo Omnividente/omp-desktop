@@ -6891,7 +6891,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T11:11:33.973621Z"
+        "observed_at": "2026-09-18T11:11:33.973621Z",
+        "released_attempt_ref": "autonomous/attempt-6aa7f1f15f737a06cbc02aa2"
       },
       "research_result": {
         "summary": "Verified state recovery when encountering missing or inaccessible resource volumes during resource health sampling.",
