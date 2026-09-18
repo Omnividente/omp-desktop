@@ -6226,7 +6226,7 @@
       "id": "research-settings-models-performance-2",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -6344,7 +6344,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "15220953140120496057",
         "dispatch_key": "6d589303dad7e3843ce4fb4a",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
@@ -6352,15 +6352,39 @@
         "started_at": "2026-09-18T09:25:56.491548Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T09:33:04.845747Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T09:45:18.336116Z",
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+          "reported_at": "2026-09-18T09:45:18.336116Z",
+          "source": {
+            "activity_id": "sessions/15220953140120496057/activities/7dd81efbdbf042f4b15750f51f3a6a05",
+            "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
+            "activity_created_at": "2026-09-18T09:34:12.542276Z",
+            "session_id": "15220953140120496057",
+            "dispatch_key": "6d589303dad7e3843ce4fb4a"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T09:45:41.670195Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/15220953140120496057/activities/7dd81efbdbf042f4b15750f51f3a6a05",
+            "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
+            "activity_created_at": "2026-09-18T09:34:12.542276Z",
+            "session_id": "15220953140120496057",
+            "dispatch_key": "6d589303dad7e3843ce4fb4a"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:45:38.181810Z",
+    "last_poll_at": "2026-09-18T09:45:40.535797Z",
     "last_tick_at": "2026-09-18T09:39:33.136256Z",
     "run_id": "35330624605"
   }
