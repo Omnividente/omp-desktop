@@ -5759,13 +5759,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T08:37:53.917901Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T08:45:12.049734Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:45:29.547658Z",
+    "last_poll_at": "2026-09-18T08:45:32.041761Z",
     "last_tick_at": "2026-09-18T08:39:25.668544Z",
     "run_id": "35325341743"
   }
