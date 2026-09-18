@@ -6130,7 +6130,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T09:25:56.491548Z"
+        "observed_at": "2026-09-18T09:25:56.491548Z",
+        "released_attempt_ref": "autonomous/attempt-67c696866d35e8c087c738a0"
       },
       "research_result": {
         "summary": "Investigated SettingsPanel local draft resilience during graceful IPC save failures.",
