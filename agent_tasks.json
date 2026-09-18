@@ -5376,7 +5376,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T08:07:33.679544Z"
+        "observed_at": "2026-09-18T08:07:33.679544Z",
+        "released_attempt_ref": "autonomous/attempt-658af61493569df825980a1e"
       },
       "research_result": {
         "summary": "Verified frontend failure recovery when navigating to an inaccessible workspace or launching a session with a missing directory. The application handles these conditions gracefully without state loss or corruption.",
