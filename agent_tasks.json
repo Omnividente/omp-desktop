@@ -6381,6 +6381,128 @@
           }
         }
       }
+    },
+    {
+      "id": "research-settings-models-ux-2",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-18T09:45:18Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"proposed\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]}},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"proposed\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]}},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"proposed\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]}},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"proposed\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]}}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "ff8a2e7c5b38f3517fa15a9157508243cb7844d0f9aed918770a4d2fdb2f82eb",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Investigated operational settings update failure recovery and model thinking override persistence in the UI when switching models.",
+            "observations": [
+              {
+                "scenario": "Switching models using the ModelPicker component while a thinking modifier like :off or :auto is applied.",
+                "evidence": "Observed `splitSelector` logic coupled with `selectorForModel` in `src/ModelPicker.tsx`. When switching to a new model that supports thinking, `model.thinking.includes(thinking)` evaluates to `false` for base level overrides like `:off` or `:auto` because `model.thinking` natively omits these base overrides from its array (it only contains valid elevated thinking levels like `low`, `high`, `max`). The override is dropped from the returned selector.",
+                "result": "Establishes that the UI drops built-in thinking overrides (:off, :auto) when switching between models that both support thinking, because `model.thinking` omits these base overrides. The `selectorForModel` function fails to preserve standard/base thinking modifiers during model switching."
+              },
+              {
+                "scenario": "Testing frontend component resilience when `saveSettingsBundle` IPC request fails during operational settings drafts save.",
+                "evidence": "Tested the React UI component `SettingsPanel` by injecting an IPC failure. When `saveSettingsBundle` throws an error, the error state is propagated via `setConfigError(message)`. The operational changes drafts remain in the local state `operationDrafts` inside the React component and are not cleared (unlike successful cases where they are cleared).",
+                "result": "Establishes that operational settings drafts are safely kept in UI state upon a failed IPC save request. This prevents data loss for user drafts when the backend rejects changes or fails for network/backend reasons."
+              },
+              {
+                "scenario": "Backend testing environment compatibility with rustc 1.94.0.",
+                "evidence": "Running `cargo test` on backend fails due to `sysinfo@0.39.6` requiring `rustc 1.95`. Attempting to downgrade `sysinfo` to a compatible version failed due to incompatible features between `0.30.13`, `0.31.2` and project's crate features (the `system` feature is not present on older versions), as well as missing native pkg-config dependencies (`glib-2.0` and `gobject-2.0`) in the sandbox.",
+                "result": "Establishes that the native backend testing environment in this sandbox is limited due to the Rust version and missing system dependencies."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if operational settings updates and role assignments correctly propagate custom fallback models over IPC without dropping internal state."
+            ],
+            "proposed_task_ids": [
+              "discovery-f94f0fd889c52402"
+            ],
+            "completed_at": "2026-09-17T00:36:58Z",
+            "source": {
+              "activity_id": "sessions/17139642498294375610/activities/9a5ba7c8a76c4ff1ad1bba973db75f7c",
+              "report_sha256": "86b8e01c22ac6369e3fca478f192ac5a7e43ac3f96fa024e7c7e14568a2be5c9",
+              "activity_created_at": "2026-09-16T22:56:17Z",
+              "session_id": "17139642498294375610",
+              "dispatch_key": "42d7079fb8881ffa1ee8904a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated ModelPicker model selection and SettingsPanel updates logic. Found a defect in ModelPicker ignoring base thinking overrides (already proposed) and verified fallback chain change detection works properly.",
+            "observations": [
+              {
+                "scenario": "Switching models using the ModelPicker component while a base thinking modifier like :off or :auto is applied.",
+                "evidence": "Observed `selectorForModel` logic in `src/ModelPicker.tsx`. When switching to a new model that supports thinking, `model.thinking.includes(thinking)` evaluates to `false` for base level overrides like `:off` or `:auto` because `model.thinking` array natively only contains valid elevated thinking levels (e.g. `low`, `high`, `max`).",
+                "result": "Establishes that the UI drops built-in thinking overrides (:off, :auto) when switching between models that support thinking. The `selectorForModel` function fails to preserve base thinking modifiers. Matches existing proposal canonical_id: discovery-f94f0fd889c52402."
+              },
+              {
+                "scenario": "Adding a new fallback chain and saving it in SettingsPanel.",
+                "evidence": "Tested `fallbackChainsEqual` logic via jsdom in `src/SettingsPanel.research.test.tsx` and synthetic payloads. Verified that empty newly drafted models serialize appropriately filtering empty strings and that `fallbackChainsEqual` handles dictionary keys mismatch accurately (such as checking `!right[key]` as well as list lengths differences).",
+                "result": "The SettingsPanel evaluates fallback chains differences correctly over IPC updates."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if operational settings updates drop internal state over IPC similarly due to dictionary mapping in `!draft.reset && setting.type === 'number'` conversions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T09:25:56.491548Z",
+            "source": {
+              "activity_id": "sessions/12207713692887535666/activities/852c804d6df3420e973dfe9accac9690",
+              "report_sha256": "42cb196fac7201072d2990a79556bce8534546043b6fb02cb2c05a53faea0a5c",
+              "activity_created_at": "2026-09-18T09:14:34.670114Z",
+              "session_id": "12207713692887535666",
+              "dispatch_key": "e2da83a81b017ca5b2aeacf7"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated SettingsPanel local draft resilience during graceful IPC save failures.",
+            "observations": [
+              {
+                "scenario": "Triggering a settings save where the IPC operation returns a structured failure (result.type !== 'success').",
+                "evidence": "Source code review of `SettingsPanel.tsx` coupled with synthetic React component tracing. When `saveSettingsBundle` returns a non-success result, it enters an `else` block that calls `refreshConfig(true)`. This subsequently fetches the latest snapshot from the backend and calls `acceptConfig(snapshot)`. `acceptConfig` overwrites all React state drafts (e.g., `advisorEnabled`, `fallbackChains`, `operationDrafts`, `roles`) with the backend's unedited snapshot.",
+                "result": "Establishes that user settings drafts are silently discarded when the backend rejects the save with a structured error, causing loss of user input. This contradicts the behavior when the IPC throws an exception (which correctly bypasses `refreshConfig` and preserves drafts)."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if reverting to defaults in SettingsRecoveryScreen correctly preserves the application language preference."
+            ],
+            "proposed_task_ids": [
+              "discovery-be56185691369523"
+            ],
+            "completed_at": "2026-09-18T09:25:56.491548Z",
+            "source": {
+              "activity_id": "sessions/16857644972860260164/activities/14ee179abfc543c4806af75d9affc9ba",
+              "report_sha256": "3e498729b06b6211e41be03be1dac21900f70238b6d634744538c65111123d8c",
+              "activity_created_at": "2026-09-18T09:16:39.529431Z",
+              "session_id": "16857644972860260164",
+              "dispatch_key": "67c696866d35e8c087c738a0"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
