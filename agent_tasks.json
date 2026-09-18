@@ -5758,12 +5758,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T08:37:53.917901Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:38:15.950943Z",
+    "last_poll_at": "2026-09-18T08:39:23.989463Z",
     "last_tick_at": "2026-09-18T08:15:13.470780Z",
     "run_id": "35323390568"
   }
