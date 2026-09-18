@@ -7517,8 +7517,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T13:49:42.337007Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T13:56:32.088017Z",
         "report_error": {
           "code": "findings_invalid",
           "detail": "incomplete discovery findings; nothing imported: conflicting_id",
@@ -7534,20 +7534,21 @@
         "report_repair": {
           "at": "2026-09-18T13:43:50.879986Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/7801058078139277203/activities/207884197907401fb78b48af470c8c1a",
+            "activity_id": "sessions/7801058078139277203/activities/2f6c8c275dd54c8c9acd6a3538cd3b60",
             "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
-            "activity_created_at": "2026-09-18T13:33:15.880272Z",
+            "activity_created_at": "2026-09-18T13:44:35.253851Z",
             "session_id": "7801058078139277203",
             "dispatch_key": "d1b8264874b0cdcfa51eab55"
-          }
+          },
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id"
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T13:56:55.717148Z",
+    "last_poll_at": "2026-09-18T13:56:58.787679Z",
     "last_tick_at": "2026-09-18T13:50:07.733955Z",
     "run_id": "35352488453"
   }
