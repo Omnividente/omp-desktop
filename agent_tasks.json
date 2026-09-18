@@ -6754,7 +6754,7 @@
       "id": "research-diagnostics-resources-reliability-2",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -6877,6 +6877,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "6aa7f1f15f737a06cbc02aa2",
+        "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
+        "starting_branch": "autonomous/attempt-6aa7f1f15f737a06cbc02aa2",
+        "started_at": "2026-09-18T10:45:36.025650Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
