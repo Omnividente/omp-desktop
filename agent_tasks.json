@@ -8172,7 +8172,7 @@
       "id": "research-terminal-input-behavior-3",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -8295,23 +8295,46 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5944346094578357680",
         "dispatch_key": "6753bd5fe8cfafab17910354",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-6753bd5fe8cfafab17910354",
         "started_at": "2026-09-18T20:47:57.605819Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T21:20:10.555181Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T20:55:38.145309Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T21:20:10.555181Z"
+      },
+      "research_result": {
+        "summary": "Investigated the boundary condition of multi-byte characters split across PtyOutputEvent chunk boundaries during base64 decoding.",
+        "observations": [
+          {
+            "scenario": "A multi-byte UTF-8 character (e.g., Cyrillic text or an emoji) is split across two separate PtyOutputEvent chunks, encoded in base64, and decoded using the custom decodeBase64 function before being written to xterm.js.",
+            "evidence": "Created an isolated Node.js script that split a Buffer containing 'Привет мир 🌍' across a 2-byte sequence and the emoji sequence. Encoded both chunks to base64, decoded them via decodeBase64 (which returns a Uint8Array), and sequentially called terminal.write(chunk). The resulting terminal buffer translated to the correct intact string.",
+            "result": "Establishes that the custom decodeBase64 implementation correctly preserves multi-byte characters split across PtyOutputEvent chunk boundaries. By yielding raw Uint8Array bytes rather than coercing to a string prematurely, it relies on xterm.js's native UTF-8 decoder which safely buffers and resumes incomplete byte sequences without emitting replacement characters."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal selection dragging correctly handles crossing the bounds of wrapped lines when xterm.js re-wraps the terminal during a resize."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T21:20:10.555181Z",
+        "source": {
+          "activity_id": "sessions/5944346094578357680/activities/98ccbe55cb9549c1acd5e13c2bdb92be",
+          "report_sha256": "be54b4294c90aec5845dcde1012bc7fc33ceb388a81c100b9fb5d243d24637b1",
+          "activity_created_at": "2026-09-18T21:07:37.584938Z",
+          "session_id": "5944346094578357680",
+          "dispatch_key": "6753bd5fe8cfafab17910354"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T21:20:27.388860Z",
+    "last_poll_at": "2026-09-18T21:20:29.964999Z",
     "last_tick_at": "2026-09-18T21:14:32.788533Z",
     "run_id": "35395689625"
   }
