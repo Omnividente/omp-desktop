@@ -5792,7 +5792,7 @@
       "id": "research-settings-models-behavior-2",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -5922,7 +5922,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "12207713692887535666",
         "dispatch_key": "e2da83a81b017ca5b2aeacf7",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
@@ -5930,10 +5930,10 @@
         "started_at": "2026-09-18T08:51:22.563670Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-18T09:05:06.341085Z",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T09:13:15.084933Z",
         "research_detached": {
           "at": "2026-09-18T09:05:06.341085Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -5941,6 +5941,30 @@
         "feedback_nudge": {
           "at": "2026-09-18T09:05:06.341085Z",
           "result": "sent"
+        },
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+          "reported_at": "2026-09-18T09:13:15.084933Z",
+          "source": {
+            "activity_id": "sessions/12207713692887535666/activities/66f68eb14fe644ccaeab0050e52b9e98",
+            "report_sha256": "5427593f1433897c59e5c782b4e076813d192e565762ea47275eea2c87c4df34",
+            "activity_created_at": "2026-09-18T09:05:50.068400Z",
+            "session_id": "12207713692887535666",
+            "dispatch_key": "e2da83a81b017ca5b2aeacf7"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-18T09:13:38.620485Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/12207713692887535666/activities/66f68eb14fe644ccaeab0050e52b9e98",
+            "report_sha256": "5427593f1433897c59e5c782b4e076813d192e565762ea47275eea2c87c4df34",
+            "activity_created_at": "2026-09-18T09:05:50.068400Z",
+            "session_id": "12207713692887535666",
+            "dispatch_key": "e2da83a81b017ca5b2aeacf7"
+          }
         }
       }
     },
@@ -6094,7 +6118,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:13:34.513084Z",
+    "last_poll_at": "2026-09-18T09:13:37.070486Z",
     "last_tick_at": "2026-09-18T08:59:22.282045Z",
     "run_id": "35327112968"
   }
