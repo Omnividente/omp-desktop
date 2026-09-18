@@ -8468,7 +8468,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T22:08:52.118864Z"
+        "observed_at": "2026-09-18T22:08:52.118864Z",
+        "released_attempt_ref": "autonomous/attempt-4756ef32bc17a8ae9a9ae32d"
       },
       "research_result": {
         "summary": "Investigated terminal input behavior when a switch recovery state is pending to verify if new manual input properly abandons the stale recovery.",
