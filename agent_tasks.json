@@ -6112,13 +6112,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T09:05:06.341085Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T09:13:15.084933Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:13:37.070486Z",
+    "last_poll_at": "2026-09-18T09:13:44.597928Z",
     "last_tick_at": "2026-09-18T08:59:22.282045Z",
     "run_id": "35327112968"
   }
