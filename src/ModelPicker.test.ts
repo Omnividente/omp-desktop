@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest"
+/** @vitest-environment jsdom */
+
+import { act, createElement, useState } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   matchesSelector,
+  ModelPicker,
   normalizeThinkingLevel,
   selectorWithThinking,
   splitSelector,
@@ -27,6 +32,10 @@ const taggedModel: OmpModelInfo = {
   selector: "ollama/llama3.1:8b",
   name: "Llama 3.1 8B",
 }
+
+;(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true
 
 describe("splitSelector", () => {
   it.each([
@@ -113,5 +122,99 @@ describe("thinking selector controls", () => {
       "medium",
       "high",
     ])
+  })
+})
+
+describe("ModelPicker model changes", () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  function Picker({ initial, target }: { initial: string; target: OmpModelInfo }) {
+    const [value, setValue] = useState(initial)
+    const [open, setOpen] = useState(true)
+    return createElement(ModelPicker, {
+      language: "en",
+      models: [model, target],
+      onChange: setValue,
+      onOpenChange: setOpen,
+      open,
+      role: "default",
+      value,
+    })
+  }
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function chooseTarget() {
+    const option = [...container.querySelectorAll<HTMLButtonElement>("[role='option']")].find(
+      (button) => button.querySelector("small")?.textContent === taggedModel.selector,
+    )!
+    act(() => option.click())
+  }
+
+  it.each(["off", "auto"])(
+    "preserves explicit %s on a thinking-capable model without changing its colon tag",
+    (thinking) => {
+      act(() => {
+        root.render(
+          createElement(Picker, { initial: `${model.selector}:${thinking}`, target: taggedModel }),
+        )
+      })
+      expect(container.querySelector("select")?.value).toBe(thinking)
+
+      chooseTarget()
+
+      expect(container.querySelector(".model-picker-copy small")?.textContent).toBe(
+        `${taggedModel.selector}:${thinking}`,
+      )
+      expect(container.querySelector("select")?.value).toBe(thinking)
+      expect(container.querySelector("[role='listbox']")).toBeNull()
+    },
+  )
+
+  it("drops the override when the target has no thinking capabilities", () => {
+    act(() => {
+      root.render(
+        createElement(Picker, {
+          initial: `${model.selector}:off`,
+          target: { ...taggedModel, thinking: [] },
+        }),
+      )
+    })
+
+    chooseTarget()
+
+    expect(container.querySelector(".model-picker-copy small")?.textContent).toBe(
+      taggedModel.selector,
+    )
+    expect(container.querySelector("select")).toBeNull()
+  })
+
+  it("uses the default rather than inventing an unsupported level on keyboard selection", () => {
+    act(() => {
+      root.render(
+        createElement(Picker, {
+          initial: `${model.selector}:high`,
+          target: { ...taggedModel, thinking: ["low"] },
+        }),
+      )
+    })
+    const listbox = container.querySelector<HTMLElement>("[role='listbox']")!
+    act(() => listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })))
+    act(() => listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })))
+
+    expect(container.querySelector(".model-picker-copy small")?.textContent).toBe(
+      taggedModel.selector,
+    )
+    expect(container.querySelector("select")?.value).toBe("")
   })
 })

@@ -78,7 +78,7 @@ export function selectorWithThinking(selector: string, thinking: string | null):
 
 function selectorForModel(model: OmpModelInfo, current: string): string {
   const { thinking } = splitSelector(current)
-  if (thinking && model.thinking.includes(thinking)) {
+  if (thinking && thinkingOptionsForModel(model).includes(thinking)) {
     return `${model.selector}:${thinking}`
   }
   return model.selector
@@ -110,7 +110,7 @@ export function ModelPicker({
   const selectedModel = models.find((model) => matchesSelector(model, value))
   const selectedStatus = selectedModel?.status ?? (value ? "missing" : "unset")
   const configuredThinking = splitSelector(value).thinking
-  const thinkingLevels = thinkingLevelsForModel(selectedModel)
+  const thinkingLevels = thinkingOptionsForModel(selectedModel)
 
   const filteredModels = useMemo(() => {
     const normalized = query.trim().toLowerCase()

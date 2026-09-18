@@ -8,6 +8,7 @@ import { useVirtualList } from "./useVirtualList"
 import { LinkedText, linkedTextContent, type TextMatch } from "./LinkedText"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
+import { useModalFocus } from "./useModalFocus"
 
 interface TranscriptModalProps {
   lang: Lang
@@ -53,6 +54,7 @@ export function TranscriptModal({
   const scrollRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const handleModalKeyDown = useModalFocus(panelRef, onClose)
   const [menu, setMenu] = useState<{
     left: number
     top: number
@@ -160,13 +162,6 @@ export function TranscriptModal({
   useEffect(() => {
     setMenu(null)
   }, [sessionPath, transcript, transcriptMode, transcriptSearch])
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    panelRef.current?.focus({ preventScroll: true })
-    return () => {
-      if (previous?.isConnected) previous.focus({ preventScroll: true })
-    }
-  }, [])
   const dismissMenu = (restoreFocus: boolean) => {
     if (restoreFocus)
       (menu?.focus?.isConnected ? menu.focus : panelRef.current)?.focus({ preventScroll: true })
@@ -186,6 +181,7 @@ export function TranscriptModal({
         className="settings-panel transcript-panel"
         ref={panelRef}
         tabIndex={-1}
+        onKeyDown={handleModalKeyDown}
         onKeyDownCapture={(event) => {
           if (
             !event.nativeEvent.isComposing &&
