@@ -4550,7 +4550,8 @@
         "feedback_nudge": {
           "at": "2026-09-18T00:49:25Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-70d05528915dd26b45dffb10"
       },
       "research_result": {
         "summary": "Investigated modal accessibility issues related to missing focus traps, focus restoration, and Escape key handling in ImportSessionModal, CodexImportModal, SettingsPanel, and TranscriptModal.",
