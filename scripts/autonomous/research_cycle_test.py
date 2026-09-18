@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from research_cycle import main, plan_research, scope_fingerprints, validate_config  # noqa: E402
 from select_task import select  # noqa: E402
+from build_jules_request import build
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
 
@@ -140,6 +141,57 @@ class RotationTest(unittest.TestCase):
         reports = revisit["tasks"][-1]["research"]["previous_reports"]
         self.assertEqual([report["summary"] for report in reports], ["Finding 2", "Finding 3", "Finding 4"])
         self.assertLessEqual(len(json.dumps(reports, ensure_ascii=False)), 24000)
+
+    def test_new_perspective_receives_scoped_contracts_without_rewriting_reports(self):
+        settings = config(areas=("terminal",), perspectives=("behavior", "reliability"))
+        data, _ = plan(manifest(), settings)
+        finish(data)
+        report = copy.deepcopy(data["tasks"][0]["research_result"])
+        proposal = concrete("canonical-resume", status="proposed", target_paths=["src/terminal.ts"],
+                            acceptance=["Resume retains terminal scroll position"],
+                            evidence={"source": "research", "detail": "Synthetic suspend loses scroll position",
+                                      "reproduction": {"steps": ["Scroll up", "Suspend and resume"],
+                                                       "expected": "Viewport remains on the selected line",
+                                                       "actual": "Viewport jumps to the final line"}})
+        unrelated = concrete("sessions-only-proposal", status="proposed", target_paths=["src/sessions.ts"])
+        data["tasks"].extend([proposal, unrelated])
+        before = copy.deepcopy(data)
+        updated, _ = plan(data, settings, now=NOW + timedelta(minutes=1))
+        task = updated["tasks"][-1]
+        self.assertEqual(task["research"]["perspective_id"], "reliability")
+        self.assertEqual(task["research"]["previous_reports"], [report])
+        request = build(task, template="{{TASK_JSON}}", repo="owner/repo", branch="main", base_sha="a" * 40)
+        for value in (proposal["id"], proposal["target_paths"][0], proposal["acceptance"][0],
+                      proposal["evidence"]["reproduction"]["expected"],
+                      proposal["evidence"]["reproduction"]["actual"]):
+            self.assertIn(value, request["prompt"])
+        self.assertNotIn(unrelated["id"], request["prompt"])
+        self.assertEqual(data, before)
+        self.assertEqual(updated["tasks"][:-1], before["tasks"])
+
+    def test_backlog_context_is_bounded_and_preserves_closed_history_as_context(self):
+        settings = config(areas=("terminal",))
+        closed = concrete("closed-regression", status="done", target_paths=["src/terminal.ts"],
+                          acceptance=["Retain the active terminal"],
+                          proposal_decision={"action": "reject", "actor": "owner", "at": NOW.isoformat(),
+                                             "note": "Unable to reproduce earlier"})
+        updated, _ = plan(manifest(closed), settings)
+        detail = updated["tasks"][-1]["evidence"]["detail"]
+        self.assertIn(closed["id"], detail)
+        self.assertIn('"status":"done"', detail)
+        self.assertIn('"decision":"reject"', detail)
+        proposals = [concrete("proposal-" + str(index), status="proposed", target_paths=["src/terminal.ts"],
+                              acceptance=["Long contract " * 300],
+                              evidence={"source": "research", "detail": "Detailed observation " * 300})
+                     for index in range(50)]
+        data = manifest(*proposals)
+        before = copy.deepcopy(data)
+        bounded, _ = plan(data, settings)
+        context = bounded["tasks"][-1]["evidence"]["detail"]
+        self.assertIn(proposals[0]["id"], context)
+        self.assertNotIn(proposals[-1]["id"], context)
+        self.assertLess(len(context), 10000)
+        self.assertEqual(data, before)
 
     def test_changed_scope_is_eligible_without_waiting_for_success_cooldown(self):
         settings = config(areas=("terminal",))
@@ -267,11 +319,15 @@ class QueueAndThrottleTest(unittest.TestCase):
         data, _ = plan(manifest(), settings)
         finish(data)
         data["tasks"][0]["research_result"]["observations"][0]["evidence"] = "measurement " * 5000
+        original = copy.deepcopy(data["tasks"][0]["research_result"])
         revisit, _ = plan(data, settings, now=NOW + timedelta(days=1))
         reports = revisit["tasks"][-1]["research"]["previous_reports"]
         self.assertEqual(reports[0]["observations"][0]["scenario"], "Cancel and reopen")
         self.assertEqual(reports[0]["next_hypotheses"], ["Interrupt a concurrent import instead"])
         self.assertLessEqual(len(json.dumps(reports, ensure_ascii=False)), 24000)
+        self.assertEqual(data["tasks"][0]["research_result"], original)
+        self.assertEqual(reports[0]["context_excerpt"]["source_task_id"], data["tasks"][0]["id"])
+        self.assertEqual(reports[0]["context_excerpt"]["original_counts"]["observations"], len(original["observations"]))
 
 
 class BlobIdentityTest(unittest.TestCase):

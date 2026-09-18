@@ -102,6 +102,14 @@ into `main`.
    an older valid message. Malformed output becomes
    `blocked / awaiting_report / report_invalid`, not `no_change` or another
    worker; unrelated research can proceed. Editable PR bodies are never imported.
+   A newly detected malformed report can receive one formatting-only message in
+   that same session. `execution.report_repair` is persisted before POST; a lost
+   acknowledgement or restart never grants another send. Pending repair polls
+   every five minutes for at most six hours. Rejected, failed, conflicting,
+   invalid or expired repair stays parked, without a new attempt. A strictly
+   newer activity can resolve it; subsecond activity/request times are preserved.
+   Historical parked reports are touched only by explicit `recover_report` for
+   their exact task. While disabled this may read, but never send a repair request.
 6. **One reviewed revision and one current base.** The review workflow pins
    `ci_sha`, the complete file list and current `lab_sha`, and verifies lab
    ancestry from the exact compare endpoint. Historical REST `pr.base.sha` is
@@ -196,6 +204,19 @@ from other areas are excluded. Rotation, cooldown and quota still use the
 area/perspective pair, not the broader shared context. Findings
 outside the execution boundary remain `deferred_findings` with their paths,
 acceptance criteria and exclusion reason; they are visible but never dispatched.
+The importer requires trusted product configuration even when invoked directly
+with `--config`. Exact duplicates retain a canonical ID only when the complete
+directed contract matches: paths, task type, title, detail, ordered reproduction
+steps, expected/actual outcomes and acceptance. Similar wording is not proof;
+it becomes `possible_duplicate` with a canonical review link and full evidence,
+including incomplete reproduction, rather than another queued proposal or a
+discarded claim. Independent contracts in one file remain separate. A task's
+controller-owned `discovery_import` receipt is bound to the accepted report and
+keeps replay stable after canonical work closes; it does not rewrite that work
+or the immutable worker report. A new report may describe a genuine regression.
+Existing proposals are included as a labeled, bounded queue-context snapshot.
+Shortened previous reports carry `context_excerpt` and original array counts;
+their stored source reports remain unchanged.
 `researched` means findings were recorded; `no_change` requires real observations
 and an empty findings list. Neither is proof that a release is verified.
 
@@ -236,10 +257,11 @@ may read a previously completed session and save its result without dispatching.
 
 ## Day-to-day
 
-- **Autonomous Monitor** (every 3h, or on demand) reports real NextTask timestamps,
-  branch/entry-point drift and read-only readiness. Due work without a tick for
-  90 minutes, invalid parked reports and failed synchronization are visible as a
-  failed monitor job, not a green claim of progress.
+- **Autonomous Monitor** (every 3h, or on demand) reports branch/entry-point drift,
+  last useful tick, last worker poll, deadline, overdue seconds and the active or
+  pending continuation runs. `scheduler` is independent of proposal attention:
+  an old conflict cannot hide a lost timer. Invalid reports, failed sync and due
+  work without useful progress for 90 minutes still fail the monitor job.
 - **Autonomous Next Task** is called by continuation or explicit owner dispatch;
   it has no independent cron. It reconciles saved sessions and PR outcomes,
   collects reports and starts eligible research regardless of pending backlog or
@@ -247,22 +269,37 @@ may read a previously completed session and save its result without dispatching.
   explicit `task_id`; it never becomes the default next task. A manual dispatch
   polls immediately. Stored attempts use GetSession directly; a missing session
   never causes a replacement CreateSession. Active lane and scope rules still apply.
-- **Autonomous Continue** is the single scheduled wakeup (every 5 minutes), also
-  triggered after successful trusted workflows and main pushes. It reads live
-  state and dispatches at most one NextTask or Sync run, without sleeping on a
-  runner. Polling returns `action: none` until `due_at`: 5 minutes for a new or
-  changed foreground research worker, 15 minutes after 30 minutes of unchanged
-  research processing, and 30 minutes for implementation, detached research or
-  known waiting when no new research is due. The deadline uses
-  the latest completed NextTask as well as the saved session transition, so an
-  unchanged queue cannot cause an immediate polling chain. Completion events
-  allow useful work immediately when no worker poll is pending. Dispatch still
-  uses the existing Loop Switch PAT and rechecks the enabled flag.
-  `health_snapshot.py` reads all pages for every active Actions status and only
-  the latest 100 completed runs per workflow. It fetches proposal details by
-  saved provenance, including old `awaiting_review` PRs, rather than all PR
-  history. Incomplete or capped active-run results fail with `snapshot_incomplete`;
-  they never establish that the controller is idle.
+  Automatic calls use `automatic=true` and no `task_id`; under the queue writer
+  lock they fetch fresh heads and recheck readiness. Early/duplicate signals do
+  not poll, spend an attempt or update progress clocks. A separate handoff job
+  runs after that writer job, including failure, without retaining its lock.
+- **Autonomous Continue** owns a bounded timer, not just a scheduled wakeup.
+  It waits for `due_at`, checking the live switch at most every 30 seconds, then
+  rereads state and heads before dispatching. It also waits while NextTask/Sync
+  is busy rather than relying on a completion webhook. Each timer waits at most
+  30 minutes; a longer cooldown is handed to another Continue before exit. The
+  workflow has a 40-minute timeout to allow bounded reads and handoff overhead.
+  Only one timer and one pending wakeup share the wakeup group; duplicate signals
+  coalesce, never cancel the active owner and never hold `autonomous-lab-queue`.
+  Ineligible feature/fork callbacks are isolated before concurrency admission.
+  Normal continuation uses explicit `workflow_dispatch` via the existing Loop
+  Switch PAT. Cron (every 5 minutes), trusted workflow completions and main
+  pushes are recovery signals, not the normal timer. Continue does not trigger
+  itself through `workflow_run`: cancellation of a replaced pending run must not
+  recursively generate more callbacks.
+  Polling uses 5 minutes for new/changed foreground research, 15 minutes after
+  30 minutes without a state change, and 30 minutes for implementation, detached
+  research or known waiting when no earlier research is due. Deadlines use
+  durable useful progress and saved worker transitions, never green/skipped
+  workflow completion. Failed ticks after the last useful successful tick back
+  off for 5/15/30 minutes; empty successes do not reset that history.
+  `health_snapshot.py` makes two bounded passes over all active Actions statuses
+  and keeps their combined observations: a run starting between status queries
+  must not make an occupied slot appear idle. It reads only the latest 100
+  completed runs per workflow and fetches proposal details by saved provenance,
+  including old `awaiting_review` PRs, rather than all PR history. Incomplete or
+  capped active-run results fail with `snapshot_incomplete`. API reads are not a
+  transaction; the writer lock and fresh state/CAS checks remain the effect gate.
 - **Autonomous Sync Main** runs on main pushes or explicit dispatch. Legacy
   workers, including quarantined ones, are reconciled before moving their source.
   Immutable-attempt workers and pending human proposals do not block sync. It
@@ -272,6 +309,26 @@ may read a previously completed session and save its result without dispatching.
 - **Autonomous Backlog** is manual-only on `main`: use `list` to review the full
   uncapped JSON artifact and escaped summary; `approve`, `reject` or `resolve`
   require an exact proposal `task_id`, configured owner actor and nonblank note.
+
+### Continuation evidence and recovery
+
+NextTask, Sync and Loop Switch explicitly hand control to Continue after their
+work. Inspect `continuation-<run>-<attempt>` or the corresponding `tick-handoff`,
+`sync-handoff` or `switch-handoff` artifact for `outcome`, `reason` and `handoff`.
+An HTTP acknowledgement alone leaves handoff pending. Confirmation requires the
+matching trusted successor run, not the currently executing timer; an observed
+failed/cancelled/skipped successor is not successful delivery. A reused pending
+run must be an explicit dispatch, schedule or main push: a `workflow_run` listing
+alone cannot prove that its upstream passes the continuation job's trust gate.
+
+An ambiguous Next/Continue request is reconciled before at most one retry with
+the same correlation key. Sync is pinned to main/lab and a pre-dispatch run-ID
+baseline; its ambiguous POST is not retried. Snapshot reads use bounded retries;
+unconfirmed handoffs exit with `pending`/`unknown`, not a green success claim.
+API requests have a 20-second timeout. Snapshot and handoff deadlines are 120
+seconds between bounded operations, not strict aggregate wall-clock limits.
+If the owner and all pending successors are lost, recovery still needs a trusted
+completion, watchdog or explicit owner wakeup; no external scheduler is added.
 
 ### Reviewing the accumulated backlog
 
@@ -322,12 +379,16 @@ lost acknowledgement or restart never blindly resends it. It is not a fabricated
 answer, plan approval, cancellation or terminal outcome. Late resume keeps the
 same identity and scope exclusion. Disabling the loop prevents new detach/nudge.
 
-Queue `execution.observed_at` now records session-state transitions, not every
-poll. Per-run output records fresh observations; unchanged states, repeated
-identical errors and unchanged PR receipts do not produce heartbeat-only commits.
+Queue `execution.observed_at` records session-state transitions, not every poll.
+The optional `controller.last_poll_at` records a valid worker observation;
+`last_tick_at` and `run_id` record a useful successful tick. These minimal clocks
+are CAS-published in `autonomous/state` even when worker identity/state is
+unchanged. A partial successful poll can advance `last_poll_at` without resetting
+the failed-tick history. Skipped wakeups change neither clock. Session transition
+timestamps, repeated identical errors and unchanged PR provenance remain stable.
 The state store still checks CAS when bytes are unchanged, stopping a stale
-writer before further API actions. Old saved timestamps are retained until the
-next transition; they are not retroactive evidence of when an earlier state began.
+writer before further API actions. Legacy queues without controller metadata
+remain valid and use saved worker transitions until a real observation occurs.
 
 ### Recovering a completed research report
 
@@ -416,6 +477,12 @@ external request: the controller can retain and reconcile it, not unsend it.
 Re-enabling is not permission to duplicate uncertain work. Proposals are never
 accepted by the controller, whether the loop is on or off.
 
+An already waiting Continue observes the live switch without taking the writer
+lock. Once it observes `false`, that invocation makes no new dispatch, even if
+the flag is subsequently re-enabled. With a responsive runner/API, the 30-second
+check interval and bounded switch read target detection within 60 seconds. This
+does not undo a request already accepted by GitHub or Jules.
+
 ## Known limits
 
 - Rust and non-TypeScript work cannot establish the offline Vitest proof;
@@ -423,10 +490,15 @@ accepted by the controller, whether the loop is on or off.
   owner server-side bypass, not ordinary approval or a ready claim.
 - Updater changes and diffs above `merge_gate.max_changed_files` (200) require
   explicit owner review. A missing full diff remains blocked regardless.
-- GitHub schedules may be delayed; `due_at` prevents early polling, not late
-  execution. A missing callback cannot justify duplicate dispatch. Known waiting
-  states retain the active attempt; stale unknown or inaccessible processing is
-  quarantined until its terminal identity can be verified.
+- The timer occupies a runner while waiting, potentially most of each day.
+  Measure runner-minutes during acceptance. Explicit handoffs remove cron from
+  the healthy chain, not GitHub queueing delays or infrastructure outages. If all
+  owners/signals are lost, recovery depends on the watchdog; there is no strict
+  external SLA. Deployment acceptance requires six real Actions handoffs without
+  cron and a 24-hour unassisted soak, with useful polling by `due_at + 5 minutes`
+  when Actions/API are available. A local simulated Actions transport does not
+  establish those live guarantees. Known waiting retains the attempt; stale
+  unknown processing stays quarantined until terminal identity is verified.
 - The fallback Jules key is used after primary-key failure, not for load balancing.
 - Findings are bounded at ten tasks per research report. Prior context is capped
   at three reports and 24,000 JSON characters; the full queue has Git history.

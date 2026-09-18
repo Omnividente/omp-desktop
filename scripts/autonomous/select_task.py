@@ -49,9 +49,22 @@ def _utc_timestamp(value: Any) -> bool:
         return False
 
 
+def pending_report_repair(task: Mapping[str, Any]) -> bool:
+    execution = task.get("execution")
+    if not isinstance(execution, Mapping):
+        return False
+    receipt = execution.get("report_repair")
+    if not isinstance(receipt, Mapping):
+        return False
+    return (task.get("task_type") == DISCOVERY_TYPE and task.get("status") == "blocked"
+            and execution.get("state") == "awaiting_report"
+            and execution.get("outcome") == "report_invalid" and receipt.get("status") == "pending")
+
+
 def is_unresolved(task: Mapping[str, Any]) -> bool:
     execution = task.get("execution")
-    return task.get("status") == "in_progress" or (isinstance(execution, Mapping) and execution.get("state") == "quarantined")
+    return (task.get("status") == "in_progress" or pending_report_repair(task)
+            or (isinstance(execution, Mapping) and execution.get("state") == "quarantined"))
 
 
 def valid_research_detachment(task: Mapping[str, Any]) -> bool:
@@ -78,7 +91,7 @@ def valid_research_detachment(task: Mapping[str, Any]) -> bool:
 def blocks_lane(task: Mapping[str, Any], *, discovery: bool) -> bool:
     if not is_unresolved(task) or (task.get("task_type") == DISCOVERY_TYPE) != discovery:
         return False
-    return not (discovery and valid_research_detachment(task))
+    return not (discovery and (valid_research_detachment(task) or pending_report_repair(task)))
 
 
 def _approved(task: Mapping[str, Any]) -> bool:

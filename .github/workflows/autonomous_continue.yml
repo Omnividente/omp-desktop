@@ -1,11 +1,17 @@
 name: Autonomous Continue
+run-name: ${{ inputs.continuation_key != '' && format('Continue {0}', inputs.continuation_key) || 'Autonomous Continue' }}
 
-# One scheduler is also the watchdog for missed completion events. Completion
-# events perform useful work immediately, but never bypass a worker poll deadline.
+# The explicit dispatch relay owns cadence; schedule and completion events recover
+# a lost owner. Waiting never holds the queue writer lock.
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      continuation_key:
+        description: Correlation key for an automatic handoff
+        type: string
+        default: ""
   workflow_run:
     workflows:
       - Autonomous Next Task
@@ -22,10 +28,20 @@ permissions:
   pull-requests: read
   actions: read
 
-# Wakeups never occupy a runner or the queue writer lock while waiting for due_at.
+# Coalesce duplicate signals: one running timer and at most one pending wakeup.
+# Apply the same trust gate before admission: a skipped feature/fork callback
+# must not replace a valid pending successor. Keep workflow-level serialization
+# so the Actions run snapshot still identifies the timer owner and pending slot.
 concurrency:
-  group: autonomous-lab-wakeup
-  queue: max
+  group: >-
+    ${{ github.ref == 'refs/heads/main' &&
+        (github.event_name == 'push' || github.event_name == 'schedule' ||
+         github.event_name == 'workflow_dispatch' ||
+         (github.event_name == 'workflow_run' &&
+          (github.event.workflow_run.head_branch == 'main' ||
+           github.event.workflow_run.name == 'Autonomous Proposal Review') &&
+          github.event.workflow_run.head_repository.full_name == github.repository)) &&
+        'autonomous-lab-wakeup' || format('autonomous-lab-ignored-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -35,17 +51,14 @@ jobs:
       ${{ github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'schedule' ||
            github.event_name == 'workflow_dispatch' ||
-           (github.event.workflow_run.conclusion == 'success' &&
+           (github.event_name == 'workflow_run' &&
             (github.event.workflow_run.head_branch == 'main' ||
              github.event.workflow_run.name == 'Autonomous Proposal Review') &&
             github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     env:
-      GH_TOKEN: ${{ github.token }}
-      # The existing Loop Switch PAT reads the live variable and starts child
-      # runs whose completion must wake this controller again.
-      VARIABLE_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
     steps:
       - name: Check out the trusted control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,6 +66,7 @@ jobs:
           ref: main
           fetch-depth: 1
           path: control
+          persist-credentials: false
 
       - name: Check out the integration branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,46 +74,19 @@ jobs:
           ref: autonomous/lab
           fetch-depth: 0
           path: lab
+          persist-credentials: false
 
-      - name: Decide from live state and dispatch at most one wakeup
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${VARIABLE_TOKEN}" ]; then
-            echo "::error::The existing Loop Switch PAT (or GH_TOKEN secret) is required to read JULES_LOOP_ENABLED at action time."
-            exit 1
-          fi
-          snapshot() {
-            enabled=$(GH_TOKEN="${VARIABLE_TOKEN}" gh variable get JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}")
-            if [ "${enabled}" != "true" ]; then enabled=false; fi
-            git -C lab fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/autonomous/lab:refs/remotes/origin/autonomous/lab'
-            git -C lab checkout --detach refs/remotes/origin/autonomous/lab
-            python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
-            python3 control/scripts/autonomous/health_snapshot.py --manifest queue.json --config control/autonomous-project.json
-            python3 control/scripts/autonomous/loop_health.py --manifest queue.json --state-revision queue-revision.json --config control/autonomous-project.json --repo lab --runs next-runs.json --sync-runs sync-runs.json --pull-requests pull-requests.json --enabled "${enabled}" > health.json
-          }
-          snapshot
-          {
-            echo '### Autonomous continuation decision'
-            echo '```json'
-            cat health.json
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
-          action=$(jq -r '.action' health.json)
-          if [ "${action}" = "none" ]; then exit 0; fi
-          enabled=$(GH_TOKEN="${VARIABLE_TOKEN}" gh variable get JULES_LOOP_ENABLED --repo "${GITHUB_REPOSITORY}")
-          if [ "${enabled}" != "true" ]; then
-            echo 'Loop disabled before wakeup; no dispatch.' >> "${GITHUB_STEP_SUMMARY}"
-            exit 0
-          fi
-          case "${action}" in
-            next_task)
-              GH_TOKEN="${VARIABLE_TOKEN}" gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_next_task.yml/dispatches" -f ref=main
-              ;;
-            sync)
-              main_sha=$(jq -r '.main_sha' health.json)
-              lab_sha=$(jq -r '.lab_sha' health.json)
-              GH_TOKEN="${VARIABLE_TOKEN}" gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/workflows/autonomous_sync.yml/dispatches" -f ref=main -f "inputs[main_sha]=${main_sha}" -f "inputs[lab_sha]=${lab_sha}"
-              ;;
-            *) echo '::error::Unknown health action'; exit 1 ;;
-          esac
+      - name: Wait for the next deadline and confirm the successor
+        run: >-
+          python3 control/scripts/autonomous/continue_loop.py
+          --repo lab --config control/autonomous-project.json
+          --out continuation-result.json
+
+      - name: Retain continuation decision and handoff proof
+        if: ${{ always() && hashFiles('continuation-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: continuation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: continuation-result.json
+          retention-days: 14
+          if-no-files-found: error

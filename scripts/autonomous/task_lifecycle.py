@@ -64,7 +64,7 @@ def utcnow() -> datetime:
 
 
 def iso(moment: datetime) -> str:
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def parse_iso(value: Any) -> datetime | None:
@@ -170,7 +170,7 @@ def awaiting_report(task: Mapping[str, Any]) -> bool:
 
 
 def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
-                now: datetime | None = None) -> dict:
+                now: datetime | None = None, source: dict | None = None) -> dict:
     """Retain a completed worker's identity until its report can be reharvested."""
     task = find_task(manifest, task_id)
     if task is None:
@@ -181,7 +181,11 @@ def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
     ):
         raise ValueError("report recovery requires a bound research attempt")
     if awaiting_report(task):
-        return {"changed": False, "reason": OUTCOME_REPORT_INVALID, "task_id": task_id,
+        changed = bool(source and not block.get("report_repair")
+                       and source != block["report_error"].get("source"))
+        if changed:
+            block["report_error"]["source"] = source
+        return {"changed": changed, "reason": OUTCOME_REPORT_INVALID, "task_id": task_id,
                 "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
     if task.get("status") != STATUS_IN_PROGRESS or block.get("outcome"):
         raise ValueError("only an active attempt can await its report")
@@ -189,6 +193,8 @@ def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
     block["state"] = "awaiting_report"
     block["outcome"] = OUTCOME_REPORT_INVALID
     block["report_error"] = {"code": code, "detail": detail, "reported_at": iso(now or utcnow())}
+    if source:
+        block["report_error"]["source"] = source
     block["note"] = "completed worker report requires inspection: " + code
     return {"changed": True, "reason": OUTCOME_REPORT_INVALID, "task_id": task_id,
             "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
@@ -353,6 +359,9 @@ def _finish(
     block["finished_at"] = iso(moment)
     if recovering:
         block.pop("report_error", None)
+        block.pop("last_error", None)
+        if block.get("report_repair"):
+            block["report_repair"]["status"] = "resolved"
     number = _int(pull_request)
     if number:
         block["pull_request"] = number

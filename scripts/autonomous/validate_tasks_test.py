@@ -206,6 +206,29 @@ class ResearchSchemaTest(unittest.TestCase):
             invalid[field] = value
             self.assertTrue(validate(manifest(invalid)))
 
+    def test_repair_receipt_cannot_forge_resolution_or_cross_session_provenance(self):
+        entry = task(task_type="project_discovery", status="blocked", execution={
+            "state": "awaiting_report", "outcome": "report_invalid", "attempts": 1,
+            "session_id": "7", "dispatch_key": "first", "pull_request": 0,
+            "report_error": {"code": "research_invalid", "detail": "missing report block",
+                             "reported_at": "2026-09-13T12:00:00Z"},
+            "report_repair": {"at": "2026-09-13T12:00:00Z", "result": "unknown", "status": "pending"},
+        })
+        self.assertEqual(validate(manifest(entry)), [])
+        for changes in ({"at": "yesterday"}, {"result": "retry"}, {"status": "resolved"},
+                        {"result": "rejected"}, {"status": "expired"},
+                        {"source": {"session_id": "8", "dispatch_key": "other",
+                                    "activity_id": "sessions/8/activities/old", "report_sha256": "a" * 64,
+                                    "activity_created_at": "2026-09-13T11:59:00Z"}}):
+            with self.subTest(changes=changes):
+                invalid = copy.deepcopy(entry)
+                invalid["execution"]["report_repair"].update(changes)
+                self.assertTrue(validate(manifest(invalid)))
+        for malformed in (None, "pending", []):
+            invalid = copy.deepcopy(entry)
+            invalid["execution"]["report_repair"] = malformed
+            self.assertTrue(validate(manifest(invalid)))
+
     def research_task(self):
         return task(
             task_type="project_discovery", status="done",
@@ -317,6 +340,20 @@ class ProposalAndLaneTest(unittest.TestCase):
                 invalid = copy.deepcopy(entry)
                 invalid["execution"].update(changes)
                 self.assertTrue(validate(manifest(invalid)))
+
+    def test_pending_repair_blocks_its_scope_but_neither_foreground_lane(self):
+        repairing = self.research("repairing")
+        repairing["status"] = "blocked"
+        repairing["execution"].update(
+            state="awaiting_report", outcome="report_invalid",
+            report_error={"code": "research_invalid", "detail": "missing block", "reported_at": "2026-09-14T12:00:00Z"},
+            report_repair={"at": "2026-09-14T12:00:00Z", "result": "sent", "status": "pending"},
+        )
+        foreground = self.research("foreground")
+        data = manifest(task("implementation", status="in_progress"), repairing, foreground)
+        self.assertEqual(validate(data), [])
+        foreground["research"].update(repairing["research"])
+        self.assertTrue(any("pair" in error for error in validate(data)))
 
     def test_lanes_allow_foreground_research_and_implementation_plus_detached_research(self):
         data = manifest(task("implementation", status="in_progress"), self.research("foreground"),
