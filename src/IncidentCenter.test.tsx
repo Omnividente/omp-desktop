@@ -3,9 +3,15 @@
 import { act, useRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { saveTerminalCapture } from "./api"
 import { IncidentCenter } from "./IncidentCenter"
 import type { RuntimeIncident } from "./runtimeIncidents"
 import type { TerminalTab } from "./types"
+
+vi.mock("./api", () => ({
+  errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  saveTerminalCapture: vi.fn(),
+}))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -120,6 +126,7 @@ describe("Runtime Incident Center modal contract", () => {
     onClearResolved = vi.fn()
     onClose = vi.fn()
     onFocusTerminal = vi.fn()
+    vi.mocked(saveTerminalCapture).mockReset()
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0)
       return 1
@@ -283,5 +290,51 @@ describe("Runtime Incident Center modal contract", () => {
     expect(document.activeElement).not.toBe(
       container.querySelector<HTMLButtonElement>("[data-background] button"),
     )
+  })
+
+  it("saves the raw terminal output and reports where the capture landed", async () => {
+    vi.mocked(saveTerminalCapture).mockResolvedValue({
+      path: "C:\\logs\\captures\\omp-pty-terminal-1-1757620000.bin",
+      metadataPath: "C:\\logs\\captures\\omp-pty-terminal-1-1757620000.json",
+      bytes: 2_999_178,
+      firstSeq: 12,
+      lastSeq: 990,
+      truncated: false,
+      droppedBytes: 0,
+    })
+    await renderCenter([runtimeIncident()])
+
+    const saveCapture = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.includes("Сохранить сырой вывод"),
+    )
+    await act(async () => {
+      saveCapture?.click()
+      await Promise.resolve()
+    })
+
+    expect(saveTerminalCapture).toHaveBeenCalledWith("terminal-1")
+    const result = container.querySelector<HTMLElement>(".incident-capture-result")
+    expect(result?.textContent).toContain("2.9 MB")
+    expect(result?.textContent).toContain("omp-pty-terminal-1-1757620000.bin")
+    expect(result?.getAttribute("title")).toBe(
+      "C:\\logs\\captures\\omp-pty-terminal-1-1757620000.bin",
+    )
+  })
+
+  it("reports a failed capture without disturbing the incident row", async () => {
+    vi.mocked(saveTerminalCapture).mockRejectedValue(new Error("Терминал не найден: terminal-1"))
+    await renderCenter([runtimeIncident()])
+
+    const saveCapture = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.includes("Сохранить сырой вывод"),
+    )
+    await act(async () => {
+      saveCapture?.click()
+      await Promise.resolve()
+    })
+
+    const result = container.querySelector<HTMLElement>(".incident-capture-result.is-failed")
+    expect(result?.textContent).toContain("Терминал не найден")
+    expect(container.querySelectorAll(".incident-row")).toHaveLength(1)
   })
 })

@@ -698,6 +698,7 @@ pub fn run() {
             terminal::discard_switch_input_recovery,
             terminal::set_terminal_primary_provider_pin,
             terminal::attach_terminal,
+            terminal::save_terminal_capture,
             terminal::detach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,
