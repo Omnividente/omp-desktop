@@ -5535,7 +5535,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T08:37:53.917901Z"
+        "observed_at": "2026-09-18T08:37:53.917901Z",
+        "released_attempt_ref": "autonomous/attempt-c0e81ac453a4912f3365302a"
       },
       "research_result": {
         "summary": "Verified frontend handling of concurrent single-instance workspace switching requests. The application currently fails to serialize or correctly sequence rapidly successive switch events, resulting in the possibility of an earlier request overwriting the later request if promises resolve out of order.",
