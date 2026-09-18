@@ -7545,6 +7545,132 @@
           "detail": "incomplete discovery findings; nothing imported: conflicting_id"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-reliability-2",
+      "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-18T15:21:19Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"proposed\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]}},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"proposed\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]}},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"proposed\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]}}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "reliability",
+        "fingerprint": "fa5cba1be5af48d356a661cbf27c04e1ff6633d8a9b33fda45c9e03594016d1a",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Verified the resilience and state persistence of Transcript loading and virtual list rendering.",
+            "observations": [
+              {
+                "scenario": "Simulating a concurrent or interrupted load Transcript session",
+                "evidence": "Tested `useTranscript` loading the same or different transcripts rapidly, simulating interruption. Asserted that older or interrupted load promises are properly ignored and don't overwrite current state upon resolving later.",
+                "result": "The transcript hook is robust against concurrent interruptions and correctly handles race conditions to avoid loading incorrect data."
+              },
+              {
+                "scenario": "Simulating failure during transcript loading and user recovery/retry",
+                "evidence": "Mocked `readSessionTranscript` to throw an error and checked if `useTranscript` fails cleanly by showing an error state, while retaining the session data, then simulated a retry by returning successful data.",
+                "result": "The state recovers correctly from API errors. It sets `transcriptError` properly without dropping the `transcriptSession` path, allowing accurate retries."
+              },
+              {
+                "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List",
+                "evidence": "Manually adjusted the scroll container's `clientHeight` to zero then back to normal to simulate being hidden/restored. Fired scroll events past loaded bounds to ensure items were generated correctly.",
+                "result": "The virtual list successfully maintains internal sizing measurements and bounds checking, correctly rendering list components even after recovering from a 0-height collapse or large scroll jumps."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate failure handling of copying very large transcript selections."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T15:20:26Z",
+            "source": {
+              "activity_id": "sessions/13764414488262800498/activities/3147b6b2df5849b3ae791151dc9dbdfa",
+              "report_sha256": "e53ae7b1654ffd0101d42f76b87090cb2fc07946a299ef0a2f67f7e77077fb9f",
+              "activity_created_at": "2026-09-17T13:23:35Z",
+              "session_id": "13764414488262800498",
+              "dispatch_key": "999de2cc1526526b42420290"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified performance boundaries for content link extraction on large documents and virtual list resizing.",
+            "observations": [
+              {
+                "scenario": "Simulating drastic container resizing / disappearing bounds in Virtual List of 100,000 items",
+                "evidence": "Manually bounded a synthetic virtual list test to create 100,000 components and collapse the container to 0 clientHeight, triggering re-render, then recovering it back to normal.",
+                "result": "The virtual list gracefully maintains internal sizing computations (e.g. 5,000,000px height for 50px items) and restores its view without any unrecoverable delays (under 10ms for rendering resize), avoiding unbounded layout calculations on hidden or restored elements."
+              },
+              {
+                "scenario": "Measured contentLink extraction performance on 10,000 repeated unstructured text lines",
+                "evidence": "Called `contentLinks` on a string of 10,000 repeated occurrences containing various URI formats (local:// and artifact://) with typical markdown structures to gauge regex processing performance.",
+                "result": "Regex processing bounded work remained responsive (~28ms for 20,000 found links), demonstrating resilience against potentially complex or repetitive parsing patterns without locking the UI thread."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate failure handling of copying very large transcript selections.",
+              "Investigate persistence of scroll positions per-transcript after closing and reopening."
+            ],
+            "proposed_task_ids": [
+              "discovery-f25052402356bf34"
+            ],
+            "completed_at": "2026-09-17T15:39:08Z",
+            "source": {
+              "activity_id": "sessions/7428136763832868439/activities/484944a0748f4ab79dc38fa8756f374f",
+              "report_sha256": "5b2aaf44df4110c17d07581548338cab087abe87cbff79cbb9996e4a53cf4af1",
+              "activity_created_at": "2026-09-17T15:30:16Z",
+              "session_id": "7428136763832868439",
+              "dispatch_key": "ea4bec3a3d907b7c3856c49c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified context menu interaction when triggered by a keyboard shortcut in the Transcript area.",
+            "observations": [
+              {
+                "scenario": "Simulating a keyboard-triggered context menu (Shift+F10 or Context Menu key) on a LinkedText element inside a virtual list, which dispatches a contextmenu event with clientX=0 and clientY=0.",
+                "evidence": "Created a synthetic JSDOM test simulating `new MouseEvent('contextmenu', { clientX: 0, clientY: 0 })` on `<a>` tags in `TranscriptModal` and `LinkedText` to observe how coordinates are passed. `TranscriptModal` maps `event.clientX` and `event.clientY` directly to the `left` and `top` properties of the menu.",
+                "result": "Establishes that the context menu is successfully opened on keyboard interaction, but always rendered near the top-left of the viewport (0,0) because it blindly relies on `clientX` and `clientY`, which represent the mouse cursor and not the focused element when triggered by a keyboard shortcut."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate failure handling of copying very large transcript selections."
+            ],
+            "proposed_task_ids": [
+              "discovery-ccd17b3cdd6d7d64"
+            ],
+            "completed_at": "2026-09-17T17:00:04Z",
+            "source": {
+              "activity_id": "sessions/3419912698313916968/activities/f60a95ba954a41fb97a5623bf82ab0aa",
+              "report_sha256": "71afe111a9adf0a5b1899a69fc3a947ed6fdd5fa578150bb2b479ae6855766ff",
+              "activity_created_at": "2026-09-17T16:03:18Z",
+              "session_id": "3419912698313916968",
+              "dispatch_key": "7b078476a4a049af3a15f629"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
