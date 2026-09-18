@@ -3695,7 +3695,7 @@
       "id": "discovery-fba4bf1ceccfc72b",
       "title": "Clear pending switch input recovery automatically upon receiving new user input",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -3731,6 +3731,12 @@
         "activity_created_at": "2026-09-17T19:27:44Z",
         "session_id": "13242639150318060504",
         "dispatch_key": "8000c00a365928be398f7b60"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:41:20Z",
+        "note": "Duplicate of discovery-d47c6c8c6e6f2995: same pending switch-recovery lifetime. Canonical proposal remains blocked/open for owner decision; silent discard risks loss of preserved input and is NOT approved."
       }
     },
     {
