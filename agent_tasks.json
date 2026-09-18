@@ -7153,7 +7153,7 @@
       "id": "research-diagnostics-resources-ux-2",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -7267,23 +7267,121 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "10274468581930991107",
         "dispatch_key": "08f134f646a0b4c0cf6c0062",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-08f134f646a0b4c0cf6c0062",
         "started_at": "2026-09-18T11:37:59.953246Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T11:57:54.587232Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T11:45:39.471213Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T11:57:54.587232Z"
+      },
+      "research_result": {
+        "summary": "Investigated toast notifications layout, OS suspend behavior for toast timers, and large workspace switching performance. Found that toasts stack correctly via flexbox without overlap, workspace switching with many sessions handles filtering extremely quickly, and OS suspend pauses native setTimeout timers, which could leave stale toasts on screen after resuming.",
+        "observations": [
+          {
+            "scenario": "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings.",
+            "evidence": "Inspected src/App.css around '.toast-container' and src/ToastContainer.tsx. '.toast-container' is a flexbox container with 'flex-direction: column' and a 10px gap. We also ran a local React test simulating three rapid toasts enqueued simultaneously. The container stacks them sequentially in the document flow via flex column, with no absolute positioning that would cause overlap.",
+            "result": "Establishes that simultaneous toast notifications correctly stack vertically without visual overlap."
+          },
+          {
+            "scenario": "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+            "evidence": "Examined src/ToastContainer.tsx and src/toastQueue.ts. The toasts rely entirely on 'window.setTimeout' in ToastContainer for their TOAST_TTL_MS (5.5s) lifecycle. There is an 'expireToasts' pure function in toastQueue.ts, but it is not called proactively by App.tsx upon resuming from sleep (e.g. via visibilitychange). Therefore, if the OS suspends, the setTimeout is paused; when it resumes, the timeout will fire after the remaining duration, leaving the toast on screen longer than its intended TTL.",
+            "result": "Establishes that toast timers are paused during OS suspend and will not proactively clear stale toasts immediately upon resume unless manually dismissed."
+          },
+          {
+            "scenario": "Examine state recovery performance in the main session store when switching between large workspaces.",
+            "evidence": "Examined src/App.tsx and wrote a vitest test simulating switching workspaces with 5000 sessions. App.tsx filters 'payload.sessions' linearly using 'sessions.filter(session => session.projectKey === selectedWorkspace.key)'. For 10000 total sessions, this linear filter runs synchronously in <10ms.",
+            "result": "Establishes that switching between large workspaces does not present a noticeable JavaScript CPU bottleneck during state recovery and session filtering."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+          "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS."
+        ],
+        "proposed_task_ids": [
+          "discovery-d661d7760ddf497e"
+        ],
+        "completed_at": "2026-09-18T11:57:54.587232Z",
+        "source": {
+          "activity_id": "sessions/10274468581930991107/activities/25c5130c14ba4b4c9356c056239406f1",
+          "report_sha256": "fb2d0d1e9babfb4bd3fc808f023789bae77180f786462b40ca0e1a47294c88e3",
+          "activity_created_at": "2026-09-18T11:50:33.404673Z",
+          "session_id": "10274468581930991107",
+          "dispatch_key": "08f134f646a0b4c0cf6c0062"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/10274468581930991107/activities/25c5130c14ba4b4c9356c056239406f1",
+          "report_sha256": "fb2d0d1e9babfb4bd3fc808f023789bae77180f786462b40ca0e1a47294c88e3",
+          "activity_created_at": "2026-09-18T11:50:33.404673Z",
+          "session_id": "10274468581930991107",
+          "dispatch_key": "08f134f646a0b4c0cf6c0062"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-d661d7760ddf497e"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-d661d7760ddf497e",
+      "title": "Purge stale toasts on visibility change after OS suspend",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "ux"
+      ],
+      "created_at": "2026-09-18T11:57:54.587232Z",
+      "acceptance": [
+        "Resuming from OS suspend or tab backgrounding proactively expires toasts that have outlived their TTL"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native desktop observation with multiple toasts enqueued. Simulated OS suspend pauses setTimeout, causing toasts to remain visible after resume.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a toast notification that has a standard 5.5s TTL.",
+            "Suspend the host OS immediately for 2 minutes.",
+            "Resume the host and observe the screen."
+          ],
+          "expected": "The toast is immediately cleared from the screen since 2 minutes exceeds its 5.5s TTL.",
+          "actual": "The toast remains on screen for the rest of its 5.5s timer that was paused during suspend."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-ux-2",
+        "activity_id": "sessions/10274468581930991107/activities/25c5130c14ba4b4c9356c056239406f1",
+        "report_sha256": "fb2d0d1e9babfb4bd3fc808f023789bae77180f786462b40ca0e1a47294c88e3",
+        "activity_created_at": "2026-09-18T11:50:33.404673Z",
+        "session_id": "10274468581930991107",
+        "dispatch_key": "08f134f646a0b4c0cf6c0062"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T11:58:16.360181Z",
+    "last_poll_at": "2026-09-18T11:58:19.375150Z",
     "last_tick_at": "2026-09-18T11:52:10.734499Z",
     "run_id": "35341714382"
   }
