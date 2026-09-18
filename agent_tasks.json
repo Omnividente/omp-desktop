@@ -8619,13 +8619,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T22:08:52.118864Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T22:16:43.986831Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T22:17:01.878599Z",
+    "last_poll_at": "2026-09-18T22:17:04.338833Z",
     "last_tick_at": "2026-09-18T22:10:57.054280Z",
     "run_id": "35400197251"
   }
