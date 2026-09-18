@@ -6514,12 +6514,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T09:45:18.336116Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:45:40.535797Z",
+    "last_poll_at": "2026-09-18T09:46:48.214424Z",
     "last_tick_at": "2026-09-18T09:39:33.136256Z",
     "run_id": "35330624605"
   }
