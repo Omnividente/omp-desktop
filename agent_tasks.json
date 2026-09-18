@@ -5163,7 +5163,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T07:37:16.034117Z"
+        "observed_at": "2026-09-18T07:37:16.034117Z",
+        "released_attempt_ref": "autonomous/attempt-87764bb4f9261b179c161d48"
       },
       "research_result": {
         "summary": "Verified frontend focus management during session deletion. The application currently loses keyboard focus when a session is removed, as the unmounted remove button leaves focus on document.body.",
