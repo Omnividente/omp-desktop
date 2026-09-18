@@ -7550,7 +7550,7 @@
       "id": "research-transcript-links-reliability-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -7673,23 +7673,56 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9585640253070236639",
         "dispatch_key": "5f11c9fc01d549e69210d5f5",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-5f11c9fc01d549e69210d5f5",
         "started_at": "2026-09-18T15:21:19.372221Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T15:41:03.332847Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T15:28:40.296711Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T15:41:03.332847Z"
+      },
+      "research_result": {
+        "summary": "Verified error recovery for very large copy selections in TranscriptModal, and evaluated state drop constraints in useVirtualList.",
+        "observations": [
+          {
+            "scenario": "Simulating a clipboard write error when selecting and copying very large text in TranscriptModal",
+            "evidence": "Tested context menu `copySelection` via synthetic vitest to trigger `writeText()` failure on large string, catching the rejection.",
+            "result": "The UI recovers gracefully when `writeText` throws. It correctly catches the asynchronous rejection, reports the message via `onError` without crashing the modal, and seamlessly closes the Context Menu overlay."
+          },
+          {
+            "scenario": "Simulating closing and reopening the modal, checking scroll position persistence constraints per session",
+            "evidence": "Reviewed the source and tested useTranscript and TranscriptModal rendering cycle. `useVirtualList` internally tracks scroll using the attached DOM element. `useTranscript` currently unmounts everything upon close without receiving or caching scroll coordinates.",
+            "result": "Verified that reopening a transcript results in an unrecoverable 0px scrollTop because the architectural linkage to preserve and pass previous scroll positions into the new container element is missing (matches canonical_id: discovery-f25052402356bf34)."
+          },
+          {
+            "scenario": "Simulating a keyboard-triggered context menu (Shift+F10) with clientX=0 and clientY=0",
+            "evidence": "Synthetic DOM tests sending ContextMenu events with clientX=0 and clientY=0 to LinkedText and TranscriptModal virtual lists.",
+            "result": "Confirmed that the menu uses clientX and clientY unconditionally, mapping them directly to top and left (matches canonical_id: discovery-ccd17b3cdd6d7d64)."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate handling of very long URIs within LinkedText click boundaries."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T15:41:03.332847Z",
+        "source": {
+          "activity_id": "sessions/9585640253070236639/activities/2c6ab6c5772d46e7ac6ff63fc704e580",
+          "report_sha256": "4607dd3c800895e4c128bbedb26c210a8b3343c574b78a1a0489a2cfc1cfd689",
+          "activity_created_at": "2026-09-18T15:34:14.075750Z",
+          "session_id": "9585640253070236639",
+          "dispatch_key": "5f11c9fc01d549e69210d5f5"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T15:41:20.780556Z",
+    "last_poll_at": "2026-09-18T15:41:23.137655Z",
     "last_tick_at": "2026-09-18T15:35:19.763441Z",
     "run_id": "35363271919"
   }
