@@ -7725,7 +7725,7 @@
       "id": "research-transcript-links-performance-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -7846,23 +7846,47 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17079539360535257072",
         "dispatch_key": "9361872bb4a05d8ae45bdf9a",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-9361872bb4a05d8ae45bdf9a",
         "started_at": "2026-09-18T15:48:06.288193Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T16:07:50.041233Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T15:55:16.265786Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T16:07:50.041233Z"
+      },
+      "research_result": {
+        "summary": "Verified the handling of extremely long URIs within LinkedText boundaries and their interaction with the DOM.",
+        "observations": [
+          {
+            "scenario": "Simulating rendering and interaction with a very long URI (up to 10M characters) within LinkedText.",
+            "evidence": "Ran synthetic Node and JSDOM tests creating a 10M character 'local://' URI, verifying React server-side rendering times and JSDOM click dispatch and href read times.",
+            "result": "Demonstrates that the underlying React component and `isContentLink` scale perfectly (linear and fast bounded time, e.g. a few milliseconds for generation/checking). However, native DOM mechanisms (emulated via JSDOM) exhibit performance cliffs when reading the `href` property natively due to internal URL parsing rules for exceptionally large attributes (e.g. 19.7 seconds just to read `a.href.length` on a 10M char link). The application delegates this safely through bounded React events without crashing, though a malicious or corrupted input of unbounded size could hang the frontend thread during native layout/event propagation if the browser engine behaves similarly."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the application's global handling of uncaught exceptions or UI thread unresponsiveness limits.",
+          "Investigate persistence of scroll positions per-transcript after closing and reopening."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T16:07:50.041233Z",
+        "source": {
+          "activity_id": "sessions/17079539360535257072/activities/471b2894c7ed4b069c0638a0f8c040cd",
+          "report_sha256": "f88a9b4f68894a1278ff47c9cc67f1f9bec1b4eaba9e39f804d02d134ca8c7a9",
+          "activity_created_at": "2026-09-18T15:57:41.901184Z",
+          "session_id": "17079539360535257072",
+          "dispatch_key": "9361872bb4a05d8ae45bdf9a"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T16:08:09.556252Z",
+    "last_poll_at": "2026-09-18T16:08:12.079612Z",
     "last_tick_at": "2026-09-18T16:02:00.149035Z",
     "run_id": "35365952621"
   }
