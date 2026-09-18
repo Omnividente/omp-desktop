@@ -8466,12 +8466,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T21:20:10.555181Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T21:20:29.964999Z",
+    "last_poll_at": "2026-09-18T21:22:03.303530Z",
     "last_tick_at": "2026-09-18T21:14:32.788533Z",
     "run_id": "35395689625"
   }
