@@ -5953,7 +5953,8 @@
             "session_id": "12207713692887535666",
             "dispatch_key": "e2da83a81b017ca5b2aeacf7"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-e2da83a81b017ca5b2aeacf7"
       },
       "research_result": {
         "summary": "Investigated ModelPicker model selection and SettingsPanel updates logic. Found a defect in ModelPicker ignoring base thinking overrides (already proposed) and verified fallback chain change detection works properly.",
