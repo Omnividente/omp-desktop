@@ -4713,7 +4713,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T04:43:10Z"
+        "observed_at": "2026-09-18T04:43:10Z",
+        "released_attempt_ref": "autonomous/attempt-b2fdc575fea2cde3d1f469df"
       },
       "research_result": {
         "summary": "Investigated `list_codex_sessions` performance, confirming it lacks the caching optimization present in standard session scanning.",
