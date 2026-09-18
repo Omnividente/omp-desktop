@@ -7276,12 +7276,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T11:37:59.953246Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T11:38:18.860500Z",
+    "last_poll_at": "2026-09-18T11:39:48.912747Z",
     "last_tick_at": "2026-09-18T11:32:09.998175Z",
     "run_id": "35340060833"
   }
