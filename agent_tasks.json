@@ -8337,7 +8337,7 @@
       "id": "research-terminal-input-reliability-3",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -8457,23 +8457,47 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17847944591175494507",
         "dispatch_key": "4756ef32bc17a8ae9a9ae32d",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-4756ef32bc17a8ae9a9ae32d",
         "started_at": "2026-09-18T21:20:10.555181Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T22:08:52.118864Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T21:27:52.211468Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T22:08:52.118864Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input behavior when a switch recovery state is pending to verify if new manual input properly abandons the stale recovery.",
+        "observations": [
+          {
+            "scenario": "A terminal process is in a switch_recovery state (e.g. FailedSend) and new input bytes are written to it via write_bytes.",
+            "evidence": "Created a local patch adding a Rust test case in `src-tauri/src/terminal.rs` that explicitly calls `write_bytes` on a terminal process with a known `FailedSend` recovery state. The test expected `process.switch_recovery.is_none()` to be true after the write, but failed because the recovery state remained present in memory.",
+            "result": "Establishes that the backend does not proactively discard pending or failed switch_recovery states when new terminal input arrives, reproducing the same contract defect as reported in `discovery-d47c6c8c6e6f2995` and `discovery-87e9827baf673422`. This risks an out-of-order execution if the stale recovery buffer is later retried after the new input."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab.",
+          "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T22:08:52.118864Z",
+        "source": {
+          "activity_id": "sessions/17847944591175494507/activities/2f5ab885db8a45b2ae6faeeebcf5c667",
+          "report_sha256": "c430be2094f44a34dd9e1527f5b60d8a25b58b70f4479cfd66e3976305cc041e",
+          "activity_created_at": "2026-09-18T21:46:26.083319Z",
+          "session_id": "17847944591175494507",
+          "dispatch_key": "4756ef32bc17a8ae9a9ae32d"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T22:09:11.352322Z",
+    "last_poll_at": "2026-09-18T22:09:14.806419Z",
     "last_tick_at": "2026-09-18T21:52:59.773344Z",
     "run_id": "35398896733"
   }
