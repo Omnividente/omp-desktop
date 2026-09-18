@@ -5016,7 +5016,7 @@
       "id": "discovery-c521e33229cbbb32",
       "title": "Implement useModalFocus hook and apply to ImportSessionModal and CodexImportModal",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 20,
       "risk": "low",
       "focus": [
@@ -5056,6 +5056,12 @@
         "activity_created_at": "2026-09-18T04:59:44Z",
         "session_id": "8396612518833497733",
         "dispatch_key": "9d5afefbe9e97fae0bd017a1"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:41:53Z",
+        "note": "Duplicate of discovery-2e80f2798c364331, discovery-efae45ef6cb2274b and discovery-aea9a8e6e1603271 (broader integration discovery-ecab55df9b8166cc). Synthetic Vitest components are not native observation; baseline import Escape did not close the dialog. Canonical proposals retained pending main PR review."
       }
     },
     {
