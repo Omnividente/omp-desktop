@@ -4960,7 +4960,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T05:58:44Z"
+        "observed_at": "2026-09-18T05:58:44Z",
+        "released_attempt_ref": "autonomous/attempt-9d5afefbe9e97fae0bd017a1"
       },
       "research_result": {
         "summary": "Observation of missing focus trap and lack of focus restoration for the session import modals (ImportSessionModal and CodexImportModal).",
