@@ -6387,7 +6387,7 @@
       "id": "research-settings-models-ux-2",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -6506,24 +6506,24 @@
       },
       "execution": {
         "attempts": 2,
-        "state": "dispatched",
+        "state": "exhausted",
         "session_id": "8240336203072323818",
         "dispatch_key": "b63fc851a32b0fca0905948d",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-b63fc851a32b0fca0905948d",
         "started_at": "2026-09-18T10:05:50.949045Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T10:25:38.466091Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "observed_at": "2026-09-18T10:05:50.949045Z",
+        "outcome": "failed",
+        "note": "Jules reported a terminal failure",
+        "observed_at": "2026-09-18T10:25:38.466091Z",
         "released_attempt_ref": "autonomous/attempt-a788bb1bdd5b4d6ab6e383ed",
-        "session_state": "IN_PROGRESS"
+        "session_state": "FAILED"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T10:25:58.358367Z",
+    "last_poll_at": "2026-09-18T10:26:00.980784Z",
     "last_tick_at": "2026-09-18T10:19:52.480042Z",
     "run_id": "35334097411"
   }
