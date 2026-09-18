@@ -8772,12 +8772,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T22:29:10.909609Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T22:29:33.859140Z",
+    "last_poll_at": "2026-09-18T22:31:05.158906Z",
     "last_tick_at": "2026-09-18T22:23:20.677341Z",
     "run_id": "35401270865"
   }
