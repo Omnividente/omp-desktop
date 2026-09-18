@@ -8773,13 +8773,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T22:29:10.909609Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T22:37:29.028893Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T22:37:42.946972Z",
+    "last_poll_at": "2026-09-18T22:37:45.253072Z",
     "last_tick_at": "2026-09-18T22:31:07.111151Z",
     "run_id": "35401732070"
   }
