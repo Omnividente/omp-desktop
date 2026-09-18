@@ -3743,7 +3743,7 @@
       "id": "discovery-87e9827baf673422",
       "title": "Clear pending terminal input recovery when new input is typed",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -3778,6 +3778,12 @@
         "activity_created_at": "2026-09-17T19:34:40Z",
         "session_id": "15873519811276941138",
         "dispatch_key": "9809f54d048c263fc29a45e2"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:41:35Z",
+        "note": "Duplicate of discovery-d47c6c8c6e6f2995: same write_bytes/recovery behavior. A Rust unit test is not native UI evidence. Canonical proposal remains open; auto-deletion of preserved input is NOT approved."
       }
     },
     {
