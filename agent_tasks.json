@@ -3314,7 +3314,7 @@
       "id": "discovery-ccd17b3cdd6d7d64",
       "title": "Fix context menu placement when triggered via keyboard in transcript links",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -3351,6 +3351,12 @@
         "activity_created_at": "2026-09-17T16:03:18Z",
         "session_id": "3419912698313916968",
         "dispatch_key": "7b078476a4a049af3a15f629"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:42:54Z",
+        "note": "Not reproduced in real isolated Windows Tauri/WebView2 on main-based source: focused transcript local:// link + actual Shift+F10 positioned menu at (628,230), link bounds (591,223)-(661,238), not viewport corner. Nested Escape closes menu only. Raw coordinate-zero synthetic events do not establish native failure; Linux not claimed tested. No speculative input special-case added."
       }
     },
     {
