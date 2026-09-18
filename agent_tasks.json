@@ -5988,7 +5988,7 @@
       "id": "research-settings-models-reliability-2",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -6118,23 +6118,111 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16857644972860260164",
         "dispatch_key": "67c696866d35e8c087c738a0",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-67c696866d35e8c087c738a0",
         "started_at": "2026-09-18T09:05:06.341085Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T09:25:56.491548Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T09:13:15.084933Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T09:25:56.491548Z"
+      },
+      "research_result": {
+        "summary": "Investigated SettingsPanel local draft resilience during graceful IPC save failures.",
+        "observations": [
+          {
+            "scenario": "Triggering a settings save where the IPC operation returns a structured failure (result.type !== 'success').",
+            "evidence": "Source code review of `SettingsPanel.tsx` coupled with synthetic React component tracing. When `saveSettingsBundle` returns a non-success result, it enters an `else` block that calls `refreshConfig(true)`. This subsequently fetches the latest snapshot from the backend and calls `acceptConfig(snapshot)`. `acceptConfig` overwrites all React state drafts (e.g., `advisorEnabled`, `fallbackChains`, `operationDrafts`, `roles`) with the backend's unedited snapshot.",
+            "result": "Establishes that user settings drafts are silently discarded when the backend rejects the save with a structured error, causing loss of user input. This contradicts the behavior when the IPC throws an exception (which correctly bypasses `refreshConfig` and preserves drafts)."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if reverting to defaults in SettingsRecoveryScreen correctly preserves the application language preference."
+        ],
+        "proposed_task_ids": [
+          "discovery-be56185691369523"
+        ],
+        "completed_at": "2026-09-18T09:25:56.491548Z",
+        "source": {
+          "activity_id": "sessions/16857644972860260164/activities/14ee179abfc543c4806af75d9affc9ba",
+          "report_sha256": "3e498729b06b6211e41be03be1dac21900f70238b6d634744538c65111123d8c",
+          "activity_created_at": "2026-09-18T09:16:39.529431Z",
+          "session_id": "16857644972860260164",
+          "dispatch_key": "67c696866d35e8c087c738a0"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16857644972860260164/activities/14ee179abfc543c4806af75d9affc9ba",
+          "report_sha256": "3e498729b06b6211e41be03be1dac21900f70238b6d634744538c65111123d8c",
+          "activity_created_at": "2026-09-18T09:16:39.529431Z",
+          "session_id": "16857644972860260164",
+          "dispatch_key": "67c696866d35e8c087c738a0"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-be56185691369523"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-be56185691369523",
+      "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-18T09:25:56.491548Z",
+      "acceptance": [
+        "Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open SettingsPanel and modify a draft setting (e.g., toggle the advisor setting or add a fallback chain model).",
+            "Trigger a save that gets rejected by the backend returning an error type (e.g. validation failure or file lock).",
+            "Observe that the error message is displayed but the edited settings drafts are reverted to their original state."
+          ],
+          "expected": "The error is displayed and the user's drafts are preserved so they can correct the issue and retry.",
+          "actual": "The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`."
+        }
+      },
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsPanel.test.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-2",
+        "activity_id": "sessions/16857644972860260164/activities/14ee179abfc543c4806af75d9affc9ba",
+        "report_sha256": "3e498729b06b6211e41be03be1dac21900f70238b6d634744538c65111123d8c",
+        "activity_created_at": "2026-09-18T09:16:39.529431Z",
+        "session_id": "16857644972860260164",
+        "dispatch_key": "67c696866d35e8c087c738a0"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:26:14.614474Z",
+    "last_poll_at": "2026-09-18T09:26:17.993850Z",
     "last_tick_at": "2026-09-18T09:20:05.395150Z",
     "run_id": "35328918939"
   }
