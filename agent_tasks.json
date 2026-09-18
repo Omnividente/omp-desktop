@@ -6889,12 +6889,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T10:45:36.025650Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T10:45:59.096011Z",
+    "last_poll_at": "2026-09-18T10:47:10.364586Z",
     "last_tick_at": "2026-09-18T10:39:48.402957Z",
     "run_id": "35335763693"
   }
