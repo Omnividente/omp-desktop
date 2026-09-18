@@ -6078,8 +6078,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "16857644972860260164",
         "dispatch_key": "67c696866d35e8c087c738a0",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-67c696866d35e8c087c738a0",
