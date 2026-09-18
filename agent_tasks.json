@@ -5930,12 +5930,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T08:51:22.563670Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T08:51:49.671535Z",
+    "last_poll_at": "2026-09-18T08:53:01.660304Z",
     "last_tick_at": "2026-09-18T08:45:34.060431Z",
     "run_id": "35325958934"
   }
