@@ -7148,6 +7148,123 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-2",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-18T11:37:59Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "741535951248f81e4fef081bac559ae06842b530e0845099a7194ebee7e20bea",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Verified keyboard accessibility inside IncidentCenter for deeply nested fallback details, and observed missing CSS transitions in ResourceHealthPanel color updates.",
+            "observations": [
+              {
+                "scenario": "Keyboard accessibility and focus management inside IncidentCenter with deeply nested fallback chains within reason",
+                "evidence": "Simulated an IncidentCenter modal with a fallback incident containing a long reason (>180 characters) to trigger the expandable details view (<details>/<summary>). The <summary> element natively receives focus in standard browsers and is correctly managed within the Tab cycle of the modal.",
+                "result": "Establishes that deeply nested fallback reasons with expandable details handle focus correctly within the accessibility cycle of the dialog."
+              },
+              {
+                "scenario": "Animate or transition of resource-summary colors when system pressure changes in ResourceHealthPanel",
+                "evidence": "Inspected src/App.css around '.resource-summary' and observed that while it defines properties like 'color', 'border-color' and 'background' for state classes (e.g. '.is-warning', '.is-critical'), it lacks any explicit 'transition' property on the '.resource-summary' selector.",
+                "result": "Establishes that the ResourceHealthPanel color updates do not currently animate or transition smoothly when system pressure severity changes."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings.",
+              "Examine state recovery performance in the main session store when switching between large workspaces."
+            ],
+            "proposed_task_ids": [
+              "discovery-e53a37688e2893a4"
+            ],
+            "completed_at": "2026-09-18T10:45:36.025650Z",
+            "source": {
+              "activity_id": "sessions/14737637742387052641/activities/11d44641897848e69e4cacbfc9160462",
+              "report_sha256": "a3293119fae3112161162db2417b0a8027fda2ac46b4689b362a835fbc672391",
+              "activity_created_at": "2026-09-18T10:33:14.486888Z",
+              "session_id": "14737637742387052641",
+              "dispatch_key": "0e806f82bc3d17d465abb112"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified state recovery when encountering missing or inaccessible resource volumes during resource health sampling.",
+            "observations": [
+              {
+                "scenario": "Execute sample_volumes with an inaccessible or missing path on the host filesystem",
+                "evidence": "Wrote and executed a Rust unit test locally against `sample_volumes` in `src-tauri/src/resource_health.rs`. When provided with an explicitly invalid `ResourcePath`, the function gracefully handles the OS-level failure and returns a predictable `Err(String)` describing the underlying failure (e.g., 'No such file or directory'), without triggering a process crash or panic.",
+                "result": "Establishes that `sample_volumes` and subsequently `sample_resource_health` correctly encapsulate runtime I/O volume sampling errors as recoverable state (which the frontend maps to `resourceHealthError`), avoiding process loss during diagnostic routines."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+              "Examine if resource sampling causes thread blocking or UI unresponsiveness when analyzing exceptionally slow external network drives."
+            ],
+            "proposed_task_ids": [
+              "discovery-56c204d8381f8989"
+            ],
+            "completed_at": "2026-09-18T11:11:33.973621Z",
+            "source": {
+              "activity_id": "sessions/17542460309039134485/activities/a1905bbc3cb2488ea22500a88599e112",
+              "report_sha256": "45ad401fc73f8bc642d042ce755957414976d367206e5dcc50d7cba0fef928d5",
+              "activity_created_at": "2026-09-18T11:08:51.671833Z",
+              "session_id": "17542460309039134485",
+              "dispatch_key": "6aa7f1f15f737a06cbc02aa2"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that resource health sampling does not block the UI or main async thread when analyzing slow external drives.",
+            "observations": [
+              {
+                "scenario": "Examine if resource sampling causes thread blocking or UI unresponsiveness when analyzing exceptionally slow external network drives.",
+                "evidence": "Inspected src-tauri/src/lib.rs and src-tauri/src/resource_health.rs. The 'sample_resource_health' Tauri command delegates to a macro 'run_blocking' which internally uses 'tauri::async_runtime::spawn_blocking'. We created a temporary Rust unit test simulating slow I/O by executing a 500ms thread::sleep inside spawn_blocking. The test confirmed that the main async task returned immediately (execution time before await < 100ms) without being blocked, successfully offloading the delay to the background thread pool.",
+                "result": "Establishes that synchronous volume and system statistics checking (e.g., fs::canonicalize and statvfs) in resource_health.rs are correctly offloaded to a separate blocking thread, ensuring Tauri UI and main event loops remain responsive even on exceptionally slow volumes."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+              "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T11:37:59.953246Z",
+            "source": {
+              "activity_id": "sessions/1045285221465868338/activities/f6c077bfcbfa41e6a8532fc8a573f300",
+              "report_sha256": "a2439c8c2e6fe5b725c582cf32ce80329260e4d0b4606f187149f18e6fa4a9e5",
+              "activity_created_at": "2026-09-18T11:29:14.485915Z",
+              "session_id": "1045285221465868338",
+              "dispatch_key": "d4b6bcf00aa98d40831fa43d"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
