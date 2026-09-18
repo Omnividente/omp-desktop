@@ -5792,7 +5792,7 @@
       "id": "research-settings-models-behavior-2",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -5922,18 +5922,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "12207713692887535666",
         "dispatch_key": "e2da83a81b017ca5b2aeacf7",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-e2da83a81b017ca5b2aeacf7",
         "started_at": "2026-09-18T08:51:22.563670Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T09:25:56.491548Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T09:19:31.843664Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T09:25:56.491548Z",
         "research_detached": {
           "at": "2026-09-18T09:05:06.341085Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -5942,22 +5942,10 @@
           "at": "2026-09-18T09:05:06.341085Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "findings_invalid",
-          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
-          "reported_at": "2026-09-18T09:13:15.084933Z",
-          "source": {
-            "activity_id": "sessions/12207713692887535666/activities/66f68eb14fe644ccaeab0050e52b9e98",
-            "report_sha256": "5427593f1433897c59e5c782b4e076813d192e565762ea47275eea2c87c4df34",
-            "activity_created_at": "2026-09-18T09:05:50.068400Z",
-            "session_id": "12207713692887535666",
-            "dispatch_key": "e2da83a81b017ca5b2aeacf7"
-          }
-        },
         "report_repair": {
           "at": "2026-09-18T09:13:38.620485Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/12207713692887535666/activities/66f68eb14fe644ccaeab0050e52b9e98",
             "report_sha256": "5427593f1433897c59e5c782b4e076813d192e565762ea47275eea2c87c4df34",
@@ -5966,6 +5954,34 @@
             "dispatch_key": "e2da83a81b017ca5b2aeacf7"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated ModelPicker model selection and SettingsPanel updates logic. Found a defect in ModelPicker ignoring base thinking overrides (already proposed) and verified fallback chain change detection works properly.",
+        "observations": [
+          {
+            "scenario": "Switching models using the ModelPicker component while a base thinking modifier like :off or :auto is applied.",
+            "evidence": "Observed `selectorForModel` logic in `src/ModelPicker.tsx`. When switching to a new model that supports thinking, `model.thinking.includes(thinking)` evaluates to `false` for base level overrides like `:off` or `:auto` because `model.thinking` array natively only contains valid elevated thinking levels (e.g. `low`, `high`, `max`).",
+            "result": "Establishes that the UI drops built-in thinking overrides (:off, :auto) when switching between models that support thinking. The `selectorForModel` function fails to preserve base thinking modifiers. Matches existing proposal canonical_id: discovery-f94f0fd889c52402."
+          },
+          {
+            "scenario": "Adding a new fallback chain and saving it in SettingsPanel.",
+            "evidence": "Tested `fallbackChainsEqual` logic via jsdom in `src/SettingsPanel.research.test.tsx` and synthetic payloads. Verified that empty newly drafted models serialize appropriately filtering empty strings and that `fallbackChainsEqual` handles dictionary keys mismatch accurately (such as checking `!right[key]` as well as list lengths differences).",
+            "result": "The SettingsPanel evaluates fallback chains differences correctly over IPC updates."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if operational settings updates drop internal state over IPC similarly due to dictionary mapping in `!draft.reset && setting.type === 'number'` conversions."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-18T09:25:56.491548Z",
+        "source": {
+          "activity_id": "sessions/12207713692887535666/activities/852c804d6df3420e973dfe9accac9690",
+          "report_sha256": "42cb196fac7201072d2990a79556bce8534546043b6fb02cb2c05a53faea0a5c",
+          "activity_created_at": "2026-09-18T09:14:34.670114Z",
+          "session_id": "12207713692887535666",
+          "dispatch_key": "e2da83a81b017ca5b2aeacf7"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -6118,7 +6134,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T09:26:12.036868Z",
+    "last_poll_at": "2026-09-18T09:26:14.614474Z",
     "last_tick_at": "2026-09-18T09:20:05.395150Z",
     "run_id": "35328918939"
   }
