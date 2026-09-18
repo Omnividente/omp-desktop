@@ -286,6 +286,7 @@ function App() {
   const [codexLoading, setCodexLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
+  const [ompFilePickerOpen, setOmpFilePickerOpen] = useState(false)
   const [pendingOmpImportPath, setPendingOmpImportPath] = useState<string | null>(null)
   const [resourceHealth, setResourceHealth] = useState<ResourceHealthSnapshot | null>(null)
   const [resourceHealthError, setResourceHealthError] = useState<string | null>(null)
@@ -1332,6 +1333,7 @@ function App() {
   ])
 
   const openCodexImport = useCallback(async () => {
+    setRailAutoOpen(true)
     setCodexOpen(true)
     setCodexLoading(true)
     setImportMode("skip")
@@ -1391,6 +1393,8 @@ function App() {
       showError(t(lang, "requireProjectDir"))
       return
     }
+    setRailAutoOpen(true)
+    setOmpFilePickerOpen(true)
     try {
       const selected = await open({
         directory: false,
@@ -1403,6 +1407,8 @@ function App() {
       setPendingOmpImportPath(selected)
     } catch (error) {
       showError(errorMessage(error, lang))
+    } finally {
+      setOmpFilePickerOpen(false)
     }
   }, [lang, selectedWorkspace?.path, showError])
 
@@ -1935,16 +1941,13 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return
-      if (event.key === "Escape" && transcriptSession) {
-        event.preventDefault()
-        closeTranscript()
-        return
-      }
       if (
         incidentCenterOpen ||
         resourceHealthOpen ||
         settingsOpen ||
         codexOpen ||
+        ompFilePickerOpen ||
+        pendingOmpImportPath ||
         transcriptSession
       )
         return
@@ -1983,6 +1986,8 @@ function App() {
     incidentCenterOpen,
     launchSession,
     openFolder,
+    ompFilePickerOpen,
+    pendingOmpImportPath,
     railMode,
     railAutoOpen,
     resourceHealthOpen,
@@ -2116,6 +2121,12 @@ function App() {
 
       <div className={`workbench rail-${railMode === "autoHide" ? "auto-hide" : railMode}`}>
         <ProjectRail
+          autoHidePaused={
+            codexOpen ||
+            ompFilePickerOpen ||
+            pendingOmpImportPath !== null ||
+            transcriptSession !== null
+          }
           autoOpen={railAutoOpen}
           mode={railMode}
           modeSaving={railModeSaving}

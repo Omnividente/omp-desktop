@@ -1,10 +1,17 @@
-import { useEffect, useRef, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type FocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react"
 import { Icon, type IconName } from "./Icon"
 import { t } from "./i18n"
 import { SessionList, type SessionListProps } from "./SessionList"
 import type { RailMode, WorkspaceSummary } from "./types"
 
 interface ProjectRailProps {
+  autoHidePaused: boolean
   autoOpen: boolean
   mode: RailMode
   modeSaving: boolean
@@ -39,6 +46,7 @@ const MODE_OPTIONS: Array<{
 ]
 
 export function ProjectRail({
+  autoHidePaused,
   autoOpen,
   mode,
   modeSaving,
@@ -60,10 +68,19 @@ export function ProjectRail({
 }: ProjectRailProps) {
   const { lang } = sessionList
   const railRef = useRef<HTMLElement>(null)
+  const openFolderRef = useRef<HTMLButtonElement>(null)
+  const removalFocusRef = useRef<{ key: string; button: HTMLButtonElement } | null>(null)
   const openTimerRef = useRef<number | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const revealed = mode === "expanded" || (mode === "autoHide" && autoOpen)
   const compact = mode === "collapsed" || !revealed
+
+  useEffect(() => {
+    if (autoHidePaused && closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [autoHidePaused])
 
   useEffect(
     () => () => {
@@ -72,6 +89,41 @@ export function ProjectRail({
     },
     [],
   )
+
+  useEffect(() => {
+    const cancelRemovalFocus = (event: Event) => {
+      const pending = removalFocusRef.current
+      if (
+        !pending ||
+        event.target === pending.button ||
+        pending.button.contains(event.target as Node)
+      )
+        return
+      // Disabling/removing the initiating button may itself move focus to the body.
+      if (
+        event.type === "focusin" &&
+        event.target === document.body &&
+        (pending.button.disabled || !pending.button.isConnected)
+      )
+        return
+      removalFocusRef.current = null
+    }
+    document.addEventListener("focusin", cancelRemovalFocus)
+    document.addEventListener("pointerdown", cancelRemovalFocus)
+    return () => {
+      document.removeEventListener("focusin", cancelRemovalFocus)
+      document.removeEventListener("pointerdown", cancelRemovalFocus)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const pending = removalFocusRef.current
+    if (!pending || workspaces.some((workspace) => workspace.key === pending.key)) return
+    removalFocusRef.current = null
+    if (document.activeElement === document.body || document.activeElement === pending.button) {
+      openFolderRef.current?.focus()
+    }
+  }, [workspaces])
 
   const cancelAutoOpen = () => {
     if (openTimerRef.current === null) return
@@ -96,7 +148,7 @@ export function ProjectRail({
   }
   const scheduleAutoClose = () => {
     cancelAutoOpen()
-    if (mode !== "autoHide" || !autoOpen) return
+    if (mode !== "autoHide" || !autoOpen || autoHidePaused) return
     cancelAutoClose()
     const timer = window.setTimeout(() => {
       if (closeTimerRef.current !== timer) return
@@ -143,6 +195,7 @@ export function ProjectRail({
           aria-label={t(lang, "btnOpenFolder")}
           className="rail-open-folder"
           onClick={onOpenFolder}
+          ref={openFolderRef}
           title={t(lang, "btnOpenFolder")}
           type="button"
         >
@@ -215,7 +268,13 @@ export function ProjectRail({
                     aria-label={t(lang, "removeProject")}
                     className="project-remove"
                     disabled={busy}
-                    onClick={() => onRemoveWorkspace(workspace)}
+                    onClick={(event) => {
+                      removalFocusRef.current =
+                        document.activeElement === event.currentTarget
+                          ? { key: workspace.key, button: event.currentTarget }
+                          : null
+                      onRemoveWorkspace(workspace)
+                    }}
                     title={t(lang, "removeProject")}
                     type="button"
                   >

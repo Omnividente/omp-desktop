@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act } from "react"
+import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ProjectRail } from "./ProjectRail"
@@ -55,6 +55,53 @@ function sessionList(): SessionListProps {
   }
 }
 
+function RemovalFixture({
+  remove,
+  lastWorkspace = false,
+}: {
+  remove: () => Promise<boolean>
+  lastWorkspace?: boolean
+}) {
+  const [workspaces, setWorkspaces] = useState(
+    lastWorkspace
+      ? [workspace]
+      : [workspace, { ...workspace, key: "other", name: "Other", path: "D:/Projects/Other" }],
+  )
+  const [busy, setBusy] = useState<string | null>(null)
+  return (
+    <>
+      <button className="outside-rail">Outside rail</button>
+      <ProjectRail
+        autoHidePaused={false}
+        autoOpen={false}
+        mode={lastWorkspace ? "collapsed" : "expanded"}
+        modeSaving={false}
+        workspaces={workspaces}
+        selectedWorkspace={workspaces[0] ?? null}
+        sessionList={sessionList()}
+        renamingWorkspaceKey={null}
+        workspaceNameValue=""
+        workspaceBusyKey={busy}
+        onAutoOpenChange={() => undefined}
+        onModeChange={() => undefined}
+        onOpenFolder={() => undefined}
+        onSelectWorkspace={() => undefined}
+        onStartWorkspaceRename={() => undefined}
+        onSubmitWorkspaceRename={() => undefined}
+        onWorkspaceNameChange={() => undefined}
+        onWorkspaceRenameKeyDown={() => undefined}
+        onRemoveWorkspace={async (removed) => {
+          setBusy(removed.key)
+          if (await remove()) {
+            setWorkspaces((current) => current.filter((item) => item.key !== removed.key))
+          }
+          setBusy(null)
+        }}
+      />
+    </>
+  )
+}
+
 describe("ProjectRail workspace actions", () => {
   let container: HTMLDivElement
   let root: Root
@@ -75,6 +122,7 @@ describe("ProjectRail workspace actions", () => {
     const onRemoveWorkspace = vi.fn()
     const onSubmitWorkspaceRename = vi.fn()
     const common = {
+      autoHidePaused: false,
       autoOpen: false,
       mode: "expanded" as const,
       modeSaving: false,
@@ -111,5 +159,74 @@ describe("ProjectRail workspace actions", () => {
     expect(input?.value).toBe("Renamed App")
     act(() => input?.dispatchEvent(new FocusEvent("focusout", { bubbles: true })))
     expect(onSubmitWorkspaceRename).toHaveBeenCalledWith(workspace)
+  })
+
+  it("restores keyboard focus inside the existing rail after asynchronous deletion", async () => {
+    let finish!: (removed: boolean) => void
+    const removal = new Promise<boolean>((resolve) => {
+      finish = resolve
+    })
+    act(() => root.render(<RemovalFixture remove={() => removal} />))
+    const button = container.querySelector<HTMLButtonElement>(".project-remove")!
+    act(() => {
+      button.focus()
+      button.click()
+    })
+    expect(button.disabled).toBe(true)
+    await act(async () => finish(true))
+    expect(button.isConnected).toBe(false)
+    expect(document.activeElement).toBe(container.querySelector(".rail-open-folder"))
+    expect(container.querySelector(".project-item strong")?.textContent).toBe("Other")
+  })
+
+  it("keeps a focusable fallback when the final workspace disappears from a collapsed rail", async () => {
+    act(() => root.render(<RemovalFixture lastWorkspace remove={async () => true} />))
+    const button = container.querySelector<HTMLButtonElement>(".project-remove")!
+    await act(async () => {
+      button.focus()
+      button.click()
+    })
+    expect(container.querySelector(".project-item")).toBeNull()
+    expect(document.activeElement).toBe(container.querySelector(".rail-open-folder"))
+  })
+
+  it("does not move focus when deletion leaves the workspace in place", async () => {
+    act(() => root.render(<RemovalFixture remove={async () => false} />))
+    const button = container.querySelector<HTMLButtonElement>(".project-remove")!
+    await act(async () => {
+      button.focus()
+      button.click()
+    })
+    expect(button.isConnected).toBe(true)
+    expect(document.activeElement).toBe(button)
+  })
+
+  it("does not reclaim focus after the user moved away during deletion, even if focus later reaches body", async () => {
+    let finish!: (removed: boolean) => void
+    const removal = new Promise<boolean>((resolve) => {
+      finish = resolve
+    })
+    act(() => root.render(<RemovalFixture remove={() => removal} />))
+    const button = container.querySelector<HTMLButtonElement>(".project-remove")!
+    act(() => {
+      button.focus()
+      button.click()
+    })
+    const outside = container.querySelector<HTMLButtonElement>(".outside-rail")!
+    act(() => outside.focus())
+    expect(document.activeElement).toBe(outside)
+    act(() => outside.blur())
+    await act(async () => finish(true))
+    expect(button.isConnected).toBe(false)
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it("does not steal focus for a pointer removal that never owned keyboard focus", async () => {
+    act(() => root.render(<RemovalFixture remove={async () => true} />))
+    const outside = container.querySelector<HTMLButtonElement>(".outside-rail")!
+    act(() => outside.focus())
+    await act(async () => container.querySelector<HTMLButtonElement>(".project-remove")!.click())
+    expect(container.querySelector(".project-item strong")?.textContent).toBe("Other")
+    expect(document.activeElement).toBe(outside)
   })
 })
