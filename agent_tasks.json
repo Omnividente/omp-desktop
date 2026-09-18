@@ -4685,7 +4685,9 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T00:49:25Z"
       }
     }
   ]
