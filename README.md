@@ -15,6 +15,8 @@
 
 **[Установка](#установка) · [Последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
 
+> **Community client:** OMP Desktop — независимый проект сообщества, не входящий в официальную поставку OMP. [Обсуждение проекта в upstream Oh My Pi →](https://github.com/can1357/oh-my-pi/issues/12456)
+
 ### Возможности
 
 - **Проекты и сессии:** недавние рабочие папки, поиск, возобновление и цепочки handoff.
@@ -90,6 +92,8 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 **OMP Desktop** is a cross-platform graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings projects, session history, and live OMP terminals into one native desktop application for Windows and Linux.
 
 **[Installation](#installation) · [Latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+
+> **Community client:** OMP Desktop is an independent community project and is not part of the official OMP distribution. [Upstream Oh My Pi discussion →](https://github.com/can1357/oh-my-pi/issues/12456)
 
 ### Features
 
