@@ -7121,7 +7121,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T11:37:59.953246Z"
+        "observed_at": "2026-09-18T11:37:59.953246Z",
+        "released_attempt_ref": "autonomous/attempt-d4b6bcf00aa98d40831fa43d"
       },
       "research_result": {
         "summary": "Verified that resource health sampling does not block the UI or main async thread when analyzing slow external drives.",
