@@ -4163,7 +4163,7 @@
       "id": "research-sessions-persistence-behavior-2",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -4276,18 +4276,134 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5281172529465129648",
         "dispatch_key": "834737434002f519954a86a3",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-834737434002f519954a86a3",
         "started_at": "2026-09-17T22:16:37Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T00:27:59Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-17T22:27:16Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T00:27:59Z"
+      },
+      "research_result": {
+        "summary": "Observation of missing focus trap and lack of focus restoration for the session import modals (ImportSessionModal and CodexImportModal).",
+        "observations": [
+          {
+            "scenario": "Tab and focus movement inside ImportSessionModal and CodexImportModal.",
+            "evidence": "A synthetic Vitest test simulating tabbing and external focus showed that background elements (outside the modal) remain accessible and focus is not trapped inside the modal.",
+            "result": "Establishes that the modals lack a focus trap, meaning keyboard users can tab out of the modal into background elements, degrading accessibility."
+          },
+          {
+            "scenario": "Modal close and focus restoration.",
+            "evidence": "A synthetic Vitest test simulating modal closure verified that focus drops to the document body rather than returning to the button that originally triggered the modal.",
+            "result": "Establishes that focus is not correctly restored upon modal closure, meaning keyboard users lose their contextual position in the UI."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if ARIA attributes like aria-hidden are properly applied to the background when modals are open.",
+          "Investigate if similar accessibility issues exist in other modals like SettingsPanel or TranscriptModal."
+        ],
+        "proposed_task_ids": [
+          "discovery-efae45ef6cb2274b",
+          "discovery-aea9a8e6e1603271"
+        ],
+        "completed_at": "2026-09-18T00:27:59Z",
+        "source": {
+          "activity_id": "sessions/5281172529465129648/activities/ff31367da0bf4aa29ddf4f39994b7aa7",
+          "report_sha256": "e380f1a42229d2ce2f65ad6d690e9abacfaabc100e5a6a1466a7201efe7f29eb",
+          "activity_created_at": "2026-09-17T22:32:50Z",
+          "session_id": "5281172529465129648",
+          "dispatch_key": "834737434002f519954a86a3"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-efae45ef6cb2274b",
+      "title": "Implement focus trap for session import modals",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "quality"
+      ],
+      "created_at": "2026-09-18T00:27:59Z",
+      "acceptance": [
+        "When the import modal is open, pressing Tab repeatedly cycles focus within the modal only."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via synthetic Vitest tests simulating focus handling in a jsdom environment. Elements behind the modal remain focusable via Tab.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and open the ImportSessionModal or CodexImportModal.",
+            "Press the Tab key repeatedly."
+          ],
+          "expected": "Focus stays inside the modal and cycles through the modal's interactive elements.",
+          "actual": "Focus escapes the modal and moves to background elements (e.g., search bar or session list)."
+        }
+      },
+      "target_paths": [
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-2",
+        "activity_id": "sessions/5281172529465129648/activities/ff31367da0bf4aa29ddf4f39994b7aa7",
+        "report_sha256": "e380f1a42229d2ce2f65ad6d690e9abacfaabc100e5a6a1466a7201efe7f29eb",
+        "activity_created_at": "2026-09-17T22:32:50Z",
+        "session_id": "5281172529465129648",
+        "dispatch_key": "834737434002f519954a86a3"
+      }
+    },
+    {
+      "id": "discovery-aea9a8e6e1603271",
+      "title": "Restore focus to the triggering element after closing session import modals",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "quality"
+      ],
+      "created_at": "2026-09-18T00:27:59Z",
+      "acceptance": [
+        "Closing the import modal returns focus to the button that opened it."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and focus the button to open Codex import using the keyboard.",
+            "Press Enter to open the modal.",
+            "Close the modal by clicking 'Cancel' or using the close button."
+          ],
+          "expected": "Focus is returned to the button that opened the modal.",
+          "actual": "Focus drops to the document body."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-2",
+        "activity_id": "sessions/5281172529465129648/activities/ff31367da0bf4aa29ddf4f39994b7aa7",
+        "report_sha256": "e380f1a42229d2ce2f65ad6d690e9abacfaabc100e5a6a1466a7201efe7f29eb",
+        "activity_created_at": "2026-09-17T22:32:50Z",
+        "session_id": "5281172529465129648",
+        "dispatch_key": "834737434002f519954a86a3"
       }
     }
   ]
