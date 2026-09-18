@@ -6208,7 +6208,7 @@
       "id": "discovery-be56185691369523",
       "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -6244,6 +6244,12 @@
         "activity_created_at": "2026-09-18T09:16:39.529431Z",
         "session_id": "16857644972860260164",
         "dispatch_key": "67c696866d35e8c087c738a0"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-18T16:42:26Z",
+        "note": "Outdated/invalid against main2ec1b849b3d9b912dea8ea739c85f37fb336b5b5: saveSettingsBundle rejects IPC errors; it does not return {type:error}. Loaded drafts are preserved on failed save. Existing SettingsPanel regressions cover structured rejection, retry and failed-save/initial-load race; no change warranted. This is rejection of incorrect diagnosis, not a claim of atomic backend rollback."
       }
     },
     {
