@@ -7684,7 +7684,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T15:41:03.332847Z"
+        "observed_at": "2026-09-18T15:41:03.332847Z",
+        "released_attempt_ref": "autonomous/attempt-5f11c9fc01d549e69210d5f5"
       },
       "research_result": {
         "summary": "Verified error recovery for very large copy selections in TranscriptModal, and evaluated state drop constraints in useVirtualList.",
