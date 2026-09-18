@@ -6754,7 +6754,7 @@
       "id": "research-diagnostics-resources-reliability-2",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -6880,23 +6880,111 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17542460309039134485",
         "dispatch_key": "6aa7f1f15f737a06cbc02aa2",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-6aa7f1f15f737a06cbc02aa2",
         "started_at": "2026-09-18T10:45:36.025650Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T11:11:33.973621Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T10:52:52.170794Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T11:11:33.973621Z"
+      },
+      "research_result": {
+        "summary": "Verified state recovery when encountering missing or inaccessible resource volumes during resource health sampling.",
+        "observations": [
+          {
+            "scenario": "Execute sample_volumes with an inaccessible or missing path on the host filesystem",
+            "evidence": "Wrote and executed a Rust unit test locally against `sample_volumes` in `src-tauri/src/resource_health.rs`. When provided with an explicitly invalid `ResourcePath`, the function gracefully handles the OS-level failure and returns a predictable `Err(String)` describing the underlying failure (e.g., 'No such file or directory'), without triggering a process crash or panic.",
+            "result": "Establishes that `sample_volumes` and subsequently `sample_resource_health` correctly encapsulate runtime I/O volume sampling errors as recoverable state (which the frontend maps to `resourceHealthError`), avoiding process loss during diagnostic routines."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+          "Examine if resource sampling causes thread blocking or UI unresponsiveness when analyzing exceptionally slow external network drives."
+        ],
+        "proposed_task_ids": [
+          "discovery-56c204d8381f8989"
+        ],
+        "completed_at": "2026-09-18T11:11:33.973621Z",
+        "source": {
+          "activity_id": "sessions/17542460309039134485/activities/a1905bbc3cb2488ea22500a88599e112",
+          "report_sha256": "45ad401fc73f8bc642d042ce755957414976d367206e5dcc50d7cba0fef928d5",
+          "activity_created_at": "2026-09-18T11:08:51.671833Z",
+          "session_id": "17542460309039134485",
+          "dispatch_key": "6aa7f1f15f737a06cbc02aa2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17542460309039134485/activities/a1905bbc3cb2488ea22500a88599e112",
+          "report_sha256": "45ad401fc73f8bc642d042ce755957414976d367206e5dcc50d7cba0fef928d5",
+          "activity_created_at": "2026-09-18T11:08:51.671833Z",
+          "session_id": "17542460309039134485",
+          "dispatch_key": "6aa7f1f15f737a06cbc02aa2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-56c204d8381f8989"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-56c204d8381f8989",
+      "title": "Add CSS transitions to resource-summary color classes",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "ux",
+        "quality"
+      ],
+      "created_at": "2026-09-18T11:11:33.973621Z",
+      "acceptance": [
+        "The .resource-summary element smoothly transitions color and border-color when severity classes change."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified by previous research that `.resource-summary` lacks CSS transitions for color, border-color, and background properties, meaning severity changes visually snap instead of smoothing into view.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open ResourceHealthPanel in a browser inspection tool.",
+            "Toggle the `.is-warning` or `.is-critical` classes on the `.resource-summary` element.",
+            "Observe that the color and border styles change instantly."
+          ],
+          "expected": "The color, border-color, and background properties should smoothly transition over 120ms to match the rest of the app's aesthetic.",
+          "actual": "The styles snap instantly because `transition` properties are absent."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-reliability-2",
+        "activity_id": "sessions/17542460309039134485/activities/a1905bbc3cb2488ea22500a88599e112",
+        "report_sha256": "45ad401fc73f8bc642d042ce755957414976d367206e5dcc50d7cba0fef928d5",
+        "activity_created_at": "2026-09-18T11:08:51.671833Z",
+        "session_id": "17542460309039134485",
+        "dispatch_key": "6aa7f1f15f737a06cbc02aa2"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T11:11:55.343691Z",
+    "last_poll_at": "2026-09-18T11:11:58.177377Z",
     "last_tick_at": "2026-09-18T11:05:45.336175Z",
     "run_id": "35337867859"
   }
