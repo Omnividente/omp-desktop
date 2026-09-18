@@ -4834,7 +4834,7 @@
       "id": "research-sessions-persistence-ux-2",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -4949,18 +4949,94 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8396612518833497733",
         "dispatch_key": "9d5afefbe9e97fae0bd017a1",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-9d5afefbe9e97fae0bd017a1",
         "started_at": "2026-09-18T04:43:10Z",
-        "finished_at": "",
+        "finished_at": "2026-09-18T05:58:44Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-18T05:05:27Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-18T05:58:44Z"
+      },
+      "research_result": {
+        "summary": "Observation of missing focus trap and lack of focus restoration for the session import modals (ImportSessionModal and CodexImportModal).",
+        "observations": [
+          {
+            "scenario": "Tab and focus movement inside ImportSessionModal and CodexImportModal.",
+            "evidence": "A synthetic Vitest test simulating tabbing and external focus showed that background elements (outside the modal) remain accessible and focus is not trapped inside the modal.",
+            "result": "Establishes that the modals lack a focus trap, meaning keyboard users can tab out of the modal into background elements, degrading accessibility."
+          },
+          {
+            "scenario": "Modal close and focus restoration via 'useModalFocus' hook",
+            "evidence": "Locally prototyped a new React hook 'useModalFocus' to trap focus within modals and handle 'Escape' and 'Tab' keys. Wrote synthetic vitest scripts to test focus trapping and 'Escape' functionality. Tests demonstrated the focus is successfully trapped, 'Escape' accurately triggers the 'onClose' callback, and previous focus is restored.",
+            "result": "Established that a generalized focus management hook is a viable approach to resolve the lack of focus traps and keyboard accessibility issues across all the application's modals."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if implementing focus restoration to the specific trigger button (rather than previous active element) improves accessibility context in edge cases where the previous element is removed from the DOM."
+        ],
+        "proposed_task_ids": [
+          "discovery-c521e33229cbbb32"
+        ],
+        "completed_at": "2026-09-18T05:58:44Z",
+        "source": {
+          "activity_id": "sessions/8396612518833497733/activities/277a1a5c42b54abb8676a13e93939aa9",
+          "report_sha256": "be0217b44943195fddf5542e76c7e726548822bdb83e54db3d3649ec1b0e64ed",
+          "activity_created_at": "2026-09-18T04:59:44Z",
+          "session_id": "8396612518833497733",
+          "dispatch_key": "9d5afefbe9e97fae0bd017a1"
+        },
+        "deferred_findings": []
+      }
+    },
+    {
+      "id": "discovery-c521e33229cbbb32",
+      "title": "Implement useModalFocus hook and apply to ImportSessionModal and CodexImportModal",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-18T05:58:44Z",
+      "acceptance": [
+        "The useModalFocus hook effectively traps focus within a modal, handles Escape and Tab keys, and restores previous focus upon close.",
+        "The useModalFocus hook is correctly applied to ImportSessionModal.",
+        "The useModalFocus hook is correctly applied to CodexImportModal."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native desktop observation via synthetic components in vitest. Identified that modals lack a focus trap, allowing keyboard users to tab out of the modal, and lack focus restoration after closure. Tested via a prototype useModalFocus hook which verified these accessibility flaws could be resolved.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the OMP import modal by triggering an import.",
+            "Use the Tab key repeatedly to navigate elements.",
+            "Close the modal by pressing Escape."
+          ],
+          "expected": "Focus stays trapped inside the modal while open, and focus is restored to the previous element after it is closed via Escape.",
+          "actual": "Focus moves outside the modal and can land on background elements. Pressing Escape closes the modal, but focus drops to the document body rather than being restored."
+        }
+      },
+      "target_paths": [
+        "src/hooks/useModalFocus.ts",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-2",
+        "activity_id": "sessions/8396612518833497733/activities/277a1a5c42b54abb8676a13e93939aa9",
+        "report_sha256": "be0217b44943195fddf5542e76c7e726548822bdb83e54db3d3649ec1b0e64ed",
+        "activity_created_at": "2026-09-18T04:59:44Z",
+        "session_id": "8396612518833497733",
+        "dispatch_key": "9d5afefbe9e97fae0bd017a1"
       }
     }
   ]
