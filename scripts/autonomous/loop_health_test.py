@@ -487,6 +487,30 @@ class DecisionTest(unittest.TestCase):
         result = health(queue(task()), runs=observed)
         self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
 
+    def test_active_count_race_recovers_without_admitting_duplicate_work(self):
+        active = run(id=42, status="queued", conclusion=None)
+        complete = {"total_count": 1, "workflow_runs": [active]}
+        queued = iter([{"total_count": 1, "workflow_runs": []}, complete])
+        def get(path, paginate=False):
+            state = parse_qs(urlsplit(path).query)["status"][0]
+            page = next(queued, complete) if state == "queued" else {"total_count": 0, "workflow_runs": []}
+            return [page] if paginate else page
+        observed = snapshot_runs(get, "autonomous_next_task.yml")
+        result = health(queue(task()), runs=observed)
+        self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
+
+    def test_snapshot_retry_preserves_runs_seen_on_partial_pages(self):
+        active = run(id=42, status="queued", conclusion=None)
+        empty = {"total_count": 0, "workflow_runs": []}
+        queued = iter([{"total_count": 2, "workflow_runs": [active]}, empty])
+        def get(path, paginate=False):
+            state = parse_qs(urlsplit(path).query)["status"][0]
+            page = next(queued, empty) if state == "queued" else empty
+            return [page] if paginate else page
+        observed = snapshot_runs(get, "autonomous_next_task.yml")
+        result = health(queue(task()), runs=observed)
+        self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
+
     def test_partial_active_snapshot_cannot_claim_idle(self):
         for total in (1, 1000):
             with self.subTest(total=total):

@@ -297,9 +297,12 @@ may read a previously completed session and save its result without dispatching.
   and keeps their combined observations: a run starting between status queries
   must not make an occupied slot appear idle. It reads only the latest 100
   completed runs per workflow and fetches proposal details by saved provenance,
-  including old `awaiting_review` PRs, rather than all PR history. Incomplete or
-  capped active-run results fail with `snapshot_incomplete`. API reads are not a
-  transaction; the writer lock and fresh state/CAS checks remain the effect gate.
+  including old `awaiting_review` PRs, rather than all PR history. If an active
+  list contains fewer unique runs than its count, that status is read at most
+  three times with 1/2-second delays; runs seen even on partial pages are kept.
+  A persistently incomplete, malformed or capped result still fails closed.
+  API reads are not a transaction; the writer lock and fresh state/CAS checks
+  remain the effect gate.
 - **Autonomous Sync Main** runs on main pushes or explicit dispatch. Legacy
   workers, including quarantined ones, are reconciled before moving their source.
   Immutable-attempt workers and pending human proposals do not block sync. It
