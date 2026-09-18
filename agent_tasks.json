@@ -6655,7 +6655,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-18T10:45:36.025650Z"
+        "observed_at": "2026-09-18T10:45:36.025650Z",
+        "released_attempt_ref": "autonomous/attempt-0e806f82bc3d17d465abb112"
       },
       "research_result": {
         "summary": "Verified keyboard accessibility inside IncidentCenter for deeply nested fallback details, and observed missing CSS transitions in ResourceHealthPanel color updates.",
