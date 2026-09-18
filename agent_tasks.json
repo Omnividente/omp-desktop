@@ -6749,6 +6749,135 @@
         "session_id": "14737637742387052641",
         "dispatch_key": "0e806f82bc3d17d465abb112"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-2",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-18T10:45:36Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "741535951248f81e4fef081bac559ae06842b530e0845099a7194ebee7e20bea",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Verified state recovery behavior of clearResolvedRuntimeIncidents and performance of processing bursts of incidents in runtimeIncidents.",
+            "observations": [
+              {
+                "scenario": "Execute clearResolvedRuntimeIncidents with state containing only active incidents",
+                "evidence": "Wrote and executed a Vitest unit test locally to verify clearResolvedRuntimeIncidents idempotency. The function correctly returns the exact same state reference without reallocating arrays when no resolved incidents exist, ensuring React renders are not unnecessarily triggered.",
+                "result": "Establishes that clearResolvedRuntimeIncidents is idempotent and efficiently skips reallocation when there's no work to do."
+              },
+              {
+                "scenario": "Process a burst of 5000 identical runtime incidents",
+                "evidence": "Wrote and executed a Vitest unit test locally measuring applyRuntimeIncidentEvent. The function processes a synthetic stream of 5000 occurrences in ~2ms. State growth remains bounded to MAX_RUNTIME_INCIDENTS (100) and memory use remains perfectly constrained due to deduplication.",
+                "result": "Establishes that the incident processing logic correctly implements unbounded stream coalescing without severe latency or memory leaks."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate ResourceHealthPanel layout bounds when swap or processes display extremely large multi-line string paths."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T10:28:32Z",
+            "source": {
+              "activity_id": "sessions/15305078608278735298/activities/91d29dca60614f70be29cb7824ee21e1",
+              "report_sha256": "cb41bb490f8d7f71eea65e8f1edea435e6a9cd9acf1239dd6d382497386fccbf",
+              "activity_created_at": "2026-09-17T06:26:01Z",
+              "session_id": "15305078608278735298",
+              "dispatch_key": "13ed08f728d543358a705f9c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified interactions between IncidentCenter and background toasts, confirmed ResourceHealthPanel layout resilience to extremely long strings, and validated idempotency in clearResolvedRuntimeIncidents state updates.",
+            "observations": [
+              {
+                "scenario": "IncidentCenter focus trapping conflict with ToastContainer",
+                "evidence": "Locally wrote and ran a synthetic React component rendering both IncidentCenter and ToastContainer. IncidentCenter adds a MutationObserver to the modal's backdrop wrapper, finding siblings (such as ToastContainer) and applying `inert` and `aria-hidden=\"true\"` to them, effectively trapping focus and blocking toast interactions while the modal is open.",
+                "result": "Establishes that ToastContainer behaves as designed when in background beneath IncidentCenter, effectively disabled by `inert` to not disrupt modal accessibility."
+              },
+              {
+                "scenario": "ResourceHealthPanel layout bounds against extreme string lengths",
+                "evidence": "Locally rendered ResourceHealthPanel populated with a synthetic snapshot containing an unspaced path of length >150 for a volume path and >100 for a process terminal ID. Inspection of App.css (`.resource-card-heading strong` and `.resource-process span`) showed they apply `min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`",
+                "result": "Establishes that the UI handles extreme bounds correctly through CSS flexbox and overflow ellipsis without causing overflow outside of the modal constraints."
+              },
+              {
+                "scenario": "State recovery and idempotency of clearResolvedRuntimeIncidents",
+                "evidence": "Wrote a unit test calling clearResolvedRuntimeIncidents (in src/runtimeIncidents.ts) with an array of only active incidents. Validated it checks `incidents.length === state.incidents.length` and returns the identical state object reference (`return ... === ... ? state : { ...state, incidents }`).",
+                "result": "Establishes that clearResolvedRuntimeIncidents efficiently sidesteps React re-renders by returning the exact object reference when no resolved items need clearing."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate keyboard accessibility and focus management when navigating deeply nested fallback chains within IncidentCenter reasons.",
+              "Examine if the `resource-summary` color updates correctly animate or transition when system pressure suddenly drops from critical back to ok while the panel is left open."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-17T11:35:49Z",
+            "source": {
+              "activity_id": "sessions/3301928525046233615/activities/c55ca0b2cef04d269c86ab1064190a27",
+              "report_sha256": "d042198c2bea1875f20d4d2398950424908f8dab5d694924f5a470c4f794f1e2",
+              "activity_created_at": "2026-09-17T10:38:07Z",
+              "session_id": "3301928525046233615",
+              "dispatch_key": "e0abea2e5b24075f33d3b920"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified keyboard accessibility inside IncidentCenter for deeply nested fallback details, and observed missing CSS transitions in ResourceHealthPanel color updates.",
+            "observations": [
+              {
+                "scenario": "Keyboard accessibility and focus management inside IncidentCenter with deeply nested fallback chains within reason",
+                "evidence": "Simulated an IncidentCenter modal with a fallback incident containing a long reason (>180 characters) to trigger the expandable details view (<details>/<summary>). The <summary> element natively receives focus in standard browsers and is correctly managed within the Tab cycle of the modal.",
+                "result": "Establishes that deeply nested fallback reasons with expandable details handle focus correctly within the accessibility cycle of the dialog."
+              },
+              {
+                "scenario": "Animate or transition of resource-summary colors when system pressure changes in ResourceHealthPanel",
+                "evidence": "Inspected src/App.css around '.resource-summary' and observed that while it defines properties like 'color', 'border-color' and 'background' for state classes (e.g. '.is-warning', '.is-critical'), it lacks any explicit 'transition' property on the '.resource-summary' selector.",
+                "result": "Establishes that the ResourceHealthPanel color updates do not currently animate or transition smoothly when system pressure severity changes."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings.",
+              "Examine state recovery performance in the main session store when switching between large workspaces."
+            ],
+            "proposed_task_ids": [
+              "discovery-e53a37688e2893a4"
+            ],
+            "completed_at": "2026-09-18T10:45:36.025650Z",
+            "source": {
+              "activity_id": "sessions/14737637742387052641/activities/11d44641897848e69e4cacbfc9160462",
+              "report_sha256": "a3293119fae3112161162db2417b0a8027fda2ac46b4689b362a835fbc672391",
+              "activity_created_at": "2026-09-18T10:33:14.486888Z",
+              "session_id": "14737637742387052641",
+              "dispatch_key": "0e806f82bc3d17d465abb112"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
