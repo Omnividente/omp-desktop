@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
@@ -18,6 +19,7 @@ from sync_main import git, revision
 from validate_tasks import validate
 
 RECENT_COMPLETED = 100
+ACTIVE_READ_ATTEMPTS = 3
 WORKFLOWS = {"Autonomous Next Task": ("autonomous_next_task.yml", "next-runs.json"),
              "Autonomous Sync Main": ("autonomous_sync.yml", "sync-runs.json"),
              "Autonomous Continue": ("autonomous_continue.yml", "wakeup-runs.json")}
@@ -42,19 +44,27 @@ def snapshot_runs(get, workflow: str) -> list[dict]:
     # every observed active run; a racing completion may delay work, not admit it.
     for _ in range(2):
         for status in sorted(ACTIVE_RUN_STATUSES):
-            pages = get(endpoint + urlencode({"status": status, "per_page": 100}), paginate=True)
-            if not isinstance(pages, list) or not pages:
-                raise ValueError("incomplete active run snapshot")
-            found = {}
-            for page in pages:
-                for run in workflow_runs(page):
-                    found[run["id"]] = run
-            # GitHub caps filtered searches at 1000. Never turn a capped/partial
-            # response into 'all idle'; a later scheduler tick can retry the read.
-            totals = [page.get("total_count") for page in pages]
-            if any(type(total) is not int or total >= 1000 or total > len(found) for total in totals):
-                raise ValueError("active run snapshot is capped or incomplete")
-            runs.update(found)
+            for attempt in range(ACTIVE_READ_ATTEMPTS):
+                pages = get(endpoint + urlencode({"status": status, "per_page": 100}), paginate=True)
+                if not isinstance(pages, list) or not pages:
+                    raise ValueError(f"incomplete active run snapshot: {workflow} {status}")
+                found = {}
+                for page in pages:
+                    for run in workflow_runs(page):
+                        found[run["id"]] = run
+                totals = [page.get("total_count") for page in pages]
+                # The filtered endpoint caps results at 1000. Never accept that
+                # cap or a malformed count as evidence of an idle slot.
+                if any(type(total) is not int or total < 0 or total >= 1000 for total in totals):
+                    raise ValueError(f"active run snapshot is capped or invalid: {workflow} {status}")
+                runs.update(found)
+                if all(total <= len(found) for total in totals):
+                    break
+                # Status transitions can update the count before the run list.
+                # Require a complete re-read, keeping every observed active run.
+                if attempt + 1 == ACTIVE_READ_ATTEMPTS:
+                    raise ValueError(f"active run snapshot remains incomplete: {workflow} {status}")
+                time.sleep(2 ** attempt)
     return list(runs.values())
 
 
