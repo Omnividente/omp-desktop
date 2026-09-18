@@ -6653,12 +6653,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-18T10:25:38.466091Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T10:26:00.980784Z",
+    "last_poll_at": "2026-09-18T10:27:27.392277Z",
     "last_tick_at": "2026-09-18T10:19:52.480042Z",
     "run_id": "35334097411"
   }
