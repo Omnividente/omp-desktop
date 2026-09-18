@@ -219,6 +219,16 @@ async function notifyTerminalCompletion(
 }
 function App() {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null)
+  const mountedRef = useRef(false)
+  const payloadRevisionRef = useRef(0)
+  const refreshRequestRef = useRef(0)
+  useEffect(() => {
+    ++refreshRequestRef.current
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
   const proxyProvidersRef = useRef<readonly string[]>([])
   proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
@@ -529,6 +539,7 @@ function App() {
 
   const applyPayload = useCallback(
     (next: BootstrapPayload, preferredWorkspace?: string) => {
+      ++payloadRevisionRef.current
       setPayload(next)
       setSettingsRecovery(null)
       setTabs((current) =>
@@ -681,23 +692,31 @@ function App() {
   }, [])
 
   const refresh = useCallback(async () => {
+    const request = ++refreshRequestRef.current
+    const revision = payloadRevisionRef.current
+    const current = () =>
+      mountedRef.current &&
+      request === refreshRequestRef.current &&
+      revision === payloadRevisionRef.current
     setRefreshing(true)
     try {
-      applyPayload(await loadBootstrap())
+      const next = await loadBootstrap()
+      if (current()) applyPayload(next)
     } catch (error) {
+      if (!current()) return
       const recovery = settingsUnavailableDetails(error)
       if (recovery) {
         setSettingsRecovery(recovery)
         setStartupError(recovery.message)
       } else {
-        const message = errorMessage(error, lang)
+        const message = errorMessage(error, langRef.current)
         setStartupError(message)
         showError(message)
       }
     } finally {
-      setRefreshing(false)
+      if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
     }
-  }, [applyPayload, lang, showError])
+  }, [applyPayload, showError])
 
   const openSettingsRecoveryFolder = useCallback(async () => {
     if (!settingsRecovery) return
@@ -738,20 +757,43 @@ function App() {
   useEffect(() => {
     let disposed = false
     let stop: (() => void) | undefined
+    let latestRequest = 0
+    let pendingRequests = 0
+    let needsReconcile = false
     void listen<SingleInstanceEvent>("single-instance", async (event) => {
       if (disposed) return
       const requested = extractSingleInstanceWorkspace(event.payload.args)
       if (requested) {
+        const request = ++latestRequest
+        ++pendingRequests
+        // A bootstrap started before this intent must not remove its workspace later.
+        ++payloadRevisionRef.current
         try {
           const next = await addWorkspace(requested)
           if (disposed) return
+          if (request !== latestRequest) {
+            needsReconcile = true
+            return
+          }
           applyPayload(next, requested)
           setSelectedSessionId(null)
           setSearch("")
           return
         } catch (error) {
-          if (!disposed) showError(errorMessage(error, langRef.current))
+          if (!disposed && request === latestRequest) {
+            showError(errorMessage(error, langRef.current))
+            // The request invalidated in-flight bootstrap reads, even if no payload loaded yet.
+            needsReconcile = true
+          }
           return
+        } finally {
+          --pendingRequests
+          if (!disposed && pendingRequests === 0 && needsReconcile) {
+            needsReconcile = false
+            // Backend commits can run in a different order from requests or responses.
+            // Read the complete committed state; never merge or publish a stale snapshot.
+            void refresh()
+          }
         }
       }
       if (!disposed) void refresh()
