@@ -5246,7 +5246,7 @@
       "id": "research-workspace-navigation-reliability-2",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -5362,6 +5362,19 @@
             ]
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "658af61493569df825980a1e",
+        "base_sha": "2b994bb916e289f39d15ccb636cd458c3f6e5ada",
+        "starting_branch": "autonomous/attempt-658af61493569df825980a1e",
+        "started_at": "2026-09-18T07:37:16.034117Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
