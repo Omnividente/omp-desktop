@@ -6517,12 +6517,13 @@
         "outcome": "",
         "note": "",
         "observed_at": "2026-09-18T10:05:50.949045Z",
-        "released_attempt_ref": "autonomous/attempt-a788bb1bdd5b4d6ab6e383ed"
+        "released_attempt_ref": "autonomous/attempt-a788bb1bdd5b4d6ab6e383ed",
+        "session_state": "IN_PROGRESS"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T10:06:16.441568Z",
+    "last_poll_at": "2026-09-18T10:07:23.083021Z",
     "last_tick_at": "2026-09-18T09:52:53.587966Z",
     "run_id": "35331785700"
   }
