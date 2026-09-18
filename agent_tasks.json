@@ -6654,13 +6654,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-18T10:25:38.466091Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-18T10:33:16.946625Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-18T10:33:36.435128Z",
+    "last_poll_at": "2026-09-18T10:33:39.377990Z",
     "last_tick_at": "2026-09-18T10:27:29.338989Z",
     "run_id": "35334620556"
   }
