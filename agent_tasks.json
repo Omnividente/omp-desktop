@@ -7932,6 +7932,124 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-transcript-links-ux-2",
+      "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-18T17:00:53Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"proposed\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]}},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"proposed\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]}},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "ux",
+        "fingerprint": "fa5cba1be5af48d356a661cbf27c04e1ff6633d8a9b33fda45c9e03594016d1a",
+        "cycle": 2,
+        "previous_reports": [
+          {
+            "summary": "Verified context menu interaction when triggered by a keyboard shortcut in the Transcript area.",
+            "observations": [
+              {
+                "scenario": "Simulating a keyboard-triggered context menu (Shift+F10 or Context Menu key) on a LinkedText element inside a virtual list, which dispatches a contextmenu event with clientX=0 and clientY=0.",
+                "evidence": "Created a synthetic JSDOM test simulating `new MouseEvent('contextmenu', { clientX: 0, clientY: 0 })` on `<a>` tags in `TranscriptModal` and `LinkedText` to observe how coordinates are passed. `TranscriptModal` maps `event.clientX` and `event.clientY` directly to the `left` and `top` properties of the menu.",
+                "result": "Establishes that the context menu is successfully opened on keyboard interaction, but always rendered near the top-left of the viewport (0,0) because it blindly relies on `clientX` and `clientY`, which represent the mouse cursor and not the focused element when triggered by a keyboard shortcut."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate failure handling of copying very large transcript selections."
+            ],
+            "proposed_task_ids": [
+              "discovery-ccd17b3cdd6d7d64"
+            ],
+            "completed_at": "2026-09-17T17:00:04Z",
+            "source": {
+              "activity_id": "sessions/3419912698313916968/activities/f60a95ba954a41fb97a5623bf82ab0aa",
+              "report_sha256": "71afe111a9adf0a5b1899a69fc3a947ed6fdd5fa578150bb2b479ae6855766ff",
+              "activity_created_at": "2026-09-17T16:03:18Z",
+              "session_id": "3419912698313916968",
+              "dispatch_key": "7b078476a4a049af3a15f629"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified error recovery for very large copy selections in TranscriptModal, and evaluated state drop constraints in useVirtualList.",
+            "observations": [
+              {
+                "scenario": "Simulating a clipboard write error when selecting and copying very large text in TranscriptModal",
+                "evidence": "Tested context menu `copySelection` via synthetic vitest to trigger `writeText()` failure on large string, catching the rejection.",
+                "result": "The UI recovers gracefully when `writeText` throws. It correctly catches the asynchronous rejection, reports the message via `onError` without crashing the modal, and seamlessly closes the Context Menu overlay."
+              },
+              {
+                "scenario": "Simulating closing and reopening the modal, checking scroll position persistence constraints per session",
+                "evidence": "Reviewed the source and tested useTranscript and TranscriptModal rendering cycle. `useVirtualList` internally tracks scroll using the attached DOM element. `useTranscript` currently unmounts everything upon close without receiving or caching scroll coordinates.",
+                "result": "Verified that reopening a transcript results in an unrecoverable 0px scrollTop because the architectural linkage to preserve and pass previous scroll positions into the new container element is missing (matches canonical_id: discovery-f25052402356bf34)."
+              },
+              {
+                "scenario": "Simulating a keyboard-triggered context menu (Shift+F10) with clientX=0 and clientY=0",
+                "evidence": "Synthetic DOM tests sending ContextMenu events with clientX=0 and clientY=0 to LinkedText and TranscriptModal virtual lists.",
+                "result": "Confirmed that the menu uses clientX and clientY unconditionally, mapping them directly to top and left (matches canonical_id: discovery-ccd17b3cdd6d7d64)."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate handling of very long URIs within LinkedText click boundaries."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T15:41:03.332847Z",
+            "source": {
+              "activity_id": "sessions/9585640253070236639/activities/2c6ab6c5772d46e7ac6ff63fc704e580",
+              "report_sha256": "4607dd3c800895e4c128bbedb26c210a8b3343c574b78a1a0489a2cfc1cfd689",
+              "activity_created_at": "2026-09-18T15:34:14.075750Z",
+              "session_id": "9585640253070236639",
+              "dispatch_key": "5f11c9fc01d549e69210d5f5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the handling of extremely long URIs within LinkedText boundaries and their interaction with the DOM.",
+            "observations": [
+              {
+                "scenario": "Simulating rendering and interaction with a very long URI (up to 10M characters) within LinkedText.",
+                "evidence": "Ran synthetic Node and JSDOM tests creating a 10M character 'local://' URI, verifying React server-side rendering times and JSDOM click dispatch and href read times.",
+                "result": "Demonstrates that the underlying React component and `isContentLink` scale perfectly (linear and fast bounded time, e.g. a few milliseconds for generation/checking). However, native DOM mechanisms (emulated via JSDOM) exhibit performance cliffs when reading the `href` property natively due to internal URL parsing rules for exceptionally large attributes (e.g. 19.7 seconds just to read `a.href.length` on a 10M char link). The application delegates this safely through bounded React events without crashing, though a malicious or corrupted input of unbounded size could hang the frontend thread during native layout/event propagation if the browser engine behaves similarly."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the application's global handling of uncaught exceptions or UI thread unresponsiveness limits.",
+              "Investigate persistence of scroll positions per-transcript after closing and reopening."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T16:07:50.041233Z",
+            "source": {
+              "activity_id": "sessions/17079539360535257072/activities/471b2894c7ed4b069c0638a0f8c040cd",
+              "report_sha256": "f88a9b4f68894a1278ff47c9cc67f1f9bec1b4eaba9e39f804d02d134ca8c7a9",
+              "activity_created_at": "2026-09-18T15:57:41.901184Z",
+              "session_id": "17079539360535257072",
+              "dispatch_key": "9361872bb4a05d8ae45bdf9a"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
