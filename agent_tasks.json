@@ -10511,7 +10511,7 @@
       "id": "research-settings-models-behavior-3",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -10630,18 +10630,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2499115998985139309",
         "dispatch_key": "b20b9a6a6f1fe3916922fd03",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-b20b9a6a6f1fe3916922fd03",
         "started_at": "2026-09-19T08:58:27.862851Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T09:31:29.834683Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T09:25:18.897362Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T09:31:29.834683Z",
         "research_detached": {
           "at": "2026-09-19T09:17:59.757831Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -10649,6 +10649,58 @@
         "feedback_nudge": {
           "at": "2026-09-19T09:17:59.757831Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the settings recovery behavior and how the application handles language preferences when settings are corrupted or unavailable.",
+        "observations": [
+          {
+            "scenario": "Application startup with corrupted settings.json that triggers SettingsRecoveryScreen.",
+            "evidence": "Source code review of `src/App.tsx`. The `lang` variable is derived from `payload?.settings.language === \"en\" ? \"en\" : \"ru\"`. When settings are corrupted, the backend returns an error instead of a valid bootstrap payload, so `payload` is null. The frontend silently falls back to the default `\"ru\"` language.",
+            "result": "Establishes that the SettingsRecoveryScreen always renders in Russian (the default) if the settings payload is unavailable, regardless of the user's previously chosen language. This presents a poor user experience for non-Russian speakers during a failure state."
+          },
+          {
+            "scenario": "Partial recovery of corrupted settings using `recover_settings_fields` in `src-tauri/src/settings.rs`.",
+            "evidence": "Source code review of `recover_settings_fields` in `src-tauri/src/settings.rs`. The function performs best-effort extraction of safe fields from a corrupted `settings.json` (such as `providerEnvKeys`, `ompExecutable`, etc.) using `recover_top_level_json_field`. However, it does not attempt to recover the `language` field.",
+            "result": "Establishes that even when the backend attempts partial recovery of a damaged settings file, the user's language preference is dropped and resets to default."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if other non-secret accessibility preferences (like font family/size) are also dropped during partial settings recovery.",
+          "Investigate if the frontend can read a pre-bootstrap fallback language preference from localStorage or an early IPC call to prevent localization loss on startup errors."
+        ],
+        "proposed_task_ids": [
+          "discovery-db32c1ac35bd4222"
+        ],
+        "completed_at": "2026-09-19T09:31:29.834683Z",
+        "source": {
+          "activity_id": "sessions/2499115998985139309/activities/b3e23681df744d9d9b13f2622eb9ead7",
+          "report_sha256": "35c4bb0329fb89e5c46788d613e89eb8d2e2b990e499fc3e11f15f8acb8bd3df",
+          "activity_created_at": "2026-09-19T09:19:21.853606Z",
+          "session_id": "2499115998985139309",
+          "dispatch_key": "b20b9a6a6f1fe3916922fd03"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2499115998985139309/activities/b3e23681df744d9d9b13f2622eb9ead7",
+          "report_sha256": "35c4bb0329fb89e5c46788d613e89eb8d2e2b990e499fc3e11f15f8acb8bd3df",
+          "activity_created_at": "2026-09-19T09:19:21.853606Z",
+          "session_id": "2499115998985139309",
+          "dispatch_key": "b20b9a6a6f1fe3916922fd03"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-db32c1ac35bd4222"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -10788,10 +10840,50 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-19T09:25:18.897362Z"
       }
+    },
+    {
+      "id": "discovery-db32c1ac35bd4222",
+      "title": "Preserve language preference during settings recovery",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-09-19T09:31:29.834683Z",
+      "acceptance": [
+        "Partial settings recovery extracts and preserves the `language` field when it is readable"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Corrupt `settings.json` slightly but leave the `\"language\": \"en\"` field intact.",
+            "Launch the application and observe the recovery screen."
+          ],
+          "expected": "The recovery screen text and logs reflect the recovered language preference.",
+          "actual": "The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/settings.rs"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-3",
+        "activity_id": "sessions/2499115998985139309/activities/b3e23681df744d9d9b13f2622eb9ead7",
+        "report_sha256": "35c4bb0329fb89e5c46788d613e89eb8d2e2b990e499fc3e11f15f8acb8bd3df",
+        "activity_created_at": "2026-09-19T09:19:21.853606Z",
+        "session_id": "2499115998985139309",
+        "dispatch_key": "b20b9a6a6f1fe3916922fd03"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T09:31:47.140201Z",
+    "last_poll_at": "2026-09-19T09:31:49.807765Z",
     "last_tick_at": "2026-09-19T09:25:47.851169Z",
     "run_id": "35434638115"
   }
