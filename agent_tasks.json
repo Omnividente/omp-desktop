@@ -10297,7 +10297,7 @@
       "id": "research-workspace-navigation-ux-3",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -10420,23 +10420,95 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14118460730155529299",
         "dispatch_key": "534e6529ae07ff69e5793b12",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-534e6529ae07ff69e5793b12",
         "started_at": "2026-09-19T08:38:45.247200Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T08:58:27.862851Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T08:46:00.074121Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T08:58:27.862851Z"
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of focus and state when deleting a session from SessionList. The application successfully traps focus for a deleted project/workspace inside ProjectRail via removalFocusRef, but this logic is missing for deleting sessions inside SessionList, which leads to focus dropping to document.body, degrading accessibility.",
+        "observations": [
+          {
+            "scenario": "Deleting a session via keyboard navigation from the session list",
+            "evidence": "Wrote a synthetic React Testing Library suite (`test-session-focus.test.tsx`) rendering `<SessionList />`. Focused the first session's delete button and clicked it. Checked `document.activeElement` after the component re-rendered and the session was removed. Focus drops to `document.body` because the active element was unmounted and `removalFocusRef` or similar focus restoration mechanism is absent.",
+            "result": "Establishes that the frontend lacks focus restoration logic upon deleting a session from the SessionList, leaving keyboard focus stranded on the document body."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if similar focus issues exist when dismissing error states, toasts, or deleting background terminal tabs."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T08:58:27.862851Z",
+        "source": {
+          "activity_id": "sessions/14118460730155529299/activities/0a4cc5d8a7e84f0ca6bfb8d737b24164",
+          "report_sha256": "b5c958901e5f8be075d21ab1d8597afce9929a3f4c431fa71d7d5ced33bb2412",
+          "activity_created_at": "2026-09-19T08:47:01.112507Z",
+          "session_id": "14118460730155529299",
+          "dispatch_key": "534e6529ae07ff69e5793b12"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus after deleting a session from SessionList",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-f2427c63eed09a2c; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library test. Deleting a session while the delete button is focused causes focus to drop to the body because the element is unmounted. ProjectRail.tsx already uses removalFocusRef to handle this, but it is missing in SessionList.tsx.\", \"reproduction\": {\"actual\": \"Focus moves to document.body, requiring the user to restart navigation from the top.\", \"expected\": \"Focus should move to a relevant interactive element (e.g., the 'New Session' button or 'Search' input) rather than dropping to the document body.\", \"steps\": [\"Navigate to the SessionList using keyboard (tabbing).\", \"Focus on the delete button for a session.\", \"Activate the delete button (e.g. by pressing Enter or Space) to delete the session.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx"
+            ],
+            "acceptance": [
+              "Focus moves to a reasonable fallback element, like the new session button or the search box, when the currently focused session removal button is deleted."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14118460730155529299/activities/0a4cc5d8a7e84f0ca6bfb8d737b24164",
+          "report_sha256": "b5c958901e5f8be075d21ab1d8597afce9929a3f4c431fa71d7d5ced33bb2412",
+          "activity_created_at": "2026-09-19T08:47:01.112507Z",
+          "session_id": "14118460730155529299",
+          "dispatch_key": "534e6529ae07ff69e5793b12"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-f883aeb4eaf9906f",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-f2427c63eed09a2c"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus after deleting a session from SessionList",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-f2427c63eed09a2c; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library test. Deleting a session while the delete button is focused causes focus to drop to the body because the element is unmounted. ProjectRail.tsx already uses removalFocusRef to handle this, but it is missing in SessionList.tsx.\", \"reproduction\": {\"actual\": \"Focus moves to document.body, requiring the user to restart navigation from the top.\", \"expected\": \"Focus should move to a relevant interactive element (e.g., the 'New Session' button or 'Search' input) rather than dropping to the document body.\", \"steps\": [\"Navigate to the SessionList using keyboard (tabbing).\", \"Focus on the delete button for a session.\", \"Activate the delete button (e.g. by pressing Enter or Space) to delete the session.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx"
+              ],
+              "acceptance": [
+                "Focus moves to a reasonable fallback element, like the new session button or the search box, when the currently focused session removal button is deleted."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T08:58:47.958583Z",
+    "last_poll_at": "2026-09-19T08:58:51.139358Z",
     "last_tick_at": "2026-09-19T08:52:40.910463Z",
     "run_id": "35433158756"
   }
