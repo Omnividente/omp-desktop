@@ -9584,7 +9584,7 @@
       "id": "discovery-b6311e702c67c32f",
       "title": "Disable the Select All button in CodexImportModal when there are no sessions",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "low",
       "focus": [
@@ -9617,6 +9617,12 @@
         "activity_created_at": "2026-09-19T06:10:46.528319Z",
         "session_id": "4209609758269226774",
         "dispatch_key": "1dac23b14aa52263659910ca"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T16:50:56Z",
+        "note": "Implemented and merged in https://github.com/Omnividente/omp-desktop/pull/77 at bbb66cfd927f0af0b18060424d621f05fec04ded. Codex Select All is disabled for empty/loading/importing lists. Full source CI and isolated native smoke passed."
       }
     },
     {
