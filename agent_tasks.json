@@ -8214,7 +8214,7 @@
       "id": "discovery-9327b83174e38ad4",
       "title": "Make transcript scrolling area focusable for keyboard navigation",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -8250,6 +8250,12 @@
         "activity_created_at": "2026-09-18T17:29:09.866067Z",
         "session_id": "15338912817987174318",
         "dispatch_key": "5d7225c77d7bb5f282d81fbe"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:42:43Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Make the transcript viewport reachable through modal Tab navigation and allow native arrow/PageUp/PageDown/Home/End scrolling."
       }
     },
     {
