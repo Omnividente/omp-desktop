@@ -9117,7 +9117,8 @@
             "session_id": "14957366543589173483",
             "dispatch_key": "fbc00ec70b5f6cb943464025"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-fbc00ec70b5f6cb943464025"
       },
       "research_result": {
         "summary": "Verified the lack of garbage collection for orphaned import artifacts and explored transcript parsing resilience.",
