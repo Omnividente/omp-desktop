@@ -13027,7 +13027,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T21:21:19.590064Z"
+        "observed_at": "2026-09-19T21:21:19.590064Z",
+        "released_attempt_ref": "autonomous/attempt-fc210a07308a9a473173e7f8"
       },
       "research_result": {
         "summary": "Investigated terminal input behavior when new input arrives while a switch recovery state is pending.",
