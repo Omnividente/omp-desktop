@@ -9959,12 +9959,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T07:38:05.855385Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T07:38:26.565595Z",
+    "last_poll_at": "2026-09-19T07:39:41.272640Z",
     "last_tick_at": "2026-09-19T07:27:09.088745Z",
     "run_id": "35429340454"
   }
