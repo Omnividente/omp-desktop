@@ -12075,7 +12075,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T11:58:05.893598Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-209d80b319249365bfc97c55"
       },
       "research_result": {
         "summary": "Investigated incident count expiration and potential memory leaks under heavy continuous ingestion of distinct incidents. Verified that the incident queue is strictly bounded without relying on internal timeouts, and continuous overflow efficiently garbage collects without leaking memory.",
