@@ -13242,12 +13242,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T21:21:19.590064Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T21:21:38.864214Z",
+    "last_poll_at": "2026-09-19T21:23:07.606558Z",
     "last_tick_at": "2026-09-19T21:15:35.976696Z",
     "run_id": "35469841783"
   }
