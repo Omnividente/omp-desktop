@@ -5644,7 +5644,7 @@
       "id": "discovery-a6a63bbab9e7a7e3",
       "title": "Fix race condition during concurrent single-instance workspace switching",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -5679,6 +5679,12 @@
         "activity_created_at": "2026-09-18T08:21:52.556093Z",
         "session_id": "16270267467681226289",
         "dispatch_key": "c0e81ac453a4912f3365302a"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:40:33Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Latest explicit workspace navigation wins over stale async responses; earlier added workspaces are retained."
       }
     },
     {
