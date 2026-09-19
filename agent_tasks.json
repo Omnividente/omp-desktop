@@ -12260,7 +12260,7 @@
       "id": "research-transcript-links-behavior-3",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -12365,6 +12365,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "aa8b18708ab0b9014f5dae59",
+        "base_sha": "332e4c8da7b9b89201c43ce4237937238bdee32a",
+        "starting_branch": "autonomous/attempt-aa8b18708ab0b9014f5dae59",
+        "started_at": "2026-09-19T15:22:03.568334Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
