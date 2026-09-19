@@ -5,25 +5,31 @@
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-78c850)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db)
 
+Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi) — projects, sessions, and OMP terminals on Windows and Linux.
+
 **[Русский](#русский) · [English](#english)**
 
 ## Русский
 
-**OMP Desktop** — кроссплатформенный графический клиент для [Oh My Pi](https://github.com/can1357/oh-my-pi). Он объединяет проекты, историю сессий и живые терминалы OMP в одном нативном приложении для Windows и Linux.
+**OMP Desktop** — независимый open-source графический клиент для [Oh My Pi](https://github.com/can1357/oh-my-pi). Он объединяет управление проектами и сессиями, историю переписки и живые OMP-терминалы в одном нативном приложении для Windows и Linux.
 
-![OMP Desktop interface](docs/omp-desktop.png)
+Для тех, кому нужен графический доступ к проектам и настройкам с сохранением привычного OMP: живая беседа идёт через встроенный терминальный интерфейс OMP (TUI), а не отдельный графический чат. Это локальное настольное приложение, не веб-клиент или размещённый в облаке сервис; OMP устанавливается отдельно.
 
-**[Установка](#установка) · [Последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+**[Установка](#установка) · [Последний стабильный релиз](https://github.com/Omnividente/omp-desktop/releases/latest)**
 
-> **Community client:** OMP Desktop — независимый проект сообщества, не входящий в официальную поставку OMP. [Обсуждение проекта в upstream Oh My Pi →](https://github.com/can1357/oh-my-pi/issues/12456)
+![OMP Desktop: project sidebar, session history, and workspace overview](docs/omp-desktop.png)
 
-### Возможности
+> **Независимый клиент:** проект не входит в официальную поставку OMP. Поддержка Desktop ведётся в этом репозитории; публикация в upstream не означает одобрения со стороны OMP. [Обсуждение интеграции →](https://github.com/can1357/oh-my-pi/issues/12456)
 
-- **Проекты и сессии:** недавние рабочие папки, поиск, возобновление и цепочки handoff.
-- **Нативные терминалы:** параллельные PTY-вкладки, изменение размера, прерывание и завершение процессов.
-- **Настройки и провайдеры:** параметры OMP, модели, аккаунты и лимиты, фиксация провайдера для сессии.
-- **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки с явными ограничениями чтения, предупреждения и монитор ресурсов.
+### Основные возможности
+
+- **Проекты и сессии:** рабочие папки, поиск, возобновление и цепочки handoff.
+- **Нативные PTY-терминалы:** параллельные вкладки, изменение размера, прерывание и завершение процессов.
+- **Конфигурация и провайдеры:** настройки OMP, модели, аккаунты, лимиты и фиксация провайдера для сессии.
+- **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки, предупреждения и монитор ресурсов.
 - **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
+
+> Подробное поведение ниже описывает ветку `main`, которая может опережать стабильную сборку. Для установленной версии используйте [описание соответствующего релиза](https://github.com/Omnividente/omp-desktop/releases). Изменения, принятые после **v0.9.4**, войдут в будущий релиз.
 
 <details>
 <summary>Подробные возможности, ограничения и поведение</summary>
@@ -62,9 +68,9 @@
 
 ### Установка
 
-1. Установите и настройте OMP для текущего пользователя.
+1. [Установите и настройте Oh My Pi](https://github.com/can1357/oh-my-pi#install) для текущего пользователя. Desktop не включает OMP runtime или подписку на API-провайдера.
 2. Откройте [последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
-3. Выберите пакет:
+3. Выберите пакет для **x86-64**:
    - Windows: `OMP.Desktop_*_x64-setup.exe` или `.msi`.
    - Linux: AppImage, DEB или RPM.
 
@@ -89,21 +95,31 @@ sudo dnf install ./OMP.Desktop-*.x86_64.rpm
 sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
+### Поддержка и обратная связь
+
+- [Ошибки и предложения Desktop](https://github.com/Omnividente/omp-desktop/issues) — укажите версии Desktop/OMP, ОС и шаги воспроизведения.
+- [Вопросы и обсуждения](https://github.com/Omnividente/omp-desktop/discussions) · [Как внести вклад](CONTRIBUTING.md).
+- [Уязвимости сообщайте приватно](SECURITY.md). Перед публикацией логов и снимков удаляйте ключи, личные пути и содержимое приватных сессий.
+
 ## English
 
-**OMP Desktop** is a cross-platform graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings projects, session history, and live OMP terminals into one native desktop application for Windows and Linux.
+**OMP Desktop** is an independent open-source graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings project and session management, transcript history, and live OMP terminals into one native application for Windows and Linux.
 
-**[Installation](#installation) · [Latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+For users who want graphical project and settings controls while retaining the OMP workflow: live conversations still use OMP's embedded terminal interface (TUI), not a separate graphical chat. This is a local desktop application, not a browser client or hosted service; OMP is installed separately.
 
-> **Community client:** OMP Desktop is an independent community project and is not part of the official OMP distribution. [Upstream Oh My Pi discussion →](https://github.com/can1357/oh-my-pi/issues/12456)
+**[Installation](#installation) · [Latest stable release](https://github.com/Omnividente/omp-desktop/releases/latest)**
 
-### Features
+> **Independent client:** not part of the official OMP distribution. Desktop support belongs in this repository; the upstream post does not imply endorsement by OMP. [Integration discussion →](https://github.com/can1357/oh-my-pi/issues/12456)
 
-- **Projects and sessions:** recent workspaces, search, resume, and handoff lineage.
-- **Native terminals:** concurrent PTY tabs, resizing, interruption, and process cleanup.
-- **Configuration and providers:** OMP settings, models, accounts and limits, and per-session provider pinning.
-- **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search with explicit read limits, warnings, and resource monitoring.
+### Core features
+
+- **Projects and sessions:** workspaces, search, resume, and handoff lineage.
+- **Native PTY terminals:** concurrent tabs, resizing, interruption, and process cleanup.
+- **Configuration and providers:** OMP settings, models, accounts, limits, and per-session provider pinning.
+- **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search, warnings, and resource monitoring.
 - **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.
+
+> The detailed behavior below describes `main`, which may be ahead of the stable build. For an installed version, see its [release notes](https://github.com/Omnividente/omp-desktop/releases). Changes merged after **v0.9.4** will be included in a future release.
 
 <details>
 <summary>Detailed features, limitations, and behavior</summary>
@@ -142,9 +158,9 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 
 ### Installation
 
-1. Install and configure OMP for the current OS user.
+1. [Install and configure Oh My Pi](https://github.com/can1357/oh-my-pi#install) for the current OS user. Desktop does not bundle the OMP runtime or a model-provider subscription.
 2. Open the [latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest).
-3. Choose a package:
+3. Choose an **x86-64** package:
    - Windows: `OMP.Desktop_*_x64-setup.exe` or `.msi`.
    - Linux: AppImage (`.AppImage`), Debian/Ubuntu (`.deb`), or Fedora/RHEL/OpenSUSE (`.rpm`).
 
@@ -165,7 +181,15 @@ Fedora/RHEL/OpenSUSE (`.rpm`):
 
 ```bash
 sudo dnf install ./OMP.Desktop-*.x86_64.rpm
+# or on OpenSUSE:
+sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
+
+### Support and feedback
+
+- [Desktop bugs and feature requests](https://github.com/Omnividente/omp-desktop/issues): include Desktop/OMP versions, OS, and reproduction steps.
+- [Questions and discussions](https://github.com/Omnividente/omp-desktop/discussions) · [Contributing](CONTRIBUTING.md).
+- [Report vulnerabilities privately](SECURITY.md). Redact credentials, personal paths, and private session content before posting logs or screenshots.
 
 ## Development
 
@@ -215,9 +239,10 @@ npm run tauri build
 
 ## Privacy and security
 
-OMP Desktop stores local application preferences and provider-key names in `settings.json`. Provider credential values are stored in the operating-system credential store; when that store is unavailable, the app uses a fallback in the per-user application directory (`0600` on Unix, inherited per-user ACLs on Windows) and shows a warning. Import copies the selected JSONL session and a bounded tree of regular artifact files into the configured local OMP session root; links and special files are rejected. OMP Desktop does not upload session files; authentication and model traffic remain inside the OMP process. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
-
-This is an independent community desktop client and is not part of the OMP CLI distribution.
+- **Local data:** Desktop preferences and provider-key names are stored in `settings.json`. Import copies selected JSONL sessions and bounded regular-file artifact trees into the local OMP session root; links and special files are rejected.
+- **Provider credentials added through Desktop:** values use the OS credential store when available. If it is unavailable, Desktop shows a warning and uses a per-user JSON fallback file with restricted filesystem permissions. That fallback is not an encrypted credential store. Secret values are not returned in settings snapshots.
+- **Network boundary:** Desktop invokes the installed OMP process for models, usage, and live agent sessions. OMP may send prompts, context, and credentials to configured remote providers and use networked tools; a local Desktop window does not mean offline inference. Desktop has no hosted session service. Its updater contacts GitHub for update metadata and packages.
+- **Publishing:** do not include credentials, private transcripts, local state, or personal paths in issues and screenshots. See the [security reporting policy](SECURITY.md).
 
 ## License
 
