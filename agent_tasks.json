@@ -10709,7 +10709,7 @@
       "id": "research-settings-models-reliability-3",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -10828,18 +10828,90 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14652938070404919376",
         "dispatch_key": "2aa58ae48cd129f68e20b500",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-2aa58ae48cd129f68e20b500",
         "started_at": "2026-09-19T09:17:59.757831Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T09:44:01.614510Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T09:25:18.897362Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T09:44:01.614510Z"
+      },
+      "research_result": {
+        "summary": "Investigated if reverting to default settings in SettingsRecoveryScreen preserves the user's language preference.",
+        "observations": [
+          {
+            "scenario": "A synthetic test exercising backend's `prepare_defaults_at_with` when reverting a settings.json file configured with a non-default language (e.g. `\"language\": \"en\"`).",
+            "evidence": "Observed via `cargo test` using a dedicated unit test executing `start_with_defaults_at_with` on a populated synthetic settings JSON with `language: \"en\"`. The test confirmed the returned `AppSettings` has its language reset to `ru` instead of being preserved.",
+            "result": "Establishes that the backend `prepare_defaults_at_with` (invoked by `startWithDefaults`) resets all preferences including application language to their defaults by calling `AppSettings::default()`. The language property is not extracted or preserved from the backup of the original file, causing the UI to unexpectedly switch to Russian for English users after recovery."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if proxy and provider environment variables are safely removed from the corrupted backup file, ensuring no secret exposure."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T09:44:01.614510Z",
+        "source": {
+          "activity_id": "sessions/14652938070404919376/activities/773b7bac93474cc89fd82fb49d624b94",
+          "report_sha256": "6bad39f97253a2e33c8f7a3df47b461fee2d89779882eb88e6648c473131a788",
+          "activity_created_at": "2026-09-19T09:31:50.704100Z",
+          "session_id": "14652938070404919376",
+          "dispatch_key": "2aa58ae48cd129f68e20b500"
+        },
+        "deferred_findings": [
+          {
+            "title": "Preserve application language preference when reverting to default settings",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-db32c1ac35bd4222; not established as a duplicate. {\"detail\": \"Observed in the native backend via a synthetic Rust test calling `start_with_defaults_at_with` over an existing `settings.json` file configured with `language: \\\"en\\\"`.\", \"reproduction\": {\"actual\": \"The generated default settings file has `language` reset to `ru`, because `AppSettings::default()` is used without attempting to recover the language field.\", \"expected\": \"The generated default settings file has `language` set to `en`.\", \"steps\": [\"Create a `settings.json` file containing `{\\\"language\\\": \\\"en\\\", \\\"ompExecutable\\\": \\\"/invalid\\\"}`.\", \"Invoke `start_with_defaults` simulating the user choosing to start with default settings.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src-tauri/src/settings.rs"
+            ],
+            "acceptance": [
+              "When the user selects \"Start with defaults\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14652938070404919376/activities/773b7bac93474cc89fd82fb49d624b94",
+          "report_sha256": "6bad39f97253a2e33c8f7a3df47b461fee2d89779882eb88e6648c473131a788",
+          "activity_created_at": "2026-09-19T09:31:50.704100Z",
+          "session_id": "14652938070404919376",
+          "dispatch_key": "2aa58ae48cd129f68e20b500"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-a674fea024868caf",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-db32c1ac35bd4222"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Preserve application language preference when reverting to default settings",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-db32c1ac35bd4222; not established as a duplicate. {\"detail\": \"Observed in the native backend via a synthetic Rust test calling `start_with_defaults_at_with` over an existing `settings.json` file configured with `language: \\\"en\\\"`.\", \"reproduction\": {\"actual\": \"The generated default settings file has `language` reset to `ru`, because `AppSettings::default()` is used without attempting to recover the language field.\", \"expected\": \"The generated default settings file has `language` set to `en`.\", \"steps\": [\"Create a `settings.json` file containing `{\\\"language\\\": \\\"en\\\", \\\"ompExecutable\\\": \\\"/invalid\\\"}`.\", \"Invoke `start_with_defaults` simulating the user choosing to start with default settings.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src-tauri/src/settings.rs"
+              ],
+              "acceptance": [
+                "When the user selects \"Start with defaults\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     },
     {
@@ -10884,7 +10956,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T09:44:17.465537Z",
+    "last_poll_at": "2026-09-19T09:44:20.041819Z",
     "last_tick_at": "2026-09-19T09:38:19.185175Z",
     "run_id": "35435215291"
   }
