@@ -9131,6 +9131,120 @@
           }
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-3",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-19T05:09:39Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-e938ec8d92054623\",\"status\":\"proposed\",\"title\":\"Clean up orphaned backup and staging artifact directories during session scan\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"If a crash happens during session import, staging and backup sidecar directories are left forever in the sessions directory, consuming storage.\",\"expected\":\"Orphaned backup directories from the interrupted import are detected and garbage collected.\",\"actual\":\"Orphaned backup directories remain permanently in the session directory.\",\"acceptance\":[\"Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions\"]}},{\"canonical_id\":\"discovery-2e80f2798c364331\",\"status\":\"proposed\",\"title\":\"Add Escape key support to close import modals\",\"target_paths\":[\"src/CodexImportModal.tsx\",\"src/ImportSessionModal.tsx\"],\"observed_contract\":{\"detail\":\"Investigation using source code inspection and synthetic React testing. The Escape key behavior was exercised.\",\"expected\":\"The open modal should close.\",\"actual\":\"The modal remains open and ignores the key press.\",\"acceptance\":[\"Pressing the Escape key while the Codex or OMP import modal is open triggers the onClose handler.\"]}},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"proposed\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]}},{\"canonical_id\":\"discovery-efae45ef6cb2274b\",\"status\":\"proposed\",\"title\":\"Implement focus trap for session import modals\",\"target_paths\":[\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating focus handling in a jsdom environment. Elements behind the modal remain focusable via Tab.\",\"expected\":\"Focus stays inside the modal and cycles through the modal's interactive elements.\",\"actual\":\"Focus escapes the modal and moves to background elements (e.g., search bar or session list).\",\"acceptance\":[\"When the import modal is open, pressing Tab repeatedly cycles focus within the modal only.\"]}},{\"canonical_id\":\"discovery-9881e0c7ffe77346\",\"status\":\"proposed\",\"title\":\"Implement caching for list_codex_sessions\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that `list_codex_sessions` took ~440ms for both cold and warm scans on 10,000 synthetic files, missing the caching logic used by `scan_sessions`.\",\"expected\":\"The second call is significantly faster (a fraction of the first call's time) due to caching.\",\"actual\":\"The second call takes roughly the same amount of time as the first call, parsing every file again.\",\"acceptance\":[\"list_codex_sessions avoids re-parsing unchanged files across subsequent calls\",\"Repeated calls to list_codex_sessions run significantly faster than the first call for the same file state\"]}},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"proposed\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]}},{\"canonical_id\":\"discovery-c521e33229cbbb32\",\"status\":\"done\",\"title\":\"Implement useModalFocus hook and apply to ImportSessionModal and CodexImportModal\",\"target_paths\":[\"src/hooks/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Native desktop observation via synthetic components in vitest. Identified that modals lack a focus trap, allowing keyboard users to tab out of the modal, and lack focus restoration after closure. Tested via a prototype useModalFocus hook which verified these accessibility flaws could be resolved.\",\"expected\":\"Focus stays trapped inside the modal while open, and focus is restored to the previous element after it is closed via Escape.\",\"actual\":\"Focus moves outside the modal and can land on background elements. Pressing Escape closes the modal, but focus drops to the document body rather than being restored.\",\"acceptance\":[\"The useModalFocus hook effectively traps focus within a modal, handles Escape and Tab keys, and restores previous focus upon close.\",\"The useModalFocus hook is correctly applied to ImportSessionModal.\",\"The useModalFocus hook is correctly applied to CodexImportModal.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "e1e7f7e7905862afbf549caa3df17d0168a901e739b030ae11c0bbb92aacf219",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Investigated modal accessibility issues related to missing focus traps, focus restoration, and Escape key handling in ImportSessionModal, CodexImportModal, SettingsPanel, and TranscriptModal.",
+            "observations": [
+              {
+                "scenario": "Modal close and focus restoration via 'useModalFocus' hook",
+                "evidence": "Locally prototyped a new React hook 'useModalFocus' to trap focus within modals and handle 'Escape' and 'Tab' keys. Wrote synthetic vitest scripts to test focus trapping and 'Escape' functionality against patched instances of 'ImportSessionModal' and 'CodexImportModal'. Tests demonstrated the focus is successfully trapped, 'Escape' accurately triggers the 'onClose' callback, and previous focus is restored.",
+                "result": "Established that a generalized focus management hook is a viable approach to resolve the lack of focus traps and keyboard accessibility issues across all the application's modals."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if implementing focus restoration to the specific trigger button (rather than previous active element) improves accessibility context in edge cases where the previous element is removed from the DOM."
+            ],
+            "proposed_task_ids": [
+              "discovery-ecab55df9b8166cc"
+            ],
+            "completed_at": "2026-09-18T04:43:10Z",
+            "source": {
+              "activity_id": "sessions/17223006827719095491/activities/71821155b1cb4f99839331ef68418569",
+              "report_sha256": "fa17fdc27c7ca655f846d14eef3422a1b054cf9d21b19134d442efd2887eb3c3",
+              "activity_created_at": "2026-09-18T00:52:19Z",
+              "session_id": "17223006827719095491",
+              "dispatch_key": "70d05528915dd26b45dffb10"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Observation of missing focus trap and lack of focus restoration for the session import modals (ImportSessionModal and CodexImportModal).",
+            "observations": [
+              {
+                "scenario": "Tab and focus movement inside ImportSessionModal and CodexImportModal.",
+                "evidence": "A synthetic Vitest test simulating tabbing and external focus showed that background elements (outside the modal) remain accessible and focus is not trapped inside the modal.",
+                "result": "Establishes that the modals lack a focus trap, meaning keyboard users can tab out of the modal into background elements, degrading accessibility."
+              },
+              {
+                "scenario": "Modal close and focus restoration via 'useModalFocus' hook",
+                "evidence": "Locally prototyped a new React hook 'useModalFocus' to trap focus within modals and handle 'Escape' and 'Tab' keys. Wrote synthetic vitest scripts to test focus trapping and 'Escape' functionality. Tests demonstrated the focus is successfully trapped, 'Escape' accurately triggers the 'onClose' callback, and previous focus is restored.",
+                "result": "Established that a generalized focus management hook is a viable approach to resolve the lack of focus traps and keyboard accessibility issues across all the application's modals."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if implementing focus restoration to the specific trigger button (rather than previous active element) improves accessibility context in edge cases where the previous element is removed from the DOM."
+            ],
+            "proposed_task_ids": [
+              "discovery-c521e33229cbbb32"
+            ],
+            "completed_at": "2026-09-18T05:58:44Z",
+            "source": {
+              "activity_id": "sessions/8396612518833497733/activities/277a1a5c42b54abb8676a13e93939aa9",
+              "report_sha256": "be0217b44943195fddf5542e76c7e726548822bdb83e54db3d3649ec1b0e64ed",
+              "activity_created_at": "2026-09-18T04:59:44Z",
+              "session_id": "8396612518833497733",
+              "dispatch_key": "9d5afefbe9e97fae0bd017a1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Confirmed that orphaned backup and staging artifact directories are left on disk after an interrupted session import and are not garbage collected.",
+            "observations": [
+              {
+                "scenario": "Scanning a directory containing orphaned '.artifacts-backup' and '.artifacts-stage' directories",
+                "evidence": "Wrote an isolated synthetic unit test `scan_sessions_garbage_collects_orphaned_import_sidecars` in `src-tauri/src/sessions.rs`. The test created mock `.session.artifacts-backup.123.456` and `.session.artifacts-stage.123.456` directories inside the project folder, then called `scan_sessions`. The test failed, proving the directories were not removed during the scan. Source inspection of `collect_jsonl_files` confirms that although it correctly filters out `is_import_sidecar` entries from the scanned files, it does not delete them.",
+                "result": "Establishes that orphaned import sidecar directories remain permanently in the session directory if an import crashes or is interrupted before completion, consuming storage indefinitely. This reproduces the identical observed contract already reported in canonical_id discovery-e938ec8d92054623."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `read_session_transcript` incorrectly filters or handles malformed messages inside valid session files.",
+              "Investigate whether the `CodexImportModal` handles out-of-bounds or non-existent codex root directories correctly."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T01:37:35.476018Z",
+            "source": {
+              "activity_id": "sessions/3334810322506368660/activities/eb9765ac84f04f7fa040244315a1a74d",
+              "report_sha256": "76e26f76795b0142137a7d4e8dab6237223cda4f402c0b2d225841a152035532",
+              "activity_created_at": "2026-09-19T01:28:15.574395Z",
+              "session_id": "3334810322506368660",
+              "dispatch_key": "73d626479bd40c8ff3e6f421"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
