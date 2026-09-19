@@ -10784,12 +10784,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-19T09:17:59.757831Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T09:18:23.678334Z",
+    "last_poll_at": "2026-09-19T09:19:38.982512Z",
     "last_tick_at": "2026-09-19T09:12:14.293505Z",
     "run_id": "35434028371"
   }
