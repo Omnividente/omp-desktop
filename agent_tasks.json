@@ -11091,7 +11091,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T09:58:05.463756Z"
+        "observed_at": "2026-09-19T09:58:05.463756Z",
+        "released_attempt_ref": "autonomous/attempt-67603585a2186306c4a83552"
       },
       "research_result": {
         "summary": "Investigated responsiveness and resource use of ModelPicker filtering and sorting with large model lists.",
