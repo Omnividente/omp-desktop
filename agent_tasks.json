@@ -12791,13 +12791,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T17:03:49.665118Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T17:10:58.750834Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T17:05:09.603031Z",
+    "last_poll_at": "2026-09-19T17:11:17.230736Z",
     "last_tick_at": "2026-09-19T17:05:11.895694Z",
     "run_id": "35456892455"
   }
