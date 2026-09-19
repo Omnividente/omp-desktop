@@ -8929,13 +8929,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T00:36:07.316642Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-19T00:54:19.527005Z",
+        "research_detached": {
+          "at": "2026-09-19T00:54:19.527005Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T00:54:34.844683Z",
+    "last_poll_at": "2026-09-19T00:54:37.076100Z",
     "last_tick_at": "2026-09-19T00:48:37.172293Z",
     "run_id": "35410575325"
   }
