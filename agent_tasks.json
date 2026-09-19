@@ -9104,8 +9104,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T05:09:39.896916Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T05:17:16.484206Z",
         "report_error": {
           "code": "findings_invalid",
           "detail": "incomplete discovery findings; nothing imported: conflicting_id",
@@ -9263,7 +9263,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:17:35.593538Z",
+    "last_poll_at": "2026-09-19T05:17:38.656578Z",
     "last_tick_at": "2026-09-19T05:11:34.436090Z",
     "run_id": "35423199628"
   }
