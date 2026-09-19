@@ -12800,7 +12800,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T17:23:01.935974Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b8ba31b176bb458349c1f4ee"
       },
       "research_result": {
         "summary": "Verified keyboard-triggered context menu placement on links and accessibility of empty transcripts.",
