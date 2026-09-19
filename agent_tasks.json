@@ -13468,7 +13468,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T22:28:45.918242Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-c8e01b9aea48439ff236c69c"
       },
       "research_result": {
         "summary": "Investigated xterm.js performance with massive complex ANSI attachments and terminal tab switching behavior during a primary provider pin.",
