@@ -4806,7 +4806,7 @@
       "id": "discovery-ecab55df9b8166cc",
       "title": "Fix focus trapping and Escape key accessibility in Application Modals",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 75,
       "risk": "low",
       "focus": [
@@ -4847,6 +4847,12 @@
         "activity_created_at": "2026-09-18T00:52:19Z",
         "session_id": "17223006827719095491",
         "dispatch_key": "70d05528915dd26b45dffb10"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:41:32Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Settings, transcript and both import modals share the corrected modal focus lifecycle; inner context-menu Escape wins."
       }
     },
     {
