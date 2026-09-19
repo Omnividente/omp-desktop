@@ -9396,7 +9396,7 @@
       "id": "research-sessions-persistence-ux-3",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -9504,23 +9504,108 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4209609758269226774",
         "dispatch_key": "1dac23b14aa52263659910ca",
         "base_sha": "996ad3356bd6e57dfc4679cf7d23745f849304d1",
         "starting_branch": "autonomous/attempt-1dac23b14aa52263659910ca",
         "started_at": "2026-09-19T05:59:33.612721Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T06:19:50.714224Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T06:06:48.207110Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T06:19:50.714224Z"
+      },
+      "research_result": {
+        "summary": "Investigated the clarity and accessibility of session import empty/error states and found the 'Select all' button in CodexImportModal stays enabled even when there are no sessions to select.",
+        "observations": [
+          {
+            "scenario": "Rendering CodexImportModal with an empty sessions array when no codex sessions are found.",
+            "evidence": "Wrote an isolated synthetic test `CodexImportModal select all behavior` that renders the modal with `sessions={[]}`. Observed that the 'Select all' button lacks a `disabled` condition covering the empty state and remains interactive, despite having no actionable consequence.",
+            "result": "Establishes that the empty state allows a confusing user interaction."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `ImportSessionModal` provides clear user feedback when importing an invalid or unsupported file format."
+        ],
+        "proposed_task_ids": [
+          "discovery-b6311e702c67c32f"
+        ],
+        "completed_at": "2026-09-19T06:19:50.714224Z",
+        "source": {
+          "activity_id": "sessions/4209609758269226774/activities/841bff621f8b4b51a2e9b6595b6dca8f",
+          "report_sha256": "8b3564dd314ea670a47945922b5a520c5c0c9bc74a91e55e13a6992ad00eb4c8",
+          "activity_created_at": "2026-09-19T06:10:46.528319Z",
+          "session_id": "4209609758269226774",
+          "dispatch_key": "1dac23b14aa52263659910ca"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4209609758269226774/activities/841bff621f8b4b51a2e9b6595b6dca8f",
+          "report_sha256": "8b3564dd314ea670a47945922b5a520c5c0c9bc74a91e55e13a6992ad00eb4c8",
+          "activity_created_at": "2026-09-19T06:10:46.528319Z",
+          "session_id": "4209609758269226774",
+          "dispatch_key": "1dac23b14aa52263659910ca"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b6311e702c67c32f"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b6311e702c67c32f",
+      "title": "Disable the Select All button in CodexImportModal when there are no sessions",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-19T06:19:50.714224Z",
+      "acceptance": [
+        "The 'Select all' button in CodexImportModal is disabled when the sessions array is empty."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native desktop UI component tested via synthetic Vitest rendering in jsdom environment.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render CodexImportModal with an empty sessions array",
+            "Inspect the 'Select all' button's disabled attribute"
+          ],
+          "expected": "The button is disabled",
+          "actual": "The button remains enabled"
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-3",
+        "activity_id": "sessions/4209609758269226774/activities/841bff621f8b4b51a2e9b6595b6dca8f",
+        "report_sha256": "8b3564dd314ea670a47945922b5a520c5c0c9bc74a91e55e13a6992ad00eb4c8",
+        "activity_created_at": "2026-09-19T06:10:46.528319Z",
+        "session_id": "4209609758269226774",
+        "dispatch_key": "1dac23b14aa52263659910ca"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T06:20:12.275563Z",
+    "last_poll_at": "2026-09-19T06:20:15.432184Z",
     "last_tick_at": "2026-09-19T06:14:02.642922Z",
     "run_id": "35426000812"
   }
