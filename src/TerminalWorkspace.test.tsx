@@ -82,6 +82,7 @@ function Harness() {
       onFocusTab={vi.fn()}
       onLaunch={vi.fn()}
       onOpenFolder={vi.fn()}
+      onReadTranscript={vi.fn()}
       onReady={vi.fn()}
       onReorderTabs={(draggedId, targetId) =>
         setTabs((current) => reorderTerminalTabs(current, draggedId, targetId))

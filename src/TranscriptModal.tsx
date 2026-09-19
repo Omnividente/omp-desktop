@@ -5,7 +5,8 @@ import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { useVirtualList } from "./useVirtualList"
-import { LinkedText, linkedTextContent, type TextMatch } from "./LinkedText"
+import { MarkdownContent, markdownContent, type TextMatch } from "./MarkdownContent"
+import { CopyButton } from "./CopyButton"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
 import { useModalFocus } from "./useModalFocus"
@@ -18,6 +19,7 @@ interface TranscriptModalProps {
   transcriptError: string | null
   transcriptSearch: string
   transcriptMode: "dialogue" | "all"
+  initialPosition?: "start" | "end"
   launching: string | null
   runtimeAvailable: boolean
   visibleEntries: Array<SessionTranscript["entries"][number]>
@@ -37,6 +39,7 @@ interface ReadingPosition {
   index: number
   offset: number
   mode: TranscriptModalProps["transcriptMode"]
+  sourceMode: boolean
 }
 
 // UI-only, process-local LRU: never retain transcript contents or write session files.
@@ -59,6 +62,7 @@ export function TranscriptModal({
   transcriptError,
   transcriptSearch,
   transcriptMode,
+  initialPosition = "start",
   launching,
   runtimeAvailable,
   visibleEntries,
@@ -74,6 +78,8 @@ export function TranscriptModal({
   const panelRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const handleModalKeyDown = useModalFocus(panelRef, onClose)
+  const [sourceMode, setSourceMode] = useState(false)
+  const [latestRequest, setLatestRequest] = useState(0)
   const [menu, setMenu] = useState<{
     left: number
     top: number
@@ -92,8 +98,8 @@ export function TranscriptModal({
   )
 
   const virtualLayoutKey = useMemo(
-    () => ({ lang, transcript, transcriptMode }),
-    [lang, transcript, transcriptMode],
+    () => ({ lang, transcript, transcriptMode, sourceMode }),
+    [lang, transcript, transcriptMode, sourceMode],
   )
   const { measureElement, virtualItems, totalHeight, scrollToIndex } = useVirtualList(
     visibleEntries,
@@ -108,27 +114,52 @@ export function TranscriptModal({
   )
 
   const pendingRestoreRef = useRef<ReadingPosition | null>(null)
+  const pendingLatestRef = useRef(false)
   const readingContextRef = useRef<{
     path: string
     mode: TranscriptModalProps["transcriptMode"]
     search: string
+    latestRequest: number
   } | null>(null)
   useLayoutEffect(() => {
     const previous = readingContextRef.current
     if (previous?.path !== transcriptSession.filePath) {
-      pendingRestoreRef.current = transcriptSearch
-        ? null
-        : (readingPositions.get(transcriptSession.filePath) ?? null)
+      pendingLatestRef.current = initialPosition === "end"
+      pendingRestoreRef.current =
+        transcriptSearch || pendingLatestRef.current
+          ? null
+          : (readingPositions.get(transcriptSession.filePath) ?? null)
+    } else if (previous.latestRequest !== latestRequest) {
+      pendingRestoreRef.current = null
+      pendingLatestRef.current = true
     } else if (previous.mode !== transcriptMode || previous.search !== transcriptSearch) {
       // Explicit filtering/find navigation always wins over an unfinished restore.
       pendingRestoreRef.current = null
+      pendingLatestRef.current = false
     }
     readingContextRef.current = {
       path: transcriptSession.filePath,
       mode: transcriptMode,
       search: transcriptSearch,
+      latestRequest,
     }
-  }, [transcriptSession.filePath, transcriptMode, transcriptSearch])
+  }, [transcriptSession.filePath, transcriptMode, transcriptSearch, initialPosition, latestRequest])
+
+  useLayoutEffect(() => {
+    if (
+      !pendingLatestRef.current ||
+      transcriptLoading ||
+      transcriptError ||
+      transcript?.session.filePath !== transcriptSession.filePath
+    )
+      return
+    const index = visibleEntries.length - 1
+    pendingRestoreRef.current =
+      index >= 0
+        ? { entryId: visibleEntries[index].id, index, offset: 0, mode: transcriptMode, sourceMode }
+        : null
+    pendingLatestRef.current = false
+  })
 
   const rememberPosition = useCallback(() => {
     const scroll = scrollRef.current
@@ -152,6 +183,7 @@ export function TranscriptModal({
         index,
         offset: bounds.top - rowBounds.top,
         mode: transcriptMode,
+        sourceMode,
       })
       return
     }
@@ -160,6 +192,7 @@ export function TranscriptModal({
     transcriptError,
     transcriptLoading,
     transcriptMode,
+    sourceMode,
     transcriptSession.filePath,
     visibleEntries,
   ])
@@ -168,9 +201,12 @@ export function TranscriptModal({
   const contents = useMemo(
     () =>
       visibleEntries.map((entry) =>
-        linkedTextContent((transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? ""),
+        markdownContent(
+          (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? "",
+          sourceMode,
+        ),
       ),
-    [visibleEntries, transcriptMode],
+    [visibleEntries, transcriptMode, sourceMode],
   )
   const search = useMemo(() => {
     const byEntry: TextMatch[][] = contents.map(() => [])
@@ -265,7 +301,7 @@ export function TranscriptModal({
     }
     const rowBounds = row.getBoundingClientRect()
     const offset =
-      saved.mode === transcriptMode && anchorIndex >= 0
+      saved.mode === transcriptMode && saved.sourceMode === sourceMode && anchorIndex >= 0
         ? Math.min(saved.offset, Math.max(0, rowBounds.height - 1))
         : 0
     const top = scroll.scrollTop + rowBounds.top - scroll.getBoundingClientRect().top + offset
@@ -296,6 +332,26 @@ export function TranscriptModal({
     if (menu?.text === undefined) return
     void writeText(menu.text).catch((error) => onError(errorMessage(error, lang)))
     dismissMenu(true)
+  }
+  const preservePosition = () => {
+    rememberPosition()
+    pendingRestoreRef.current = transcriptSearch
+      ? null
+      : (readingPositions.get(transcriptSession.filePath) ?? null)
+  }
+  const showLatest = () => {
+    onClearSearch()
+    pendingMatchRef.current = null
+    setLatestRequest((value) => value + 1)
+  }
+  const changeAppearance = (nextSourceMode: boolean) => {
+    if (sourceMode === nextSourceMode) return
+    preservePosition()
+    setSourceMode(nextSourceMode)
+  }
+  const refresh = () => {
+    preservePosition()
+    onRefresh()
   }
 
   return (
@@ -344,7 +400,7 @@ export function TranscriptModal({
             <button
               className={`icon-button${transcriptLoading ? " is-spinning" : ""}`}
               disabled={transcriptLoading}
-              onClick={onRefresh}
+              onClick={refresh}
               title={t(lang, "transcriptRefresh")}
               type="button"
             >
@@ -462,6 +518,37 @@ export function TranscriptModal({
                 {t(lang, "transcriptWithService")}
               </button>
             </div>
+            <div
+              aria-label={t(lang, "transcriptAppearance")}
+              className="transcript-filter"
+              role="group"
+            >
+              <button
+                type="button"
+                aria-pressed={!sourceMode}
+                className={!sourceMode ? "is-active" : undefined}
+                onClick={() => changeAppearance(false)}
+              >
+                {t(lang, "transcriptRendered")}
+              </button>
+              <button
+                type="button"
+                aria-pressed={sourceMode}
+                className={sourceMode ? "is-active" : undefined}
+                onClick={() => changeAppearance(true)}
+              >
+                {t(lang, "transcriptSource")}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="button secondary transcript-latest-button"
+              aria-label={t(lang, "transcriptLatest")}
+              disabled={visibleEntries.length === 0}
+              onClick={showLatest}
+            >
+              ↓ {t(lang, "transcriptLatest")}
+            </button>
           </div>
         )}
 
@@ -513,7 +600,7 @@ export function TranscriptModal({
               <Icon name="alert" size={22} />
               <strong>{t(lang, "transcriptError")}</strong>
               <span>{transcriptError}</span>
-              <button className="button secondary" onClick={onRefresh} type="button">
+              <button className="button secondary" onClick={refresh} type="button">
                 <Icon name="refresh" size={14} />
                 {t(lang, "retry")}
               </button>
@@ -557,17 +644,35 @@ export function TranscriptModal({
                   >
                     <header>
                       <strong>{transcriptRoleLabelLocal(entry.role, lang)}</strong>
-                      <span className="transcript-entry-meta">
+                      <div className="transcript-entry-meta">
                         {entry.kind && <span>{entry.kind}</span>}
                         {entry.model && <span>{entry.model}</span>}
                         <time dateTime={entry.timestamp}>
                           {formatTimestampLocal(entry.timestamp, lang)}
                         </time>
-                      </span>
+                        {!sourceMode && (
+                          <CopyButton
+                            text={contents[vi.index].text}
+                            label={t(lang, "copyMessage")}
+                            lang={lang}
+                            onError={onError}
+                          />
+                        )}
+                        <CopyButton
+                          text={
+                            (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? ""
+                          }
+                          label={t(lang, "copyMarkdown")}
+                          lang={lang}
+                          onError={onError}
+                        />
+                      </div>
                     </header>
-                    <LinkedText
+                    <MarkdownContent
+                      lang={lang}
+                      onError={onError}
                       onOpen={openLink}
-                      text={contents[vi.index]}
+                      content={contents[vi.index]}
                       matches={search.byEntry[vi.index]}
                       currentMatch={currentIndex}
                       onLinkContextMenu={(event, uri) => {
