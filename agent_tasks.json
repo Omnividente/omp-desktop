@@ -10429,12 +10429,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-19T08:38:45.247200Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T08:39:07.233404Z",
+    "last_poll_at": "2026-09-19T08:40:09.723802Z",
     "last_tick_at": "2026-09-19T08:34:30.310511Z",
     "run_id": "35432335280"
   }
