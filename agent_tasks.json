@@ -11310,13 +11310,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T09:58:05.463756Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T10:05:27.107369Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T10:05:49.684607Z",
+    "last_poll_at": "2026-09-19T10:05:53.133896Z",
     "last_tick_at": "2026-09-19T09:59:34.599871Z",
     "run_id": "35436108489"
   }
