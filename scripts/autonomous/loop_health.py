@@ -226,13 +226,18 @@ def assess_health(
                                 if run.get("status") != "in_progress"],
         },
     }
+    # A nonempty id is only supplied under the shared queue writer mutex. Other
+    # in-progress workflows may be waiting for that mutex or finishing handoff.
+    active_next = not current_run_id and any(run.get("status") in ACTIVE_RUN_STATUSES for run in ticks)
 
     def decision(reason: str, action: str = "none", *, due: bool = False, delay: int = 0) -> dict:
         deadline = _time(result["due_at"])
+        known_deadline = deadline is not None or last_useful is not None
         if action == "next_task" or due:
             deadline = deadline or last_useful or now
         if retry_at and (action == "next_task" or deadline is not None) and retry_at > (deadline or now):
             deadline = retry_at
+            known_deadline = True
             if now < retry_at and action == "next_task":
                 action, reason = "none", "tick_backoff"
         if deadline is not None:
@@ -244,12 +249,14 @@ def assess_health(
         scheduler_state = ("waiting" if deadline and deadline > now else
                            "overdue" if overdue else "ready" if action != "none" else "blocked")
         result["scheduler"].update(due_at=result["due_at"], overdue_seconds=overdue, state=scheduler_state)
-        stalled = due and not delay and (last_useful is None or now - last_useful > STALL_AFTER)
+        stalled = due and not delay and (not known_deadline or now - deadline > STALL_AFTER)
+        if active_next:
+            action, reason = "none", "next_task_running"
         result.update(reason=reason, action=action, delay_seconds=delay,
                       health="attention" if attention else "stalled" if stalled else "ok")
         if stalled:
             result["attention"].append({"reason": "next_task_stalled",
-                                        "observed_at": _iso(last_useful) if last_useful else None})
+                                        "observed_at": _iso(deadline) if known_deadline else None})
         return result
 
     def polling(reason: str, tasks: Sequence[dict]) -> dict:
@@ -271,16 +278,30 @@ def assess_health(
         result.update(health="disabled", reason="loop_disabled")
         result["scheduler"]["state"] = "disabled"
         return result
-    # A nonempty id is only supplied under the shared queue writer mutex. Other
-    # in-progress workflows may be waiting for that mutex or finishing handoff.
-    if not current_run_id and any(run.get("status") in ACTIVE_RUN_STATUSES for run in ticks):
-        return decision("next_task_running", due=True)
     if any(run.get("status") in ACTIVE_RUN_STATUSES for run in syncs):
         return decision("sync_running")
 
     data = copy.deepcopy(manifest)
     reconciled = sweep(data, pull_requests, config=config, now=now)
     if reconciled["changed"]:
+        originals = {task["id"]: task for task in manifest["tasks"]}
+        deadlines = []
+        for change in reconciled["changes"]:
+            original = originals[change["task_id"]]
+            execution = original.get("execution") or {}
+            if is_unresolved(original) and (useful_at is not None or any(
+                _time(execution.get(field)) is not None for field in ("observed_at", "started_at")
+            )):
+                deadlines.append(poll_due_at([original], useful_at, now))
+            for pr in pull_requests:
+                if pr.get("number") != change.get("pull_request"):
+                    continue
+                event_at = next((at for field in ("merged_at", "mergedAt", "closed_at", "closedAt", "updated_at")
+                                 if (at := _time(pr.get(field))) is not None), None)
+                if event_at is not None:
+                    deadlines.append(event_at)
+        if deadlines:
+            result["due_at"] = _iso(min(deadlines))
         return decision("reconciliation_due", "next_task", due=True)
     sync_blocker = busy_reason(data, [], config)
     unresolved = [task for task in data["tasks"] if is_unresolved(task)]
@@ -315,9 +336,10 @@ def assess_health(
         return decision("work_due", "next_task", due=True)
     _, research = plan_research(data, config, fingerprints, now=now,
                                 risk_ceiling=config.get("risk_ceiling", "medium"))
-    if research["research_changed"]:
-        return decision("research_due", "next_task", due=True)
     result["research_next_at"] = research["research_next_at"] or None
+    if research["research_changed"]:
+        result["due_at"] = result["research_next_at"]
+        return decision("research_due", "next_task", due=True)
     if unresolved:
         return polling("active_polling", unresolved)
     research_at = _time(result["research_next_at"])

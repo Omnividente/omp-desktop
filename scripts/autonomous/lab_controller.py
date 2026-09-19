@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -21,7 +22,7 @@ from jules_dispatch import (
 )
 from jules_provenance import bind_proposal, session_pull_request, trusted_pull_request
 from research_cycle import plan_research, scope_fingerprints
-from select_task import pending_report_repair, select, valid_research_detachment
+from select_task import pending_rejection, pending_report_repair, select, valid_research_detachment
 from state_store import load_state, save_state
 from proposal_backlog import authorize
 from task_lifecycle import (
@@ -165,7 +166,7 @@ def tick(
     api_keys, transport=urllib_transport, api_base=DEFAULT_API_BASE,
     now: datetime | None = None, task_id: str = "", focus: str = "", risk: str = "medium",
     recover_report: bool = False, diagnostics: Path | None = None,
-    automatic: bool = False, run_id: str = "",
+    automatic: bool = False, run_id: str = "", repair_after: str = "", actor: str = "",
 ) -> dict:
     """CAS-check before effects; persist transitions, report every observation separately."""
     clock = (lambda: now) if now is not None else lambda: datetime.now(timezone.utc)
@@ -178,6 +179,10 @@ def tick(
         raise ValueError("laboratory controller requires manual acceptance")
     if config.get("parallel_mode", {}).get("integration_branch") != LAB_BRANCH:
         raise ValueError("laboratory target must not be main")
+    if repair_after:
+        if automatic or not recover_report or not task_id:
+            raise ValueError("repeat repair requires an explicit report recovery for one task")
+        actor = authorize(config, actor)
     if automatic:
         if task_id or focus or recover_report:
             raise ValueError("automatic ticks cannot select or recover a task")
@@ -212,7 +217,8 @@ def tick(
         useful = (result["observations"] or result["proposals"]
                   or result["research"].get("research_changed")
                   or result["action"] not in ("none", "stopped"))
-        if useful and not result["attention"] and result["reason"] != "loop_disabled":
+        # Targeted report recovery is not a poll of the other saved workers.
+        if not recover_report and useful and not result["attention"] and result["reason"] != "loop_disabled":
             controller = manifest.setdefault("controller", {})
             controller["last_tick_at"] = iso(clock())
             if run_id:
@@ -228,11 +234,20 @@ def tick(
             return dict(result, reason="attempt_already_resolved")
         if not awaiting_report(target):
             raise ValueError("report recovery requires the same parked research attempt")
-    # Stale reconciliation is independent of Jules/API availability.
-    reconcile(manifest, now=now)
+        if repair_after:
+            execution = target["execution"]
+            prior = execution.get("report_repair") or {}
+            consumed = any(item.get("at") == repair_after for item in execution.get("report_repair_history", []))
+            if not consumed and (prior.get("at") != repair_after
+                                 or prior.get("status") not in ("invalid", "rejected", "expired", "failed")
+                                 or parse_iso(repair_after) is None or now <= parse_iso(repair_after)):
+                raise ValueError("repeat repair must identify a settled failed receipt by its exact at timestamp")
+    # Explicit recovery must not reconcile or quarantine unrelated attempts.
+    if not recover_report:
+        reconcile(manifest, now=now)
     checkpoint()
     enabled = github.enabled()
-    if not enabled:
+    if not enabled and not recover_report:
         for task in manifest["tasks"]:
             if task.get("status") == "in_progress":
                 quarantine(manifest, task["id"], reason="loop_disabled", now=now)
@@ -288,9 +303,15 @@ def tick(
 
     def request_report_repair(task, source=None):
         execution = task["execution"]
-        if (execution.get("report_repair") or not enabled or not github.enabled()):
+        previous = execution.get("report_repair")
+        repeat = (previous and repair_after == previous.get("at")
+                  and previous.get("status") in ("invalid", "rejected", "expired", "failed"))
+        if (previous and not repeat) or not enabled or not github.enabled():
             return
         receipt = {"at": iso(clock()), "result": "pending", "status": "pending"}
+        if repeat:
+            execution.setdefault("report_repair_history", []).append(copy.deepcopy(previous))
+            receipt.update(actor=actor, after=repair_after)
         if source:
             receipt["source"] = source
         execution["report_repair"] = receipt
@@ -312,12 +333,67 @@ def tick(
                 "do not invent evidence. Return existing actionable proposals only in one "
                 "AUTONOMOUS_TASKS_BEGIN / AUTONOMOUS_TASKS_END JSON array, using the original task schema "
                 "and product scope; use [] if none. These are proposals for later human review, not authorization. "
-                "This is the single report-format repair request, not a new task or research attempt."
+                "This is a report-format repair request, not a new task or research attempt."
             )}, max_attempts=1,
         )
         receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
         if receipt["result"] == "rejected":
             receipt.update(status="rejected", detail="report_repair_send_rejected_http_" + str(response.status))
+        checkpoint()
+
+    def collect_rejection(task, session, state, number):
+        execution = task["execution"]
+        decision = task["proposal_decision"]
+        if number is not None:
+            pr = github.proposal(number)
+            branch = (pr.get("base") or {}).get("ref")
+            if branch not in (LAB_BRANCH, execution.get("starting_branch")):
+                raise ValueError("rejected worker PR has an unexpected target")
+            if (state not in ("COMPLETED", "FAILED") or pr.get("state") != "closed"
+                    or pr.get("merged") or pr.get("merged_at")):
+                raise ValueError("rejected worker has a PR; inspect and close it before settling the rejection")
+            staged = copy.deepcopy(task)
+            single = {"tasks": [staged]}
+            bind_proposal(single, task["id"], session, pr, repository=repository,
+                          integration_branch=branch, now=now)
+            complete(single, task["id"], outcome="closed_unmerged", pull_request=number,
+                     note="owner rejected implementation; verified PR closed without merge", now=now)
+            staged["proposal_decision"].update(status="completed", completed_at=iso(now))
+            staged["execution"].pop("last_error", None)
+            task.update(staged)
+            checkpoint()
+            return
+        if execution.get("pull_request"):
+            raise ValueError("rejected worker no longer reports its saved PR")
+        if state in ("COMPLETED", "FAILED"):
+            complete(manifest, task["id"], outcome="failed" if state == "FAILED" else "no_change",
+                     note="owner rejected implementation; observed terminal worker " + state, now=now)
+            task["status"] = "done"
+            decision.update(status="completed", completed_at=iso(now))
+            execution.pop("last_error", None)
+        elif not execution.get("rejection_stop") and enabled and github.enabled():
+            receipt = {"at": iso(clock()), "result": "pending"}
+            execution["rejection_stop"] = receipt
+            checkpoint()  # An uncertain send is not permission to send again.
+            if github.enabled():
+                response = request_with_keys(
+                    transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
+                    + session_resource(execution["session_id"]) + ":sendMessage",
+                    {"prompt": (
+                        "The repository owner has rejected this implementation. Stop work in this same session. "
+                        "Do not investigate further, run tools, change files, create a PR, ask for approval "
+                        "or implement anything. Finish the session with a factual summary of work already done "
+                        "and any limitations. Preserve the existing session and its history. "
+                        "This is withdrawal of authorization, not a new task or permission to retry."
+                    )}, max_attempts=1,
+                )
+                receipt["result"] = ("sent" if response.status // 100 == 2 else "unknown"
+                                     if response.status == 0 or response.status >= 500 else "rejected")
+            else:
+                receipt["result"] = "rejected"
+        if pending_rejection(task):
+            result["attention"].append({"task_id": task["id"], "reason": "rejection_awaiting_worker",
+                                        "send_result": (execution.get("rejection_stop") or {}).get("result")})
         checkpoint()
 
     def collect(task, session):
@@ -327,7 +403,8 @@ def tick(
         repair = execution.get("report_repair")
         number = session_pull_request(session, execution, repository)
         state = session_state(session)
-        manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
+        if not recover_report:
+            manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
         if execution.get("session_state") != state:
             execution["session_state"] = state
             execution["observed_at"] = iso(now)
@@ -335,6 +412,9 @@ def tick(
         result["observations"].append(observation)
         if state in WAITING_REASONS:
             result["waiting_workers"].append(observation)
+        if pending_rejection(task):
+            collect_rejection(task, session, state, number)
+            return
         if number is not None:
             if parked:
                 if repair and repair["status"] == "pending":
@@ -348,19 +428,22 @@ def tick(
             sweep(manifest, [pr], config=config, now=now)
             result["proposals"].append({"task_id": task["id"], "number": number,
                                         "url": pr["html_url"], "state": pr["state"]})
-        elif session_failed(session):
+        elif session_failed(session) and not (parked and recover_report):
             if parked:
                 if repair and repair["status"] == "pending":
                     repair.update(status="failed", detail="report_repair_session_failed")
             else:
                 complete(manifest, task["id"], outcome="failed", note="Jules reported a terminal failure", now=now)
-        elif session_state(session) == "COMPLETED":
+        elif state == "COMPLETED" or (state == "FAILED" and parked and recover_report):
             quarantined = execution.get("state") == "quarantined"
             harvested = harvest(manifest, config, task["id"], session, transport=transport,
                                 api_base=api_base, api_keys=ring, now=now,
-                                retry_report=parked, diagnostics=diagnostics)
+                                retry_report=parked, reparse_report=parked and recover_report,
+                                diagnostics=diagnostics)
             current = find_task(manifest, task["id"])
-            if (awaiting_report(current) and not quarantined
+            if (awaiting_report(current) and not quarantined and state == "COMPLETED"
+                    and harvested.get("report_error_code") != "report_identity_conflict"
+                    and harvested.get("reason") != "report_source_unavailable"
                     and (not parked or recover_report)):
                 request_report_repair(current, harvested.get("report_source")
                                       or (current["execution"].get("report_error") or {}).get("source"))
@@ -551,6 +634,8 @@ def main(argv=None) -> int:
     parser.add_argument("--focus", default="")
     parser.add_argument("--risk-ceiling", default="medium")
     parser.add_argument("--recover-report", action="store_true")
+    parser.add_argument("--repair-after", default="", help="Exact failed report_repair.at authorizing one new format-only message")
+    parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
     parser.add_argument("--automatic", action="store_true")
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     parser.add_argument("--out", type=Path, required=True)
@@ -571,10 +656,12 @@ def main(argv=None) -> int:
         return save_state(args.repo, args.manifest, args.revision_file)
 
     try:
-        if args.automatic and (args.task_id or args.focus or args.recover_report or args.quarantine_all):
+        if args.automatic and (args.task_id or args.focus or args.recover_report or args.repair_after or args.quarantine_all):
             raise ValueError("automatic ticks cannot select, recover or quarantine a task")
         if args.run_id and not re.fullmatch(r"[1-9][0-9]*", args.run_id):
             raise ValueError("invalid workflow run id")
+        if "GITHUB_ACTOR" in os.environ and args.actor.casefold() != os.environ["GITHUB_ACTOR"].casefold():
+            raise ValueError("--actor must match GITHUB_ACTOR")
         config = json.loads(args.config.read_text(encoding="utf-8"))
         manifest = load_state(args.repo, args.manifest, args.revision_file)
         loaded = True
@@ -592,7 +679,7 @@ def main(argv=None) -> int:
                           github=GitHub(config["repository"]), persist=persist,
                           api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
                           recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics.json"),
-                          automatic=args.automatic, run_id=args.run_id)
+                          automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor)
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",
                   "reason": "state_write_failed" if isinstance(exc, StateWriteError) else "controller_error",

@@ -223,6 +223,8 @@ def plan_research(
 
     The daily cap is a rolling 24-hour window of minted research sessions. Failed
     or exhausted sessions consume coverage/cooldown too; proposals do not block it.
+    research_next_at retains the earliest known eligibility deadline when work
+    becomes due; an empty value means eligibility has no recorded time anchor.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -257,17 +259,13 @@ def plan_research(
     if risk_ceiling not in RISK_ORDER:
         raise ValueError("unknown risk ceiling")
     research = config["research"]
-    cooldown = timedelta(hours=research["revisit_after_hours"])
     tasks = list(manifest["tasks"])
     research_tasks = [task for task in tasks if isinstance(task.get("research"), dict)]
-    recent = sorted(
-        created for task in research_tasks
-        if (created := _time(task.get("created_at"))) is not None
-        and created > now - timedelta(days=1)
-    )
-    cap_next = None
-    if len(recent) >= research["max_sessions_per_day"]:
-        cap_next = recent[-research["max_sessions_per_day"]] + timedelta(days=1)
+    cooldown = timedelta(hours=research["revisit_after_hours"])
+    minted = sorted(created for task in research_tasks
+                    if (created := _time(task.get("created_at"))) is not None)
+    cap_next = (minted[-research["max_sessions_per_day"]] + timedelta(days=1)
+                if len(minted) >= research["max_sessions_per_day"] else None)
     focus_set = {value.lower() for value in (focus or [])}
     candidates, next_times = [], []
     occupied_scope = False
@@ -286,7 +284,7 @@ def plan_research(
             if any(is_unresolved(task) for task in history):
                 occupied_scope = True
                 continue
-            eligible_at = now
+            eligible_at = None
             last_at = datetime.min.replace(tzinfo=timezone.utc)
             if history:
                 latest = history[-1]
@@ -295,20 +293,20 @@ def plan_research(
                 # attempts cannot bypass their cooldown by changing source blobs.
                 unsuccessful = latest["status"] != "done"
                 if unsuccessful or latest["research"]["fingerprint"] == fingerprint:
-                    eligible_at = max(now, last_at + cooldown)
+                    eligible_at = last_at + cooldown
             if cap_next is not None:
-                eligible_at = max(eligible_at, cap_next)
-            next_times.append(eligible_at)
-            if eligible_at <= now:
+                eligible_at = max(eligible_at, cap_next) if eligible_at else cap_next
+            next_times.append(eligible_at or now)
+            if eligible_at is None or eligible_at <= now:
                 candidates.append((
                     (bool(history), last_at, area_index, perspective_index),
-                    area, perspective, history, fingerprint,
+                    area, perspective, history, fingerprint, eligible_at,
                 ))
     if not candidates:
         if not next_times:
             return unchanged("research_scope_occupied" if occupied_scope else "focus_mismatch")
-        return unchanged("daily_cap" if cap_next is not None else "cooldown", min(next_times))
-    _, area, perspective, history, fingerprint = min(candidates, key=lambda item: item[0])
+        return unchanged("daily_cap" if cap_next is not None and cap_next > now else "cooldown", min(next_times))
+    _, area, perspective, history, fingerprint, due_at = min(candidates, key=lambda item: item[0])
     cycle = max((task["research"]["cycle"] for task in history), default=0) + 1
     identifier = "research-" + area["id"] + "-" + perspective["id"] + "-" + str(cycle)
     existing_ids = {task["id"] for task in tasks}
@@ -349,7 +347,7 @@ def plan_research(
         raise ValueError("invalid research task: " + "; ".join(errors))
     return updated, {
         "research_changed": True, "research_reason": "research_scheduled",
-        "research_task_id": identifier, "research_next_at": "",
+        "research_task_id": identifier, "research_next_at": _iso(due_at) if due_at else "",
     }
 
 

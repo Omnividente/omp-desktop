@@ -229,6 +229,26 @@ class ResearchSchemaTest(unittest.TestCase):
             invalid["execution"]["report_repair"] = malformed
             self.assertTrue(validate(manifest(invalid)))
 
+    def test_repeated_repair_requires_a_settled_monotonic_authorization_chain(self):
+        prior = {"at": "2026-09-13T12:00:00Z", "result": "sent", "status": "invalid", "detail": "malformed report"}
+        entry = task(task_type="project_discovery", status="blocked", execution={
+            "state": "awaiting_report", "outcome": "report_invalid", "attempts": 1,
+            "session_id": "7", "dispatch_key": "first", "pull_request": 0,
+            "report_error": {"code": "research_invalid", "detail": "missing report block", "reported_at": prior["at"]},
+            "report_repair_history": [prior],
+            "report_repair": {"at": "2026-09-13T12:10:00Z", "after": prior["at"],
+                              "actor": "Owner", "result": "pending", "status": "pending"},
+        })
+        self.assertEqual(validate(manifest(entry)), [])
+        for changes in ({"at": prior["at"]}, {"after": "2026-09-13T11:00:00Z"}, {"actor": ""}):
+            invalid = copy.deepcopy(entry)
+            invalid["execution"]["report_repair"].update(changes)
+            self.assertTrue(validate(manifest(invalid)))
+        for history in ([], None, [dict(prior, status="pending")], [prior, prior]):
+            invalid = copy.deepcopy(entry)
+            invalid["execution"]["report_repair_history"] = history
+            self.assertTrue(validate(manifest(invalid)))
+
     def research_task(self):
         return task(
             task_type="project_discovery", status="done",
