@@ -9120,7 +9120,7 @@
         },
         "report_repair": {
           "at": "2026-09-19T05:10:04.000337Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/14957366543589173483/activities/ee54eecd864c4e08bfc962af56eaeb58",
