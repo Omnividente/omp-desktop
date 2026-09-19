@@ -11416,7 +11416,7 @@
       "id": "research-settings-models-ux-3",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -11539,7 +11539,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "8737317161181600306",
         "dispatch_key": "8135b5d66137257a92f88774",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
@@ -11547,15 +11547,39 @@
         "started_at": "2026-09-19T10:26:25.458880Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T10:33:38.314722Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T10:45:50.387597Z",
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id, possible_duplicate",
+          "reported_at": "2026-09-19T10:45:50.387597Z",
+          "source": {
+            "activity_id": "sessions/8737317161181600306/activities/3df03ef26d1842a994d233f28afede46",
+            "report_sha256": "d81eebcb76a37dff51adfd4d722e92518d3046740705ba4672f895c85984b18c",
+            "activity_created_at": "2026-09-19T10:36:11.734737Z",
+            "session_id": "8737317161181600306",
+            "dispatch_key": "8135b5d66137257a92f88774"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-19T10:46:25.963207Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/8737317161181600306/activities/3df03ef26d1842a994d233f28afede46",
+            "report_sha256": "d81eebcb76a37dff51adfd4d722e92518d3046740705ba4672f895c85984b18c",
+            "activity_created_at": "2026-09-19T10:36:11.734737Z",
+            "session_id": "8737317161181600306",
+            "dispatch_key": "8135b5d66137257a92f88774"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T10:46:17.908991Z",
+    "last_poll_at": "2026-09-19T10:46:23.172715Z",
     "last_tick_at": "2026-09-19T10:40:08.321788Z",
     "run_id": "35437999077"
   }
