@@ -143,6 +143,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub recent_workspaces: Vec<String>,
     #[serde(default)]
+    pub last_workspace: Option<String>,
+    #[serde(default)]
     pub workspace_names: BTreeMap<String, String>,
     #[serde(default)]
     pub hidden_workspaces: Vec<String>,
@@ -181,6 +183,7 @@ impl Default for AppSettings {
             omp_executable: None,
             session_root: None,
             recent_workspaces: Vec::new(),
+            last_workspace: None,
             workspace_names: BTreeMap::new(),
             hidden_workspaces: Vec::new(),
             session_title_pins: BTreeMap::new(),
@@ -207,6 +210,7 @@ impl fmt::Debug for AppSettings {
             .field("omp_executable", &self.omp_executable)
             .field("session_root", &self.session_root)
             .field("recent_workspaces", &self.recent_workspaces)
+            .field("last_workspace", &self.last_workspace)
             .field("workspace_name_count", &self.workspace_names.len())
             .field("hidden_workspace_count", &self.hidden_workspaces.len())
             .field("session_title_pin_count", &self.session_title_pins.len())

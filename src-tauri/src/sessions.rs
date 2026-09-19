@@ -123,7 +123,17 @@ pub fn build_bootstrap(
     app: &AppHandle,
     settings: &AppSettings,
 ) -> Result<BootstrapPayload, String> {
-    build_bootstrap_excluding(app, settings, None)
+    let mut bootstrap = build_bootstrap_excluding(app, settings, None)?;
+    // Remembered selection never adds a workspace or revives one hidden by the user.
+    bootstrap.settings.last_workspace = settings.last_workspace.as_ref().and_then(|path| {
+        let key = path_key(path);
+        bootstrap
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.key == key && Path::new(&workspace.path).is_dir())
+            .map(|workspace| workspace.path.clone())
+    });
+    Ok(bootstrap)
 }
 
 pub(crate) fn build_bootstrap_excluding(

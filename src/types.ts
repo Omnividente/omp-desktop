@@ -23,6 +23,7 @@ export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
   recentWorkspaces: string[]
+  lastWorkspace: string | null
   workspaceNames: Record<string, string>
   hiddenWorkspaces: string[]
   sessionTitlePins: Record<string, string>

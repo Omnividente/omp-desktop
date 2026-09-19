@@ -65,6 +65,10 @@ export function removeWorkspace(path: string): Promise<BootstrapPayload> {
   return invoke("remove_workspace", { path })
 }
 
+export function saveWorkspaceSelection(path: string | null): Promise<void> {
+  return invoke("save_workspace_selection", { path })
+}
+
 export function saveSettingsBundle(request: SettingsSaveRequest): Promise<SettingsSavePayload> {
   return invoke("save_settings_bundle", { request })
 }
