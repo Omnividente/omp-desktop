@@ -4829,7 +4829,7 @@
       "id": "discovery-9881e0c7ffe77346",
       "title": "Implement caching for list_codex_sessions",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "medium",
       "focus": [
@@ -4864,6 +4864,12 @@
         "activity_created_at": "2026-09-18T01:03:11Z",
         "session_id": "15633779958290240504",
         "dispatch_key": "b2fdc575fea2cde3d1f469df"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:29:30Z",
+        "note": "No demonstrated native user-facing bottleneck justifies new Codex discovery cache/invalidation complexity; retain correctness."
       }
     },
     {
