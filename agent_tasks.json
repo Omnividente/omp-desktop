@@ -1101,7 +1101,7 @@
       "id": "discovery-2e80f2798c364331",
       "title": "Add Escape key support to close import modals",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -1136,6 +1136,12 @@
         "activity_created_at": "2026-09-16T12:26:29Z",
         "session_id": "5474976814849461776",
         "dispatch_key": "7321046869a0bea3378b90ed"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:40:48Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Import modal Escape handling now respects native selects, nested controls, and running imports."
       }
     },
     {
