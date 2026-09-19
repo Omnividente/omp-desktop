@@ -11765,6 +11765,130 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-3",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-19T11:12:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "741535951248f81e4fef081bac559ae06842b530e0845099a7194ebee7e20bea",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Verified that resource health sampling does not block the UI or main async thread when analyzing slow external drives.",
+            "observations": [
+              {
+                "scenario": "Examine if resource sampling causes thread blocking or UI unresponsiveness when analyzing exceptionally slow external network drives.",
+                "evidence": "Inspected src-tauri/src/lib.rs and src-tauri/src/resource_health.rs. The 'sample_resource_health' Tauri command delegates to a macro 'run_blocking' which internally uses 'tauri::async_runtime::spawn_blocking'. We created a temporary Rust unit test simulating slow I/O by executing a 500ms thread::sleep inside spawn_blocking. The test confirmed that the main async task returned immediately (execution time before await < 100ms) without being blocked, successfully offloading the delay to the background thread pool.",
+                "result": "Establishes that synchronous volume and system statistics checking (e.g., fs::canonicalize and statvfs) in resource_health.rs are correctly offloaded to a separate blocking thread, ensuring Tauri UI and main event loops remain responsive even on exceptionally slow volumes."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+              "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-18T11:37:59.953246Z",
+            "source": {
+              "activity_id": "sessions/1045285221465868338/activities/f6c077bfcbfa41e6a8532fc8a573f300",
+              "report_sha256": "a2439c8c2e6fe5b725c582cf32ce80329260e4d0b4606f187149f18e6fa4a9e5",
+              "activity_created_at": "2026-09-18T11:29:14.485915Z",
+              "session_id": "1045285221465868338",
+              "dispatch_key": "d4b6bcf00aa98d40831fa43d"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated toast notifications layout, OS suspend behavior for toast timers, and large workspace switching performance. Found that toasts stack correctly via flexbox without overlap, workspace switching with many sessions handles filtering extremely quickly, and OS suspend pauses native setTimeout timers, which could leave stale toasts on screen after resuming.",
+            "observations": [
+              {
+                "scenario": "Investigate if multiple toast notifications overlap when generated simultaneously by overlapping system resource warnings.",
+                "evidence": "Inspected src/App.css around '.toast-container' and src/ToastContainer.tsx. '.toast-container' is a flexbox container with 'flex-direction: column' and a 10px gap. We also ran a local React test simulating three rapid toasts enqueued simultaneously. The container stacks them sequentially in the document flow via flex column, with no absolute positioning that would cause overlap.",
+                "result": "Establishes that simultaneous toast notifications correctly stack vertically without visual overlap."
+              },
+              {
+                "scenario": "Verify whether the frontend's toast queue properly restores or purges its coalescing timers if the OS puts the application to sleep or suspend during a toast's active lifecycle.",
+                "evidence": "Examined src/ToastContainer.tsx and src/toastQueue.ts. The toasts rely entirely on 'window.setTimeout' in ToastContainer for their TOAST_TTL_MS (5.5s) lifecycle. There is an 'expireToasts' pure function in toastQueue.ts, but it is not called proactively by App.tsx upon resuming from sleep (e.g. via visibilitychange). Therefore, if the OS suspends, the setTimeout is paused; when it resumes, the timeout will fire after the remaining duration, leaving the toast on screen longer than its intended TTL.",
+                "result": "Establishes that toast timers are paused during OS suspend and will not proactively clear stale toasts immediately upon resume unless manually dismissed."
+              },
+              {
+                "scenario": "Examine state recovery performance in the main session store when switching between large workspaces.",
+                "evidence": "Examined src/App.tsx and wrote a vitest test simulating switching workspaces with 5000 sessions. App.tsx filters 'payload.sessions' linearly using 'sessions.filter(session => session.projectKey === selectedWorkspace.key)'. For 10000 total sessions, this linear filter runs synchronously in <10ms.",
+                "result": "Establishes that switching between large workspaces does not present a noticeable JavaScript CPU bottleneck during state recovery and session filtering."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS."
+            ],
+            "proposed_task_ids": [
+              "discovery-d661d7760ddf497e"
+            ],
+            "completed_at": "2026-09-18T11:57:54.587232Z",
+            "source": {
+              "activity_id": "sessions/10274468581930991107/activities/25c5130c14ba4b4c9356c056239406f1",
+              "report_sha256": "fb2d0d1e9babfb4bd3fc808f023789bae77180f786462b40ca0e1a47294c88e3",
+              "activity_created_at": "2026-09-18T11:50:33.404673Z",
+              "session_id": "10274468581930991107",
+              "dispatch_key": "08f134f646a0b4c0cf6c0062"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified boundary behavior of the MAX_RUNTIME_INCIDENTS limit. Discovered a potential edge case where active incidents on a single terminal might be incorrectly dropped instead of prioritizing active incidents on terminals with multiple active incidents.",
+            "observations": [
+              {
+                "scenario": "Execute an incident state sequence where MAX_RUNTIME_INCIDENTS (100) are reached across 50 terminals, leaving each with 2 active incidents. Introduce a 101st incident on a new terminal.",
+                "evidence": "Locally executed a vitest simulation creating 2 active incidents per terminal across 50 terminals (total 100). When applying an event for terminal-50, `enforceIncidentBound` identified that candidates without resolved incidents exist and successfully dropped an active incident. However, it reduced the incident count on terminal-0 from 2 to 1, instead of dropping it entirely, confirming that the grouping filter attempts to keep at least one incident per terminal when possible.",
+                "result": "Establishes that the incident limit correctly preserves terminal representation by prioritizing dropping duplicate active incidents on terminals with >1 active incident."
+              },
+              {
+                "scenario": "Execute an incident state sequence where exactly MAX_RUNTIME_INCIDENTS (100) are reached across exactly 100 distinct terminals (1 incident each). Introduce a 101st incident on a new 101st terminal.",
+                "evidence": "Locally executed a vitest simulation creating 100 distinct terminal IDs each with 1 active incident. When a new incident is added for a 101st terminal, `enforceIncidentBound`'s fallback logic `if (candidates.length === 0) candidates = incidents` triggers because there are no terminals with >1 active incident. It then proceeds to sort by `firstSeenAt` and `id`, correctly dropping the oldest incident overall.",
+                "result": "Establishes that when all terminals have exactly 1 active incident and no resolved incidents exist, the system correctly falls back to dropping the globally oldest active incident, avoiding a full queue block."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the resource warning badge in ResourceHealthPanel respects the severity change of a volume that crosses back and forth over the warning threshold repeatedly in rapid succession (thrashing)."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T11:12:58.862659Z",
+            "source": {
+              "activity_id": "sessions/5065478044804676596/activities/930d6c8fd4fd4e36adc2e5018da133a7",
+              "report_sha256": "bffdb68924796d4fe7ebd4757d3343520625bd671bef31186e2a1a1b350bc716",
+              "activity_created_at": "2026-09-19T11:05:26.499592Z",
+              "session_id": "5065478044804676596",
+              "dispatch_key": "d06b60347c64089d47735d8f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
