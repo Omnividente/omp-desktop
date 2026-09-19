@@ -8806,7 +8806,7 @@
       "id": "research-sessions-persistence-behavior-3",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -8919,18 +8919,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "3334810322506368660",
         "dispatch_key": "73d626479bd40c8ff3e6f421",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-73d626479bd40c8ff3e6f421",
         "started_at": "2026-09-19T00:28:41.584656Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T01:37:35.476018Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T01:31:27.350484Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T01:37:35.476018Z",
         "research_detached": {
           "at": "2026-09-19T00:54:19.527005Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -8939,22 +8939,10 @@
           "at": "2026-09-19T00:54:19.527005Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "findings_invalid",
-          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
-          "reported_at": "2026-09-19T01:25:21.556748Z",
-          "source": {
-            "activity_id": "sessions/3334810322506368660/activities/399c500265a14692b09b6533d2d7ed98",
-            "report_sha256": "def491a7e8f08877f80312b305d9abd595600f668e3f23d67cad0039083dbd06",
-            "activity_created_at": "2026-09-19T00:54:57.713218Z",
-            "session_id": "3334810322506368660",
-            "dispatch_key": "73d626479bd40c8ff3e6f421"
-          }
-        },
         "report_repair": {
           "at": "2026-09-19T01:25:43.808123Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/3334810322506368660/activities/399c500265a14692b09b6533d2d7ed98",
             "report_sha256": "def491a7e8f08877f80312b305d9abd595600f668e3f23d67cad0039083dbd06",
@@ -8963,11 +8951,35 @@
             "dispatch_key": "73d626479bd40c8ff3e6f421"
           }
         }
+      },
+      "research_result": {
+        "summary": "Confirmed that orphaned backup and staging artifact directories are left on disk after an interrupted session import and are not garbage collected.",
+        "observations": [
+          {
+            "scenario": "Scanning a directory containing orphaned '.artifacts-backup' and '.artifacts-stage' directories",
+            "evidence": "Wrote an isolated synthetic unit test `scan_sessions_garbage_collects_orphaned_import_sidecars` in `src-tauri/src/sessions.rs`. The test created mock `.session.artifacts-backup.123.456` and `.session.artifacts-stage.123.456` directories inside the project folder, then called `scan_sessions`. The test failed, proving the directories were not removed during the scan. Source inspection of `collect_jsonl_files` confirms that although it correctly filters out `is_import_sidecar` entries from the scanned files, it does not delete them.",
+            "result": "Establishes that orphaned import sidecar directories remain permanently in the session directory if an import crashes or is interrupted before completion, consuming storage indefinitely. This reproduces the identical observed contract already reported in canonical_id discovery-e938ec8d92054623."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `read_session_transcript` incorrectly filters or handles malformed messages inside valid session files.",
+          "Investigate whether the `CodexImportModal` handles out-of-bounds or non-existent codex root directories correctly."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T01:37:35.476018Z",
+        "source": {
+          "activity_id": "sessions/3334810322506368660/activities/eb9765ac84f04f7fa040244315a1a74d",
+          "report_sha256": "76e26f76795b0142137a7d4e8dab6237223cda4f402c0b2d225841a152035532",
+          "activity_created_at": "2026-09-19T01:28:15.574395Z",
+          "session_id": "3334810322506368660",
+          "dispatch_key": "73d626479bd40c8ff3e6f421"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T01:37:54.567632Z",
+    "last_poll_at": "2026-09-19T01:37:57.537895Z",
     "last_tick_at": "2026-09-19T01:31:48.854542Z",
     "run_id": "35412909706"
   }
