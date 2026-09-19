@@ -10959,7 +10959,7 @@
       "id": "research-settings-models-performance-3",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -11077,6 +11077,19 @@
             ]
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "67603585a2186306c4a83552",
+        "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
+        "starting_branch": "autonomous/attempt-67603585a2186306c4a83552",
+        "started_at": "2026-09-19T09:44:01.614510Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
