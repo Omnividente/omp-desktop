@@ -11179,7 +11179,7 @@
       "id": "discovery-37764527ab2ab728",
       "title": "Optimize ModelPicker performance by filtering models before sorting",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -11212,6 +11212,12 @@
         "activity_created_at": "2026-09-19T09:50:01.974291Z",
         "session_id": "18427263274964598572",
         "dispatch_key": "67603585a2186306c4a83552"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T17:02:13Z",
+        "note": "Implemented and merged in https://github.com/Omnividente/omp-desktop/pull/77 at bbb66cfd927f0af0b18060424d621f05fec04ded. ModelPicker filters before sorting, preserving result order. Full source CI and isolated native smoke passed."
       }
     },
     {
