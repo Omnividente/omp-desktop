@@ -12482,6 +12482,118 @@
         "session_id": "5797323890950650825",
         "dispatch_key": "aa8b18708ab0b9014f5dae59"
       }
+    },
+    {
+      "id": "research-transcript-links-performance-3",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-19T16:10:09Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-af2b979b73ceb228\",\"status\":\"proposed\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source analysis and synthetic testing that the TranscriptModal component lacks a cleanup phase to synchronously persist its active scroll position upon unmounting (matches canonical_id: discovery-f25052402356bf34).\",\"expected\":\"The modal restores its scroll position to the previously viewed message without needing further manual scrolling.\",\"actual\":\"The modal forces the scroll position to the top of the transcript view (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]}},{\"canonical_id\":\"discovery-bb5925f45c903d0e\",\"status\":\"proposed\",\"title\":\"Fix transcript scroll position jump on window resize\",\"target_paths\":[\"src/useVirtualList.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest simulation of `useVirtualList`. Resizing container width clears all measurements immediately, temporarily shrinking `totalHeight` to the estimate and causing the browser to snap `scrollTop` to the new shortened bounds before items remeasure.\",\"expected\":\"The user stays at their approximate scroll position within the transcript.\",\"actual\":\"The scroll position randomly jumps upward due to temporary list height collapse.\",\"acceptance\":[\"Resizing the window horizontally preserves the apparent scroll position or anchors to the topmost visible element in the transcript\"]}},{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9327b83174e38ad4\",\"status\":\"done\",\"title\":\"Make transcript scrolling area focusable for keyboard navigation\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of `src/TranscriptModal.tsx` and DOM focus behavior. Without `tabIndex={0}`, custom overflow areas cannot receive keyboard focus directly.\",\"expected\":\"The user can Tab into the scrollable area and scroll up/down using the keyboard.\",\"actual\":\"The scrollable area cannot receive focus, preventing keyboard scrolling.\",\"acceptance\":[\"The `.transcript-scroll` container has a `tabIndex={0}` attribute.\",\"A keyboard-only user can Tab into the empty transcript container to scroll it using Arrow keys.\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "6a69a3dfa526f929d8978e31026f4fa8c1ab66cbf0d81e282714a5b2f0c45335",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Verified keyboard accessibility of the transcript scrolling container.",
+            "observations": [
+              {
+                "scenario": "Simulating keyboard focus and navigation into the transcript scrolling region (`.transcript-scroll` element inside TranscriptModal).",
+                "evidence": "Source code inspection of `src/TranscriptModal.tsx` and verifying using synthetic test logic. The `.transcript-scroll` container does not have a `tabIndex` attribute (neither `0` nor `-1`). When the transcript is empty or only contains text with no focusable elements (links/buttons), a user traversing the UI solely via keyboard cannot direct focus into this container to scroll its content.",
+                "result": "The UI lacks focusability on its custom scrollable region, meaning it is not accessible for keyboard-only users unless it contains naturally focusable inline elements like links. This matches common a11y regressions for virtualized or fixed-height overflow containers."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence of scroll positions per-transcript after closing and reopening.",
+              "Investigate keyboard focus behavior and Esc key accessibility across Settings and Session modals."
+            ],
+            "proposed_task_ids": [
+              "discovery-9327b83174e38ad4"
+            ],
+            "completed_at": "2026-09-18T17:39:28.123691Z",
+            "source": {
+              "activity_id": "sessions/15338912817987174318/activities/59d9fc48d08747a299017825a6d8e028",
+              "report_sha256": "604b9449e71a070d5e1811b89fe766551df8974878e63a84f6fc8e7ae539cc91",
+              "activity_created_at": "2026-09-18T17:29:09.866067Z",
+              "session_id": "15338912817987174318",
+              "dispatch_key": "5d7225c77d7bb5f282d81fbe"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the cause of the TranscriptModal losing its scroll position when closed and reopened.",
+            "observations": [
+              {
+                "scenario": "Simulating a transcript being scrolled, then closed via `useTranscript` and reopened.",
+                "evidence": "Source inspection of `src/TranscriptModal.tsx` and execution of custom simulated tests. When `useTranscript` unmounts `<TranscriptModal>`, the UI cleans up without executing `rememberPosition` (which only executes actively on `onScroll` events or deferred layout frames). Any recent manual scroll positions where an `onScroll` did not flush its side-effects to the `readingPositions` LRU map, or where an ongoing settlement frame was abruptly cancelled by the unmount, are permanently lost.",
+                "result": "Establishes that the lack of a synchronous `rememberPosition` invocation during the `TranscriptModal`'s unmount lifecycle results in scroll position loss."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence behaviors related to zooming or window resizing when TranscriptModal is open.",
+              "Examine if extremely fast transcript loads can cause scroll layout race conditions within useVirtualList."
+            ],
+            "proposed_task_ids": [
+              "discovery-af2b979b73ceb228"
+            ],
+            "completed_at": "2026-09-19T10:26:25.458880Z",
+            "source": {
+              "activity_id": "sessions/8291901690099751470/activities/726c59a23efa4bf7be7a0406ca0b0c58",
+              "report_sha256": "d08b1e68ffaa5053e130260639b408c782e61a85303dcb9d04c8a474f780f5a9",
+              "activity_created_at": "2026-09-19T10:19:33.980202Z",
+              "session_id": "8291901690099751470",
+              "dispatch_key": "19926820e78ea0f3bbc68a66"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that useVirtualList loses browser scroll position during horizontal container resizing due to active measurement eviction.",
+            "observations": [
+              {
+                "scenario": "Simulating a container width resize while scrolled down into a virtualized list with variable height elements.",
+                "evidence": "Ran a synthetic Vitest test simulating window resize using `useVirtualList`. When the container width changes (e.g. from 800 to 900), `updateMetrics` clears `activeMeasurementsRef` and bumps `measurementRevision`. All elements instantly revert to `estimatedRowHeight` causing `totalHeight` to drop, pushing the browser's `scrollTop` up irrevocably before next paint.",
+                "result": "Establishes that horizontal window resizing drops the scroll position when scrolled into items larger than the estimated height, as useVirtualList lacks scroll anchoring across full measurement resets."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate keyboard focus behavior and Esc key accessibility across Settings and Session modals.",
+              "Examine if extremely fast transcript loads can cause scroll layout race conditions within useVirtualList."
+            ],
+            "proposed_task_ids": [
+              "discovery-bb5925f45c903d0e"
+            ],
+            "completed_at": "2026-09-19T16:10:09.575459Z",
+            "source": {
+              "activity_id": "sessions/5797323890950650825/activities/efe8043eb2e947b78a41005e88773db2",
+              "report_sha256": "2a32484a03558e021b42396cb7d550549d385445993e8142628368d7d44b5326",
+              "activity_created_at": "2026-09-19T15:47:07.953491Z",
+              "session_id": "5797323890950650825",
+              "dispatch_key": "aa8b18708ab0b9014f5dae59"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
