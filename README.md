@@ -9,21 +9,23 @@
 
 ## Русский
 
-**OMP Desktop** — кроссплатформенный графический клиент для [Oh My Pi](https://github.com/can1357/oh-my-pi). Он объединяет проекты, историю сессий и живые терминалы OMP в одном нативном приложении для Windows и Linux.
+**OMP Desktop** — независимый open-source графический клиент для [Oh My Pi](https://github.com/can1357/oh-my-pi). Он объединяет управление проектами и сессиями, историю переписки и живые OMP-терминалы в одном нативном приложении для Windows и Linux.
 
 ![OMP Desktop interface](docs/omp-desktop.png)
 
-**[Установка](#установка) · [Последний GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+**[Установка](#установка) · [Последний стабильный релиз](https://github.com/Omnividente/omp-desktop/releases/latest)**
 
-> **Community client:** OMP Desktop — независимый проект сообщества, не входящий в официальную поставку OMP. [Обсуждение проекта в upstream Oh My Pi →](https://github.com/can1357/oh-my-pi/issues/12456)
+> **Community client:** OMP Desktop — независимый проект сообщества, не входящий в официальную поставку OMP и использующий установленный у пользователя OMP runtime. [Описание проекта в upstream Oh My Pi →](https://github.com/can1357/oh-my-pi/issues/12456)
 
-### Возможности
+### Основные возможности
 
-- **Проекты и сессии:** недавние рабочие папки, поиск, возобновление и цепочки handoff.
-- **Нативные терминалы:** параллельные PTY-вкладки, изменение размера, прерывание и завершение процессов.
-- **Настройки и провайдеры:** параметры OMP, модели, аккаунты и лимиты, фиксация провайдера для сессии.
-- **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки с явными ограничениями чтения, предупреждения и монитор ресурсов.
+- **Проекты и сессии:** рабочие папки, поиск, возобновление и цепочки handoff.
+- **Нативные PTY-терминалы:** параллельные вкладки, изменение размера, прерывание и завершение процессов.
+- **Конфигурация и провайдеры:** настройки OMP, модели, аккаунты, лимиты и фиксация провайдера для сессии.
+- **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки, предупреждения и монитор ресурсов.
 - **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
+
+> Страница релизов содержит последнюю стабильную сборку; ветка `main` может включать проверенные изменения, которые ещё не вошли в опубликованный пакет.
 
 <details>
 <summary>Подробные возможности, ограничения и поведение</summary>
@@ -91,19 +93,21 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 
 ## English
 
-**OMP Desktop** is a cross-platform graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings projects, session history, and live OMP terminals into one native desktop application for Windows and Linux.
+**OMP Desktop** is an independent open-source graphical client for [Oh My Pi](https://github.com/can1357/oh-my-pi). It brings project and session management, transcript history, and live OMP terminals into one native application for Windows and Linux.
 
-**[Installation](#installation) · [Latest GitHub Release](https://github.com/Omnividente/omp-desktop/releases/latest)**
+**[Installation](#installation) · [Latest stable release](https://github.com/Omnividente/omp-desktop/releases/latest)**
 
-> **Community client:** OMP Desktop is an independent community project and is not part of the official OMP distribution. [Upstream Oh My Pi discussion →](https://github.com/can1357/oh-my-pi/issues/12456)
+> **Community client:** OMP Desktop is an independent community project, not part of the official OMP distribution, and uses the OMP runtime installed by the user. [Project overview in upstream Oh My Pi →](https://github.com/can1357/oh-my-pi/issues/12456)
 
-### Features
+### Core features
 
-- **Projects and sessions:** recent workspaces, search, resume, and handoff lineage.
-- **Native terminals:** concurrent PTY tabs, resizing, interruption, and process cleanup.
-- **Configuration and providers:** OMP settings, models, accounts and limits, and per-session provider pinning.
-- **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search with explicit read limits, warnings, and resource monitoring.
+- **Projects and sessions:** workspaces, search, resume, and handoff lineage.
+- **Native PTY terminals:** concurrent tabs, resizing, interruption, and process cleanup.
+- **Configuration and providers:** OMP settings, models, accounts, limits, and per-session provider pinning.
+- **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search, warnings, and resource monitoring.
 - **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.
+
+> The Releases page contains the latest stable build; `main` may include reviewed changes that are not yet packaged.
 
 <details>
 <summary>Detailed features, limitations, and behavior</summary>
@@ -215,9 +219,7 @@ npm run tauri build
 
 ## Privacy and security
 
-OMP Desktop stores local application preferences and provider-key names in `settings.json`. Provider credential values are stored in the operating-system credential store; when that store is unavailable, the app uses a fallback in the per-user application directory (`0600` on Unix, inherited per-user ACLs on Windows) and shows a warning. Import copies the selected JSONL session and a bounded tree of regular artifact files into the configured local OMP session root; links and special files are rejected. OMP Desktop does not upload session files; authentication and model traffic remain inside the OMP process. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
-
-This is an independent community desktop client and is not part of the OMP CLI distribution.
+OMP Desktop stores local application preferences and provider-key names in `settings.json`. Provider credential values are stored in the operating-system credential store; when that store is unavailable, the app uses a fallback in the per-user application directory (`0600` on Unix, inherited per-user ACLs on Windows) and shows a warning. Import copies the selected JSONL session and a bounded tree of regular artifact files into the configured local OMP session root; links and special files are rejected. OMP Desktop does not upload session files: OMP commands, authentication, and provider requests run inside the installed OMP process, while Desktop starts those local commands and displays their results. Local environment files, OMP state, session JSONL files, databases, keys, and release binaries are excluded from Git.
 
 ## License
 
