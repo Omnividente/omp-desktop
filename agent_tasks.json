@@ -9973,7 +9973,8 @@
             "session_id": "13029739796552350738",
             "dispatch_key": "be010efe0937ae85b805894d"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-be010efe0937ae85b805894d"
       },
       "research_result": {
         "summary": "Verified frontend handling of concurrent workspace modification requests. The application fails to correctly serialize or track rapidly successive or overlapping backend modifications like workspace renaming and removal, leading to stale payloads overwriting the application state if promises resolve out of order.",
