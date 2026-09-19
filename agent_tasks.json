@@ -9838,7 +9838,7 @@
       "id": "research-workspace-navigation-reliability-3",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -9950,34 +9950,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "13029739796552350738",
         "dispatch_key": "be010efe0937ae85b805894d",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-be010efe0937ae85b805894d",
         "started_at": "2026-09-19T07:38:05.855385Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T08:15:23.038716Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T08:08:13.106677Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-19T08:03:43.051928Z",
-          "source": {
-            "activity_id": "sessions/13029739796552350738/activities/61fdd3e47da74d4a898ce90c31cc61dd",
-            "report_sha256": "497b89e63ef92a2fd2f7f5df4dde0d4b7e5e10f8ea268f07843f744e1f3528ab",
-            "activity_created_at": "2026-09-19T07:52:05.648665Z",
-            "session_id": "13029739796552350738",
-            "dispatch_key": "be010efe0937ae85b805894d"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T08:15:23.038716Z",
         "report_repair": {
           "at": "2026-09-19T08:04:08.421539Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/13029739796552350738/activities/61fdd3e47da74d4a898ce90c31cc61dd",
             "report_sha256": "497b89e63ef92a2fd2f7f5df4dde0d4b7e5e10f8ea268f07843f744e1f3528ab",
@@ -9985,6 +9973,52 @@
             "session_id": "13029739796552350738",
             "dispatch_key": "be010efe0937ae85b805894d"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of concurrent workspace modification requests. The application fails to correctly serialize or track rapidly successive or overlapping backend modifications like workspace renaming and removal, leading to stale payloads overwriting the application state if promises resolve out of order.",
+        "observations": [
+          {
+            "scenario": "Triggering two concurrent workspace state modifications, such as `removeWorkspace` on different workspaces or `renameWorkspace`.",
+            "evidence": "Wrote a synthetic React Testing Library suite against `<App />`. Mocked out-of-order promise resolutions for two concurrent calls to `removeWorkspaceFromList`. The slower response returned an older `BootstrapPayload` snapshot which lacked the effect of the faster operation. The frontend blindly invoked `applyPayload` with the slower response, overwriting the UI state and causing the previously removed workspace to reappear on screen.",
+            "result": "Establishes that the frontend is vulnerable to stale snapshot overwrites when performing concurrent workspace modifications (like remove, rename, or imports) because they do not track `payloadRevisionRef` or sequence counts unlike the `refresh()` and `single-instance` handlers."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming or modifying a session concurrently while a transcript is loading can cause the transcript session summary to become stale or desynchronized."
+        ],
+        "proposed_task_ids": [
+          "discovery-5b8c7bde2b0e0468"
+        ],
+        "completed_at": "2026-09-19T08:15:23.038716Z",
+        "source": {
+          "activity_id": "sessions/13029739796552350738/activities/99a5ef3c9d2b4d868cfd1c87b24af19b",
+          "report_sha256": "56fe96aee16b9ae04d7234bd0eae035ded54fa9c468c218b3b6fe314b72ca01c",
+          "activity_created_at": "2026-09-19T08:04:52.685009Z",
+          "session_id": "13029739796552350738",
+          "dispatch_key": "be010efe0937ae85b805894d"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13029739796552350738/activities/99a5ef3c9d2b4d868cfd1c87b24af19b",
+          "report_sha256": "56fe96aee16b9ae04d7234bd0eae035ded54fa9c468c218b3b6fe314b72ca01c",
+          "activity_created_at": "2026-09-19T08:04:52.685009Z",
+          "session_id": "13029739796552350738",
+          "dispatch_key": "be010efe0937ae85b805894d"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5b8c7bde2b0e0468"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -10116,10 +10150,51 @@
         "session_state": "QUEUED",
         "observed_at": "2026-09-19T08:08:13.106677Z"
       }
+    },
+    {
+      "id": "discovery-5b8c7bde2b0e0468",
+      "title": "Fix race condition during concurrent workspace modifications",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-19T08:15:23.038716Z",
+      "acceptance": [
+        "Rapid successive or concurrent workspace modifications (e.g., remove, rename, imports) safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwrites by stale snapshots."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic testing of `removeWorkspace` and `submitWorkspaceRename` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace list mistakenly reflects the slower, older request instead of the newer one.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application with two or more workspaces.",
+            "Rapidly initiate a removal of Workspace A and a removal of Workspace B, such that the backend processes them but responses arrive out of order.",
+            "Observe the final rendered workspace list."
+          ],
+          "expected": "The application shows neither Workspace A nor Workspace B, reflecting both successful deletions.",
+          "actual": "The application overwrites the UI state with the older snapshot, showing one of the removed workspaces because `applyPayload(await removeWorkspaceFromList(...))` applies the response without tracking if a newer modification has already superseded it."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-3",
+        "activity_id": "sessions/13029739796552350738/activities/99a5ef3c9d2b4d868cfd1c87b24af19b",
+        "report_sha256": "56fe96aee16b9ae04d7234bd0eae035ded54fa9c468c218b3b6fe314b72ca01c",
+        "activity_created_at": "2026-09-19T08:04:52.685009Z",
+        "session_id": "13029739796552350738",
+        "dispatch_key": "be010efe0937ae85b805894d"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T08:15:42.145147Z",
+    "last_poll_at": "2026-09-19T08:15:44.965654Z",
     "last_tick_at": "2026-09-19T08:09:44.466097Z",
     "run_id": "35431177900"
   }
