@@ -11319,7 +11319,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T10:17:54.825719Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-19926820e78ea0f3bbc68a66"
       },
       "research_result": {
         "summary": "Verified the cause of the TranscriptModal losing its scroll position when closed and reopened.",
