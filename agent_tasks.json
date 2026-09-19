@@ -9735,12 +9735,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T06:19:50.714224Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T06:20:15.432184Z",
+    "last_poll_at": "2026-09-19T06:21:30.606456Z",
     "last_tick_at": "2026-09-19T06:14:02.642922Z",
     "run_id": "35426000812"
   }
