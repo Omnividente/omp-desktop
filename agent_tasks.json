@@ -13340,7 +13340,7 @@
       "id": "research-terminal-input-performance-4",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -13449,18 +13449,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7325436381013268072",
         "dispatch_key": "c8e01b9aea48439ff236c69c",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-c8e01b9aea48439ff236c69c",
         "started_at": "2026-09-19T22:09:25.829254Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T22:37:22.500483Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T22:30:23.559263Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T22:37:22.500483Z",
         "research_detached": {
           "at": "2026-09-19T22:28:45.918242Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -13469,6 +13469,40 @@
           "at": "2026-09-19T22:28:45.918242Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated xterm.js performance with massive complex ANSI attachments and terminal tab switching behavior during a primary provider pin.",
+        "observations": [
+          {
+            "scenario": "Writing a massive 2MB buffer containing deeply nested and complex ANSI escape sequences to the terminal.",
+            "evidence": "Ran a synthetic benchmark writing 2MB of nested ANSI sequences to xterm.js headless. The execution completed in ~150-190ms, demonstrating that complex sequences do not cause extreme degradation.",
+            "result": "Establishes that xterm.js handles extreme limit-bound recovery outputs rapidly and does not cause unbounded hangs or main thread lock-ups during UI rendering."
+          },
+          {
+            "scenario": "Terminal tab switching while a primary provider pin operation is pending.",
+            "evidence": "Source inspection of `src/terminalInput.ts` (`terminalInputBlocked`), `src/SessionControls.tsx`, and `src/App.tsx`. Terminal input correctly restricts interactions by validating `tab.primaryProviderPinPending`. Tab state securely tracks the pending pin state when navigating away and back.",
+            "result": "Establishes that tab switching safely preserves the blocked input state and retains the pending pin UI upon returning without dropping the constraint."
+          },
+          {
+            "scenario": "A terminal process is in a switch_recovery state and new input bytes are written via write_bytes.",
+            "evidence": "Confirmed via source code inspection in `src-tauri/src/terminal.rs` and local Rust tests that `process.switch_recovery` is not cleared when new input successfully arrives. Matches canonical finding discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0.",
+            "result": "Re-establishes the known defect (discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0) where stale switch recovery buffers can be transmitted out of order after subsequent manual inputs."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the impact of resizing the terminal window rapidly while a massive output stream is continuously appending.",
+          "Examine if rapid consecutive pin provider toggles can race and leave the terminal in a permanently pending state."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T22:37:22.500483Z",
+        "source": {
+          "activity_id": "sessions/7325436381013268072/activities/b266411fc1aa42fda0b8c7616572018f",
+          "report_sha256": "77c752202f118ab291773b7a61804e377e8f80174d930135cd0f1c67bd3d3bd0",
+          "activity_created_at": "2026-09-19T22:29:39.004029Z",
+          "session_id": "7325436381013268072",
+          "dispatch_key": "c8e01b9aea48439ff236c69c"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -13619,7 +13653,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T22:31:41.250507Z",
+    "last_poll_at": "2026-09-19T22:37:39.691186Z",
     "last_tick_at": "2026-09-19T22:31:43.100666Z",
     "run_id": "35473511382"
   }
