@@ -9299,7 +9299,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T05:30:02.232066Z"
+        "observed_at": "2026-09-19T05:30:02.232066Z",
+        "released_attempt_ref": "autonomous/attempt-5292b1146055438e2109af9b"
       },
       "research_result": {
         "summary": "Benchmarked list_codex_sessions performance and confirmed it lacks caching across repeated calls.",
