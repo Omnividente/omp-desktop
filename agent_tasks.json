@@ -4176,7 +4176,7 @@
       "id": "discovery-e1a64022fb094a98",
       "title": "Link terminal help button to its content via aria-controls",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -4211,6 +4211,12 @@
         "activity_created_at": "2026-09-17T21:17:49Z",
         "session_id": "6905970117625246766",
         "dispatch_key": "6a4adab8a2cb78201aff2de9"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:42:03Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Terminal help exposes stable aria-controls and synchronized expanded/visibility state."
       }
     },
     {
