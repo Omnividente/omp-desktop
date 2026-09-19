@@ -11413,7 +11413,7 @@
       "id": "discovery-af2b979b73ceb228",
       "title": "Retain modal scroll position per session across closes",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "low",
       "focus": [
@@ -11449,6 +11449,12 @@
         "activity_created_at": "2026-09-19T10:19:33.980202Z",
         "session_id": "8291901690099751470",
         "dispatch_key": "19926820e78ea0f3bbc68a66"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T17:02:27Z",
+        "note": "Implemented and merged in https://github.com/Omnividente/omp-desktop/pull/77 at bbb66cfd927f0af0b18060424d621f05fec04ded. Reader maintains independent session positions, preserving message across source mode and reread. Full source CI and isolated native smoke passed."
       }
     },
     {
