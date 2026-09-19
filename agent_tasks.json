@@ -13026,13 +13026,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T20:49:17.724134Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T20:56:54.832353Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T20:51:01.218776Z",
+    "last_poll_at": "2026-09-19T20:57:12.555479Z",
     "last_tick_at": "2026-09-19T20:51:03.190464Z",
     "run_id": "35468522421"
   }
