@@ -9391,6 +9391,117 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-sessions-persistence-ux-3",
+      "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-19T05:59:33Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-e938ec8d92054623\",\"status\":\"done\",\"title\":\"Clean up orphaned backup and staging artifact directories during session scan\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"If a crash happens during session import, staging and backup sidecar directories are left forever in the sessions directory, consuming storage.\",\"expected\":\"Orphaned backup directories from the interrupted import are detected and garbage collected.\",\"actual\":\"Orphaned backup directories remain permanently in the session directory.\",\"acceptance\":[\"Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-2e80f2798c364331\",\"status\":\"done\",\"title\":\"Add Escape key support to close import modals\",\"target_paths\":[\"src/CodexImportModal.tsx\",\"src/ImportSessionModal.tsx\"],\"observed_contract\":{\"detail\":\"Investigation using source code inspection and synthetic React testing. The Escape key behavior was exercised.\",\"expected\":\"The open modal should close.\",\"actual\":\"The modal remains open and ignores the key press.\",\"acceptance\":[\"Pressing the Escape key while the Codex or OMP import modal is open triggers the onClose handler.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"done\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-efae45ef6cb2274b\",\"status\":\"done\",\"title\":\"Implement focus trap for session import modals\",\"target_paths\":[\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating focus handling in a jsdom environment. Elements behind the modal remain focusable via Tab.\",\"expected\":\"Focus stays inside the modal and cycles through the modal's interactive elements.\",\"actual\":\"Focus escapes the modal and moves to background elements (e.g., search bar or session list).\",\"acceptance\":[\"When the import modal is open, pressing Tab repeatedly cycles focus within the modal only.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9881e0c7ffe77346\",\"status\":\"done\",\"title\":\"Implement caching for list_codex_sessions\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that `list_codex_sessions` took ~440ms for both cold and warm scans on 10,000 synthetic files, missing the caching logic used by `scan_sessions`.\",\"expected\":\"The second call is significantly faster (a fraction of the first call's time) due to caching.\",\"actual\":\"The second call takes roughly the same amount of time as the first call, parsing every file again.\",\"acceptance\":[\"list_codex_sessions avoids re-parsing unchanged files across subsequent calls\",\"Repeated calls to list_codex_sessions run significantly faster than the first call for the same file state\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-c521e33229cbbb32\",\"status\":\"done\",\"title\":\"Implement useModalFocus hook and apply to ImportSessionModal and CodexImportModal\",\"target_paths\":[\"src/hooks/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Native desktop observation via synthetic components in vitest. Identified that modals lack a focus trap, allowing keyboard users to tab out of the modal, and lack focus restoration after closure. Tested via a prototype useModalFocus hook which verified these accessibility flaws could be resolved.\",\"expected\":\"Focus stays trapped inside the modal while open, and focus is restored to the previous element after it is closed via Escape.\",\"actual\":\"Focus moves outside the modal and can land on background elements. Pressing Escape closes the modal, but focus drops to the document body rather than being restored.\",\"acceptance\":[\"The useModalFocus hook effectively traps focus within a modal, handles Escape and Tab keys, and restores previous focus upon close.\",\"The useModalFocus hook is correctly applied to ImportSessionModal.\",\"The useModalFocus hook is correctly applied to CodexImportModal.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "ux",
+        "fingerprint": "d6d2cc65179e6359c8494b1f94832f816f65632cead4d1ec24d8a44cb380cfe1",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that orphaned backup and staging artifact directories are left on disk after an interrupted session import and are not garbage collected.",
+            "observations": [
+              {
+                "scenario": "Scanning a directory containing orphaned '.artifacts-backup' and '.artifacts-stage' directories",
+                "evidence": "Wrote an isolated synthetic unit test `scan_sessions_garbage_collects_orphaned_import_sidecars` in `src-tauri/src/sessions.rs`. The test created mock `.session.artifacts-backup.123.456` and `.session.artifacts-stage.123.456` directories inside the project folder, then called `scan_sessions`. The test failed, proving the directories were not removed during the scan. Source inspection of `collect_jsonl_files` confirms that although it correctly filters out `is_import_sidecar` entries from the scanned files, it does not delete them.",
+                "result": "Establishes that orphaned import sidecar directories remain permanently in the session directory if an import crashes or is interrupted before completion, consuming storage indefinitely. This reproduces the identical observed contract already reported in canonical_id discovery-e938ec8d92054623."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `read_session_transcript` incorrectly filters or handles malformed messages inside valid session files.",
+              "Investigate whether the `CodexImportModal` handles out-of-bounds or non-existent codex root directories correctly."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T01:37:35.476018Z",
+            "source": {
+              "activity_id": "sessions/3334810322506368660/activities/eb9765ac84f04f7fa040244315a1a74d",
+              "report_sha256": "76e26f76795b0142137a7d4e8dab6237223cda4f402c0b2d225841a152035532",
+              "activity_created_at": "2026-09-19T01:28:15.574395Z",
+              "session_id": "3334810322506368660",
+              "dispatch_key": "73d626479bd40c8ff3e6f421"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the lack of garbage collection for orphaned import artifacts and explored transcript parsing resilience.",
+            "observations": [
+              {
+                "scenario": "Scanning for orphaned import artifact directories after a simulated failed import",
+                "evidence": "Executed an isolated synthetic test `scan_sessions_garbage_collects_orphaned_import_sidecars` which created mock `.session.artifacts-backup...` and `.session.artifacts-stage...` directories. Calling `scan_sessions` did not remove these directories.",
+                "result": "Establishes that interrupted session imports leave permanent artifacts on disk. This reproduces the identical observed contract already reported in canonical_id discovery-e938ec8d92054623."
+              },
+              {
+                "scenario": "Handling of malformed JSON rows at the end of a session transcript",
+                "evidence": "Ran existing unit test `transcript_distinguishes_malformed_rows_from_an_incomplete_final_record` using cargo test.",
+                "result": "Establishes that the parser successfully separates an incomplete final record from generally malformed inner lines, ensuring resilience against truncation during a crash."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate whether the `CodexImportModal` handles out-of-bounds or non-existent codex root directories correctly without crashing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T05:23:33.437239Z",
+            "source": {
+              "activity_id": "sessions/14957366543589173483/activities/cf17471b5b504c73aa27f42f90adbbd2",
+              "report_sha256": "3651273a56ab5d0fee4eb01d2989bd9a2b9104e92200e3793fa3bc4c7c255b7d",
+              "activity_created_at": "2026-09-19T05:12:03.332313Z",
+              "session_id": "14957366543589173483",
+              "dispatch_key": "fbc00ec70b5f6cb943464025"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Benchmarked list_codex_sessions performance and confirmed it lacks caching across repeated calls.",
+            "observations": [
+              {
+                "scenario": "Repeated invocations of list_codex_sessions on a directory containing 10,000 synthetic codex sessions",
+                "evidence": "Wrote an isolated synthetic benchmark test generating 10,000 mock codex session files. Called `list_codex_sessions()` twice. Both cold and warm calls took approximately 600ms.",
+                "result": "Establishes that `list_codex_sessions` parses all files on every invocation and lacks caching mechanism. This reproduces the identical observed contract already reported in canonical_id discovery-9881e0c7ffe77346."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate memory allocation and latency impact of generating CodexSessionSummary records vs SessionSummary for identical transcripts."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T05:30:02.232066Z",
+            "source": {
+              "activity_id": "sessions/15900436730055186391/activities/5ae1343dd1734883b6d49de5c0e44d9b",
+              "report_sha256": "0dcd6f6e599a50914302eda27d6a7814c3226a11c22bceaf4892e7af776e290b",
+              "activity_created_at": "2026-09-19T05:26:30.721121Z",
+              "session_id": "15900436730055186391",
+              "dispatch_key": "5292b1146055438e2109af9b"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
