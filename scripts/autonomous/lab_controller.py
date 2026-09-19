@@ -217,7 +217,8 @@ def tick(
         useful = (result["observations"] or result["proposals"]
                   or result["research"].get("research_changed")
                   or result["action"] not in ("none", "stopped"))
-        if useful and not result["attention"] and result["reason"] != "loop_disabled":
+        # Targeted report recovery is not a poll of the other saved workers.
+        if not recover_report and useful and not result["attention"] and result["reason"] != "loop_disabled":
             controller = manifest.setdefault("controller", {})
             controller["last_tick_at"] = iso(clock())
             if run_id:
@@ -402,7 +403,8 @@ def tick(
         repair = execution.get("report_repair")
         number = session_pull_request(session, execution, repository)
         state = session_state(session)
-        manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
+        if not recover_report:
+            manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
         if execution.get("session_state") != state:
             execution["session_state"] = state
             execution["observed_at"] = iso(now)

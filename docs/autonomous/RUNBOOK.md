@@ -438,6 +438,11 @@ For local administration use `lab_controller.py --recover-report --task-id ID`
 with its repo/config/manifest/revision-file/out arguments, so the independent
 state is saved with CAS. Calling the collector alone only modifies its input file.
 
+Explicit recovery does not advance `controller.last_poll_at` or `last_tick_at`,
+or replace `controller.run_id`: these are global scheduler anchors. Its target's
+observations and report are still saved, while unrelated workers retain their
+polling deadlines, including workers awaiting completion of a rejection.
+
 When the latest output genuinely lacks the required research structure, do not
 invent observations or reset the attempt. If the previous `report_repair` is
 `invalid`, `rejected`, `expired` or `failed`, an owner may use `recover_report = true`

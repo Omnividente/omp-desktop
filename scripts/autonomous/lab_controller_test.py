@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from jules_dispatch import Response
 from jules_provenance import bind_proposal
 from lab_controller import GitHub, StateWriteError, _git, tick
+from loop_health import assess_health
 from state_store import load_state, save_state
 from proposal_backlog import decide
 from task_lifecycle import start
@@ -795,6 +796,61 @@ class ControllerTests(unittest.TestCase):
         self.github.is_enabled = False
         self.run_tick(recover_report=True, now=NOW + timedelta(minutes=11))
         self.assertEqual(self.reload()[1], untouched)
+
+    def test_report_recovery_preserves_unrelated_active_and_rejecting_worker_deadlines(self):
+        self.broken_research()
+        self.api.message_status = 403
+        self.run_tick()
+        self.reload()
+        self.data["controller"].update(last_tick_at=NOW.isoformat(), run_id="10")
+        parked = copy.deepcopy(self.data)
+        valid = {"summary": "Observed clock", "observations": [
+            {"scenario": "resume", "evidence": "synthetic transcript", "result": "clock advanced"}],
+            "next_hypotheses": []}
+        self.repair_activity("AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(valid)
+                             + "\nAUTONOMOUS_RESEARCH_END", "fixed", NOW + timedelta(minutes=1))
+        due = NOW + timedelta(minutes=30)
+
+        def health(at):
+            return assess_health(self.data, CONFIG, main_sha=self.head, lab_sha=self.head,
+                                 main_is_ancestor=True, fingerprints={}, runs=[], sync_runs=[],
+                                 pull_requests=[], enabled=True, now=at)
+
+        for rejecting in (False, True):
+            with self.subTest(rejecting=rejecting):
+                self.data = copy.deepcopy(parked)
+                self.data["tasks"].append(task("unrelated"))
+                start(self.data, "unrelated", session_id="8", dispatch_key="other", now=NOW)
+                worker = self.data["tasks"][1]
+                worker["execution"].update(session_state="IN_PROGRESS", observed_at=NOW.isoformat())
+                self.api.values["8"] = session("8", "other")
+                if rejecting:
+                    decide(self.data, CONFIG, action="reject", task_id="unrelated", actor="Omnividente",
+                           note="Stop this implementation", now=NOW.isoformat())
+                untouched = copy.deepcopy(worker)
+                clocks = copy.deepcopy(self.data["controller"])
+                self.persist(self.data)
+                before = health(due)
+                self.assertEqual((before["action"], before["due_at"]),
+                                 ("next_task", "2026-09-13T12:30:00Z"))
+
+                result = self.run_tick(recover_report=True, now=due, run_id="11")
+                recovered, unrelated = self.reload()
+                self.assertEqual(result["attention"], [])
+                self.assertEqual(recovered["status"], "done")
+                self.assertEqual(recovered["research_result"]["source"]["activity_id"],
+                                 "sessions/7/activities/fixed")
+                self.assertEqual(unrelated, untouched)
+                after = health(due)
+                self.assertEqual((after["action"], after["due_at"], after["delay_seconds"]),
+                                 ("next_task", before["due_at"], 0))
+                self.assertEqual(self.data["controller"], clocks)
+
+                self.run_tick(recover_report=True, now=due + timedelta(minutes=1), run_id="12")
+                self.reload()
+                repeated = health(due + timedelta(minutes=1))
+                self.assertEqual((repeated["action"], repeated["due_at"], repeated["scheduler"]["overdue_seconds"]),
+                                 ("next_task", before["due_at"], 60))
 
     def test_rejected_completed_session_repair_is_parked_without_backup_key_retry(self):
         self.broken_research()
