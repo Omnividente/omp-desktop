@@ -11604,7 +11604,7 @@
       "id": "research-diagnostics-resources-behavior-3",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -11723,23 +11723,51 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5065478044804676596",
         "dispatch_key": "d06b60347c64089d47735d8f",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-d06b60347c64089d47735d8f",
         "started_at": "2026-09-19T10:45:50.387597Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T11:12:58.862659Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T10:45:50.387597Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T11:12:58.862659Z"
+      },
+      "research_result": {
+        "summary": "Verified boundary behavior of the MAX_RUNTIME_INCIDENTS limit. Discovered a potential edge case where active incidents on a single terminal might be incorrectly dropped instead of prioritizing active incidents on terminals with multiple active incidents.",
+        "observations": [
+          {
+            "scenario": "Execute an incident state sequence where MAX_RUNTIME_INCIDENTS (100) are reached across 50 terminals, leaving each with 2 active incidents. Introduce a 101st incident on a new terminal.",
+            "evidence": "Locally executed a vitest simulation creating 2 active incidents per terminal across 50 terminals (total 100). When applying an event for terminal-50, `enforceIncidentBound` identified that candidates without resolved incidents exist and successfully dropped an active incident. However, it reduced the incident count on terminal-0 from 2 to 1, instead of dropping it entirely, confirming that the grouping filter attempts to keep at least one incident per terminal when possible.",
+            "result": "Establishes that the incident limit correctly preserves terminal representation by prioritizing dropping duplicate active incidents on terminals with >1 active incident."
+          },
+          {
+            "scenario": "Execute an incident state sequence where exactly MAX_RUNTIME_INCIDENTS (100) are reached across exactly 100 distinct terminals (1 incident each). Introduce a 101st incident on a new 101st terminal.",
+            "evidence": "Locally executed a vitest simulation creating 100 distinct terminal IDs each with 1 active incident. When a new incident is added for a 101st terminal, `enforceIncidentBound`'s fallback logic `if (candidates.length === 0) candidates = incidents` triggers because there are no terminals with >1 active incident. It then proceeds to sort by `firstSeenAt` and `id`, correctly dropping the oldest incident overall.",
+            "result": "Establishes that when all terminals have exactly 1 active incident and no resolved incidents exist, the system correctly falls back to dropping the globally oldest active incident, avoiding a full queue block."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the resource warning badge in ResourceHealthPanel respects the severity change of a volume that crosses back and forth over the warning threshold repeatedly in rapid succession (thrashing)."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T11:12:58.862659Z",
+        "source": {
+          "activity_id": "sessions/5065478044804676596/activities/930d6c8fd4fd4e36adc2e5018da133a7",
+          "report_sha256": "bffdb68924796d4fe7ebd4757d3343520625bd671bef31186e2a1a1b350bc716",
+          "activity_created_at": "2026-09-19T11:05:26.499592Z",
+          "session_id": "5065478044804676596",
+          "dispatch_key": "d06b60347c64089d47735d8f"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T11:13:12.626463Z",
+    "last_poll_at": "2026-09-19T11:13:14.799269Z",
     "last_tick_at": "2026-09-19T11:07:21.154060Z",
     "run_id": "35439212887"
   }
