@@ -107,7 +107,12 @@ export function CodexImportModal({
           />
         </div>
         <footer className="settings-actions">
-          <button className="button secondary" onClick={selectAll} type="button">
+          <button
+            className="button secondary"
+            disabled={loading || importing || sessions.length === 0}
+            onClick={selectAll}
+            type="button"
+          >
             {t(language, "selectAll")}
           </button>
           <button

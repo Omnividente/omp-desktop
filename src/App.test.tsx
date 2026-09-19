@@ -33,6 +33,7 @@ vi.mock("./api", async (importOriginal) => ({
   bootstrap: vi.fn(),
   addWorkspace: vi.fn(),
   removeWorkspace: vi.fn(),
+  deleteSession: vi.fn(),
   saveWorkspaceSelection: vi.fn(),
   loadOmpConfig: vi.fn(),
   saveSettingsBundle: vi.fn(),
@@ -239,6 +240,7 @@ describe("App lifecycle serialization", () => {
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
     vi.mocked(api.addWorkspace).mockReset()
     vi.mocked(api.removeWorkspace).mockReset()
+    vi.mocked(api.deleteSession).mockReset()
     vi.mocked(api.saveWorkspaceSelection).mockReset().mockResolvedValue(undefined)
     vi.mocked(api.loadOmpConfig).mockReset().mockResolvedValue(config("Initial"))
     vi.mocked(api.saveSettingsBundle).mockReset()
@@ -318,6 +320,40 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelectorAll(".project-item")).toHaveLength(1)
     expect(api.addWorkspace).not.toHaveBeenCalled()
     expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("restores focus to the session list after deleting its focused final session", async () => {
+    const deletion = deferred<BootstrapPayload>()
+    vi.mocked(api.deleteSession).mockReturnValue(deletion.promise)
+    await act(async () => root.render(<App />))
+    const button = element<HTMLButtonElement>(".session-delete")
+    await act(async () => {
+      button.focus()
+      button.click()
+    })
+    await act(async () => deletion.resolve({ ...bootstrap, sessions: [] }))
+    expect(button.isConnected).toBe(false)
+    expect(document.activeElement).toBe(element(".session-list"))
+    expect(element(".sidebar-empty")).toBeTruthy()
+  })
+
+  it("does not reclaim session focus after the user moved away during deletion", async () => {
+    const deletion = deferred<BootstrapPayload>()
+    vi.mocked(api.deleteSession).mockReturnValue(deletion.promise)
+    await act(async () => root.render(<App />))
+    const button = element<HTMLButtonElement>(".session-delete")
+    await act(async () => {
+      button.focus()
+      button.click()
+    })
+    const search = element<HTMLInputElement>(".project-sessions input")
+    act(() => {
+      search.focus()
+      search.blur()
+    })
+    await act(async () => deletion.resolve({ ...bootstrap, sessions: [] }))
+    expect(button.isConnected).toBe(false)
+    expect(document.activeElement).toBe(document.body)
   })
 
   it.each(["success", "failure"] as const)(

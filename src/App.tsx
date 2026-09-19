@@ -376,8 +376,10 @@ function App() {
     transcriptError,
     transcriptSearch,
     transcriptMode,
+    transcriptInitialPosition,
     visibleEntries: visibleTranscriptEntries,
     loadTranscript,
+    loadTranscriptPath,
     closeTranscript,
     setSearch: setTranscriptSearch,
     setMode: setTranscriptMode,
@@ -397,6 +399,13 @@ function App() {
   const showError = useCallback(
     (message: string) => pushToast({ kind: "error", message }),
     [pushToast],
+  )
+
+  const readTerminalTranscript = useCallback(
+    (path: string) => {
+      void loadTranscriptPath(path).catch((error) => showError(errorMessage(error, lang)))
+    },
+    [lang, loadTranscriptPath, showError],
   )
 
   const openReleaseNotes = useCallback(
@@ -2260,6 +2269,7 @@ function App() {
           onFocusTab={focusTab}
           onLaunch={(session) => void launchSession(session)}
           onOpenFolder={() => void openFolder()}
+          onReadTranscript={readTerminalTranscript}
           onReorderTabs={handleReorderTabs}
           onReady={handleTerminalReady}
           onSendSwitchRecovery={(terminalId) => void sendRecoveredSwitchInput(terminalId)}
@@ -2312,6 +2322,7 @@ function App() {
 
       {transcriptSession && (
         <TranscriptModal
+          initialPosition={transcriptInitialPosition}
           lang={lang}
           launching={launching}
           onClearSearch={() => setTranscriptSearch("")}
