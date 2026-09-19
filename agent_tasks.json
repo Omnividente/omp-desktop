@@ -9515,7 +9515,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T06:19:50.714224Z"
+        "observed_at": "2026-09-19T06:19:50.714224Z",
+        "released_attempt_ref": "autonomous/attempt-1dac23b14aa52263659910ca"
       },
       "research_result": {
         "summary": "Investigated the clarity and accessibility of session import empty/error states and found the 'Select all' button in CodexImportModal stays enabled even when there are no sessions to select.",
