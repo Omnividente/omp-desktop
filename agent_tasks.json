@@ -9513,12 +9513,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-19T05:59:33.612721Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:59:53.485004Z",
+    "last_poll_at": "2026-09-19T06:00:55.829654Z",
     "last_tick_at": "2026-09-19T05:30:49.515706Z",
     "run_id": "35424124020"
   }
