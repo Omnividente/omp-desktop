@@ -13458,13 +13458,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T22:09:25.829254Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T22:16:36.244950Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T22:16:52.768584Z",
+    "last_poll_at": "2026-09-19T22:16:56.836995Z",
     "last_tick_at": "2026-09-19T22:10:53.736326Z",
     "run_id": "35472496447"
   }
