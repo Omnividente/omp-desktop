@@ -10959,7 +10959,7 @@
       "id": "research-settings-models-performance-3",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -11080,23 +11080,109 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18427263274964598572",
         "dispatch_key": "67603585a2186306c4a83552",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-67603585a2186306c4a83552",
         "started_at": "2026-09-19T09:44:01.614510Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T09:58:05.463756Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T09:51:30.294867Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T09:58:05.463756Z"
+      },
+      "research_result": {
+        "summary": "Investigated responsiveness and resource use of ModelPicker filtering and sorting with large model lists.",
+        "observations": [
+          {
+            "scenario": "Simulated search query changes in the ModelPicker with large model inputs to measure `useMemo` latency.",
+            "evidence": "Source code review of `src/ModelPicker.tsx` and execution of a synthetic Node benchmark replicating the exact `filteredModels` array operations. The implementation does `[...models].sort(...).filter(...)`. It copies the entire array, sorts every element (performing expensive `localeCompare` operations), and then applies the search text filter on the fully sorted array.",
+            "result": "Establishes that filtering after sorting incurs unnecessary array allocation overhead and wasted sorting operations for elements that will immediately be filtered out. Changing the order to `models.filter(...).sort(...)` eliminates the need to manually copy the array (since filter returns a new array) and is measurably faster (e.g. over 50% latency reduction in benchmarks) while scaling better with large provider model lists."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if memoizing the joined and lowercased search strings in the model array itself would further reduce allocation overhead during frequent keystrokes in ModelPicker.",
+          "Investigate the parsing performance of `recover_top_level_json_field` in `src-tauri/src/settings.rs` when reading corrupted JSON files of maximum permitted size to determine if partial parsing could avoid unbounded string allocation."
+        ],
+        "proposed_task_ids": [
+          "discovery-37764527ab2ab728"
+        ],
+        "completed_at": "2026-09-19T09:58:05.463756Z",
+        "source": {
+          "activity_id": "sessions/18427263274964598572/activities/59b26a166fb545f0817aea5652c450ca",
+          "report_sha256": "7db8353a845bd123f4c8b66881d1d80bbade4e296d4940f687d851006dc696b9",
+          "activity_created_at": "2026-09-19T09:50:01.974291Z",
+          "session_id": "18427263274964598572",
+          "dispatch_key": "67603585a2186306c4a83552"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/18427263274964598572/activities/59b26a166fb545f0817aea5652c450ca",
+          "report_sha256": "7db8353a845bd123f4c8b66881d1d80bbade4e296d4940f687d851006dc696b9",
+          "activity_created_at": "2026-09-19T09:50:01.974291Z",
+          "session_id": "18427263274964598572",
+          "dispatch_key": "67603585a2186306c4a83552"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-37764527ab2ab728"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-37764527ab2ab728",
+      "title": "Optimize ModelPicker performance by filtering models before sorting",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-09-19T09:58:05.463756Z",
+      "acceptance": [
+        "The ModelPicker search applies the text filter to the model list before sorting the results"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring `useMemo` latency. The code spreads the models into a new array, sorts the entire array, and then filters it.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the ModelPicker and type a query into the search field with a large list of models."
+          ],
+          "expected": "The application filters out non-matching models first, then sorts only the matched subset.",
+          "actual": "The application makes a full copy of the model list, sorts the entire list, and then filters it."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-3",
+        "activity_id": "sessions/18427263274964598572/activities/59b26a166fb545f0817aea5652c450ca",
+        "report_sha256": "7db8353a845bd123f4c8b66881d1d80bbade4e296d4940f687d851006dc696b9",
+        "activity_created_at": "2026-09-19T09:50:01.974291Z",
+        "session_id": "18427263274964598572",
+        "dispatch_key": "67603585a2186306c4a83552"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T09:58:22.324526Z",
+    "last_poll_at": "2026-09-19T09:58:25.093097Z",
     "last_tick_at": "2026-09-19T09:51:57.431452Z",
     "run_id": "35435833205"
   }
