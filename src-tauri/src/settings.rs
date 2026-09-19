@@ -505,6 +505,9 @@ fn recover_settings_fields(original: &[u8]) -> AppSettings {
     if let Some(value) = recover_top_level_json_field::<Option<String>>(&text, "sessionRoot") {
         recovered.session_root = value;
     }
+    if let Some(value) = recover_top_level_json_field::<Option<String>>(&text, "lastWorkspace") {
+        recovered.last_workspace = value;
+    }
     if let Some(mut values) = recover_top_level_json_field::<Vec<String>>(&text, "recentWorkspaces")
     {
         values.truncate(24);

@@ -1,8 +1,10 @@
+import { useRef } from "react"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
 import { t, type Lang } from "./i18n"
 import type { CodexSessionSummary, ImportMode } from "./types"
 import { formatRelative } from "./uiUtils"
+import { useModalFocus } from "./useModalFocus"
 
 interface CodexImportModalProps {
   language: Lang
@@ -29,18 +31,27 @@ export function CodexImportModal({
   onModeChange,
   onSelectedChange,
 }: CodexImportModalProps) {
+  const panelRef = useRef<HTMLElement>(null)
+  const onKeyDown = useModalFocus(panelRef, onClose, { canClose: !importing })
+  const close = () => {
+    if (!importing) onClose()
+  }
+
   const selectAll = () => {
     onSelectedChange(Object.fromEntries(sessions.map((session) => [session.filePath, true])))
   }
 
   return (
-    <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
+    <div className="settings-backdrop" onMouseDown={close} role="presentation">
       <section
         aria-labelledby="codex-import-title"
         aria-modal="true"
         className="settings-panel codex-import-panel"
+        onKeyDown={onKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
+        ref={panelRef}
+        tabIndex={-1}
       >
         <header className="settings-header">
           <div>
@@ -50,7 +61,8 @@ export function CodexImportModal({
           <button
             aria-label={t(language, "close")}
             className="icon-button"
-            onClick={onClose}
+            disabled={importing}
+            onClick={close}
             type="button"
           >
             <Icon name="close" />

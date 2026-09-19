@@ -1,7 +1,9 @@
+import { useRef } from "react"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
 import { t, type Lang } from "./i18n"
 import type { ImportMode } from "./types"
+import { useModalFocus } from "./useModalFocus"
 
 interface ImportSessionModalProps {
   importing: boolean
@@ -22,14 +24,23 @@ export function ImportSessionModal({
   onImport,
   onModeChange,
 }: ImportSessionModalProps) {
+  const panelRef = useRef<HTMLElement>(null)
+  const onKeyDown = useModalFocus(panelRef, onClose, { canClose: !importing })
+  const close = () => {
+    if (!importing) onClose()
+  }
+
   return (
-    <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
+    <div className="settings-backdrop" onMouseDown={close} role="presentation">
       <section
         aria-labelledby="omp-import-title"
         aria-modal="true"
         className="settings-panel codex-import-panel"
+        onKeyDown={onKeyDown}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
+        ref={panelRef}
+        tabIndex={-1}
       >
         <header className="settings-header">
           <div>
@@ -40,7 +51,7 @@ export function ImportSessionModal({
             aria-label={t(language, "close")}
             className="icon-button"
             disabled={importing}
-            onClick={onClose}
+            onClick={close}
             type="button"
           >
             <Icon name="close" />
@@ -56,7 +67,7 @@ export function ImportSessionModal({
           />
         </div>
         <footer className="settings-actions">
-          <button className="button secondary" disabled={importing} onClick={onClose} type="button">
+          <button className="button secondary" disabled={importing} onClick={close} type="button">
             {t(language, "cancel")}
           </button>
           <button className="button primary" disabled={importing} onClick={onImport} type="button">

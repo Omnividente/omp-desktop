@@ -39,6 +39,8 @@ let container: HTMLDivElement
 let root: Root
 let frames: Map<number, FrameRequestCallback>
 let nextFrame: number
+let sessionNumber = 0
+let rowHeights: Map<number, number>
 
 function Harness() {
   const state = useTranscript("en")
@@ -47,22 +49,32 @@ function Harness() {
     void loadTranscript(session)
   }, [loadTranscript])
   return (
-    state.transcriptSession && (
-      <TranscriptModal
-        lang="en"
-        {...state}
-        transcriptSession={state.transcriptSession}
-        launching={null}
-        runtimeAvailable
-        onClose={state.closeTranscript}
-        onRefresh={() => void state.loadTranscript(session)}
-        onReread={() => undefined}
-        onError={() => undefined}
-        onSearchChange={state.setSearch}
-        onClearSearch={() => state.setSearch("")}
-        onModeChange={state.setMode}
-      />
-    )
+    <>
+      <button onClick={() => void state.loadTranscript(session)}>Open transcript</button>
+      <button
+        onClick={() =>
+          void state.loadTranscript({ ...session, filePath: `${session.filePath}.other` })
+        }
+      >
+        Open other transcript
+      </button>
+      {state.transcriptSession && (
+        <TranscriptModal
+          lang="en"
+          {...state}
+          transcriptSession={state.transcriptSession}
+          launching={null}
+          runtimeAvailable
+          onClose={state.closeTranscript}
+          onRefresh={() => void state.loadTranscript(session)}
+          onReread={() => undefined}
+          onError={() => undefined}
+          onSearchChange={state.setSearch}
+          onClearSearch={() => state.setSearch("")}
+          onModeChange={state.setMode}
+        />
+      )}
+    </>
   )
 }
 
@@ -99,8 +111,26 @@ function currentOccurrence() {
   return container.querySelector<HTMLElement>("mark.is-current")
 }
 
+async function scrollTo(top: number) {
+  const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+  act(() => {
+    scroll.scrollTop = top
+    scroll.dispatchEvent(new Event("scroll"))
+  })
+  await flushFrames()
+  return scroll
+}
+
+function readingRow() {
+  return Array.from(container.querySelectorAll<HTMLElement>("article[data-virtual-index]")).find(
+    (row) => row.getBoundingClientRect().bottom > 0,
+  )!
+}
+
 beforeEach(async () => {
   vi.clearAllMocks()
+  session.filePath = `/tmp/synthetic-${++sessionNumber}.jsonl`
+  rowHeights = new Map([[120, 1200]])
   frames = new Map()
   nextFrame = 0
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -115,7 +145,7 @@ beforeEach(async () => {
     const article = this.closest<HTMLElement>("article")
     let top = article ? Number.parseFloat(article.style.top) - (scroll?.scrollTop ?? 0) : 0
     let height = this.classList.contains("transcript-scroll") ? 480 : 92
-    if (this.tagName === "ARTICLE" && this.dataset.virtualIndex === "120") height = 1200
+    if (this.tagName === "ARTICLE") height = rowHeights.get(Number(this.dataset.virtualIndex)) ?? 92
     if (this.tagName === "MARK") {
       top += this.dataset.matchIndex === "1" ? 1050 : 50
       height = 16
@@ -133,6 +163,12 @@ beforeEach(async () => {
     }
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480)
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const entries = this.querySelector<HTMLElement>(".transcript-entries")
+    return entries ? Number.parseFloat(entries.style.height) : 480
+  })
   transcript = {
     session,
     updatedAt: 1,
@@ -176,6 +212,116 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+})
+
+it("restores a tall-message anchor after asynchronous reopen and remeasurement without borrowing another session's position", async () => {
+  await scrollTo(120 * 102 + 850)
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-850)
+  await click("Close")
+
+  const original = transcript
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...original,
+    session: { ...session, filePath: `${session.filePath}.other` },
+  })
+  await click("Open other transcript")
+  expect(container.querySelector<HTMLElement>(".transcript-scroll")!.scrollTop).toBe(0)
+  await scrollTo(40 * 102 + 25)
+  await click("Close")
+
+  let resolve!: (value: SessionTranscript) => void
+  vi.mocked(readSessionTranscript).mockReturnValue(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  rowHeights.set(110, 300)
+  await click("Open transcript")
+  expect(container.querySelector("article")).toBeNull()
+  await act(async () => resolve(original))
+  await flushFrames()
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-850)
+
+  await click("Close")
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...original,
+    session: { ...session, filePath: `${session.filePath}.other` },
+  })
+  await click("Open other transcript")
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(readingRow().getBoundingClientRect().top).toBe(-25)
+})
+
+it("follows a moved anchor, clamps a shortened message, and falls back when the anchor disappears", async () => {
+  await scrollTo(120 * 102 + 850)
+  await click("Close")
+  const moved = { ...transcript, entries: transcript.entries.slice(5) }
+  rowHeights.clear()
+  rowHeights.set(115, 200)
+  vi.mocked(readSessionTranscript).mockResolvedValue(moved)
+  await click("Open transcript")
+  expect(readingRow().dataset.virtualIndex).toBe("115")
+  expect(readingRow().textContent).toContain("needle")
+  expect(readingRow().getBoundingClientRect().top).toBe(-199)
+  await click("Close")
+
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: transcript.entries.slice(0, 8),
+  })
+  await click("Open transcript")
+  const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+  expect(scroll.scrollTop).toBe(scroll.scrollHeight - scroll.clientHeight)
+  expect(container.textContent).toContain("Message 7")
+})
+
+it("lets explicit search and mode navigation supersede an unsettled restore", async () => {
+  await scrollTo(120 * 102 + 850)
+  await click("Close")
+  // Reopen without advancing animation frames: restoration is still settling.
+  await act(async () => {
+    Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Open transcript")!
+      .click()
+  })
+  await searchFor("Message 40")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("40")
+  await searchFor("")
+  expect(container.querySelector<HTMLElement>(".transcript-scroll")!.scrollTop).toBe(0)
+
+  await scrollTo(60 * 102 + 25)
+  await click("Close")
+  await act(async () => {
+    Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Open transcript")!
+      .click()
+  })
+  await click("Dialogue only")
+  expect(container.querySelector<HTMLElement>(".transcript-scroll")!.scrollTop).toBe(0)
+})
+
+it("keeps a link-free transcript viewport in modal keyboard navigation without consuming native scroll keys", () => {
+  const panel = container.querySelector<HTMLElement>('[role="dialog"]')!
+  const scroll = container.querySelector<HTMLElement>('[role="region"]')!
+  const first = panel.querySelector<HTMLButtonElement>("button")!
+  act(() => {
+    first.focus()
+    first.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }),
+    )
+  })
+  expect(document.activeElement).toBe(scroll)
+  expect(scroll.tabIndex).toBe(0)
+  expect(document.getElementById(scroll.getAttribute("aria-labelledby")!)?.textContent).toBe(
+    session.title,
+  )
+  for (const key of ["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"]) {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+    act(() => scroll.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(false)
+  }
 })
 
 it("finds offscreen occurrences, scrolls inside one tall message and wraps in both directions without breaking links", async () => {

@@ -6,8 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "./App"
 import * as api from "./api"
 import { confirm } from "@tauri-apps/plugin-dialog"
+import { listen, type EventCallback } from "@tauri-apps/api/event"
 import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
-import type { BootstrapPayload, OmpConfigSnapshot, TerminalStarted } from "./types"
+import type {
+  BootstrapPayload,
+  OmpConfigSnapshot,
+  SingleInstanceEvent,
+  TerminalStarted,
+} from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 
@@ -25,6 +31,9 @@ vi.mock("./useClientUpdater", async (importOriginal) => {
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   bootstrap: vi.fn(),
+  addWorkspace: vi.fn(),
+  removeWorkspace: vi.fn(),
+  saveWorkspaceSelection: vi.fn(),
   loadOmpConfig: vi.fn(),
   saveSettingsBundle: vi.fn(),
   startTerminal: vi.fn(),
@@ -98,6 +107,7 @@ const bootstrap: BootstrapPayload = {
     ompExecutable: null,
     sessionRoot: null,
     recentWorkspaces: [],
+    lastWorkspace: null,
     workspaceNames: {},
     hiddenWorkspaces: [],
     sessionTitlePins: {},
@@ -159,6 +169,26 @@ const started: TerminalStarted = {
   cwd: "C:/fixture/project",
 }
 
+function workspacePayload(...names: string[]): BootstrapPayload {
+  return {
+    ...bootstrap,
+    workspaces: names.map((name) => ({
+      ...bootstrap.workspaces[0],
+      key: name.toLowerCase(),
+      path: `C:/fixture/${name}`,
+      name,
+    })),
+    sessions: names.map((name) => ({
+      ...bootstrap.sessions[0],
+      id: `session-${name}`,
+      title: `${name} session`,
+      projectKey: name.toLowerCase(),
+      cwd: `C:/fixture/${name}`,
+      filePath: `C:/fixture/sessions/${name}.jsonl`,
+    })),
+  }
+}
+
 describe("App lifecycle serialization", () => {
   let root: Root
   let container: HTMLDivElement
@@ -182,6 +212,17 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
 
+  function requestWorkspace(name: string) {
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+    receive({
+      event: "single-instance",
+      id: 1,
+      payload: { args: ["omp-desktop", "--workspace", `C:/fixture/${name}`] },
+    })
+  }
+
   async function openAndChangeSettings() {
     await act(async () => element(".runtime-pill").click())
     act(() => {
@@ -195,7 +236,10 @@ describe("App lifecycle serialization", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    vi.mocked(api.bootstrap).mockResolvedValue(bootstrap)
+    vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
+    vi.mocked(api.addWorkspace).mockReset()
+    vi.mocked(api.removeWorkspace).mockReset()
+    vi.mocked(api.saveWorkspaceSelection).mockReset().mockResolvedValue(undefined)
     vi.mocked(api.loadOmpConfig).mockReset().mockResolvedValue(config("Initial"))
     vi.mocked(api.saveSettingsBundle).mockReset()
     vi.mocked(api.startTerminal).mockReset().mockResolvedValue(started)
@@ -222,6 +266,206 @@ describe("App lifecycle serialization", () => {
     act(() => root.unmount())
     container.remove()
     vi.restoreAllMocks()
+  })
+
+  it("restores the selected workspace after remount without opening a terminal", async () => {
+    let remembered: string | null = null
+    const projects = workspacePayload("A", "B")
+    vi.mocked(api.bootstrap).mockImplementation(async () => ({
+      ...projects,
+      settings: { ...projects.settings, lastWorkspace: remembered },
+    }))
+    vi.mocked(api.saveWorkspaceSelection).mockImplementation(async (path) => {
+      remembered = path
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    await act(async () => root.render(null))
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("B session")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("lets an explicit workspace request override remembered selection", async () => {
+    const projects = workspacePayload("A", "B")
+    projects.settings = { ...projects.settings, lastWorkspace: "C:/fixture/B" }
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    vi.mocked(api.addWorkspace).mockResolvedValue(projects)
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    await act(async () => requestWorkspace("A"))
+    expect(element(".project-item.is-active").textContent).toContain("A")
+    expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/A")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("does not recreate a removed remembered workspace on refresh or remount", async () => {
+    const projects = workspacePayload("A", "B")
+    projects.settings = { ...projects.settings, lastWorkspace: "C:/fixture/B" }
+    const removed = workspacePayload("A")
+    // Even a stale remembered value is only a hint within the visible workspace list.
+    removed.settings = { ...projects.settings, hiddenWorkspaces: ["C:/fixture/B"] }
+    vi.mocked(api.bootstrap).mockResolvedValueOnce(projects).mockResolvedValue(removed)
+    vi.mocked(api.removeWorkspace).mockResolvedValue(removed)
+    await act(async () => root.render(<App />))
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    expect(element(".project-item.is-active").textContent).toContain("A")
+    await act(async () => root.render(null))
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("A")
+    expect(container.querySelectorAll(".project-item")).toHaveLength(1)
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it.each(["success", "failure"] as const)(
+    "serializes workspace persistence past an older %s without rolling back the latest selection",
+    async (outcome) => {
+      const first = deferred<void>()
+      const last = deferred<void>()
+      const projects = workspacePayload("A", "B", "C")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.saveWorkspaceSelection)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(last.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element('.project-item[aria-label^="B,"]').click())
+      await act(async () => element('.project-item[aria-label^="C,"]').click())
+      expect(element(".project-item.is-active").textContent).toContain("C")
+      // C cannot commit before A; B is superseded while queued.
+      expect(api.saveWorkspaceSelection).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        if (outcome === "success") first.resolve(undefined)
+        else first.reject(new Error("Obsolete selection save failure"))
+      })
+      expect(api.saveWorkspaceSelection).toHaveBeenCalledTimes(2)
+      expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/C")
+      expect(container.textContent).not.toContain("Obsolete selection save failure")
+      await act(async () => last.resolve(undefined))
+      expect(element(".project-item.is-active").textContent).toContain("C")
+      expect(container.textContent).toContain("C session")
+      expect(api.bootstrap).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("keeps the latest requested workspace while reconciling an older successful mutation", async () => {
+    const first = deferred<BootstrapPayload>()
+    const second = deferred<BootstrapPayload>()
+    const reconcile = deferred<BootstrapPayload>()
+    vi.mocked(api.addWorkspace)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    await act(async () => root.render(<App />))
+    vi.mocked(api.bootstrap).mockReturnValue(reconcile.promise)
+    act(() => {
+      requestWorkspace("A")
+      requestWorkspace("B")
+    })
+    await act(async () => second.resolve(workspacePayload("B")))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    await act(async () => first.resolve(workspacePayload("A")))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("B session")
+    await act(async () => reconcile.resolve(workspacePayload("A", "B")))
+    expect(
+      [...container.querySelectorAll(".project-item strong")].map((item) => item.textContent),
+    ).toEqual(["A", "B"])
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("B session")
+    await act(async () => element<HTMLButtonElement>(".project-item").click())
+    expect(container.textContent).toContain("A session")
+  })
+
+  it("does not switch to an older request while the latest one is still pending", async () => {
+    const first = deferred<BootstrapPayload>()
+    const second = deferred<BootstrapPayload>()
+    vi.mocked(api.addWorkspace)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    await act(async () => root.render(<App />))
+    act(() => {
+      requestWorkspace("A")
+      requestWorkspace("B")
+    })
+    await act(async () => first.resolve(workspacePayload("A")))
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A", "B"))
+    await act(async () => second.resolve(workspacePayload("A", "B")))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+  })
+
+  it("suppresses superseded workspace errors but reports failure of the latest request", async () => {
+    const first = deferred<BootstrapPayload>()
+    const second = deferred<BootstrapPayload>()
+    vi.mocked(api.addWorkspace)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    await act(async () => root.render(<App />))
+    act(() => {
+      requestWorkspace("A")
+      requestWorkspace("B")
+    })
+    await act(async () => first.reject(new Error("Obsolete workspace failure")))
+    expect(container.textContent).not.toContain("Obsolete workspace failure")
+    await act(async () => second.reject(new Error("Current workspace failure")))
+    expect(container.textContent).toContain("Current workspace failure")
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+  })
+
+  it.each(["success", "failure"] as const)(
+    "ignores an initial bootstrap %s arriving after a workspace switch",
+    async (outcome) => {
+      const initial = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValue(initial.promise)
+      vi.mocked(api.addWorkspace).mockResolvedValue(workspacePayload("B"))
+      await act(async () => root.render(<App />))
+      await act(async () => requestWorkspace("B"))
+      await act(async () => {
+        if (outcome === "success") initial.resolve(bootstrap)
+        else initial.reject(new Error("Obsolete bootstrap failure"))
+      })
+      expect(element(".project-item.is-active").textContent).toContain("B")
+      expect(container.textContent).toContain("B session")
+      expect(container.textContent).not.toContain("Obsolete bootstrap failure")
+    },
+  )
+
+  it("loads committed workspaces when a startup switch fails after superseding the initial bootstrap", async () => {
+    const initial = deferred<BootstrapPayload>()
+    const addition = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(initial.promise).mockResolvedValue(bootstrap)
+    vi.mocked(api.addWorkspace).mockReturnValue(addition.promise)
+    await act(async () => root.render(<App />))
+    act(() => requestWorkspace("Missing"))
+    await act(async () => initial.resolve(bootstrap))
+    await act(async () => addition.reject(new Error("Workspace no longer exists")))
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+    expect(container.textContent).toContain("Workspace no longer exists")
+  })
+
+  it("does not reconcile or report workspace requests after unmount", async () => {
+    const first = deferred<BootstrapPayload>()
+    const second = deferred<BootstrapPayload>()
+    vi.mocked(api.addWorkspace)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    await act(async () => root.render(<App />))
+    act(() => {
+      requestWorkspace("A")
+      requestWorkspace("B")
+    })
+    act(() => root.render(null))
+    const bootstrapCalls = vi.mocked(api.bootstrap).mock.calls.length
+    await act(async () => {
+      first.resolve(workspacePayload("A"))
+      second.reject(new Error("Unmounted workspace failure"))
+    })
+    expect(api.bootstrap).toHaveBeenCalledTimes(bootstrapCalls)
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+    expect(container.textContent).not.toContain("Unmounted workspace failure")
   })
 
   it.each(["session", "utility"] as const)(

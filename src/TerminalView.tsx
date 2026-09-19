@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import type { UnlistenFn } from "@tauri-apps/api/event"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
@@ -85,6 +85,7 @@ export function TerminalView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [inputSelectionArmed, setInputSelectionArmed] = useState(false)
   const [inputHelpOpen, setInputHelpOpen] = useState(false)
+  const inputHelpId = useId()
   const [selectionReply, setSelectionReply] = useState<SelectionReplyAction | null>(null)
   const [linkPreview, setLinkPreview] = useState<string | null>(null)
   const [linkMenu, setLinkMenu] = useState<{ uri: string; left: number; top: number } | null>(null)
@@ -674,6 +675,7 @@ export function TerminalView({
       )}
       {tab.kind === "agent" && (
         <button
+          aria-controls={inputHelpId}
           aria-expanded={inputHelpOpen}
           aria-label={t(language, "terminalInputHelp")}
           className="terminal-input-help-trigger"
@@ -684,8 +686,8 @@ export function TerminalView({
           <Icon name="command" size={13} />
         </button>
       )}
-      {tab.kind === "agent" && inputHelpOpen && (
-        <div className="terminal-input-help" role="note">
+      {tab.kind === "agent" && (
+        <div className="terminal-input-help" hidden={!inputHelpOpen} id={inputHelpId} role="note">
           {t(language, "terminalInputHelp")}
         </div>
       )}
