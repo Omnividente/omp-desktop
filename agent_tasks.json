@@ -12273,7 +12273,7 @@
       "id": "research-transcript-links-behavior-3",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -12381,23 +12381,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5797323890950650825",
         "dispatch_key": "aa8b18708ab0b9014f5dae59",
         "base_sha": "332e4c8da7b9b89201c43ce4237937238bdee32a",
         "starting_branch": "autonomous/attempt-aa8b18708ab0b9014f5dae59",
         "started_at": "2026-09-19T15:22:03.568334Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T16:10:09.575459Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T15:29:17.710743Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T16:10:09.575459Z"
+      },
+      "research_result": {
+        "summary": "Verified that useVirtualList loses browser scroll position during horizontal container resizing due to active measurement eviction.",
+        "observations": [
+          {
+            "scenario": "Simulating a container width resize while scrolled down into a virtualized list with variable height elements.",
+            "evidence": "Ran a synthetic Vitest test simulating window resize using `useVirtualList`. When the container width changes (e.g. from 800 to 900), `updateMetrics` clears `activeMeasurementsRef` and bumps `measurementRevision`. All elements instantly revert to `estimatedRowHeight` causing `totalHeight` to drop, pushing the browser's `scrollTop` up irrevocably before next paint.",
+            "result": "Establishes that horizontal window resizing drops the scroll position when scrolled into items larger than the estimated height, as useVirtualList lacks scroll anchoring across full measurement resets."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate keyboard focus behavior and Esc key accessibility across Settings and Session modals.",
+          "Examine if extremely fast transcript loads can cause scroll layout race conditions within useVirtualList."
+        ],
+        "proposed_task_ids": [
+          "discovery-bb5925f45c903d0e"
+        ],
+        "completed_at": "2026-09-19T16:10:09.575459Z",
+        "source": {
+          "activity_id": "sessions/5797323890950650825/activities/efe8043eb2e947b78a41005e88773db2",
+          "report_sha256": "2a32484a03558e021b42396cb7d550549d385445993e8142628368d7d44b5326",
+          "activity_created_at": "2026-09-19T15:47:07.953491Z",
+          "session_id": "5797323890950650825",
+          "dispatch_key": "aa8b18708ab0b9014f5dae59"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5797323890950650825/activities/efe8043eb2e947b78a41005e88773db2",
+          "report_sha256": "2a32484a03558e021b42396cb7d550549d385445993e8142628368d7d44b5326",
+          "activity_created_at": "2026-09-19T15:47:07.953491Z",
+          "session_id": "5797323890950650825",
+          "dispatch_key": "aa8b18708ab0b9014f5dae59"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-bb5925f45c903d0e"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-bb5925f45c903d0e",
+      "title": "Fix transcript scroll position jump on window resize",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "medium",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-19T16:10:09.575459Z",
+      "acceptance": [
+        "Resizing the window horizontally preserves the apparent scroll position or anchors to the topmost visible element in the transcript"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via synthetic Vitest simulation of `useVirtualList`. Resizing container width clears all measurements immediately, temporarily shrinking `totalHeight` to the estimate and causing the browser to snap `scrollTop` to the new shortened bounds before items remeasure.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a long transcript with mixed content and scroll deep into it.",
+            "Resize the window horizontally."
+          ],
+          "expected": "The user stays at their approximate scroll position within the transcript.",
+          "actual": "The scroll position randomly jumps upward due to temporary list height collapse."
+        }
+      },
+      "target_paths": [
+        "src/useVirtualList.ts",
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-3",
+        "activity_id": "sessions/5797323890950650825/activities/efe8043eb2e947b78a41005e88773db2",
+        "report_sha256": "2a32484a03558e021b42396cb7d550549d385445993e8142628368d7d44b5326",
+        "activity_created_at": "2026-09-19T15:47:07.953491Z",
+        "session_id": "5797323890950650825",
+        "dispatch_key": "aa8b18708ab0b9014f5dae59"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T16:10:29.968343Z",
+    "last_poll_at": "2026-09-19T16:10:36.973723Z",
     "last_tick_at": "2026-09-19T15:54:25.430037Z",
     "run_id": "35453231646"
   }
