@@ -10839,7 +10839,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T09:44:01.614510Z"
+        "observed_at": "2026-09-19T09:44:01.614510Z",
+        "released_attempt_ref": "autonomous/attempt-2aa58ae48cd129f68e20b500"
       },
       "research_result": {
         "summary": "Investigated if reverting to default settings in SettingsRecoveryScreen preserves the user's language preference.",
