@@ -9177,7 +9177,7 @@
       "id": "research-sessions-persistence-performance-3",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -9288,23 +9288,46 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15900436730055186391",
         "dispatch_key": "5292b1146055438e2109af9b",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-5292b1146055438e2109af9b",
         "started_at": "2026-09-19T05:09:39.896916Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T05:30:02.232066Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T05:09:39.896916Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T05:30:02.232066Z"
+      },
+      "research_result": {
+        "summary": "Benchmarked list_codex_sessions performance and confirmed it lacks caching across repeated calls.",
+        "observations": [
+          {
+            "scenario": "Repeated invocations of list_codex_sessions on a directory containing 10,000 synthetic codex sessions",
+            "evidence": "Wrote an isolated synthetic benchmark test generating 10,000 mock codex session files. Called `list_codex_sessions()` twice. Both cold and warm calls took approximately 600ms.",
+            "result": "Establishes that `list_codex_sessions` parses all files on every invocation and lacks caching mechanism. This reproduces the identical observed contract already reported in canonical_id discovery-9881e0c7ffe77346."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate memory allocation and latency impact of generating CodexSessionSummary records vs SessionSummary for identical transcripts."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T05:30:02.232066Z",
+        "source": {
+          "activity_id": "sessions/15900436730055186391/activities/5ae1343dd1734883b6d49de5c0e44d9b",
+          "report_sha256": "0dcd6f6e599a50914302eda27d6a7814c3226a11c22bceaf4892e7af776e290b",
+          "activity_created_at": "2026-09-19T05:26:30.721121Z",
+          "session_id": "15900436730055186391",
+          "dispatch_key": "5292b1146055438e2109af9b"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:30:20.187376Z",
+    "last_poll_at": "2026-09-19T05:30:23.334173Z",
     "last_tick_at": "2026-09-19T05:24:08.613181Z",
     "run_id": "35423822332"
   }
