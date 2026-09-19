@@ -10149,7 +10149,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T08:34:03.572150Z"
+        "observed_at": "2026-09-19T08:34:03.572150Z",
+        "released_attempt_ref": "autonomous/attempt-f7b0e309c309483a6b08e738"
       },
       "research_result": {
         "summary": "Measured rendering and update latency for primary UI components in the workspace navigation area across extremely large lists of sessions, tabs, and workspaces. Verified that SessionList search and WorkspaceHome gracefully bound their work and perform acceptably. However, ProjectRail scales linearly leading to extreme unresponsiveness (reproducing a known issue) and TerminalWorkspace scales linearly with each tab instantiating heavy unvirtualized Terminal View instances.",
