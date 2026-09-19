@@ -13123,7 +13123,7 @@
       "id": "research-terminal-input-reliability-4",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -13233,18 +13233,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "290584772498287697",
         "dispatch_key": "7e34cdf9286da9eec5cb5a59",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-7e34cdf9286da9eec5cb5a59",
         "started_at": "2026-09-19T21:21:19.590064Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T22:16:36.244950Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T22:09:25.829254Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T22:16:36.244950Z",
         "research_detached": {
           "at": "2026-09-19T22:03:34.953377Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -13252,6 +13252,86 @@
         "feedback_nudge": {
           "at": "2026-09-19T22:03:34.953377Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the lack of automatic clearance of `switch_recovery` state in terminal input.",
+        "observations": [
+          {
+            "scenario": "A terminal process is in a switch_recovery state (e.g. FailedSend) and new input bytes are manually written via write_bytes.",
+            "evidence": "Inspected `write_bytes` in `src-tauri/src/terminal.rs` and created an isolated patch with a test `manual_input_clears_pending_switch_recovery`. The test confirms `process.switch_recovery` is not cleared when new input arrives, allowing out-of-order execution if the stale recovery buffer is later retried. We verified that clearing the buffer via `process.switch_recovery = None;` properly resets the state.",
+            "result": "Establishes that the backend does not discard pending or failed switch_recovery states when new terminal input arrives. It confirms previous finding `discovery-d47c6c8c6e6f2995`."
+          },
+          {
+            "scenario": "Terminal UI checks whether input is blocked via `terminalInputBlocked` in `src/terminalInput.ts`.",
+            "evidence": "Inspected `src/terminalInput.ts` and `src/terminalInput.test.ts`. `terminalInputBlocked` currently returns true only when `tab.switching` or `tab.primaryProviderPinPending` is true. It does not inspect `tab.switchRecovery.state`.",
+            "result": "Establishes that the frontend could be configured to block inputs entirely while the system is actively sending a recovery buffer (`state === \"sending\"`) to prevent user interaction mid-recovery."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab.",
+          "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T22:16:36.244950Z",
+        "source": {
+          "activity_id": "sessions/290584772498287697/activities/3b48f36a1dd8475aaba1b20c38a20159",
+          "report_sha256": "da085956503a8c8c22f78368033b077fa63dfa7518ddd471442a32a37a714833",
+          "activity_created_at": "2026-09-19T22:11:55.136991Z",
+          "session_id": "290584772498287697",
+          "dispatch_key": "7e34cdf9286da9eec5cb5a59"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0; not established as a duplicate. {\"detail\": \"Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995. The backend does not proactively discard pending or failed switch_recovery states when new terminal input arrives.\", \"reproduction\": {\"actual\": \"The switch_recovery state remains present in memory.\", \"expected\": \"The switch_recovery state is cleared automatically.\", \"steps\": [\"Set a terminal into a switch_recovery state (e.g. FailedSend).\", \"Send manual input via write_bytes.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/terminal.rs"
+            ],
+            "acceptance": [
+              "When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.",
+              "A test confirms that write_bytes removes switch_recovery if new input is sent."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/290584772498287697/activities/3b48f36a1dd8475aaba1b20c38a20159",
+          "report_sha256": "da085956503a8c8c22f78368033b077fa63dfa7518ddd471442a32a37a714833",
+          "activity_created_at": "2026-09-19T22:11:55.136991Z",
+          "session_id": "290584772498287697",
+          "dispatch_key": "7e34cdf9286da9eec5cb5a59"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-d47c6c8c6e6f2995",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0; not established as a duplicate. {\"detail\": \"Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995. The backend does not proactively discard pending or failed switch_recovery states when new terminal input arrives.\", \"reproduction\": {\"actual\": \"The switch_recovery state remains present in memory.\", \"expected\": \"The switch_recovery state is cleared automatically.\", \"steps\": [\"Set a terminal into a switch_recovery state (e.g. FailedSend).\", \"Send manual input via write_bytes.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/terminal.rs"
+              ],
+              "acceptance": [
+                "When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.",
+                "A test confirms that write_bytes removes switch_recovery if new input is sent."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -13384,7 +13464,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T22:10:52.146353Z",
+    "last_poll_at": "2026-09-19T22:16:52.768584Z",
     "last_tick_at": "2026-09-19T22:10:53.736326Z",
     "run_id": "35472496447"
   }
