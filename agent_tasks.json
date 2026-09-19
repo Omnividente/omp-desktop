@@ -12228,7 +12228,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T13:36:51.364892Z"
+        "observed_at": "2026-09-19T13:36:51.364892Z",
+        "released_attempt_ref": "autonomous/attempt-82f1ab66971986dd523e206f"
       },
       "research_result": {
         "summary": "Verified keyboard-only focus navigation, focus restoration logic, and empty-state messaging correctness in the IncidentCenter dialog.",
