@@ -11549,13 +11549,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T10:26:25.458880Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T10:33:38.314722Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T10:33:57.713253Z",
+    "last_poll_at": "2026-09-19T10:34:00.906798Z",
     "last_tick_at": "2026-09-19T10:27:55.939287Z",
     "run_id": "35437398386"
   }
