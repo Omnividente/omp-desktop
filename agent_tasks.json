@@ -593,7 +593,8 @@
         "rejection_stop": {
           "at": "2026-09-19T16:10:30.107209Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-24bf30539113a26a595bb2b6"
       },
       "proposal_decision": {
         "action": "reject",
