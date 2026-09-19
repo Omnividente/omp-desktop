@@ -12606,13 +12606,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T16:10:09.575459Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T16:18:32.867040Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T16:18:48.315519Z",
+    "last_poll_at": "2026-09-19T16:18:51.035071Z",
     "last_tick_at": "2026-09-19T15:54:25.430037Z",
     "run_id": "35453231646"
   }
