@@ -8982,7 +8982,7 @@
       "id": "research-sessions-persistence-reliability-3",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -9094,34 +9094,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "14957366543589173483",
         "dispatch_key": "fbc00ec70b5f6cb943464025",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
         "starting_branch": "autonomous/attempt-fbc00ec70b5f6cb943464025",
         "started_at": "2026-09-19T04:43:52.679803Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T05:23:33.437239Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: findings_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T05:17:16.484206Z",
-        "report_error": {
-          "code": "findings_invalid",
-          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
-          "reported_at": "2026-09-19T05:09:39.896916Z",
-          "source": {
-            "activity_id": "sessions/14957366543589173483/activities/ee54eecd864c4e08bfc962af56eaeb58",
-            "report_sha256": "c4440ee33c139d9cd932880e0aa2e182500cdaf787a2a10868f600304fc0bd0c",
-            "activity_created_at": "2026-09-19T04:57:40.174207Z",
-            "session_id": "14957366543589173483",
-            "dispatch_key": "fbc00ec70b5f6cb943464025"
-          }
-        },
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T05:23:33.437239Z",
         "report_repair": {
           "at": "2026-09-19T05:10:04.000337Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/14957366543589173483/activities/ee54eecd864c4e08bfc962af56eaeb58",
             "report_sha256": "c4440ee33c139d9cd932880e0aa2e182500cdaf787a2a10868f600304fc0bd0c",
@@ -9130,6 +9118,34 @@
             "dispatch_key": "fbc00ec70b5f6cb943464025"
           }
         }
+      },
+      "research_result": {
+        "summary": "Verified the lack of garbage collection for orphaned import artifacts and explored transcript parsing resilience.",
+        "observations": [
+          {
+            "scenario": "Scanning for orphaned import artifact directories after a simulated failed import",
+            "evidence": "Executed an isolated synthetic test `scan_sessions_garbage_collects_orphaned_import_sidecars` which created mock `.session.artifacts-backup...` and `.session.artifacts-stage...` directories. Calling `scan_sessions` did not remove these directories.",
+            "result": "Establishes that interrupted session imports leave permanent artifacts on disk. This reproduces the identical observed contract already reported in canonical_id discovery-e938ec8d92054623."
+          },
+          {
+            "scenario": "Handling of malformed JSON rows at the end of a session transcript",
+            "evidence": "Ran existing unit test `transcript_distinguishes_malformed_rows_from_an_incomplete_final_record` using cargo test.",
+            "result": "Establishes that the parser successfully separates an incomplete final record from generally malformed inner lines, ensuring resilience against truncation during a crash."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether the `CodexImportModal` handles out-of-bounds or non-existent codex root directories correctly without crashing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T05:23:33.437239Z",
+        "source": {
+          "activity_id": "sessions/14957366543589173483/activities/cf17471b5b504c73aa27f42f90adbbd2",
+          "report_sha256": "3651273a56ab5d0fee4eb01d2989bd9a2b9104e92200e3793fa3bc4c7c255b7d",
+          "activity_created_at": "2026-09-19T05:12:03.332313Z",
+          "session_id": "14957366543589173483",
+          "dispatch_key": "fbc00ec70b5f6cb943464025"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -9263,7 +9279,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:23:53.715129Z",
+    "last_poll_at": "2026-09-19T05:23:56.905003Z",
     "last_tick_at": "2026-09-19T05:17:44.346500Z",
     "run_id": "35423543558"
   }
