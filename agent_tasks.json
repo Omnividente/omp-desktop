@@ -9136,7 +9136,7 @@
       "id": "research-sessions-persistence-performance-3",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -9244,6 +9244,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "5292b1146055438e2109af9b",
+        "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
+        "starting_branch": "autonomous/attempt-5292b1146055438e2109af9b",
+        "started_at": "2026-09-19T05:09:39.896916Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
