@@ -30,11 +30,49 @@ use settings::{
     SettingsState, SettingsTransaction,
 };
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use terminal::TerminalState;
 
 const SINGLE_INSTANCE_EVENT: &str = "single-instance";
+
+struct StartupWorkspace(Mutex<Option<String>>);
+
+fn startup_workspace(args: &[String]) -> Option<String> {
+    for (index, arg) in args.iter().enumerate().skip(1) {
+        let arg = arg.trim();
+        if matches!(arg, "--project" | "-p" | "--workspace" | "-w") {
+            if let Some(value) = args.get(index + 1).map(|value| value.trim()) {
+                if !value.is_empty() && !value.starts_with('-') {
+                    return Some(value.to_owned());
+                }
+            }
+        } else if let Some((flag, value)) = arg.split_once('=') {
+            if matches!(flag, "--project" | "-p" | "--workspace" | "-w") && !value.trim().is_empty()
+            {
+                return Some(value.trim().to_owned());
+            }
+        }
+    }
+    for (index, arg) in args.iter().enumerate().skip(1) {
+        let arg = arg.trim();
+        if arg == "--" {
+            return args
+                .get(index + 1)
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty());
+        }
+        if arg.is_empty()
+            || arg.starts_with('-')
+            || matches!(arg.to_ascii_lowercase().as_str(), "run" | "dev" | "open")
+        {
+            continue;
+        }
+        return Some(arg.to_owned());
+    }
+    None
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,8 +123,27 @@ fn handle_second_instance(app: &AppHandle, args: Vec<String>, _cwd: String) {
 
 #[cfg(test)]
 mod single_instance_tests {
-    use super::{dispatch_second_instance, SingleInstanceEvent};
+    use super::{dispatch_second_instance, startup_workspace, SingleInstanceEvent};
     use std::cell::RefCell;
+
+    #[test]
+    fn explicit_startup_project_takes_precedence_over_positional_arguments() {
+        let args = [
+            "omp-desktop",
+            "open",
+            "older-project",
+            "--project",
+            "chosen-project",
+        ]
+        .map(str::to_owned);
+        assert_eq!(startup_workspace(&args).as_deref(), Some("chosen-project"));
+    }
+
+    #[test]
+    fn startup_project_does_not_consume_another_flag_as_its_path() {
+        let args = ["omp-desktop", "--project", "--verbose"].map(str::to_owned);
+        assert_eq!(startup_workspace(&args), None);
+    }
 
     #[test]
     fn repeat_launch_focuses_before_forwarding_exact_arguments() {
@@ -143,13 +200,35 @@ async fn bootstrap(app: AppHandle) -> Result<BootstrapPayload, AppError> {
         "загрузки данных",
         "bootstrap_failed",
         "Не удалось загрузить данные OMP",
-        move || {
-            let settings = app.state::<SettingsState>();
-            let snapshot = settings_snapshot(&app, &settings)?;
-            build_bootstrap(&app, &snapshot)
-        },
+        move || load_workspace_bootstrap(&app),
     )
     .await
+}
+
+fn load_workspace_bootstrap(app: &AppHandle) -> Result<BootstrapPayload, String> {
+    let startup = app.state::<StartupWorkspace>();
+    let mut requested = startup
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let settings = app.state::<SettingsState>();
+    let bootstrap = if let Some(path) = requested
+        .as_ref()
+        .filter(|path| PathBuf::from(path.as_str()).is_dir())
+    {
+        with_settings_transaction(app, &settings, |transaction| {
+            let snapshot = transaction.candidate_mut();
+            add_workspace_to_settings(snapshot, path)?;
+            snapshot.last_workspace = Some(path.clone());
+            commit_workspace_settings(app, transaction)
+        })?
+    } else {
+        let snapshot = settings_snapshot(app, &settings)?;
+        build_bootstrap(app, &snapshot)?
+    };
+    // Consume only after success, so settings recovery can retry the explicit launch intent.
+    *requested = None;
+    Ok(bootstrap)
 }
 
 #[tauri::command]
@@ -183,24 +262,68 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
         "workspace_add_failed",
         "Не удалось добавить проект",
         move || {
-            let workspace = PathBuf::from(path.trim());
-            if !workspace.is_dir() {
-                return Err(format!("Папка проекта не найдена: {}", workspace.display()));
-            }
-            let workspace = workspace.to_string_lossy().into_owned();
-            let workspace_key = path_key(&workspace);
+            // A forwarded launch or folder pick supersedes a not-yet-consumed initial argument.
+            let startup = app.state::<StartupWorkspace>();
+            let mut requested = startup
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *requested = None;
+            let state = app.state::<SettingsState>();
+            with_settings_transaction(&app, &state, |transaction| {
+                add_workspace_to_settings(transaction.candidate_mut(), &path)?;
+                commit_workspace_settings(&app, transaction)
+            })
+        },
+    )
+    .await
+}
+
+fn add_workspace_to_settings(snapshot: &mut AppSettings, path: &str) -> Result<(), String> {
+    let workspace = PathBuf::from(path.trim());
+    if !workspace.is_dir() {
+        return Err(format!("Папка проекта не найдена: {}", workspace.display()));
+    }
+    let workspace = workspace.to_string_lossy().into_owned();
+    let key = path_key(&workspace);
+    snapshot
+        .recent_workspaces
+        .retain(|existing| path_key(existing) != key);
+    snapshot
+        .hidden_workspaces
+        .retain(|hidden| path_key(hidden) != key);
+    snapshot.recent_workspaces.insert(0, workspace);
+    snapshot.recent_workspaces.truncate(24);
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_workspace_selection(path: Option<String>, app: AppHandle) -> Result<(), AppError> {
+    run_blocking(
+        "сохранения выбранного проекта",
+        "workspace_selection_save_failed",
+        "Не удалось запомнить выбранный проект",
+        move || {
             let state = app.state::<SettingsState>();
             with_settings_transaction(&app, &state, |transaction| {
                 let snapshot = transaction.candidate_mut();
-                snapshot
-                    .recent_workspaces
-                    .retain(|existing| path_key(existing) != workspace_key);
-                snapshot
-                    .hidden_workspaces
-                    .retain(|hidden| path_key(hidden) != workspace_key);
-                snapshot.recent_workspaces.insert(0, workspace);
-                snapshot.recent_workspaces.truncate(24);
-                commit_workspace_settings(&app, transaction)
+                if let Some(path) = &path {
+                    let key = path_key(path);
+                    // Removal may have committed while this UI selection was in flight.
+                    if !PathBuf::from(path).is_dir()
+                        || snapshot
+                            .hidden_workspaces
+                            .iter()
+                            .any(|hidden| path_key(hidden) == key)
+                    {
+                        return Ok(());
+                    }
+                }
+                if snapshot.last_workspace == path {
+                    return Ok(());
+                }
+                snapshot.last_workspace = path;
+                save_settings(&app, snapshot)
             })
         },
     )
@@ -274,6 +397,13 @@ async fn remove_workspace(path: String, app: AppHandle) -> Result<BootstrapPaylo
                     .recent_workspaces
                     .retain(|existing| path_key(existing) != key);
                 snapshot.workspace_names.remove(&key);
+                if snapshot
+                    .last_workspace
+                    .as_ref()
+                    .is_some_and(|path| path_key(path) == key)
+                {
+                    snapshot.last_workspace = None;
+                }
                 snapshot
                     .hidden_workspaces
                     .retain(|hidden| path_key(hidden) != key);
@@ -418,7 +548,17 @@ async fn start_with_defaults(app: AppHandle) -> Result<BootstrapPayload, AppErro
             let (_, bootstrap) = start_with_defaults_prepared(&app, &state, |defaults| {
                 build_bootstrap(&app, defaults)
             })?;
-            Ok(bootstrap)
+            let startup_pending = app
+                .state::<StartupWorkspace>()
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_some();
+            if startup_pending {
+                load_workspace_bootstrap(&app)
+            } else {
+                Ok(bootstrap)
+            }
         },
     )
     .await
@@ -670,6 +810,9 @@ pub fn run() {
                 Err(error) => eprintln!("OMP Desktop logging unavailable: {error}"),
             }
             app.manage(SettingsState::new_uninitialized());
+            app.manage(StartupWorkspace(Mutex::new(startup_workspace(
+                &std::env::args().collect::<Vec<_>>(),
+            ))));
             app.manage(TerminalState::default());
             #[cfg(feature = "updater-e2e")]
             updater_e2e::start(app.handle().clone());
@@ -681,6 +824,7 @@ pub fn run() {
             add_workspace,
             rename_workspace,
             remove_workspace,
+            save_workspace_selection,
             save_settings_bundle,
             set_session_title_pin,
             delete_session,

@@ -33,6 +33,7 @@ const settings: AppSettings = {
   ompExecutable: null,
   sessionRoot: null,
   recentWorkspaces: [],
+  lastWorkspace: null,
   workspaceNames: {},
   hiddenWorkspaces: [],
   sessionTitlePins: {},

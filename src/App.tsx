@@ -26,6 +26,7 @@ import {
   renameWorkspace,
   sampleResourceHealth,
   saveSettingsBundle,
+  saveWorkspaceSelection,
   setSessionTitlePin,
   setTerminalPrimaryProviderPin,
   sendSwitchInputRecovery,
@@ -233,6 +234,8 @@ function App() {
   proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
+  const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
+  const workspaceSaveRequestRef = useRef(0)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -567,7 +570,7 @@ function App() {
         )
       }
       setSelectedWorkspaceKey((current) => {
-        const preferred = preferredWorkspace ?? current
+        const preferred = preferredWorkspace ?? current ?? next.settings.lastWorkspace
         if (preferred) {
           const preferredPathKey = normalizedPath(preferred, next.runtime.platform)
           const match = next.workspaces.find(
@@ -1055,6 +1058,24 @@ function App() {
     if (!payload || !selectedWorkspaceKey) return null
     return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
   }, [payload, selectedWorkspaceKey])
+
+  const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  useEffect(() => {
+    if (selectedWorkspacePath === undefined) return
+    const request = ++workspaceSaveRequestRef.current
+    // Serialize commits, not just responses; an older disk write must never win after a newer one.
+    // Skip superseded queued selections and never apply bootstrap data from background persistence.
+    workspaceSaveQueueRef.current = (workspaceSaveQueueRef.current ?? Promise.resolve())
+      .then(async () => {
+        if (!mountedRef.current || request !== workspaceSaveRequestRef.current) return
+        await saveWorkspaceSelection(selectedWorkspacePath)
+      })
+      .catch((error) => {
+        if (mountedRef.current && request === workspaceSaveRequestRef.current) {
+          showError(errorMessage(error, langRef.current))
+        }
+      })
+  }, [selectedWorkspacePath, showError])
 
   useEffect(() => {
     let disposed = false

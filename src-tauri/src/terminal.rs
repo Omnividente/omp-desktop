@@ -5110,6 +5110,40 @@ mod tests {
             },
         };
 
+        // Re-enter this test in child processes, like the session-lease crash fixture.
+        // Exercise Job Objects without depending on PowerShell/.NET startup time.
+        const FIXTURE_ROLE: &str = "OMP_DESKTOP_JOB_TREE_FIXTURE_ROLE";
+        const TEST_NAME: &str =
+            "terminal::tests::windows_job_object_kills_direct_child_and_descendant_on_owner_drop";
+        if let Ok(role) = std::env::var(FIXTURE_ROLE) {
+            if role == "descendant" {
+                thread::sleep(Duration::from_secs(120));
+                return;
+            }
+            assert_eq!(role, "root");
+            let gate = std::env::var_os("OMP_DESKTOP_JOB_TREE_GATE")
+                .expect("fixture gate should be configured");
+            let pid_file = std::env::var_os("OMP_DESKTOP_JOB_TREE_PIDS")
+                .expect("fixture PID path should be configured");
+            while !std::path::Path::new(&gate).is_file() {
+                thread::sleep(Duration::from_millis(10));
+            }
+            let child =
+                Command::new(std::env::current_exe().expect("test executable should resolve"))
+                    .args(["--exact", TEST_NAME, "--nocapture"])
+                    .env(FIXTURE_ROLE, "descendant")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .expect("native descendant fixture should start");
+            let mut child = ProcessFixture::new(child);
+            fs::write(pid_file, format!("{}\n{}", std::process::id(), child.id()))
+                .expect("fixture should publish process tree PIDs");
+            child.wait().expect("fixture descendant should be waitable");
+            return;
+        }
+
         fn wait_until_terminated(process_id: u32, deadline: Instant) -> bool {
             loop {
                 let handle = unsafe {
@@ -5150,37 +5184,19 @@ mod tests {
             std::process::id()
         ));
         fs::create_dir_all(&root).expect("fixture directory should be writable");
-        let script = root.join("tree.ps1");
         let gate = root.join("assigned.gate");
         let pid_file = root.join("pids.txt");
-        fs::write(
-            &script,
-            r#"param([string]$Gate, [string]$PidFile)
-while (-not [System.IO.File]::Exists($Gate)) { Start-Sleep -Milliseconds 10 }
-$child = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList '/d', '/c', 'ping -n 120 127.0.0.1 > nul' -PassThru
-[System.IO.File]::WriteAllText($PidFile, "$PID`n$($child.Id)")
-$child.WaitForExit()
-"#,
-        )
-        .expect("PowerShell fixture should be writable");
 
-        let child = Command::new("powershell.exe")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-            ])
-            .arg("-File")
-            .arg(&script)
-            .arg(&gate)
-            .arg(&pid_file)
+        let child = Command::new(std::env::current_exe().expect("test executable should resolve"))
+            .args(["--exact", TEST_NAME, "--nocapture"])
+            .env(FIXTURE_ROLE, "root")
+            .env("OMP_DESKTOP_JOB_TREE_GATE", &gate)
+            .env("OMP_DESKTOP_JOB_TREE_PIDS", &pid_file)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
-            .expect("PowerShell tree fixture should start");
+            .expect("native tree fixture should start");
         let mut child = ProcessFixture::new(child);
         let job = WindowsJobObject::new().expect("kill-on-close Job Object should initialize");
         job.assign(child.raw_handle())
@@ -5240,6 +5256,19 @@ $child.WaitForExit()
     #[cfg(windows)]
     #[test]
     fn failed_switch_actual_conpty_keeps_input_until_explicit_send() {
+        if let Some(ready) = std::env::var_os("OMP_SWITCH_READY") {
+            let received = std::env::var_os("OMP_SWITCH_RECEIVED")
+                .expect("fixture input path should be configured");
+            fs::write(ready, b"ready").expect("input fixture should signal readiness");
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("input fixture should read one console line");
+            fs::write(received, input.trim_end_matches(['\r', '\n']))
+                .expect("input fixture should persist the received line");
+            return;
+        }
+
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
@@ -5266,20 +5295,19 @@ $child.WaitForExit()
             .master
             .take_writer()
             .expect("ConPTY writer should open");
-        let mut command = CommandBuilder::new("powershell.exe");
+        let mut command =
+            CommandBuilder::new(std::env::current_exe().expect("test executable should resolve"));
         command.args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "[IO.File]::WriteAllText($env:OMP_SWITCH_READY, 'ready'); $line = [Console]::In.ReadLine(); [IO.File]::WriteAllText($env:OMP_SWITCH_RECEIVED, $line)",
+            "--exact",
+            "terminal::tests::failed_switch_actual_conpty_keeps_input_until_explicit_send",
+            "--nocapture",
         ]);
         command.env("OMP_SWITCH_READY", &ready);
         command.env("OMP_SWITCH_RECEIVED", &received);
         let child = pair
             .slave
             .spawn_command(command)
-            .expect("PowerShell input fixture should start");
+            .expect("native input fixture should start");
         let mut child = PtyChildFixture::new(child);
         drop(pair.slave);
 

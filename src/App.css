@@ -2943,6 +2943,11 @@ button:disabled {
   scrollbar-width: thin;
 }
 
+.transcript-scroll:focus-visible {
+  outline: 2px solid rgba(185, 242, 124, 0.8);
+  outline-offset: -2px;
+}
+
 .transcript-state {
   display: flex;
   align-items: center;

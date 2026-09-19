@@ -32,6 +32,25 @@ interface TranscriptModalProps {
 
 const transcriptEntryKey = (entry: SessionTranscript["entries"][number]): string => entry.id
 
+interface ReadingPosition {
+  entryId: string
+  index: number
+  offset: number
+  mode: TranscriptModalProps["transcriptMode"]
+}
+
+// UI-only, process-local LRU: never retain transcript contents or write session files.
+const readingPositions = new Map<string, ReadingPosition>()
+const MAX_READING_POSITIONS = 64
+
+function rememberReadingPosition(path: string, position: ReadingPosition) {
+  readingPositions.delete(path)
+  readingPositions.set(path, position)
+  if (readingPositions.size > MAX_READING_POSITIONS) {
+    readingPositions.delete(readingPositions.keys().next().value!)
+  }
+}
+
 export function TranscriptModal({
   lang,
   transcriptSession,
@@ -88,6 +107,63 @@ export function TranscriptModal({
     },
   )
 
+  const pendingRestoreRef = useRef<ReadingPosition | null>(null)
+  const readingContextRef = useRef<{
+    path: string
+    mode: TranscriptModalProps["transcriptMode"]
+    search: string
+  } | null>(null)
+  useLayoutEffect(() => {
+    const previous = readingContextRef.current
+    if (previous?.path !== transcriptSession.filePath) {
+      pendingRestoreRef.current = transcriptSearch
+        ? null
+        : (readingPositions.get(transcriptSession.filePath) ?? null)
+    } else if (previous.mode !== transcriptMode || previous.search !== transcriptSearch) {
+      // Explicit filtering/find navigation always wins over an unfinished restore.
+      pendingRestoreRef.current = null
+    }
+    readingContextRef.current = {
+      path: transcriptSession.filePath,
+      mode: transcriptMode,
+      search: transcriptSearch,
+    }
+  }, [transcriptSession.filePath, transcriptMode, transcriptSearch])
+
+  const rememberPosition = useCallback(() => {
+    const scroll = scrollRef.current
+    if (
+      !scroll ||
+      pendingRestoreRef.current ||
+      transcriptLoading ||
+      transcriptError ||
+      transcript?.session.filePath !== transcriptSession.filePath
+    )
+      return
+    const bounds = scroll.getBoundingClientRect()
+    for (const row of scroll.querySelectorAll<HTMLElement>("article[data-virtual-index]")) {
+      const rowBounds = row.getBoundingClientRect()
+      if (rowBounds.bottom <= bounds.top || rowBounds.top >= bounds.bottom) continue
+      const index = Number(row.dataset.virtualIndex)
+      const entry = visibleEntries[index]
+      if (!entry) return
+      rememberReadingPosition(transcriptSession.filePath, {
+        entryId: entry.id,
+        index,
+        offset: bounds.top - rowBounds.top,
+        mode: transcriptMode,
+      })
+      return
+    }
+  }, [
+    transcript,
+    transcriptError,
+    transcriptLoading,
+    transcriptMode,
+    transcriptSession.filePath,
+    visibleEntries,
+  ])
+
   const totalOriginal = transcript?.entries.length ?? 0
   const contents = useMemo(
     () =>
@@ -133,7 +209,8 @@ export function TranscriptModal({
   const pendingMatchRef = useRef<{ index: number; entryIndex: number } | null>(null)
   useLayoutEffect(() => {
     pendingMatchRef.current =
-      currentMatch ?? (!transcriptSearch ? { index: -1, entryIndex: 0 } : null)
+      currentMatch ??
+      (!transcriptSearch && !pendingRestoreRef.current ? { index: -1, entryIndex: 0 } : null)
   }, [currentMatch, navigation, transcriptSearch, transcriptMode, transcript])
   useLayoutEffect(() => {
     const pending = pendingMatchRef.current
@@ -156,6 +233,54 @@ export function TranscriptModal({
         scroll.dispatchEvent(new Event("scroll"))
       }
       pendingMatchRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  })
+  useLayoutEffect(() => {
+    const saved = pendingRestoreRef.current
+    const scroll = scrollRef.current
+    if (!saved || !scroll) {
+      rememberPosition()
+      return
+    }
+    if (
+      transcriptLoading ||
+      transcriptError ||
+      !transcript ||
+      transcript.session.filePath !== transcriptSession.filePath
+    )
+      return
+    if (!visibleEntries.length) {
+      pendingRestoreRef.current = null
+      readingPositions.delete(transcriptSession.filePath)
+      return
+    }
+    const anchorIndex = visibleEntries.findIndex((entry) => entry.id === saved.entryId)
+    const index = anchorIndex < 0 ? Math.min(saved.index, visibleEntries.length - 1) : anchorIndex
+    const row = scroll.querySelector<HTMLElement>(`article[data-virtual-index="${index}"]`)
+    if (!row) {
+      // First mount the anchor's virtual window; only then use its measured height.
+      scrollToIndex(index)
+      return
+    }
+    const rowBounds = row.getBoundingClientRect()
+    const offset =
+      saved.mode === transcriptMode && anchorIndex >= 0
+        ? Math.min(saved.offset, Math.max(0, rowBounds.height - 1))
+        : 0
+    const top = scroll.scrollTop + rowBounds.top - scroll.getBoundingClientRect().top + offset
+    const next = Math.max(0, Math.min(top, scroll.scrollHeight - scroll.clientHeight))
+    if (scroll.scrollTop !== next) {
+      scroll.scrollTop = next
+      scroll.dispatchEvent(new Event("scroll"))
+    }
+    // Keep the anchor through measurement/layout updates, not just the first
+    // estimated scroll. A new layout cancels this settlement window.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        pendingRestoreRef.current = null
+        rememberPosition()
+      })
     })
     return () => window.cancelAnimationFrame(frame)
   })
@@ -343,6 +468,10 @@ export function TranscriptModal({
         <div
           className="transcript-scroll"
           ref={scrollRef}
+          tabIndex={0}
+          role="region"
+          aria-labelledby="transcript-title"
+          onScroll={rememberPosition}
           onMouseDownCapture={(event) => {
             if (event.button !== 2) return
             const selection = window.getSelection()

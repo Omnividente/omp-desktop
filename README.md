@@ -29,6 +29,7 @@
 <summary>Подробные возможности, ограничения и поведение</summary>
 
 - Проекты и недавние рабочие папки в боковой панели.
+- Последний выбранный проект восстанавливается после перезапуска Desktop; явный `--project` имеет приоритет. Удалённые или скрытые папки не возвращаются автоматически, терминалы без запроса не запускаются.
 - Автоматическое обнаружение стандартных JSONL-сессий OMP. Нечитаемые файлы и нераспознаваемые заголовки показываются отдельным предупреждением с путями и повторным чтением; остальные сессии остаются доступны.
 - Поиск, открытие и возобновление существующих сессий.
 - Новая терминальная сессия сразу получает JSONL, созданный самим OMP через `--session`: модель можно переключать до первого сообщения, без перезапуска процесса и потери набранного черновика. Desktop подтверждает выбор по записи runtime, не отправляя служебный запрос модели. Пустая сессия остаётся в истории; её можно удалить обычной командой после закрытия вкладки.
@@ -39,6 +40,7 @@
 - Идемпотентный импорт OMP и Codex JSONL с режимами «пропустить», «обновить» и «создать копию»: JSONL ограничен 256 MiB, связанные артефакты копируются транзакционно без ссылок и ограничены 512 MiB, 10 000 записей и глубиной 16 каталогов.
 - Большие транскрипты читаются ограниченно: интерфейс показывает начало и последние записи и явно отмечает пропущенную середину. Повреждённые записи в прочитанной части и незавершённая последняя строка отмечаются отдельно; чтение не изменяет исходный файл.
 - Поиск в просмотре переписки проходит по всему загруженному тексту выбранного режима, а не только по строкам на экране: `Ctrl+F`, счётчик отдельных совпадений, переходы вперёд/назад и подсветка, включая подписи ссылок. Пропущенная при ограниченном чтении середина файла в поиск не входит.
+- Просмотр переписки запоминает сообщение и смещение при повторном открытии в текущем запуске Desktop; позиции разных сессий независимы и не записываются в JSONL. `Tab` переводит фокус на область переписки, где работают стрелки, `PageUp` / `PageDown`, `Home` и `End`.
 - Несколько одновременно работающих терминальных вкладок.
 - Настоящий нативный PTY с изменением размера, прерыванием и корректным завершением процессов.
 - Настраиваемые путь к OMP, корень сессий, модели, язык и шрифты. «Настройки → Основное → Масштаб текста интерфейса» увеличивает текст приложения от 100% до 200%, сохраняется между запусками и не меняет независимый размер шрифта терминала.
@@ -107,6 +109,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 <summary>Detailed features, limitations, and behavior</summary>
 
 - Project sidebar with persisted recent workspaces.
+- The last selected project is restored after a Desktop restart; an explicit `--project` takes precedence. Missing or hidden workspaces are not revived automatically, and no terminal starts without a user action.
 - Automatic discovery of standard OMP JSONL sessions. Unreadable files and unrecognized headers appear in a separate warning with paths and a retry action; other sessions remain available.
 - Search, open, and resume existing sessions.
 - A new terminal session immediately gets a JSONL created by OMP itself through `--session`: switch models before the first message without restarting the process or losing the input draft. Desktop confirms the choice from the runtime record without sending a synthetic model request. Empty sessions remain in history and can be deleted normally after closing their tabs.
@@ -117,6 +120,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 - Idempotent OMP and Codex JSONL import with skip, update, and copy modes: JSONL is capped at 256 MiB; related artifacts are copied transactionally without links and capped at 512 MiB, 10,000 entries, and 16 directory levels.
 - Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle. Malformed records in the read portion and an incomplete final line are reported separately; reading never changes the source file.
 - Transcript search scans all loaded text in the selected mode, not just onscreen rows: `Ctrl+F`, an occurrence counter, next/previous navigation and highlights including link labels. The middle omitted by bounded file reads is not searched.
+- Transcript reading remembers the message and offset when reopening during the current Desktop run; sessions keep independent positions and nothing is written to JSONL. `Tab` focuses the transcript viewport for arrows, `PageUp` / `PageDown`, `Home`, and `End`.
 - Multiple concurrent terminal tabs.
 - A real native PTY with resize, interrupt, and reliable process cleanup.
 - Configurable OMP executable, session root, models, language, and fonts. Settings → General → Interface text scale enlarges application text from 100% to 200%, persists across restarts, and does not change the independent terminal font size.
