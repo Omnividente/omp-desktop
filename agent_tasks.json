@@ -3133,7 +3133,7 @@
       "id": "discovery-f25052402356bf34",
       "title": "Retain modal scroll position per session across closes",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -3169,6 +3169,12 @@
         "activity_created_at": "2026-09-17T15:30:16Z",
         "session_id": "7428136763832868439",
         "dispatch_key": "ea4bec3a3d907b7c3856c49c"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:42:28Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Restore per-session transcript entry anchor and offset in bounded process-local memory only; variable-height rows and five native reopen cycles verified, no JSONL writes."
       }
     },
     {
