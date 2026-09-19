@@ -353,21 +353,8 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                                  "target_paths": candidate.get("target_paths", []),
                                  "acceptance": candidate["acceptance"]})
             continue
-        existing = known_ids.get(candidate["id"])
         title = candidate["title"].strip().lower()
-        if existing is not None and _closed_finding(existing) and existing.get("origin") != origin:
-            # A new accepted report may describe a regression; replay instead
-            # returns the durable decision above, even after canonical work closes.
-            material = json.dumps({"id": candidate["id"], "origin": dict(origin),
-                                   "evidence": candidate["evidence"]}, sort_keys=True)
-            candidate["id"] = "discovery-" + _fingerprint(material)
-            existing = known_ids.get(candidate["id"])
         profile = _finding_profile(candidate)
-        if existing is not None and (existing.get("task_type") == "project_discovery"
-                or _finding_match(profile, _finding_profile(existing)) != "duplicate"):
-            skipped.append({"id": candidate["id"], "reason": "conflicting_id"})
-            invalid = True
-            continue
         match, suspicion = None, None
         for previous in profiles:
             verdict = _finding_match(profile, previous)
@@ -398,6 +385,18 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
             invalid = True
             continue
+        if candidate["id"] in known_ids:
+            # Worker IDs (including title hashes) are suggestions, not authority
+            # over an existing proposal. Bind a new identity to the exact claim
+            # and immutable report; never rewrite an earlier decision.
+            material = json.dumps({"id": candidate["id"], "origin": dict(origin),
+                                   "contract": profile["contract"]}, sort_keys=True, ensure_ascii=False)
+            identifier = "discovery-" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+            candidate["id"] = identifier
+            suffix = 0
+            while candidate["id"] in known_ids:
+                suffix += 1
+                candidate["id"] = identifier + "-" + str(suffix)
         candidate["origin"] = dict(origin)
         pending.append(candidate)
         known_ids[candidate["id"]] = candidate

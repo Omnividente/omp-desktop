@@ -94,6 +94,11 @@ into `main`.
    it. Merely opening a PR never makes a running session terminal. Pinned research
    waiting may free the research lane under invariant 11, without releasing its
    own unresolved attempt or scope.
+   An owner may stage `reject` for a bound implementation without a known PR.
+   It remains quarantined with a pending decision while the controller sends at
+   most one stop instruction to the same session. Acknowledgement is not proof
+   of termination: only an observed terminal worker, and any exact PR closed
+   without merge, completes that rejection. No session history is deleted.
 5. **Reports are imported transactionally.** Research collection reads all
    activity pages from the saved completed session, chooses the latest agent
    report, and binds its content hash and activity identity to the import. The
@@ -106,10 +111,14 @@ into `main`.
    that same session. `execution.report_repair` is persisted before POST; a lost
    acknowledgement or restart never grants another send. Pending repair polls
    every five minutes for at most six hours. Rejected, failed, conflicting,
-   invalid or expired repair stays parked, without a new attempt. A strictly
-   newer activity can resolve it; subsecond activity/request times are preserved.
+   invalid or expired repair stays parked, without a new attempt.
+   Normal polling accepts only a strictly newer activity; subsecond activity/request
+   times are preserved. Explicit recovery can also reparse the exact immutable
+   latest source after a parser fix. Rewritten activities are never accepted.
    Historical parked reports are touched only by explicit `recover_report` for
-   their exact task. While disabled this may read, but never send a repair request.
+   their exact task. One additional format request requires owner authorization
+   tied to the previous failed receipt; see report recovery below. While disabled
+   recovery may read, but never send a repair request.
 6. **One reviewed revision and one current base.** The review workflow pins
    `ci_sha`, the complete file list and current `lab_sha`, and verifies lab
    ancestry from the exact compare endpoint. Historical REST `pr.base.sha` is
@@ -214,6 +223,10 @@ discarded claim. Independent contracts in one file remain separate. A task's
 controller-owned `discovery_import` receipt is bound to the accepted report and
 keeps replay stable after canonical work closes; it does not rewrite that work
 or the immutable worker report. A new report may describe a genuine regression.
+Worker-supplied IDs are suggestions, not authority over an existing task. If an
+independent valid finding reuses an occupied ID, its new ID is deterministically
+bound to the report origin and behavioral contract. The old task and decision
+remain unchanged; the import receipt keeps replay idempotent.
 Existing proposals are included as a labeled, bounded queue-context snapshot.
 Shortened previous reports carry `context_excerpt` and original array counts;
 their stored source reports remain unchanged.
@@ -262,6 +275,9 @@ may read a previously completed session and save its result without dispatching.
   pending continuation runs. `scheduler` is independent of proposal attention:
   an old conflict cannot hide a lost timer. Invalid reports, failed sync and due
   work without useful progress for 90 minutes still fail the monitor job.
+  Lateness uses the actual cooldown, rolling daily-cap, polling or proposal-event
+  deadline, not the age of the last useful tick. That boundary survives becoming
+  due and observing an in-flight NextTask; failure backoff can still postpone it.
 - **Autonomous Next Task** is called by continuation or explicit owner dispatch;
   it has no independent cron. It reconciles saved sessions and PR outcomes,
   collects reports and starts eligible research regardless of pending backlog or
@@ -343,12 +359,19 @@ and deferred research hypotheses rather than truncating to active workers.
 - `approve` records `proposal_decision = {action, actor, at, note}` and makes the
   proposal `todo`. It does **not** dispatch Jules. To delegate implementation,
   separately run **Autonomous Next Task** with that exact `task_id`.
-- `reject` closes an unwanted proposal. `resolve` closes work completed by you or
-  Main outside Jules; explain the outcome in the note. Both set `status = done`
-  while preserving evidence, session, attempt and worker execution outcome.
-- Decisions cannot dismiss an unresolved or unknown saved worker, pending report
-  or unsettled PR. Observe its actual terminal outcome or handle its PR instead;
-  a backlog action never pretends to cancel a session.
+- `reject` closes an unwanted inactive proposal. `resolve` closes work completed
+  by you or Main outside Jules; explain the outcome in the note. Both preserve
+  evidence, session, attempt and worker execution outcome.
+- For a bound active or quarantined implementation with no known PR, `reject`
+  records a pending decision and retains the same worker in quarantine. The
+  backlog displays `rejecting`, not `rejected`. The controller persists a single
+  `rejection_stop` intent before sending the stop instruction; lost acknowledgement
+  never causes a resend. Only an observed `COMPLETED` or `FAILED` state can finish
+  the decision. An unknown or still-running worker remains visibly pending.
+- A PR appearing after rejection is not retargeted, closed or merged automatically.
+  Inspect and close that exact PR without merging; the controller verifies both
+  its provenance and terminal worker before completing the rejection. Other owner
+  decisions cannot dismiss unresolved workers, reports or unsettled PRs.
 - The same action/actor/note is idempotent and retains its first timestamp.
   Closed proposals cannot reopen. Earlier approval remains in the parent state
   revision when later rejected or resolved. All writes use the authoritative
@@ -404,13 +427,35 @@ health reports do not include worker prose or dispatch keys.
 
 A valid observation report may omit the optional findings array when there are
 no tasks. A present but malformed array is an error, never an empty list. To
-re-read a repaired report from the same completed session, run **Autonomous Next
-Task** on `main` with `task_id` and `recover_report = true`. The collector verifies
-the stored binding and the live COMPLETED state; it never starts a worker or
-charges an extra attempt. Repeated invalid recovery leaves queue bytes unchanged.
+re-read a report from the same session, run **Autonomous Next Task** on `main`
+with `task_id` and `recover_report = true`. It never starts a worker, charges an
+extra attempt, or reconciles unrelated workers. A valid newer report can resolve
+the attempt; after a parser fix the exact saved latest activity/hash can also be
+reparsed. If a formatting repair left Jules `FAILED`, only that exact saved source
+is eligible, not a new or older report. This does not turn the failed worker into
+a successful implementation. Missing, ambiguous or rewritten output stays parked.
 For local administration use `lab_controller.py --recover-report --task-id ID`
 with its repo/config/manifest/revision-file/out arguments, so the independent
 state is saved with CAS. Calling the collector alone only modifies its input file.
+
+Explicit recovery does not advance `controller.last_poll_at` or `last_tick_at`,
+or replace `controller.run_id`: these are global scheduler anchors. Its target's
+observations and report are still saved, while unrelated workers retain their
+polling deadlines, including workers awaiting completion of a rejection.
+
+When the latest output genuinely lacks the required research structure, do not
+invent observations or reset the attempt. If the previous `report_repair` is
+`invalid`, `rejected`, `expired` or `failed`, an owner may use `recover_report = true`
+and `repair_after = <that receipt's exact at timestamp>`. On a completed session,
+the controller first tries collection; if repair is still needed, it saves the
+old receipt in `report_repair_history` and a new owner-authorized intent before
+one format-only `sendMessage`. Replaying the same timestamp cannot send again,
+even after a crash or lost acknowledgement. Pending/conflicting repairs cannot
+be superseded this way; failed sessions must be inspected if exact-source reparse
+cannot recover them. No automatic repair loop or replacement session is created.
+The CLI equivalent adds `--repair-after TIMESTAMP --actor OWNER`; in Actions the
+actor must match `GITHUB_ACTOR`. Collector-only `--retry-report --reparse-report`
+performs no messaging and is useful for an isolated report replay.
 
 ### Resolving a failed main synchronization
 

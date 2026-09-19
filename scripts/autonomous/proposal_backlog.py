@@ -15,8 +15,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from select_task import is_unresolved
+from select_task import is_unresolved, pending_rejection
 from state_store import load_state, save_state
+from task_lifecycle import quarantine, parse_iso
 from validate_tasks import proposal_mutation_error, validate
 
 ACTIONS = ("list", "approve", "reject", "resolve")
@@ -56,7 +57,12 @@ def decide(manifest: dict, config: dict, *, action: str, task_id: str,
     if prior.get("action") in ("reject", "resolve") or task.get("status") == "done":
         raise ValueError("a closed proposal cannot be reopened or reclassified")
     reason = proposal_mutation_error(task)
-    if reason:
+    execution = task.get("execution") or {}
+    stop_worker = (action == "reject" and reason and is_unresolved(task)
+                   and execution.get("session_id") and execution.get("dispatch_key")
+                   and execution.get("attempts", 0) > 0 and not execution.get("pull_request")
+                   and execution.get("state") in ("dispatched", "quarantined"))
+    if reason and not stop_worker:
         raise ValueError(reason)
     if action == "approve" and task.get("status") not in ("proposed", "todo"):
         raise ValueError("only a pending proposal can be approved; approval does not reset retry constraints")
@@ -66,15 +72,23 @@ def decide(manifest: dict, config: dict, *, action: str, task_id: str,
     candidate = copy.deepcopy(task)
     candidate["proposal_decision"] = decision
     candidate["status"] = "todo" if action == "approve" else "done"
+    if stop_worker:
+        decision.update(status="pending", session_id=execution["session_id"],
+                        dispatch_key=execution["dispatch_key"])
+        candidate["status"] = task["status"]
+        quarantine({"tasks": [candidate]}, task_id, reason="owner rejection awaiting worker termination",
+                   now=parse_iso(decision["at"]))
     errors = validate({**manifest, "tasks": [candidate if item is task else item for item in manifest["tasks"]]})
     if errors:
         raise ValueError("invalid proposal decision: " + "; ".join(errors))
-    task.update(proposal_decision=decision, status=candidate["status"])
+    task.update(candidate)
     return {"changed": True, "task_id": task_id, "decision": copy.deepcopy(decision)}
 
 
 def review_state(task: dict) -> str:
     execution = task.get("execution") or {}
+    if pending_rejection(task):
+        return "rejecting"
     if is_unresolved(task):
         return "active"
     if execution.get("state") in ("awaiting_review", "awaiting_report"):

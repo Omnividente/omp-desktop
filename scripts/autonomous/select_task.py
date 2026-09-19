@@ -61,6 +61,12 @@ def pending_report_repair(task: Mapping[str, Any]) -> bool:
             and execution.get("outcome") == "report_invalid" and receipt.get("status") == "pending")
 
 
+def pending_rejection(task: Mapping[str, Any]) -> bool:
+    decision = task.get("proposal_decision")
+    return (isinstance(decision, Mapping) and decision.get("action") == "reject"
+            and decision.get("status") == "pending")
+
+
 def is_unresolved(task: Mapping[str, Any]) -> bool:
     execution = task.get("execution")
     return (task.get("status") == "in_progress" or pending_report_repair(task)

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from unittest.mock import patch
 import proposal_backlog
 from proposal_backlog import backlog, decide, main, render_summary
 from state_store import StateConflict, load_state, save_state
+from task_lifecycle import start
 from validate_tasks import validate
 
 NOW = "2026-09-14T12:00:00Z"
@@ -117,6 +119,30 @@ class DecisionTests(unittest.TestCase):
                 with self.subTest(status=status, action=action), self.assertRaises(ValueError):
                     decision(data, action)
                 self.assertEqual(data, before)
+
+    def test_reject_stages_bound_worker_without_fabricating_terminal_state(self):
+        data = manifest(proposal(status="todo"))
+        start(data, "finding", session_id="saved-session", dispatch_key="attempt",
+              now=datetime(2026, 9, 14, 12, tzinfo=timezone.utc))
+        execution = data["tasks"][0]["execution"]
+        execution.update(base_sha="b" * 40, starting_branch="autonomous/attempt-attempt")
+        identity = {field: execution[field] for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch")}
+        result = decision(data, "reject")
+        saved = data["tasks"][0]
+        self.assertTrue(result["changed"])
+        self.assertEqual((saved["status"], saved["execution"]["state"]), ("blocked", "quarantined"))
+        self.assertEqual(saved["proposal_decision"]["status"], "pending")
+        self.assertEqual(backlog(data)["tasks"][0]["review_state"], "rejecting")
+        self.assertEqual({field: saved["execution"][field] for field in identity}, identity)
+        self.assertEqual(data["history"], [{"event": "original queue"}])
+        before = copy.deepcopy(data)
+        self.assertFalse(decision(data, "reject")["changed"])
+        self.assertEqual(data, before)
+        self.assertEqual(validate(data), [])
+        for changes in ({"status": "completed", "completed_at": NOW}, {"session_id": "foreign"}):
+            invalid = copy.deepcopy(data)
+            invalid["tasks"][0]["proposal_decision"].update(changes)
+            self.assertTrue(validate(invalid))
 
     def test_dozens_of_historical_and_new_proposals_are_listed_without_mutation_or_markup(self):
         tasks = [proposal("finding-" + str(index), status="todo" if index % 2 else "proposed") for index in range(80)]

@@ -16,6 +16,10 @@ on:
         description: Re-read the same completed research report without another worker
         type: boolean
         default: false
+      repair_after:
+        description: Optional exact failed report_repair.at authorizing one new same-session format request
+        type: string
+        default: ""
       focus:
         description: Comma-separated focus filter
         type: string
@@ -76,6 +80,7 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           RISK_CEILING: ${{ inputs.risk_ceiling }}
           RECOVER_REPORT: ${{ inputs.recover_report }}
+          REPAIR_AFTER: ${{ inputs.repair_after }}
           AUTOMATIC: ${{ inputs.automatic }}
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
@@ -83,6 +88,7 @@ jobs:
           set -euo pipefail
           options=()
           if [ "${RECOVER_REPORT}" = true ]; then options+=(--recover-report); fi
+          if [ -n "${REPAIR_AFTER}" ]; then options+=(--repair-after "${REPAIR_AFTER}"); fi
           if [ "${AUTOMATIC}" = true ]; then options+=(--automatic); fi
           python3 control/scripts/autonomous/lab_controller.py \
             --repo lab --config control/autonomous-project.json \

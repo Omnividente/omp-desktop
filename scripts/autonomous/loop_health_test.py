@@ -122,6 +122,73 @@ class DecisionTest(unittest.TestCase):
         config["research"]["max_sessions_per_day"] = 1
         self.assertEqual(health(data, config)["reason"], "daily_cap")
 
+    def test_research_transition_keeps_actual_cooldown_deadline_and_lateness(self):
+        config = settings()
+        finished_at = NOW - timedelta(hours=24)
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64}, now=finished_at)
+        data["tasks"][0].update(status="done", execution={
+            "state": "completed", "outcome": "no_change", "finished_at": finished_at.isoformat(),
+        })
+        data["tasks"][0]["research_result"] = {
+            "summary": "No defect observed", "completed_at": finished_at.isoformat(),
+            "observations": [{"scenario": "resume", "evidence": "synthetic clock", "result": "clock advanced"}],
+            "next_hypotheses": [], "proposed_task_ids": [],
+        }
+        before = health(data, config, now=NOW - timedelta(seconds=1), runs=[])
+        self.assertEqual((before["action"], before["research_next_at"], before["due_at"]),
+                         ("none", "2026-09-13T12:00:00Z", "2026-09-13T12:00:00Z"))
+        after = health(data, config, now=NOW + timedelta(seconds=44), runs=[])
+        self.assertEqual((after["action"], after["reason"], after["due_at"]),
+                         ("next_task", "research_due", "2026-09-13T12:00:00Z"))
+        self.assertEqual(after["scheduler"]["overdue_seconds"], 44)
+        backed_off = health(data, config, now=NOW + timedelta(seconds=44), runs=[run(conclusion="failure")])
+        self.assertEqual((backed_off["action"], backed_off["reason"], backed_off["due_at"]),
+                         ("none", "tick_backoff", "2026-09-13T12:05:00Z"))
+        running = health(data, config, now=NOW + timedelta(seconds=44),
+                         runs=[run(status="in_progress", conclusion=None)])
+        self.assertEqual((running["action"], running["reason"], running["due_at"]),
+                         ("none", "next_task_running", "2026-09-13T12:00:00Z"))
+        self.assertEqual(running["scheduler"]["overdue_seconds"], 44)
+
+    def test_daily_cap_deadline_survives_expiration_for_a_new_scope(self):
+        config = settings()
+        config["research"].update(max_sessions_per_day=1, revisit_after_hours=48)
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64}, now=NOW - timedelta(days=1))
+        data["tasks"][0].update(status="blocked", execution={"state": "exhausted", "outcome": "failed", "attempts": 2})
+        config["research"]["areas"].append({"id": "clock", "title": "Clock", "paths": ["src/clock.ts"]})
+        fingerprints = {"terminal": "c" * 64, "clock": "d" * 64}
+        before = health(data, config, now=NOW - timedelta(seconds=1), fingerprints=fingerprints)
+        after = health(data, config, now=NOW + timedelta(seconds=44), fingerprints=fingerprints)
+        self.assertEqual((before["reason"], before["due_at"]), ("daily_cap", "2026-09-13T12:00:00Z"))
+        self.assertEqual((after["reason"], after["due_at"], after["scheduler"]["overdue_seconds"]),
+                         ("research_due", "2026-09-13T12:00:00Z", 44))
+
+    def test_reconciliation_deadline_wins_over_active_worker_poll_deadline(self):
+        pending, pr = proposal()
+        closed_at = NOW - timedelta(seconds=12)
+        pr.update(state="closed", merged_at=closed_at.isoformat(), updated_at=closed_at.isoformat())
+        active = task(id="active", status="in_progress", execution={
+            "state": "dispatched", "session_id": "456", "dispatch_key": "active-attempt",
+            "attempts": 1, "started_at": (NOW - timedelta(hours=2)).isoformat(),
+            "observed_at": (NOW - timedelta(hours=2)).isoformat(), "session_state": "IN_PROGRESS",
+        })
+        data = queue(pending, active)
+        data["controller"] = {"last_poll_at": NOW.isoformat()}
+        result = health(data, pull_requests=[pr], main_is_ancestor=False, runs=[])
+        self.assertEqual((result["action"], result["reason"], result["due_at"]),
+                         ("next_task", "reconciliation_due", "2026-09-13T11:59:48Z"))
+        self.assertEqual(result["scheduler"]["overdue_seconds"], 12)
+
+
+    def test_reconciliation_transition_uses_proposal_event_deadline(self):
+        pending, pr = proposal()
+        closed_at = NOW - timedelta(seconds=12)
+        pr.update(state="closed", merged_at=closed_at.isoformat(), updated_at=closed_at.isoformat())
+        result = health(queue(pending), pull_requests=[pr], main_is_ancestor=False, runs=[])
+        self.assertEqual((result["action"], result["reason"], result["due_at"]),
+                         ("next_task", "reconciliation_due", "2026-09-13T11:59:48Z"))
+        self.assertEqual(result["scheduler"]["overdue_seconds"], 12)
+
     def test_waiting_proposal_and_foreign_pr_do_not_block_sync_or_research(self):
         pending, pr = proposal()
         data = queue(pending)

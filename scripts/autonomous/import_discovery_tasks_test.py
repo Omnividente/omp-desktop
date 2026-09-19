@@ -590,16 +590,63 @@ class ImportTest(unittest.TestCase):
         self.assertEqual(result["duplicates"], [])
         self.assertEqual(result["deferred"][0]["reason"], "possible_duplicate")
 
-    def test_collision_with_research_identity_rolls_back_entire_import(self):
+    def test_collision_with_research_identity_preserves_both_findings_and_replays(self):
         data = manifest({"id": "occupied", "title": "Inspect clock", "task_type": "project_discovery",
                          "status": "todo", "priority": 40, "risk": "low", "focus": [],
                          "evidence": {"source": "controller", "detail": "Existing research"}})
-        text = body(json.dumps([FINDING, dict(FINDING, id="occupied", title="Inspect clock")]))
+        other = dict(FINDING, id="occupied", title="Inspect navigation", target_paths=["src/navigation.ts"])
+        text = body(json.dumps([FINDING, other]))
         origin = accept_report(data, text)
         before = copy.deepcopy(data)
         result = import_tasks(data, text, config=CONFIG, origin=origin)
-        self.assertEqual(result["status"], STATUS_MALFORMED)
-        self.assertEqual(data, before)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["added"]), 2)
+        self.assertNotIn("occupied", result["added"])
+        self.assertEqual(data["tasks"][0], before["tasks"][0])
+        self.assertEqual(data["tasks"][-1]["origin"], origin)
+        restored = json.loads(json.dumps(data))
+        persisted = copy.deepcopy(restored)
+        replay = import_tasks(restored, text, config=CONFIG, origin=origin)
+        self.assertEqual(replay["added"], [])
+        self.assertEqual(replay["duplicates"], result["added"])
+        self.assertEqual(restored, persisted)
+        # A different import time cannot change the derived claim identity.
+        repeated = import_tasks(before, text, config=CONFIG, origin=origin, now="2026-09-19T12:00:00Z")
+        self.assertEqual(repeated["added"], result["added"])
+
+    def test_same_id_and_title_do_not_prove_different_contract_is_duplicate(self):
+        existing = normalize(dict(FINDING, id="occupied"), now=NOW)
+        data = manifest(existing)
+        different = copy.deepcopy(FINDING)
+        different["id"] = "occupied"
+        different["evidence"]["reproduction"]["steps"] = ["Resize window without suspending"]
+        text = body(json.dumps([different]))
+        origin = accept_report(data, text)
+        original = copy.deepcopy(existing)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["duplicates"], [])
+        self.assertEqual(result["deferred"][0]["reason"], "possible_duplicate")
+        self.assertIn("Resize window without suspending", result["deferred"][0]["evidence"])
+        self.assertEqual(existing, original)
+
+    def test_worker_id_collision_keeps_independent_claims_and_old_decisions(self):
+        existing = normalize(dict(FINDING, id="occupied"), now=NOW)
+        existing["status"] = "done"
+        existing["proposal_decision"] = {"action": "reject", "actor": "owner", "at": NOW,
+                                         "note": "Rejected the previous claim"}
+        data = manifest(existing)
+        text = body(json.dumps([dict(FINDING, id="occupied", target_paths=["src/first.ts"]),
+                                dict(FINDING, id="occupied", title="Inspect another clock",
+                                     target_paths=["src/second.ts"])]))
+        origin = accept_report(data, text)
+        original = copy.deepcopy(existing)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(set(result["added"])), 2)
+        self.assertEqual(result["duplicates"], [])
+        self.assertEqual(data["tasks"][0], original)
+        self.assertEqual([task["origin"] for task in data["tasks"][-2:]], [origin, origin])
 
     def test_duplicate_receipt_survives_canonical_closure_and_process_restart(self):
         existing = normalize(dict(FINDING, id="canonical"), now=NOW)

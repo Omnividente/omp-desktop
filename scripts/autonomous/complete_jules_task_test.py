@@ -411,6 +411,60 @@ class CompletionTest(unittest.TestCase):
         self.assertFalse(run(data, api, retry_report=True)["changed"])
         self.assertEqual(data, before)
         self.assertEqual(validate(data), [])
+    def test_explicit_reparse_accepts_exact_immutable_report_after_parser_upgrade(self):
+        for state, status in (("COMPLETED", "invalid"), ("FAILED", "failed")):
+            with self.subTest(state=state):
+                data = manifest()
+                text = report([dict(FINDING, id="research-clock", title="Independent clock claim")])
+                source_activity = activity(text, 2)
+                source = {"activity_id": source_activity["name"],
+                          "report_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                          "activity_created_at": source_activity["createTime"],
+                          "session_id": "7", "dispatch_key": "first"}
+                task = data["tasks"][0]
+                task.update(status="blocked", execution={**task["execution"], "state": "awaiting_report",
+                            "outcome": "report_invalid", "session_state": state,
+                            "report_error": {"code": "findings_invalid", "detail": "conflicting_id",
+                                             "reported_at": NOW.isoformat(), "source": source},
+                            "report_repair": {"at": NOW.isoformat(), "result": "sent", "status": status,
+                                               "source": source, "detail": "report repair did not resolve format"}})
+                snapshot = dict(SESSION, state=state)
+                if state == "FAILED":
+                    before = copy.deepcopy(data)
+                    newer = API([[source_activity, activity(report([FINDING]), 3)]], session=snapshot)
+                    result = run(data, newer, snapshot=snapshot, retry_report=True, reparse_report=True)
+                    self.assertEqual(result["reason"], "report_source_unavailable")
+                    self.assertEqual(data, before)
+                api = API([[source_activity]], session=snapshot)
+                result = run(data, api, snapshot=snapshot, retry_report=True, reparse_report=True)
+                self.assertEqual(result["reason"], "researched")
+                self.assertEqual(data["tasks"][0]["execution"]["report_repair"]["status"], "resolved")
+                self.assertEqual(data["tasks"][0]["execution"]["attempts"], 1)
+                self.assertEqual(data["tasks"][0]["execution"]["session_state"], state)
+                self.assertEqual(data["tasks"][-1]["origin"]["report_sha256"], source["report_sha256"])
+
+    def test_explicit_reparse_rejects_changed_text_with_same_activity_identity(self):
+        data = manifest()
+        original = report([FINDING])
+        original_activity = activity(original, 2)
+        source = {"activity_id": original_activity["name"],
+                  "report_sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                  "activity_created_at": original_activity["createTime"], "session_id": "7",
+                  "dispatch_key": "first"}
+        task = data["tasks"][0]
+        task.update(status="blocked", execution={**task["execution"], "state": "awaiting_report",
+                    "outcome": "report_invalid",
+                    "report_error": {"code": "research_invalid", "detail": "parser upgrade",
+                                     "reported_at": NOW.isoformat(), "source": source},
+                    "report_repair": {"at": NOW.isoformat(), "result": "sent", "status": "pending",
+                                       "source": source}})
+        edited = report([dict(FINDING, title="Edited claim")])
+        changed = dict(activity(edited, 2), name=source["activity_id"])
+        before = copy.deepcopy(data)
+        result = run(data, API([[changed]]), retry_report=True, reparse_report=True)
+        self.assertEqual(result["reason"], "report_invalid")
+        self.assertEqual(data["tasks"][0]["execution"]["attempts"], before["tasks"][0]["execution"]["attempts"])
+        self.assertNotIn("research_result", data["tasks"][0])
 
     def test_retry_rejects_foreign_or_noncompleted_snapshot_without_reads(self):
         data = manifest()

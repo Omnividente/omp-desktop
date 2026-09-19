@@ -98,6 +98,7 @@ class RotationTest(unittest.TestCase):
         self.assertEqual(result["research_next_at"], "2026-09-14T12:00:00Z")
         revisit, result = plan(first, settings, now=NOW + timedelta(hours=24))
         self.assertTrue(result["research_changed"])
+        self.assertEqual(result["research_next_at"], "2026-09-14T12:00:00Z")
         metadata = revisit["tasks"][-1]["research"]
         self.assertEqual(metadata["cycle"], 2)
         self.assertEqual(metadata["previous_reports"], [first["tasks"][0]["research_result"]])
