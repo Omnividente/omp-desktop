@@ -9396,7 +9396,7 @@
       "id": "research-sessions-persistence-ux-3",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "a11y",
         "i18n",
@@ -9501,6 +9501,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "1dac23b14aa52263659910ca",
+        "base_sha": "996ad3356bd6e57dfc4679cf7d23745f849304d1",
+        "starting_branch": "autonomous/attempt-1dac23b14aa52263659910ca",
+        "started_at": "2026-09-19T05:59:33.612721Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
