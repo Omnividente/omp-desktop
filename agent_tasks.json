@@ -9256,12 +9256,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T05:09:39.896916Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:10:02.203848Z",
+    "last_poll_at": "2026-09-19T05:11:32.300288Z",
     "last_tick_at": "2026-09-19T05:03:52.523365Z",
     "run_id": "35422920408"
   }
