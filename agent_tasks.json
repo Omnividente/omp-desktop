@@ -13377,12 +13377,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-19T22:09:25.829254Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T22:09:40.667546Z",
+    "last_poll_at": "2026-09-19T22:10:52.146353Z",
     "last_tick_at": "2026-09-19T22:04:06.101823Z",
     "run_id": "35472212883"
   }
