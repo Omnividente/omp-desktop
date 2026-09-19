@@ -10027,7 +10027,7 @@
       "id": "research-workspace-navigation-performance-3",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -10138,18 +10138,75 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14002894481142844556",
         "dispatch_key": "f7b0e309c309483a6b08e738",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-f7b0e309c309483a6b08e738",
         "started_at": "2026-09-19T08:08:13.106677Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T08:34:03.572150Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T08:15:23.038716Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T08:34:03.572150Z"
+      },
+      "research_result": {
+        "summary": "Measured rendering and update latency for primary UI components in the workspace navigation area across extremely large lists of sessions, tabs, and workspaces. Verified that SessionList search and WorkspaceHome gracefully bound their work and perform acceptably. However, ProjectRail scales linearly leading to extreme unresponsiveness (reproducing a known issue) and TerminalWorkspace scales linearly with each tab instantiating heavy unvirtualized Terminal View instances.",
+        "observations": [
+          {
+            "scenario": "Rendering and updating ProjectRail with 5000 workspaces.",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/ProjectRailPerf.test.tsx`). The initial render time of `<ProjectRail>` on 5000 workspaces took over 9 seconds (9060.92ms), and updating it took nearly 10 seconds (9903.55ms) due to linear unvirtualized mapping of `.project-item` DOM elements.",
+            "result": "Confirms the linear time scaling and UI unresponsiveness reported in discovery-e0f2bce9ebc246e7. This establishes that virtualization remains needed if user workspaces scale to large bounds."
+          },
+          {
+            "scenario": "Rendering and updating SessionList with 5000 flat/nested sessions.",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/SessionListPerf.test.tsx`). Thanks to `useVirtualList`, rendering 5000 sessions initially only took 268.92ms, and an update triggering a deep string search filter (`Test Session 999`) across all 5000 entries took only 4.06ms.",
+            "result": "Establishes that the `SessionList` component successfully virtualizes its large row set and that its client-side search filtering handles thousands of entries with acceptable near-instant latency."
+          },
+          {
+            "scenario": "Rendering TerminalWorkspace with a large number of active tabs (e.g. 200 tabs).",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/TerminalWorkspacePerf.test.tsx`), mocking `xterm` to measure `<TerminalWorkspace>` render scaling. Rendering 200 tabs took 1299ms, failing linearly. Each tab maps to a `<TerminalView>` component which instantiates a new xterm `Terminal` instance and its heavy plugins (FitAddon, WebLinksAddon) even for tabs in the background.",
+            "result": "Establishes that `TerminalWorkspace` is not virtualized. While 200 open tabs is an extreme outlier, background tabs retain fully instanced xterm trees in memory and DOM, contributing to linearly scaling UI lag as more terminals are launched."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate latency and resource retention when frequently opening and closing Codex/Import session modals with very large session lists.",
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+        ],
+        "proposed_task_ids": [
+          "discovery-4aa7ed2fdbe3adf0"
+        ],
+        "completed_at": "2026-09-19T08:34:03.572150Z",
+        "source": {
+          "activity_id": "sessions/14002894481142844556/activities/23b7f44374104991bc27495e8eb630f8",
+          "report_sha256": "cfd081a4e1d9084bb3b99d46e9bea92aa1ae8e696f7315bddbfa9358ac915dcb",
+          "activity_created_at": "2026-09-19T08:27:03.851589Z",
+          "session_id": "14002894481142844556",
+          "dispatch_key": "f7b0e309c309483a6b08e738"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14002894481142844556/activities/23b7f44374104991bc27495e8eb630f8",
+          "report_sha256": "cfd081a4e1d9084bb3b99d46e9bea92aa1ae8e696f7315bddbfa9358ac915dcb",
+          "activity_created_at": "2026-09-19T08:27:03.851589Z",
+          "session_id": "14002894481142844556",
+          "dispatch_key": "f7b0e309c309483a6b08e738"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4aa7ed2fdbe3adf0"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     },
     {
@@ -10192,10 +10249,52 @@
         "session_id": "13029739796552350738",
         "dispatch_key": "be010efe0937ae85b805894d"
       }
+    },
+    {
+      "id": "discovery-4aa7ed2fdbe3adf0",
+      "title": "Virtualize terminal views to avoid instantiating heavy xterm instances for background tabs",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "created_at": "2026-09-19T08:34:03.572150Z",
+      "acceptance": [
+        "The TerminalWorkspace component should only fully instantiate the active tab's TerminalView or lazily preserve their state to significantly bound DOM growth.",
+        "Navigating between previously opened tabs remains fast, and background tabs do not continuously consume foreground DOM resources."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Measured rendering latency of TerminalWorkspace on 200 tabs using React Testing Library with mocked xterm instances to bypass canvas. The rendering scales linearly resulting in over 1.2s lag just to mount 200 basic tabs due to unvirtualized loops.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch application pinned base and progressively open up to 100-200 concurrent terminal sessions.",
+            "Measure responsiveness of navigating between tabs or opening new ones."
+          ],
+          "expected": "The DOM size remains relatively bounded and navigating to an existing/new tab remains responsive as xterm instances are lazily constructed/mounted or virtualized.",
+          "actual": "The DOM scales linearly, every tab holds a full TerminalView component, leading to severe latency."
+        }
+      },
+      "target_paths": [
+        "src/TerminalWorkspace.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-performance-3",
+        "activity_id": "sessions/14002894481142844556/activities/23b7f44374104991bc27495e8eb630f8",
+        "report_sha256": "cfd081a4e1d9084bb3b99d46e9bea92aa1ae8e696f7315bddbfa9358ac915dcb",
+        "activity_created_at": "2026-09-19T08:27:03.851589Z",
+        "session_id": "14002894481142844556",
+        "dispatch_key": "f7b0e309c309483a6b08e738"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T08:34:19.626842Z",
+    "last_poll_at": "2026-09-19T08:34:22.542278Z",
     "last_tick_at": "2026-09-19T08:28:21.662777Z",
     "run_id": "35432063527"
   }
