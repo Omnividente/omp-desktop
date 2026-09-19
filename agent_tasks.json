@@ -10656,7 +10656,7 @@
       "id": "research-settings-models-reliability-3",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -10772,6 +10772,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "2aa58ae48cd129f68e20b500",
+        "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
+        "starting_branch": "autonomous/attempt-2aa58ae48cd129f68e20b500",
+        "started_at": "2026-09-19T09:17:59.757831Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
