@@ -10954,6 +10954,130 @@
         "session_id": "2499115998985139309",
         "dispatch_key": "b20b9a6a6f1fe3916922fd03"
       }
+    },
+    {
+      "id": "research-settings-models-performance-3",
+      "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-19T09:44:01Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-db32c1ac35bd4222\",\"status\":\"proposed\",\"title\":\"Preserve language preference during settings recovery\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.\",\"expected\":\"The recovery screen text and logs reflect the recovered language preference.\",\"actual\":\"The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it.\",\"acceptance\":[\"Partial settings recovery extracts and preserves the `language` field when it is readable\"]}},{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"done\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"done\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"done\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "performance",
+        "fingerprint": "9e803364f05f3c74a314fdacc8a55dd50f11cb9cb43aafc7e04650879e022bd0",
+        "cycle": 3,
+        "previous_reports": [
+          {
+            "summary": "Investigated SettingsPanel local draft resilience during graceful IPC save failures.",
+            "observations": [
+              {
+                "scenario": "Triggering a settings save where the IPC operation returns a structured failure (result.type !== 'success').",
+                "evidence": "Source code review of `SettingsPanel.tsx` coupled with synthetic React component tracing. When `saveSettingsBundle` returns a non-success result, it enters an `else` block that calls `refreshConfig(true)`. This subsequently fetches the latest snapshot from the backend and calls `acceptConfig(snapshot)`. `acceptConfig` overwrites all React state drafts (e.g., `advisorEnabled`, `fallbackChains`, `operationDrafts`, `roles`) with the backend's unedited snapshot.",
+                "result": "Establishes that user settings drafts are silently discarded when the backend rejects the save with a structured error, causing loss of user input. This contradicts the behavior when the IPC throws an exception (which correctly bypasses `refreshConfig` and preserves drafts)."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if reverting to defaults in SettingsRecoveryScreen correctly preserves the application language preference."
+            ],
+            "proposed_task_ids": [
+              "discovery-be56185691369523"
+            ],
+            "completed_at": "2026-09-18T09:25:56.491548Z",
+            "source": {
+              "activity_id": "sessions/16857644972860260164/activities/14ee179abfc543c4806af75d9affc9ba",
+              "report_sha256": "3e498729b06b6211e41be03be1dac21900f70238b6d634744538c65111123d8c",
+              "activity_created_at": "2026-09-18T09:16:39.529431Z",
+              "session_id": "16857644972860260164",
+              "dispatch_key": "67c696866d35e8c087c738a0"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the settings recovery behavior and how the application handles language preferences when settings are corrupted or unavailable.",
+            "observations": [
+              {
+                "scenario": "Application startup with corrupted settings.json that triggers SettingsRecoveryScreen.",
+                "evidence": "Source code review of `src/App.tsx`. The `lang` variable is derived from `payload?.settings.language === \"en\" ? \"en\" : \"ru\"`. When settings are corrupted, the backend returns an error instead of a valid bootstrap payload, so `payload` is null. The frontend silently falls back to the default `\"ru\"` language.",
+                "result": "Establishes that the SettingsRecoveryScreen always renders in Russian (the default) if the settings payload is unavailable, regardless of the user's previously chosen language. This presents a poor user experience for non-Russian speakers during a failure state."
+              },
+              {
+                "scenario": "Partial recovery of corrupted settings using `recover_settings_fields` in `src-tauri/src/settings.rs`.",
+                "evidence": "Source code review of `recover_settings_fields` in `src-tauri/src/settings.rs`. The function performs best-effort extraction of safe fields from a corrupted `settings.json` (such as `providerEnvKeys`, `ompExecutable`, etc.) using `recover_top_level_json_field`. However, it does not attempt to recover the `language` field.",
+                "result": "Establishes that even when the backend attempts partial recovery of a damaged settings file, the user's language preference is dropped and resets to default."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if other non-secret accessibility preferences (like font family/size) are also dropped during partial settings recovery.",
+              "Investigate if the frontend can read a pre-bootstrap fallback language preference from localStorage or an early IPC call to prevent localization loss on startup errors."
+            ],
+            "proposed_task_ids": [
+              "discovery-db32c1ac35bd4222"
+            ],
+            "completed_at": "2026-09-19T09:31:29.834683Z",
+            "source": {
+              "activity_id": "sessions/2499115998985139309/activities/b3e23681df744d9d9b13f2622eb9ead7",
+              "report_sha256": "35c4bb0329fb89e5c46788d613e89eb8d2e2b990e499fc3e11f15f8acb8bd3df",
+              "activity_created_at": "2026-09-19T09:19:21.853606Z",
+              "session_id": "2499115998985139309",
+              "dispatch_key": "b20b9a6a6f1fe3916922fd03"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated if reverting to default settings in SettingsRecoveryScreen preserves the user's language preference.",
+            "observations": [
+              {
+                "scenario": "A synthetic test exercising backend's `prepare_defaults_at_with` when reverting a settings.json file configured with a non-default language (e.g. `\"language\": \"en\"`).",
+                "evidence": "Observed via `cargo test` using a dedicated unit test executing `start_with_defaults_at_with` on a populated synthetic settings JSON with `language: \"en\"`. The test confirmed the returned `AppSettings` has its language reset to `ru` instead of being preserved.",
+                "result": "Establishes that the backend `prepare_defaults_at_with` (invoked by `startWithDefaults`) resets all preferences including application language to their defaults by calling `AppSettings::default()`. The language property is not extracted or preserved from the backup of the original file, causing the UI to unexpectedly switch to Russian for English users after recovery."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if proxy and provider environment variables are safely removed from the corrupted backup file, ensuring no secret exposure."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T09:44:01.614510Z",
+            "source": {
+              "activity_id": "sessions/14652938070404919376/activities/773b7bac93474cc89fd82fb49d624b94",
+              "report_sha256": "6bad39f97253a2e33c8f7a3df47b461fee2d89779882eb88e6648c473131a788",
+              "activity_created_at": "2026-09-19T09:31:50.704100Z",
+              "session_id": "14652938070404919376",
+              "dispatch_key": "2aa58ae48cd129f68e20b500"
+            },
+            "deferred_findings": [
+              {
+                "title": "Preserve application language preference when reverting to default settings",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-db32c1ac35bd4222; not established as a duplicate. {\"detail\": \"Observed in the native backend via a synthetic Rust test calling `start_with_defaults_at_with` over an existing `settings.json` file configured with `language: \\\"en\\\"`.\", \"reproduction\": {\"actual\": \"The generated default settings file has `language` reset to `ru`, because `AppSettings::default()` is used without attempting to recover the language field.\", \"expected\": \"The generated default settings file has `language` set to `en`.\", \"steps\": [\"Create a `settings.json` file containing `{\\\"language\\\": \\\"en\\\", \\\"ompExecutable\\\": \\\"/invalid\\\"}`.\", \"Invoke `start_with_defaults` simulating the user choosing to start with default settings.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src-tauri/src/settings.rs"
+                ],
+                "acceptance": [
+                  "When the user selects \"Start with defaults\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
