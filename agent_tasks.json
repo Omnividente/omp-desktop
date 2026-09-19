@@ -1462,7 +1462,7 @@
       "id": "discovery-e0f2bce9ebc246e7",
       "title": "Virtualize the workspace list in ProjectRail",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "medium",
       "focus": [
@@ -1498,6 +1498,12 @@
         "activity_created_at": "2026-09-16T19:06:08Z",
         "session_id": "10697000555719664223",
         "dispatch_key": "8da9d2c4caf9a5b18047636a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:29:15Z",
+        "note": "No demonstrated native bottleneck justifies workspace virtualization and its focus complexity; synthetic extreme-size benchmark alone is insufficient."
       }
     },
     {
