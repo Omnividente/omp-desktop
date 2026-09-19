@@ -547,7 +547,7 @@
       "id": "discovery-d47c6c8c6e6f2995",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "blocked",
+      "status": "done",
       "priority": 40,
       "risk": "medium",
       "focus": [
@@ -577,18 +577,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "quarantined",
+        "state": "completed",
         "session_id": "10335808607131075348",
         "dispatch_key": "24bf30539113a26a595bb2b6",
         "base_sha": "ee4785b9e821ca4c53fad62c2ab2c316c887e2bf",
         "starting_branch": "autonomous/attempt-24bf30539113a26a595bb2b6",
         "started_at": "2026-09-14T06:48:34Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T16:35:15.751786Z",
         "pull_request": 0,
-        "outcome": "stale",
-        "note": "worker outcome unknown after 6h",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T16:18:32.867040Z",
+        "outcome": "no_change",
+        "note": "owner rejected implementation; observed terminal worker COMPLETED",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T16:35:15.751786Z",
         "quarantined_at": "2026-09-14T12:49:22Z",
         "rejection_stop": {
           "at": "2026-09-19T16:10:30.107209Z",
@@ -600,9 +600,10 @@
         "actor": "Omnividente",
         "at": "2026-09-19T15:58:37Z",
         "note": "Rejected during 0.9.5 owner review: new terminal input must not silently discard pending switch recovery. Preserve recovery and backup data until explicit user action. Keep worker history and quarantine; this decision does not claim the remote session has stopped.",
-        "status": "pending",
+        "status": "completed",
         "session_id": "10335808607131075348",
-        "dispatch_key": "24bf30539113a26a595bb2b6"
+        "dispatch_key": "24bf30539113a26a595bb2b6",
+        "completed_at": "2026-09-19T16:35:15.751786Z"
       }
     },
     {
@@ -12612,7 +12613,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T16:18:51.035071Z",
+    "last_poll_at": "2026-09-19T16:35:36.484274Z",
     "last_tick_at": "2026-09-19T15:54:25.430037Z",
     "run_id": "35453231646"
   }
