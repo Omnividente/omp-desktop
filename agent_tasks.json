@@ -13649,7 +13649,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T23:17:47.351846Z"
+        "observed_at": "2026-09-19T23:17:47.351846Z",
+        "released_attempt_ref": "autonomous/attempt-681d30248799382c0c36bb63"
       },
       "research_result": {
         "summary": "Investigated tab switching behavior during a pending primary provider pin, and confirmed no UI regressions.",
