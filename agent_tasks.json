@@ -13252,7 +13252,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T22:03:34.953377Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-7e34cdf9286da9eec5cb5a59"
       },
       "research_result": {
         "summary": "Investigated the lack of automatic clearance of `switch_recovery` state in terminal input.",
