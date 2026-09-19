@@ -10649,7 +10649,8 @@
         "feedback_nudge": {
           "at": "2026-09-19T09:17:59.757831Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b20b9a6a6f1fe3916922fd03"
       },
       "research_result": {
         "summary": "Investigated the settings recovery behavior and how the application handles language preferences when settings are corrupted or unavailable.",
