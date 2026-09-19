@@ -38,6 +38,7 @@ interface TerminalWorkspaceProps {
   onFocusTab: (terminalId: string) => void
   onLaunch: (session?: SessionSummary) => void
   onOpenFolder: () => void
+  onReadTranscript: (path: string) => void
   onReady: (terminalId: string) => void
   onReveal: (path: string) => void
   onSendSwitchRecovery: (terminalId: string) => void
@@ -68,6 +69,7 @@ export function TerminalWorkspace({
   onFocusTab,
   onLaunch,
   onOpenFolder,
+  onReadTranscript,
   onReady,
   onReorderTabs,
   onReveal,
@@ -223,6 +225,20 @@ export function TerminalWorkspace({
                 runtimeStatus={activeRuntimeStatus}
                 tab={activeTab}
               />
+            )}
+            {activeTab && (
+              <button
+                className="button secondary"
+                disabled={activeTab.sessionPath === null || activeTab.switching}
+                onClick={() => {
+                  if (activeTab.sessionPath !== null) onReadTranscript(activeTab.sessionPath)
+                }}
+                title={t(language, "transcriptReadHint")}
+                type="button"
+              >
+                <Icon name="history" size={14} />
+                {t(language, "transcriptRead")}
+              </button>
             )}
             {activeTab?.processId && <span>PID {activeTab.processId}</span>}
           </div>

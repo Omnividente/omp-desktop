@@ -51,6 +51,9 @@ function Harness() {
   return (
     <>
       <button onClick={() => void state.loadTranscript(session)}>Open transcript</button>
+      <button onClick={() => void state.loadTranscriptPath(session.filePath)}>
+        Read current transcript
+      </button>
       <button
         onClick={() =>
           void state.loadTranscript({ ...session, filePath: `${session.filePath}.other` })
@@ -62,6 +65,7 @@ function Harness() {
         <TranscriptModal
           lang="en"
           {...state}
+          initialPosition={state.transcriptInitialPosition}
           transcriptSession={state.transcriptSession}
           launching={null}
           runtimeAvailable
@@ -302,7 +306,7 @@ it("lets explicit search and mode navigation supersede an unsettled restore", as
   expect(container.querySelector<HTMLElement>(".transcript-scroll")!.scrollTop).toBe(0)
 })
 
-it("keeps a link-free transcript viewport in modal keyboard navigation without consuming native scroll keys", () => {
+it("keeps the transcript viewport keyboard-accessible without consuming native scroll keys", () => {
   const panel = container.querySelector<HTMLElement>('[role="dialog"]')!
   const scroll = container.querySelector<HTMLElement>('[role="region"]')!
   const first = panel.querySelector<HTMLButtonElement>("button")!
@@ -312,7 +316,7 @@ it("keeps a link-free transcript viewport in modal keyboard navigation without c
       new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }),
     )
   })
-  expect(document.activeElement).toBe(scroll)
+  expect(document.activeElement).toBe(panel.querySelector("article:last-child button:last-child"))
   expect(scroll.tabIndex).toBe(0)
   expect(document.getElementById(scroll.getAttribute("aria-labelledby")!)?.textContent).toBe(
     session.title,
@@ -427,6 +431,7 @@ it("scopes Ctrl/Cmd+F to the modal and preserves exact selected text until Copy"
   outside.dispatchEvent(externalFind)
   expect(externalFind.defaultPrevented).toBe(false)
   outside.remove()
+  await click("Source")
   const pre = container.querySelector("pre")!
   const range = document.createRange()
   range.selectNodeContents(pre)
@@ -484,7 +489,7 @@ it("does not offer Copy for a selection crossing the transcript boundary", () =>
   outside.textContent = "outside"
   document.body.appendChild(outside)
   try {
-    const pre = container.querySelector("pre")!
+    const pre = container.querySelector(".markdown-content")!
     const range = document.createRange()
     range.setStart(pre, 0)
     range.setEnd(outside.firstChild!, 7)
@@ -497,4 +502,51 @@ it("does not offer Copy for a selection crossing the transcript boundary", () =>
   } finally {
     outside.remove()
   }
+})
+
+it("opens direct reads at the latest saved dialogue and returns there after search", async () => {
+  await click("Close")
+  const calls = vi.mocked(readSessionTranscript).mock.calls.length
+  await click("Read current transcript")
+  expect(readSessionTranscript).toHaveBeenCalledTimes(calls + 1)
+  expect(
+    container.querySelector('[aria-label="Transcript content"] button[aria-pressed="true"]')
+      ?.textContent,
+  ).toBe("Dialogue only")
+  const last = container.querySelector<HTMLElement>('article[data-virtual-index="178"]')!
+  expect(last.textContent).toContain("Message 179")
+  expect(last.getBoundingClientRect().top).toBeLessThan(480)
+  expect(last.getBoundingClientRect().bottom).toBeGreaterThan(0)
+  await searchFor("Message 20")
+  await click("Latest message")
+  expect(container.querySelector<HTMLInputElement>('input[type="search"]')?.value).toBe("")
+  expect(
+    container
+      .querySelector<HTMLElement>('article[data-virtual-index="178"]')!
+      .getBoundingClientRect().bottom,
+  ).toBeGreaterThan(0)
+})
+
+it("keeps the reading message through source toggles and a refresh with appended entries", async () => {
+  await scrollTo(60 * 102 + 25)
+  await click("Source")
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+  await click("Formatted")
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: [
+      ...transcript.entries,
+      {
+        ...transcript.entries[0],
+        id: "appended",
+        text: "Latest appended",
+        dialogueText: "Latest appended",
+      },
+    ],
+  })
+  await click("Reread file")
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+  await click("Latest message")
+  expect(container.textContent).toContain("Latest appended")
 })

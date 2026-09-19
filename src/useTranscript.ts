@@ -12,8 +12,10 @@ export interface TranscriptState {
   transcriptError: string | null
   transcriptSearch: string
   transcriptMode: TranscriptMode
+  transcriptInitialPosition: "start" | "end"
   visibleEntries: SessionTranscript["entries"]
   loadTranscript: (session: SessionSummary) => Promise<void>
+  loadTranscriptPath: (path: string) => Promise<void>
   closeTranscript: () => void
   setSearch: (value: string) => void
   setMode: (value: TranscriptMode) => void
@@ -28,6 +30,9 @@ export function useTranscript(language: Lang): TranscriptState {
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
   const [transcriptSearch, setTranscriptSearch] = useState("")
   const [transcriptMode, setTranscriptMode] = useState<TranscriptMode>("all")
+  const [transcriptInitialPosition, setTranscriptInitialPosition] = useState<"start" | "end">(
+    "start",
+  )
 
   useEffect(
     () => () => {
@@ -36,27 +41,29 @@ export function useTranscript(language: Lang): TranscriptState {
     [],
   )
 
-  const loadTranscript = useCallback(
-    async (session: SessionSummary) => {
-      const requestId = requestRef.current + 1
-      requestRef.current = requestId
-      if (sessionPathRef.current !== session.filePath) {
+  const load = useCallback(
+    async (path: string, session?: SessionSummary) => {
+      const requestId = ++requestRef.current
+      if (!session || sessionPathRef.current !== path) {
         setTranscriptSearch("")
-        setTranscriptMode("all")
+        setTranscriptMode(session ? "all" : "dialogue")
+        setTranscriptInitialPosition(session ? "start" : "end")
       }
-      sessionPathRef.current = session.filePath
-      setTranscriptSession(session)
+      sessionPathRef.current = session ? path : null
+      setTranscriptSession(session ?? null)
       setTranscript(null)
       setTranscriptError(null)
       setTranscriptLoading(true)
       try {
-        const next = await readSessionTranscript(session.filePath)
+        const next = await readSessionTranscript(path)
         if (requestRef.current === requestId) {
+          sessionPathRef.current = path
           setTranscript(next)
           setTranscriptSession(next.session)
         }
       } catch (error) {
         if (requestRef.current === requestId) {
+          if (!session) throw error
           setTranscriptError(errorMessage(error, language))
         }
       } finally {
@@ -68,6 +75,13 @@ export function useTranscript(language: Lang): TranscriptState {
     [language],
   )
 
+  const loadTranscript = useCallback(
+    (session: SessionSummary) => load(session.filePath, session),
+    [load],
+  )
+
+  const loadTranscriptPath = useCallback((path: string) => load(path), [load])
+
   const closeTranscript = useCallback(() => {
     requestRef.current += 1
     sessionPathRef.current = null
@@ -77,6 +91,7 @@ export function useTranscript(language: Lang): TranscriptState {
     setTranscriptLoading(false)
     setTranscriptSearch("")
     setTranscriptMode("all")
+    setTranscriptInitialPosition("start")
   }, [])
 
   const visibleEntries = useMemo(
@@ -94,8 +109,10 @@ export function useTranscript(language: Lang): TranscriptState {
     transcriptError,
     transcriptSearch,
     transcriptMode,
+    transcriptInitialPosition,
     visibleEntries,
     loadTranscript,
+    loadTranscriptPath,
     closeTranscript,
     setSearch: setTranscriptSearch,
     setMode: setTranscriptMode,

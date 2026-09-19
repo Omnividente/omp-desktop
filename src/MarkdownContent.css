@@ -1,0 +1,247 @@
+.markdown-content {
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--transcript-font-size, 14px);
+  line-height: var(--transcript-line-height, 1.65);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.markdown-content :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, pre) {
+  margin: 0;
+}
+
+.markdown-content > * + *,
+.markdown-content blockquote > * + *,
+.markdown-content li > * + * {
+  margin-block-start: 0.8em;
+}
+
+.markdown-content :is(p, li, th, td),
+.markdown-content > :is(strong, em, del),
+.markdown-content .markdown-literal-html {
+  white-space: pre-wrap;
+}
+
+.markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--text);
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.markdown-content h1 {
+  font-size: 1.65em;
+}
+.markdown-content h2 {
+  font-size: 1.4em;
+}
+.markdown-content h3 {
+  font-size: 1.2em;
+}
+.markdown-content :is(h4, h5, h6) {
+  font-size: 1em;
+}
+
+.markdown-content :is(ul, ol) {
+  padding-inline-start: 1.7em;
+  white-space: normal;
+}
+
+.markdown-content li + li {
+  margin-block-start: 0.25em;
+}
+.markdown-content .markdown-task-item {
+  list-style: none;
+}
+.markdown-content .markdown-task {
+  color: var(--text-soft);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: pre;
+}
+
+.markdown-content blockquote {
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--line-strong);
+  color: var(--text-soft);
+}
+
+.markdown-content hr {
+  margin-block: 1em;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.markdown-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  overflow-wrap: anywhere;
+}
+
+.markdown-content a:hover {
+  color: var(--accent-strong);
+}
+.markdown-content .markdown-image-caption {
+  font-style: italic;
+}
+
+.markdown-content code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 0.92em;
+}
+
+.markdown-content :not(pre) > code {
+  padding: 0.12em 0.3em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-raised);
+  white-space: pre-wrap;
+}
+
+.markdown-content .markdown-code-block {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.markdown-content .markdown-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--text-soft);
+  font-size: 12px;
+  user-select: none;
+}
+
+.markdown-code-toolbar > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.markdown-content .markdown-code-block pre {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  white-space: pre;
+  overflow-wrap: normal;
+  tab-size: 4;
+}
+
+.markdown-content .markdown-code-block pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: inherit;
+}
+
+.markdown-content .markdown-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-content table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: min(100%, 320px);
+  max-width: 100%;
+  font-size: inherit;
+}
+
+.markdown-content :is(th, td) {
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  min-width: 80px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-content th {
+  font-weight: 650;
+  background: var(--panel-raised);
+}
+
+.markdown-content tr:nth-child(even) td {
+  background: var(--panel-soft);
+}
+
+.markdown-content.markdown-source {
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+  overflow-wrap: anywhere;
+}
+
+.markdown-content mark {
+  color: var(--text);
+  background: color-mix(in srgb, var(--warning) 28%, var(--panel));
+  border-radius: 2px;
+}
+
+.markdown-content mark.is-current {
+  color: var(--accent-ink);
+  background: var(--accent);
+  outline: 1px solid var(--accent-strong);
+}
+
+.markdown-content ::selection {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 35%, var(--panel));
+}
+
+.markdown-copy-button {
+  flex: none;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-soft);
+  background: var(--panel);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.markdown-copy-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-raised);
+  border-color: var(--accent);
+}
+
+.markdown-copy-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.markdown-copy-button:focus-visible,
+.markdown-content :is(a, pre, .markdown-table-scroll):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .markdown-content .markdown-code-toolbar {
+    padding: 6px 8px;
+  }
+  .markdown-content .markdown-code-block pre {
+    padding: 10px;
+  }
+  .markdown-content :is(th, td) {
+    padding: 6px 8px;
+  }
+}
