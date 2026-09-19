@@ -760,7 +760,7 @@
       "id": "discovery-e938ec8d92054623",
       "title": "Clean up orphaned backup and staging artifact directories during session scan",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -794,6 +794,12 @@
         "activity_created_at": "2026-09-16T10:39:00Z",
         "session_id": "728187137027557012",
         "dispatch_key": "06dcae2e8488eb0205ec11a5"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:29:00Z",
+        "note": "A backup can be the only surviving artifact copy after a crash. Do not delete it during scanning without a proven recovery protocol."
       }
     },
     {
