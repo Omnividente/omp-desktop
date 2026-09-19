@@ -114,19 +114,19 @@ export function ModelPicker({
 
   const filteredModels = useMemo(() => {
     const normalized = query.trim().toLowerCase()
-    return [...models]
-      .sort((left, right) => {
-        if (left.available !== right.available) {
-          return left.available ? -1 : 1
-        }
-        return `${left.provider}/${left.name}`.localeCompare(`${right.provider}/${right.name}`)
-      })
+    return models
       .filter((model) => {
         if (!normalized) return true
         return [model.name, model.provider, model.id, model.selector]
           .join(" ")
           .toLowerCase()
           .includes(normalized)
+      })
+      .sort((left, right) => {
+        if (left.available !== right.available) {
+          return left.available ? -1 : 1
+        }
+        return `${left.provider}/${left.name}`.localeCompare(`${right.provider}/${right.name}`)
       })
   }, [models, query])
 

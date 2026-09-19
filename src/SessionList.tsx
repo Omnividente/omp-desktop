@@ -1,6 +1,7 @@
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -85,6 +86,11 @@ export function SessionList({
   canLaunch,
 }: SessionListProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const removalFocusRef = useRef<{
+    id: string
+    workspace: string | null
+    button: HTMLButtonElement
+  } | null>(null)
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
   const sessionTree = useMemo(
     () => buildSessionTree(allSessions, platform),
@@ -103,6 +109,46 @@ export function SessionList({
   useEffect(() => {
     setExpandedSessionIds(new Set())
   }, [selectedWorkspacePath])
+
+  useEffect(() => {
+    const cancelRemovalFocus = (event: Event) => {
+      const pending = removalFocusRef.current
+      if (
+        !pending ||
+        event.target === pending.button ||
+        pending.button.contains(event.target as Node)
+      )
+        return
+      // Disabling/removing the initiating button may itself move focus to the body.
+      if (
+        event.type === "focusin" &&
+        event.target === document.body &&
+        (pending.button.disabled || !pending.button.isConnected)
+      )
+        return
+      removalFocusRef.current = null
+    }
+    document.addEventListener("focusin", cancelRemovalFocus)
+    document.addEventListener("pointerdown", cancelRemovalFocus)
+    return () => {
+      document.removeEventListener("focusin", cancelRemovalFocus)
+      document.removeEventListener("pointerdown", cancelRemovalFocus)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const pending = removalFocusRef.current
+    if (!pending) return
+    if (pending.workspace !== selectedWorkspacePath) {
+      removalFocusRef.current = null
+      return
+    }
+    if (allSessions.some((session) => session.id === pending.id)) return
+    removalFocusRef.current = null
+    if (document.activeElement === document.body || document.activeElement === pending.button) {
+      listRef.current?.focus({ preventScroll: true })
+    }
+  }, [allSessions, selectedWorkspacePath])
 
   useEffect(() => {
     if (!selectedSessionId) return
@@ -193,7 +239,13 @@ export function SessionList({
         </label>
       </div>
 
-      <div ref={listRef} className="session-list">
+      <div
+        ref={listRef}
+        className="session-list"
+        tabIndex={-1}
+        role="region"
+        aria-label={t(lang, "sessions")}
+      >
         {flattenedSessions.length > 0 && (
           <>
             <div style={{ height: virtualItems[0]?.offset ?? 0 }} aria-hidden="true" />
@@ -229,6 +281,15 @@ export function SessionList({
                     hasChildren={vi.item.hasChildren}
                     onDelete={(e) => {
                       e.stopPropagation()
+                      removalFocusRef.current =
+                        e.currentTarget instanceof HTMLButtonElement &&
+                        document.activeElement === e.currentTarget
+                          ? {
+                              id: session.id,
+                              workspace: selectedWorkspacePath,
+                              button: e.currentTarget,
+                            }
+                          : null
                       onDeleteSession(session)
                     }}
                     onDoubleLaunch={() => {

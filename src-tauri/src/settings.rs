@@ -495,6 +495,9 @@ fn recover_settings_fields(original: &[u8]) -> AppSettings {
     let text = String::from_utf8_lossy(bounded);
     let mut recovered = AppSettings::default();
 
+    if let Some(value) = recover_top_level_json_field::<String>(&text, "language") {
+        recovered.language = value;
+    }
     if let Some(mut keys) = recover_top_level_json_field::<Vec<String>>(&text, "providerEnvKeys") {
         keys.truncate(MAX_RECOVERED_SETTINGS_ITEMS);
         recovered.provider_env_keys = keys;
@@ -1722,6 +1725,7 @@ mod tests {
           "sessionTitlePins": {"C:/private/sessions/a.jsonl": "Pinned"},
           "primaryProviderPins": ["C:/private/sessions/a.jsonl"],
           "brokenField": not-json,
+          "language": "en",
           "providerEnvKeys": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
           "providerEnv": {"OPENAI_API_KEY": "must-never-be-recovered"}
         "#;
@@ -1733,6 +1737,8 @@ mod tests {
             crate::sessions::atomic_write_private_file,
         )
         .expect("partial recovery should preserve the source");
+
+        assert_eq!(recovered.language, "en");
 
         assert_eq!(recovered.omp_executable.as_deref(), Some("omp-custom"));
         assert_eq!(
