@@ -11709,12 +11709,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T10:45:50.387597Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T10:46:23.172715Z",
+    "last_poll_at": "2026-09-19T10:47:57.203142Z",
     "last_tick_at": "2026-09-19T10:40:08.321788Z",
     "run_id": "35437999077"
   }
