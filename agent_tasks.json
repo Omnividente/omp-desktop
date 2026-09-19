@@ -10431,7 +10431,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T08:58:27.862851Z"
+        "observed_at": "2026-09-19T08:58:27.862851Z",
+        "released_attempt_ref": "autonomous/attempt-534e6529ae07ff69e5793b12"
       },
       "research_result": {
         "summary": "Verified frontend handling of focus and state when deleting a session from SessionList. The application successfully traps focus for a deleted project/workspace inside ProjectRail via removalFocusRef, but this logic is missing for deleting sessions inside SessionList, which leads to focus dropping to document.body, degrading accessibility.",
