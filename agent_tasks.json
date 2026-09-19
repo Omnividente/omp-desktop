@@ -12608,8 +12608,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T16:41:28.448797Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T16:47:30.681438Z",
         "report_error": {
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
@@ -12625,20 +12625,21 @@
         "report_repair": {
           "at": "2026-09-19T16:35:40.393313Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/3711902823957123123/activities/ff80ab38e0ea45ed9cd1d2e5b72f2554",
-            "report_sha256": "a99443149837c2ccc0c1cc77c0a51ac5057820c7b7a7febeedb9fed811124678",
-            "activity_created_at": "2026-09-19T16:27:31.287181Z",
+            "activity_id": "sessions/3711902823957123123/activities/ede6e54d23334e56aeced0644cc07109",
+            "report_sha256": "f13101272c36e84f56fd7271950d75126582aca1f6edef62d9fc2b36b77460e4",
+            "activity_created_at": "2026-09-19T16:37:44.851882Z",
             "session_id": "3711902823957123123",
             "dispatch_key": "09d50282daf3785a75c022e1"
-          }
+          },
+          "detail": "expected exactly one ordered research report block"
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T16:41:44.643328Z",
+    "last_poll_at": "2026-09-19T16:47:49.576994Z",
     "last_tick_at": "2026-09-19T16:41:47.061183Z",
     "run_id": "35455757240"
   }
