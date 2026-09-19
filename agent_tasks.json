@@ -12065,12 +12065,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-19T11:38:49.209000Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T11:39:07.441722Z",
+    "last_poll_at": "2026-09-19T11:40:10.710718Z",
     "last_tick_at": "2026-09-19T11:32:54.009776Z",
     "run_id": "35440378687"
   }
