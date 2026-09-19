@@ -10946,7 +10946,7 @@
       "id": "discovery-db32c1ac35bd4222",
       "title": "Preserve language preference during settings recovery",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -10980,6 +10980,12 @@
         "activity_created_at": "2026-09-19T09:19:21.853606Z",
         "session_id": "2499115998985139309",
         "dispatch_key": "b20b9a6a6f1fe3916922fd03"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T17:01:59Z",
+        "note": "Implemented and merged in https://github.com/Omnividente/omp-desktop/pull/77 at bbb66cfd927f0af0b18060424d621f05fec04ded. Malformed settings recovery preserves selected language; regression failed before and passes after fix. Full source CI and isolated native smoke passed."
       }
     },
     {
