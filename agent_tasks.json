@@ -12392,7 +12392,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T16:10:09.575459Z"
+        "observed_at": "2026-09-19T16:10:09.575459Z",
+        "released_attempt_ref": "autonomous/attempt-aa8b18708ab0b9014f5dae59"
       },
       "research_result": {
         "summary": "Verified that useVirtualList loses browser scroll position during horizontal container resizing due to active measurement eviction.",
