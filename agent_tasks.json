@@ -11562,7 +11562,8 @@
             "session_id": "8737317161181600306",
             "dispatch_key": "8135b5d66137257a92f88774"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8135b5d66137257a92f88774"
       },
       "research_result": {
         "summary": "Investigated the omission of non-sensitive accessibility preferences (language, fonts) during settings recovery, confirming existing proposal discovery-db32c1ac35bd4222, and analyzed the performance of filtering and sorting in ModelPicker, confirming existing proposal discovery-37764527ab2ab728.",
