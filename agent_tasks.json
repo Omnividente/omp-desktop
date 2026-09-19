@@ -13647,13 +13647,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T22:30:23.559263Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T22:37:22.500483Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T22:37:39.691186Z",
+    "last_poll_at": "2026-09-19T22:37:42.890963Z",
     "last_tick_at": "2026-09-19T22:31:43.100666Z",
     "run_id": "35473511382"
   }
