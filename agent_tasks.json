@@ -11734,7 +11734,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T11:12:58.862659Z"
+        "observed_at": "2026-09-19T11:12:58.862659Z",
+        "released_attempt_ref": "autonomous/attempt-d06b60347c64089d47735d8f"
       },
       "research_result": {
         "summary": "Verified boundary behavior of the MAX_RUNTIME_INCIDENTS limit. Discovered a potential edge case where active incidents on a single terminal might be incorrectly dropped instead of prioritizing active incidents on terminals with multiple active incidents.",
