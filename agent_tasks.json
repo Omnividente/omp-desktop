@@ -9103,12 +9103,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T04:43:52.679803Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T04:44:12.491661Z",
+    "last_poll_at": "2026-09-19T04:45:19.105527Z",
     "last_tick_at": "2026-09-19T04:13:08.800758Z",
     "run_id": "35420671956"
   }
