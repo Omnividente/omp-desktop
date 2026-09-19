@@ -1428,7 +1428,7 @@
       "id": "discovery-7f98db57491c0c0d",
       "title": "Persist selected workspace across application restarts",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -1462,6 +1462,12 @@
         "activity_created_at": "2026-09-16T18:56:50Z",
         "session_id": "486851115706699998",
         "dispatch_key": "716a956b1cc67951418b139f"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:42:16Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Persist the last visible existing workspace in Desktop settings; explicit --project wins; no automatic terminal. Native save/restart and explicit startup verified."
       }
     },
     {
