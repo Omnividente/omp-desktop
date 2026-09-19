@@ -590,6 +590,15 @@
         "session_state": "AWAITING_USER_FEEDBACK",
         "observed_at": "2026-09-16T05:25:28Z",
         "quarantined_at": "2026-09-14T12:49:22Z"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-19T15:58:37Z",
+        "note": "Rejected during 0.9.5 owner review: new terminal input must not silently discard pending switch recovery. Preserve recovery and backup data until explicit user action. Keep worker history and quarantine; this decision does not claim the remote session has stopped.",
+        "status": "pending",
+        "session_id": "10335808607131075348",
+        "dispatch_key": "24bf30539113a26a595bb2b6"
       }
     },
     {
