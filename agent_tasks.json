@@ -11935,7 +11935,7 @@
       "id": "research-diagnostics-resources-performance-3",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -12056,18 +12056,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12096810179707805609",
         "dispatch_key": "209d80b319249365bfc97c55",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-209d80b319249365bfc97c55",
         "started_at": "2026-09-19T11:38:49.209000Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T12:29:23.483158Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-19T11:58:05.893598Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T12:29:23.483158Z",
         "research_detached": {
           "at": "2026-09-19T11:58:05.893598Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -12076,11 +12076,35 @@
           "at": "2026-09-19T11:58:05.893598Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated incident count expiration and potential memory leaks under heavy continuous ingestion of distinct incidents. Verified that the incident queue is strictly bounded without relying on internal timeouts, and continuous overflow efficiently garbage collects without leaking memory.",
+        "observations": [
+          {
+            "scenario": "Verify if incident counts properly expire timeouts internally without memory leaking when thousands of distinct incidents are continuously added to the incident queue.",
+            "evidence": "Executed synthetic local tests in tsx continuously inserting up to 5,000,000 completely distinct runtime incident events into the `runtimeIncidentState` reducer. Measured V8 heap memory during ingestion and observed stable memory usage under 25MB, confirming that old immutable state states are cleanly garbage-collected. Reviewed `src/runtimeIncidents.ts` and confirmed there are no internal `setTimeout` calls for incidents; eviction is strictly driven by the 100-item hard limit in `enforceIncidentBound` and explicit terminal lifecycle events.",
+            "result": "Establishes that the incident queue does not leak memory under continuous extreme ingestion of distinct incidents and relies on a hard bounds limit rather than internal timeouts to prevent memory exhaustion."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+          "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T12:29:23.483158Z",
+        "source": {
+          "activity_id": "sessions/12096810179707805609/activities/037156f446544fe29cabe484b09b5d00",
+          "report_sha256": "974b15a73fbd12db452f25f902e3bd24b2a3d43494923693146f6a803d892255",
+          "activity_created_at": "2026-09-19T11:58:39.159613Z",
+          "session_id": "12096810179707805609",
+          "dispatch_key": "209d80b319249365bfc97c55"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T12:29:40.084576Z",
+    "last_poll_at": "2026-09-19T12:29:42.626240Z",
     "last_tick_at": "2026-09-19T11:58:36.339042Z",
     "run_id": "35441525646"
   }
