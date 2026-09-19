@@ -12378,13 +12378,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T15:22:03.568334Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T15:29:17.710743Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T15:29:39.259889Z",
+    "last_poll_at": "2026-09-19T15:29:42.212250Z",
     "last_tick_at": "2026-09-19T15:23:32.870124Z",
     "run_id": "35451579725"
   }
