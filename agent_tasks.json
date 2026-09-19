@@ -11770,7 +11770,7 @@
       "id": "research-diagnostics-resources-reliability-3",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -11891,23 +11891,48 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16334819171632799417",
         "dispatch_key": "ed5c66ebcaf49cdf2bb72081",
         "base_sha": "5af28a14e4cab0d1576d3447bfc9fca773603d64",
         "starting_branch": "autonomous/attempt-ed5c66ebcaf49cdf2bb72081",
         "started_at": "2026-09-19T11:12:58.862659Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T11:32:24.212035Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T11:20:03.491893Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T11:32:24.212035Z"
+      },
+      "research_result": {
+        "summary": "Verified that resource warning counts and the UI appropriately reflect and respect when a resource repeatedly crosses the threshold back and forth in rapid succession, resulting in no cache misses or stale renders.",
+        "observations": [
+          {
+            "scenario": "Verify whether the resource warning badge in ResourceHealthPanel respects the severity change of a volume that crosses back and forth over the warning threshold repeatedly in rapid succession (thrashing).",
+            "evidence": "Executed an isolated React testing library simulation inside a temporary test (`test-hypothesis-2.test.tsx` using jsdom) by manually providing simulated `ResourceHealthSnapshot` objects sequentially oscillating between a `warning` and `ok` severity level to the `ResourceHealthPanel`. Verified that the rendered HTML container correctly alternated between the `is-warning` class (displaying an alert icon) and the `is-ok` class (displaying a check icon) synchronously, because `ResourceHealthPanel` recalculates warning statuses directly off the inbound deterministic snapshot props rather than keeping complex internal caching.",
+            "result": "Establishes that the user interface correctly responds to volume severity thrashing without stale or overlapping severity visual states."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+          "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS.",
+          "Investigate if incident counts properly expire timeouts internally without memory leaking when thousands of distinct incidents are continuously added to the incident queue."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T11:32:24.212035Z",
+        "source": {
+          "activity_id": "sessions/16334819171632799417/activities/929a8844789f48d7af3cf62db12dfc05",
+          "report_sha256": "76f4e3bd28de09db5ace6fc6dce8d510fb319fc5b8f96338b692bc1ce098dad1",
+          "activity_created_at": "2026-09-19T11:25:44.706350Z",
+          "session_id": "16334819171632799417",
+          "dispatch_key": "ed5c66ebcaf49cdf2bb72081"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T11:32:43.774043Z",
+    "last_poll_at": "2026-09-19T11:32:46.178667Z",
     "last_tick_at": "2026-09-19T11:26:41.532690Z",
     "run_id": "35440099589"
   }
