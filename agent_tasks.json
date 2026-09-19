@@ -9608,7 +9608,7 @@
       "id": "research-workspace-navigation-behavior-3",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -9726,23 +9726,116 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15243512961984145422",
         "dispatch_key": "01cc7db38b883d810245e617",
         "base_sha": "996ad3356bd6e57dfc4679cf7d23745f849304d1",
         "starting_branch": "autonomous/attempt-01cc7db38b883d810245e617",
         "started_at": "2026-09-19T06:19:50.714224Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T06:55:46.153829Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T06:19:50.714224Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T06:55:46.153829Z"
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of focus and state during session deletion and workspace removal. Focus correctly remains trapped within the application bounds, but there is a clear bug when deleting a session, as focus drops to document.body, degrading keyboard accessibility.",
+        "observations": [
+          {
+            "scenario": "Deleting a session via keyboard navigation from the session list",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/test-session-focus.test.tsx`) rendering `<SessionList />` with mocked tabs array. Focused the first session's delete button and activated it. Checked `document.activeElement` after the component re-rendered and the first session was removed. The focus dropped to `document.body` because the active element was unmounted without any focus restoration mechanism like `removalFocusRef` (which is present in `<ProjectRail />`).",
+            "result": "Establishes that the frontend lacks focus restoration logic upon deleting a session from the session list, leaving keyboard focus stranded on the document body."
+          },
+          {
+            "scenario": "Removing a workspace when the backend rejects the request (e.g. file busy or scanning in progress)",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/test-workspace-remove.test.tsx`) against `<App />`. Triggered the workspace removal action and simulated the backend `removeWorkspace` API returning an error (e.g., 'File busy or scanning in progress'). Verified that the error is gracefully caught, the application does not crash, the workspace is kept in the UI list, and an error is displayed to the user.",
+            "result": "Establishes that the frontend gracefully handles backend rejections during workspace removal, preventing state desynchronization."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate frontend state behavior if `refreshOmpConfig` fails concurrently while a background settings sync is in progress.",
+          "Investigate if similar race conditions exist when refreshing session transcripts rapidly (e.g. `loadTranscript`)."
+        ],
+        "proposed_task_ids": [
+          "discovery-f2427c63eed09a2c"
+        ],
+        "completed_at": "2026-09-19T06:55:46.153829Z",
+        "source": {
+          "activity_id": "sessions/15243512961984145422/activities/d2e4e650edd24ad48c6fd62eb640a61f",
+          "report_sha256": "501df6408737cc4f16f871e10d06041a68bf9b2992a222b72d612b2bcc58174f",
+          "activity_created_at": "2026-09-19T06:36:02.386983Z",
+          "session_id": "15243512961984145422",
+          "dispatch_key": "01cc7db38b883d810245e617"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15243512961984145422/activities/d2e4e650edd24ad48c6fd62eb640a61f",
+          "report_sha256": "501df6408737cc4f16f871e10d06041a68bf9b2992a222b72d612b2bcc58174f",
+          "activity_created_at": "2026-09-19T06:36:02.386983Z",
+          "session_id": "15243512961984145422",
+          "dispatch_key": "01cc7db38b883d810245e617"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f2427c63eed09a2c"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f2427c63eed09a2c",
+      "title": "Restore focus after deleting a session",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "quality"
+      ],
+      "created_at": "2026-09-19T06:55:46.153829Z",
+      "acceptance": [
+        "Deleting a session using the keyboard restores focus to a logical adjacent element (like the next session or the session list container) instead of dropping to document.body."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React Testing Library tests rendering `<SessionList>` and simulating deletion of a session.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Focus the delete button of a session in the session list using keyboard navigation.",
+            "Activate the delete button using Enter or Space.",
+            "Observe the active element after the deletion completes."
+          ],
+          "expected": "Focus is restored to the next available session row or the list container.",
+          "actual": "Focus is dropped to document.body."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-3",
+        "activity_id": "sessions/15243512961984145422/activities/d2e4e650edd24ad48c6fd62eb640a61f",
+        "report_sha256": "501df6408737cc4f16f871e10d06041a68bf9b2992a222b72d612b2bcc58174f",
+        "activity_created_at": "2026-09-19T06:36:02.386983Z",
+        "session_id": "15243512961984145422",
+        "dispatch_key": "01cc7db38b883d810245e617"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T06:56:03.717067Z",
+    "last_poll_at": "2026-09-19T06:56:06.538467Z",
     "last_tick_at": "2026-09-19T06:39:52.232256Z",
     "run_id": "35427193443"
   }
