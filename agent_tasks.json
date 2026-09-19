@@ -8950,7 +8950,8 @@
             "session_id": "3334810322506368660",
             "dispatch_key": "73d626479bd40c8ff3e6f421"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-73d626479bd40c8ff3e6f421"
       },
       "research_result": {
         "summary": "Confirmed that orphaned backup and staging artifact directories are left on disk after an interrupted session import and are not garbage collected.",
