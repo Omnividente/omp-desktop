@@ -12066,13 +12066,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T11:45:51.724983Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-19T11:58:05.893598Z",
+        "research_detached": {
+          "at": "2026-09-19T11:58:05.893598Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T11:58:24.307582Z",
+    "last_poll_at": "2026-09-19T11:58:26.783084Z",
     "last_tick_at": "2026-09-19T11:52:29.301253Z",
     "run_id": "35441267513"
   }
