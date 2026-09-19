@@ -8929,13 +8929,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-19T00:28:41.584656Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-19T00:36:07.316642Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T00:36:25.319525Z",
+    "last_poll_at": "2026-09-19T00:36:28.042351Z",
     "last_tick_at": "2026-09-19T00:30:27.041413Z",
     "run_id": "35409475683"
   }
