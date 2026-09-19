@@ -12909,7 +12909,7 @@
       "id": "research-terminal-input-behavior-4",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -13016,23 +13016,111 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1210953113909380378",
         "dispatch_key": "fc210a07308a9a473173e7f8",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-fc210a07308a9a473173e7f8",
         "started_at": "2026-09-19T20:49:17.724134Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T21:21:19.590064Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T20:56:54.832353Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T21:21:19.590064Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input behavior when new input arrives while a switch recovery state is pending.",
+        "observations": [
+          {
+            "scenario": "A terminal process is in a switch_recovery state (e.g., FailedSend) and new input bytes are written via write_bytes.",
+            "evidence": "Inspected `write_bytes` in `src-tauri/src/terminal.rs`. Verified via a synthetic rust test case that `process.switch_recovery` is not cleared when new input arrives, allowing the stale recovery to be sent out of order later. Previous canonical report `discovery-d47c6c8c6e6f2995` identifies the same issue.",
+            "result": "Establishes that new manual terminal input does not automatically abandon the pending switch_recovery state, breaking chronological order and allowing stale recovery retries."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab.",
+          "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+        ],
+        "proposed_task_ids": [
+          "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0"
+        ],
+        "completed_at": "2026-09-19T21:21:19.590064Z",
+        "source": {
+          "activity_id": "sessions/1210953113909380378/activities/c9e7110ff5fe40eda05010a32ad64ca6",
+          "report_sha256": "9deb9bde15ae52006e48c17129ea8ee685364aae3c9d019dbbea8169db00bbab",
+          "activity_created_at": "2026-09-19T21:10:08.917151Z",
+          "session_id": "1210953113909380378",
+          "dispatch_key": "fc210a07308a9a473173e7f8"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1210953113909380378/activities/c9e7110ff5fe40eda05010a32ad64ca6",
+          "report_sha256": "9deb9bde15ae52006e48c17129ea8ee685364aae3c9d019dbbea8169db00bbab",
+          "activity_created_at": "2026-09-19T21:10:08.917151Z",
+          "session_id": "1210953113909380378",
+          "dispatch_key": "fc210a07308a9a473173e7f8"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0",
+      "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-19T21:21:19.590064Z",
+      "acceptance": [
+        "When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.",
+        "A test confirms that write_bytes removes switch_recovery if new input is sent."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Set a terminal process to have a switch_recovery state",
+            "Call write_bytes to send new input bytes to the terminal",
+            "Check the switch_recovery state of the process"
+          ],
+          "expected": "The switch_recovery state is None",
+          "actual": "The switch_recovery state remains present"
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/terminal.rs"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-behavior-4",
+        "activity_id": "sessions/1210953113909380378/activities/c9e7110ff5fe40eda05010a32ad64ca6",
+        "report_sha256": "9deb9bde15ae52006e48c17129ea8ee685364aae3c9d019dbbea8169db00bbab",
+        "activity_created_at": "2026-09-19T21:10:08.917151Z",
+        "session_id": "1210953113909380378",
+        "dispatch_key": "fc210a07308a9a473173e7f8"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T21:15:33.937188Z",
+    "last_poll_at": "2026-09-19T21:21:38.864214Z",
     "last_tick_at": "2026-09-19T21:15:35.976696Z",
     "run_id": "35469841783"
   }
