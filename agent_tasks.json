@@ -13510,7 +13510,7 @@
       "id": "research-terminal-input-ux-4",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -13638,23 +13638,46 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7363275175199270214",
         "dispatch_key": "681d30248799382c0c36bb63",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-681d30248799382c0c36bb63",
         "started_at": "2026-09-19T22:30:23.559263Z",
-        "finished_at": "",
+        "finished_at": "2026-09-19T23:17:47.351846Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T22:37:22.500483Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T23:17:47.351846Z"
+      },
+      "research_result": {
+        "summary": "Investigated tab switching behavior during a pending primary provider pin, and confirmed no UI regressions.",
+        "observations": [
+          {
+            "scenario": "A user clicks to toggle the primary provider pin on a terminal, which puts the terminal into a 'primaryProviderPinPending' state. While this request is pending, the user switches to another terminal tab and then returns to the original tab.",
+            "evidence": "Inspected `src/App.tsx` and `src/SessionControls.tsx`. `App.tsx` stores `primaryProviderPinPending` on the `tab` objects inside a state array. Wrote and ran a temporary test script that verified when returning to the tab, the `primaryProviderPinPending` state remains true and the UI correctly displays 'Restarting...' (disabling the pin toggle and other controls) until the backend resolves the pin request.",
+            "result": "Establishes that terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab, because the state is centrally managed in the top-level React component rather than local to the unmounted tab view."
+          }
+        ],
+        "next_hypotheses": [
+          "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-19T23:17:47.351846Z",
+        "source": {
+          "activity_id": "sessions/7363275175199270214/activities/e6c34f7cf36e45f39f067bca62693bb6",
+          "report_sha256": "7ce94eee906bc6b72bd97092ff4072da99b8dc48220585b989664ca8820f9f98",
+          "activity_created_at": "2026-09-19T22:59:28.379077Z",
+          "session_id": "7363275175199270214",
+          "dispatch_key": "681d30248799382c0c36bb63"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T23:02:00.096001Z",
+    "last_poll_at": "2026-09-19T23:18:08.032318Z",
     "last_tick_at": "2026-09-19T23:02:02.735429Z",
     "run_id": "35474952831"
   }
