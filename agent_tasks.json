@@ -11902,7 +11902,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-19T11:32:24.212035Z"
+        "observed_at": "2026-09-19T11:32:24.212035Z",
+        "released_attempt_ref": "autonomous/attempt-ed5c66ebcaf49cdf2bb72081"
       },
       "research_result": {
         "summary": "Verified that resource warning counts and the UI appropriately reflect and respect when a resource repeatedly crosses the threshold back and forth in rapid succession, resulting in no cache misses or stale renders.",
