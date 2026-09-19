@@ -16,6 +16,7 @@ from jules_dispatch import Response
 from jules_provenance import bind_proposal
 from lab_controller import GitHub, StateWriteError, _git, tick
 from state_store import load_state, save_state
+from proposal_backlog import decide
 from task_lifecycle import start
 from validate_tasks import validate
 
@@ -588,6 +589,73 @@ class ControllerTests(unittest.TestCase):
         self.run_tick(task_id="", config=config)
         self.assertEqual((self.api.posts, len(self.api.messages)), (2, 1))
 
+    def rejecting_worker(self):
+        start(self.data, "first", session_id="7", dispatch_key="reject", now=NOW)
+        entry = self.data["tasks"][0]
+        entry["execution"].update(base_sha=self.head, starting_branch="autonomous/attempt-reject")
+        self.api.values["7"] = session("7", "reject", "AWAITING_USER_FEEDBACK")
+        decide(self.data, CONFIG, action="reject", task_id="first", actor="Omnividente",
+               note="Do not implement this proposal", now=NOW.isoformat())
+        self.persist(self.data)
+        return copy.deepcopy(entry["execution"])
+
+    def test_rejection_preserves_worker_until_terminal_and_never_retries(self):
+        identity = self.rejecting_worker()
+        self.api.message_status = 0
+        self.run_tick()
+        pending = self.reload()[0]
+        self.assertEqual((pending["status"], pending["proposal_decision"]["status"]), ("blocked", "pending"))
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+        self.api.values["7"]["state"] = "FAILED"
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        saved = self.reload()[0]
+        self.assertEqual((saved["status"], saved["proposal_decision"]["status"]), ("done", "completed"))
+        self.assertEqual(saved["execution"]["session_state"], "FAILED")
+        for field in ("attempts", "session_id", "dispatch_key", "started_at", "base_sha", "starting_branch"):
+            self.assertEqual(saved["execution"][field], identity[field])
+        self.run_tick(now=NOW + timedelta(minutes=15))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+
+    def test_rejection_send_requires_cas_and_survives_lost_ack(self):
+        self.rejecting_worker()
+        def fail_intent(data):
+            if data["tasks"][0]["execution"].get("rejection_stop"):
+                raise RuntimeError("intent write failed")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=fail_intent)
+        self.assertEqual(self.api.messages, [])
+        self.reload()
+        def lose_ack(data):
+            if (data["tasks"][0]["execution"].get("rejection_stop") or {}).get("result") == "sent":
+                raise RuntimeError("ack write failed")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=lose_ack)
+        self.reload()
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+
+    def test_rejection_never_sends_while_disabled_or_accepts_a_racing_pr(self):
+        self.rejecting_worker()
+        self.github.is_enabled = False
+        self.run_tick()
+        self.assertEqual(self.api.messages, [])
+        self.github.is_enabled = True
+        self.github.add_proposal(42)
+        self.api.values["7"] = session("7", "reject", "COMPLETED", pull_request=42)
+        self.run_tick()
+        saved = self.reload()[0]
+        self.assertEqual((saved["status"], saved["proposal_decision"]["status"]), ("blocked", "pending"))
+        self.assertEqual((self.api.posts, len(self.api.messages), self.github.retargets), (0, 0, 0))
+        self.github.proposals[42].update(state="closed", merged=False)
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        saved = self.reload()[0]
+        self.assertEqual((saved["status"], saved["proposal_decision"]["status"]), ("done", "completed"))
+        self.assertEqual((saved["execution"]["outcome"], saved["execution"]["pull_request"]), ("closed_unmerged", 42))
+        self.assertEqual((self.api.posts, len(self.api.messages), self.github.retargets), (0, 0, 0))
+
     def broken_research(self):
         entry = self.data["tasks"][0]
         entry.update(task_type="project_discovery")
@@ -619,7 +687,7 @@ class ControllerTests(unittest.TestCase):
             {"scenario": "resume", "evidence": "synthetic transcript", "result": "clock advanced"}],
             "next_hypotheses": []}
         self.repair_activity("AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(valid)
-                             + "\nAUTONOMOUS_RESEARCH_END", "fixed", NOW + timedelta(minutes=6))
+                             + "\nAUTONOMOUS_RESEARCH_END\nAUTONOMOUS_TASKS_BEGIN [] AUTONOMOUS_TASKS_END", "fixed", NOW + timedelta(minutes=6))
         with patch("health_snapshot.gh_get", side_effect=self.snapshot_api):
             self.run_tick(task_id="", automatic=True, now=NOW + timedelta(minutes=10))
         completed = self.reload()[0]
@@ -666,6 +734,67 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.api.gets, gets)
         self.assertEqual((saved["status"], self.api.posts, len(self.api.messages)), ("blocked", 0, 1))
         self.assertNotIn("research_result", saved)
+
+    def test_owner_repeat_repair_retains_receipts_and_never_resends_after_lost_ack(self):
+        identity = self.broken_research()
+        self.run_tick()
+        self.repair_activity("Still prose", "second-invalid", NOW + timedelta(minutes=1))
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        previous = copy.deepcopy(self.reload()[0]["execution"]["report_repair"])
+        before = copy.deepcopy(self.data)
+        reads = self.api.gets
+        for actor, after in (("stranger", previous["at"]), ("Omnividente", "2026-09-13T10:00:00Z")):
+            with self.assertRaises(ValueError):
+                self.run_tick(recover_report=True, repair_after=after, actor=actor, now=NOW + timedelta(minutes=10))
+            self.assertEqual((self.api.gets, len(self.api.messages)), (reads, 1))
+            self.assertEqual(self.data, before)
+        def lose_ack(data):
+            repair = data["tasks"][0]["execution"]["report_repair"]
+            if repair.get("after") == previous["at"] and repair["result"] == "sent":
+                raise RuntimeError("repeat acknowledgement lost")
+            self.persist(data)
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=lose_ack, recover_report=True, repair_after=previous["at"],
+                          actor="Omnividente", now=NOW + timedelta(minutes=10))
+        self.reload()
+        self.run_tick(recover_report=True, repair_after=previous["at"], actor="Omnividente",
+                      now=NOW + timedelta(minutes=11))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 2))
+        valid = {"summary": "Observed clock", "observations": [
+            {"scenario": "resume", "evidence": "synthetic transcript", "result": "clock advanced"}],
+            "next_hypotheses": []}
+        self.repair_activity("AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(valid)
+                             + "\nAUTONOMOUS_RESEARCH_END\nAUTONOMOUS_TASKS_BEGIN [] AUTONOMOUS_TASKS_END",
+                             "fixed", NOW + timedelta(minutes=12))
+        self.run_tick(now=NOW + timedelta(minutes=15))
+        completed = self.reload()[0]
+        self.assertEqual(completed["status"], "done")
+        self.assertEqual(completed["execution"]["report_repair_history"], [previous])
+        self.assertEqual(completed["research_result"]["source"]["activity_id"], "sessions/7/activities/fixed")
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(completed["execution"][field], identity[field])
+        self.run_tick(recover_report=True, repair_after=previous["at"], actor="Omnividente",
+                      now=NOW + timedelta(minutes=16))
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 2))
+
+    def test_recovery_does_not_quarantine_unrelated_worker_or_repair_rewritten_activity(self):
+        self.broken_research()
+        self.run_tick()
+        self.repair_activity("Still prose", "second-invalid", NOW + timedelta(minutes=1))
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        previous = copy.deepcopy(self.reload()[0]["execution"]["report_repair"])
+        self.data["tasks"].append(task("unrelated"))
+        start(self.data, "unrelated", session_id="8", dispatch_key="other", now=NOW - timedelta(days=1))
+        untouched = copy.deepcopy(self.data["tasks"][1])
+        self.persist(self.data)
+        self.api.activities["7"][-1]["agentMessaged"]["agentMessage"] = "Rewritten same activity"
+        self.run_tick(recover_report=True, repair_after=previous["at"], actor="Omnividente",
+                      now=NOW + timedelta(minutes=10))
+        self.assertEqual(self.reload()[1], untouched)
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+        self.github.is_enabled = False
+        self.run_tick(recover_report=True, now=NOW + timedelta(minutes=11))
+        self.assertEqual(self.reload()[1], untouched)
 
     def test_rejected_completed_session_repair_is_parked_without_backup_key_retry(self):
         self.broken_research()

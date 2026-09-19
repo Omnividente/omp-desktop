@@ -153,12 +153,17 @@ def bound_session(session: Mapping[str, Any], execution: Mapping[str, Any], reso
 def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: Mapping[str, Any],
             *, transport=urllib_transport, api_base: str = DEFAULT_API_BASE,
             api_keys=(), now: datetime | None = None, max_new: int = 10,
-            retry_report: bool = False, diagnostics: Path | None = None) -> dict:
+            retry_report: bool = False, diagnostics: Path | None = None,
+            reparse_report: bool = False) -> dict:
     """Stage imports and the authoritative lifecycle transition as one mutation.
 
     Transport/read failures leave the queue untouched. Malformed report packaging
-    parks the bound attempt; recovery accepts only a newer, valid report.
+    parks the bound attempt; recovery normally accepts only a newer, valid report.
+    Explicit ``reparse_report`` with ``retry_report`` also accepts the exact saved
+    immutable source after a parser upgrade, without another worker request.
     """
+    if reparse_report and not retry_report:
+        raise ValueError("report reparse requires explicit report retry")
     task = find_task(manifest, task_id)
     if task is None:
         raise ValueError("task not found")
@@ -168,8 +173,10 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
         return {"changed": False, "reason": "attempt_already_resolved", "task_id": task_id,
                 "imported_count": 0}
     recovering = retry_report and awaiting_report(task)
+    failed_repair = (reparse_report and recovering and session_state(snapshot) == "FAILED"
+                     and (execution.get("report_repair") or {}).get("status") == "failed")
     if retry_report and (not recovering or task.get("task_type") != "project_discovery"
-                         or session_state(snapshot) != "COMPLETED"):
+                         or (session_state(snapshot) != "COMPLETED" and not failed_repair)):
         raise ValueError("report retry requires the stored completed research attempt")
     quarantined = task.get("status") == "blocked" and execution.get("state") == "quarantined"
     if not recovering and not quarantined and (task.get("status") != "in_progress" or execution.get("outcome")):
@@ -184,7 +191,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     repository = config.get("repository") or (config.get("project") or {}).get("repository", "")
     if repository:
         session_pull_request(session, execution, repository)
-    if session_state(session) != "COMPLETED":
+    if session_state(session) != "COMPLETED" and not (failed_repair and session_state(session) == "FAILED"):
         return {"changed": False, "reason": "session_not_completed", "task_id": task_id,
                 "imported_count": 0}
     outputs = session.get("outputs", [])
@@ -207,7 +214,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     diagnostic = {"task_id": task_id, "session_id": str(execution.get("session_id") or ""),
                   "session_resource": resource, "dispatch_key": str(execution.get("dispatch_key") or ""),
                   "attempts": execution.get("attempts"), "collected_at": iso(moment),
-                  "session_state": "COMPLETED", "selection": {"status": "not_checked", "detail": ""},
+                  "session_state": session_state(session), "selection": {"status": "not_checked", "detail": ""},
                   "tasks_parser": {"status": "not_checked", "detail": ""},
                   "research_parser": {"status": "not_checked", "detail": ""},
                   "findings_parser": {"status": "not_checked", "detail": ""}}
@@ -224,16 +231,35 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                 raise InvalidReport("report activity provenance is invalid", "report_provenance")
             if recovering:
                 receipt = execution.get("report_repair") or {}
-                previous = receipt.get("source") or (execution.get("report_error") or {}).get("source") or {}
+                initial = (execution.get("report_error") or {}).get("source") or {}
+                previous = receipt.get("source") or initial
+                # Check every saved identity, not just the latest repair: changing
+                # an old activity's timestamp must not make it a new report.
+                saved_sources = [saved for saved in (initial, receipt.get("source"), *(
+                    item.get("source") for item in execution.get("report_repair_history", [])
+                )) if saved]
+                if any(source["activity_id"] == saved.get("activity_id") and source != saved
+                       for saved in saved_sources):
+                    if not reparse_report:
+                        return {"changed": False, "reason": "report_unchanged", "task_id": task_id,
+                                "imported_count": 0}
+                    source = None
+                    raise InvalidReport("saved report activity was rewritten; publish a new format-only "
+                                        "report activity in the same session", "report_identity_conflict")
+                same_source = bool(previous and source == previous)
+                if failed_repair and not same_source:
+                    return {"changed": False, "reason": "report_source_unavailable", "task_id": task_id,
+                            "imported_count": 0}
                 created = parse_iso(source["activity_created_at"])
                 boundary = parse_iso(previous.get("activity_created_at"))
                 requested = parse_iso(receipt.get("at"))
-                if ((previous and (source["activity_id"] == previous.get("activity_id")
-                                   or (boundary and created <= boundary)))
-                        or (requested and created < requested)):
-                    return {"changed": False, "reason": "report_unchanged", "task_id": task_id,
-                            "imported_count": 0}
-            fresh_report = True
+                if not (reparse_report and same_source):
+                    if ((previous and (source["activity_id"] == previous.get("activity_id")
+                                       or (boundary and created <= boundary)))
+                            or (requested and created < requested)):
+                        return {"changed": False, "reason": "report_unchanged", "task_id": task_id,
+                                "imported_count": 0}
+            fresh_report = not recovering or not same_source
             diagnostic["source"] = source
             diagnostic["selection"] = {"status": "ok", "detail": "latest worker report selected"}
             block = parse_block(text)
@@ -280,6 +306,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
         diagnostic["error_code"] = exc.code
         result = park_report(staged, task_id, code=exc.code,
                              detail=redact(str(exc), secrets)[:2000], now=moment, source=source)
+        result["report_error_code"] = exc.code
         repair = find_task(staged, task_id)["execution"].get("report_repair")
         if recovering and fresh_report and repair:
             repair["source"] = source
@@ -331,6 +358,8 @@ def main(argv=None) -> int:
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--diagnostics", type=Path)
     parser.add_argument("--retry-report", action="store_true")
+    parser.add_argument("--reparse-report", action="store_true",
+                        help="with --retry-report, reparse the exact saved immutable report")
     parser.add_argument("--api-base", default=os.environ.get("JULES_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
     args = parser.parse_args(argv)
@@ -347,6 +376,7 @@ def main(argv=None) -> int:
             raise ValueError("invalid session snapshot")
         result = harvest(manifest, config, args.task_id, snapshot, api_base=args.api_base,
                          retry_report=args.retry_report, diagnostics=args.diagnostics,
+                         reparse_report=args.reparse_report,
                          api_keys=[os.environ.get("JULES_API_KEY", ""),
                                    os.environ.get("JULES_API_KEY_BACKUP", "")])
         if result["changed"]:

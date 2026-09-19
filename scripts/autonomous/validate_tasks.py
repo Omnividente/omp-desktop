@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from jules_dispatch import session_is_active
-from select_task import blocks_lane, is_unresolved, valid_research_detachment
+from select_task import blocks_lane, is_unresolved, pending_rejection, valid_research_detachment
 
 VALID_STATUSES = {"proposed", "todo", "in_progress", "done", "blocked"}
 VALID_RISKS = {"low", "medium", "high"}
@@ -98,6 +98,26 @@ def _validate_proposal(task: dict, prefix: str) -> list:
             errors.append(prefix + ".proposal_decision." + field + " must be a non-empty string")
     if not _utc_timestamp(decision.get("at")):
         errors.append(prefix + ".proposal_decision.at must be an ISO UTC timestamp")
+    execution = task.get("execution") or {}
+    if "status" in decision:
+        if decision.get("action") != "reject" or decision["status"] not in ("pending", "completed"):
+            errors.append(prefix + ".proposal_decision.status requires a staged rejection")
+        if not isinstance(execution, dict) or any(
+            not decision.get(field) or decision[field] != execution.get(field)
+            for field in ("session_id", "dispatch_key")
+        ):
+            errors.append(prefix + ".proposal_decision must retain its rejected attempt identity")
+        if decision["status"] == "completed" and not _utc_timestamp(decision.get("completed_at")):
+            errors.append(prefix + ".completed rejection requires a UTC completed_at")
+    if pending_rejection(task):
+        if (not isinstance(execution, dict) or task.get("status") != "blocked"
+                or execution.get("state") != "quarantined" or execution.get("outcome") != "stale"
+                or type(execution.get("attempts")) is not int or execution["attempts"] < 1
+                or execution.get("pull_request")):
+            errors.append(prefix + ".pending rejection requires its unresolved bound worker without a PR")
+        if "completed_at" in decision:
+            errors.append(prefix + ".pending rejection cannot claim completion")
+        return errors
     if decision.get("action") in ("reject", "resolve"):
         if task.get("status") != "done":
             errors.append(prefix + ".closed proposal requires done status")
@@ -192,6 +212,30 @@ def _validate_discovery_import(task: dict, task_ids: set, prefix: str) -> list:
     return errors
 
 
+def _validate_repair_receipt(repair: Any, execution: dict, prefix: str) -> list:
+    if not isinstance(repair, dict):
+        return [prefix + " must be an object"]
+    errors = []
+    if not _utc_timestamp(repair.get("at")) or repair.get("result") not in ("pending", "sent", "unknown", "rejected"):
+        errors.append(prefix + " requires UTC at and a durable send result")
+    status = repair.get("status")
+    if status not in ("pending", "resolved", "invalid", "rejected", "expired", "failed", "conflict"):
+        errors.append(prefix + " has invalid status")
+    if repair.get("result") == "rejected" and status not in ("rejected", "resolved"):
+        errors.append(prefix + " rejected send cannot be pending")
+    if status not in ("pending", "resolved") and not _nonblank(repair.get("detail")):
+        errors.append(prefix + " terminal status requires a diagnostic detail")
+    if "after" in repair and (not _utc_timestamp(repair["after"]) or not _nonblank(repair.get("actor"))):
+        errors.append(prefix + " repeated repair requires its previous timestamp and owner actor")
+    if "source" in repair:
+        errors.extend(_validate_report_source(repair["source"], prefix + ".source"))
+        if isinstance(repair["source"], dict) and any(
+            repair["source"].get(field) != execution.get(field) for field in ("session_id", "dispatch_key")
+        ):
+            errors.append(prefix + ".source must belong to the stored attempt")
+    return errors
+
+
 def _validate_research(task: dict, prefix: str) -> list:
     errors = []
     research = task.get("research")
@@ -257,35 +301,46 @@ def _validate_research(task: dict, prefix: str) -> list:
                     errors.append(prefix + ".report_error.source must belong to the stored attempt")
         if "report_repair" in execution:
             repair = execution["report_repair"]
-            if not isinstance(repair, dict):
-                errors.append(prefix + ".report_repair must be an object")
-            else:
+            errors.extend(_validate_repair_receipt(repair, execution, prefix + ".report_repair"))
+            if isinstance(repair, dict):
                 if (task.get("task_type") != "project_discovery"
                         or not _nonblank(execution.get("session_id"))
                         or not _nonblank(execution.get("dispatch_key"))
                         or type(execution.get("attempts")) is not int or execution["attempts"] < 1
                         or execution.get("pull_request")):
                     errors.append(prefix + ".report_repair requires the bound research attempt without a PR")
-                if not _utc_timestamp(repair.get("at")) or repair.get("result") not in ("pending", "sent", "unknown", "rejected"):
-                    errors.append(prefix + ".report_repair requires UTC at and a durable send result")
                 status = repair.get("status")
-                if status not in ("pending", "resolved", "invalid", "rejected", "expired", "failed", "conflict"):
-                    errors.append(prefix + ".report_repair has invalid status")
                 expected = ("done", "completed") if status == "resolved" else ("blocked", "awaiting_report")
                 if (task.get("status"), state) != expected:
                     errors.append(prefix + ".report_repair status contradicts lifecycle")
                 if status == "resolved" and (outcome not in ("no_change", "researched") or "research_result" not in task):
                     errors.append(prefix + ".resolved report_repair requires an accepted research report")
-                if repair.get("result") == "rejected" and status not in ("rejected", "resolved"):
-                    errors.append(prefix + ".rejected report_repair cannot be pending")
-                if status not in ("pending", "resolved") and not _nonblank(repair.get("detail")):
-                    errors.append(prefix + ".terminal report_repair requires a diagnostic detail")
-                if "source" in repair:
-                    errors.extend(_validate_report_source(repair["source"], prefix + ".report_repair.source"))
-                    if isinstance(repair["source"], dict) and any(
-                        repair["source"].get(field) != execution.get(field) for field in ("session_id", "dispatch_key")
-                    ):
-                        errors.append(prefix + ".report_repair.source must belong to the stored attempt")
+        history = execution.get("report_repair_history", [])
+        if not isinstance(history, list):
+            errors.append(prefix + ".report_repair_history must be a list")
+        else:
+            previous_at = None
+            for index, item in enumerate(history):
+                errors.extend(_validate_repair_receipt(item, execution, prefix + ".report_repair_history[" + str(index) + "]"))
+                if not isinstance(item, dict):
+                    continue
+                if item.get("status") not in ("invalid", "rejected", "expired", "failed"):
+                    errors.append(prefix + ".report_repair_history cannot authorize another pending or resolved send")
+                if index and item.get("after") != previous_at:
+                    errors.append(prefix + ".report_repair_history must retain its authorization chain")
+                previous_at = item.get("at")
+            current = execution.get("report_repair")
+            if history or (isinstance(current, dict) and "after" in current):
+                if (not history or not isinstance(current, dict) or current.get("after") != previous_at
+                        or not _nonblank(current.get("actor"))):
+                    errors.append(prefix + ".repeated repair must retain its previous receipt and actor")
+                chain = [*history, current]
+                for previous, following in zip(chain, chain[1:]):
+                    if (isinstance(previous, dict) and isinstance(following, dict)
+                            and _utc_timestamp(previous.get("at")) and _utc_timestamp(following.get("at"))
+                            and datetime.fromisoformat(previous["at"].replace("Z", "+00:00"))
+                            >= datetime.fromisoformat(following["at"].replace("Z", "+00:00"))):
+                        errors.append(prefix + ".report repair timestamps must advance")
     return errors
 
 def _validate_execution(block: Any, prefix: str) -> list:
@@ -437,11 +492,19 @@ def validate(manifest: Any) -> list:
                         or nudge.get("result") not in ("pending", "sent", "unknown", "rejected")
                         or not _utc_timestamp(nudge.get("at"))):
                     errors.append(prefix + ".execution.feedback_nudge requires a research session, UTC at and a durable result")
+            if "rejection_stop" in execution:
+                stop = execution["rejection_stop"]
+                decision = task.get("proposal_decision") or {}
+                if (decision.get("action") != "reject" or decision.get("status") not in ("pending", "completed")
+                        or not isinstance(stop, dict) or not _utc_timestamp(stop.get("at"))
+                        or stop.get("result") not in ("pending", "sent", "unknown", "rejected")):
+                    errors.append(prefix + ".execution.rejection_stop requires a staged rejection and durable send receipt")
             state, outcome = execution.get("state"), execution.get("outcome", "")
             expected = {"dispatching": "in_progress", "dispatched": "in_progress",
                         "quarantined": "blocked", "completed": "done", "retry": "todo", "exhausted": "blocked"}
             decision = task.get("proposal_decision")
-            human_closed = isinstance(decision, dict) and decision.get("action") in ("reject", "resolve")
+            human_closed = (isinstance(decision, dict) and decision.get("action") in ("reject", "resolve")
+                            and not pending_rejection(task))
             if state in expected and status != expected[state] and not human_closed:
                 errors.append(prefix + ".execution.state contradicts task status")
             if state in ("dispatching", "dispatched") and outcome:
