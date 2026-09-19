@@ -1667,7 +1667,7 @@
       "id": "discovery-741923afb429da5a",
       "title": "Restore focus after deleting a workspace",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -1703,6 +1703,12 @@
         "activity_created_at": "2026-09-16T20:12:03Z",
         "session_id": "5076510024958449811",
         "dispatch_key": "c7a7711fef5e70759ad444f5"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:41:51Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Removing a workspace restores lost focus to Open folder without stealing deliberate focus elsewhere."
       }
     },
     {
