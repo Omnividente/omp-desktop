@@ -8982,7 +8982,7 @@
       "id": "research-sessions-persistence-reliability-3",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -9094,7 +9094,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "14957366543589173483",
         "dispatch_key": "fbc00ec70b5f6cb943464025",
         "base_sha": "945df12f920379e111094909d8308f3ce9157a33",
@@ -9102,15 +9102,39 @@
         "started_at": "2026-09-19T04:43:52.679803Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-19T04:43:52.679803Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: findings_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-19T05:09:39.896916Z",
+        "report_error": {
+          "code": "findings_invalid",
+          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+          "reported_at": "2026-09-19T05:09:39.896916Z",
+          "source": {
+            "activity_id": "sessions/14957366543589173483/activities/ee54eecd864c4e08bfc962af56eaeb58",
+            "report_sha256": "c4440ee33c139d9cd932880e0aa2e182500cdaf787a2a10868f600304fc0bd0c",
+            "activity_created_at": "2026-09-19T04:57:40.174207Z",
+            "session_id": "14957366543589173483",
+            "dispatch_key": "fbc00ec70b5f6cb943464025"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-19T05:10:04.000337Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/14957366543589173483/activities/ee54eecd864c4e08bfc962af56eaeb58",
+            "report_sha256": "c4440ee33c139d9cd932880e0aa2e182500cdaf787a2a10868f600304fc0bd0c",
+            "activity_created_at": "2026-09-19T04:57:40.174207Z",
+            "session_id": "14957366543589173483",
+            "dispatch_key": "fbc00ec70b5f6cb943464025"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-19T05:09:59.203052Z",
+    "last_poll_at": "2026-09-19T05:10:02.203848Z",
     "last_tick_at": "2026-09-19T05:03:52.523365Z",
     "run_id": "35422920408"
   }
