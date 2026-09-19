@@ -4375,7 +4375,7 @@
       "id": "discovery-efae45ef6cb2274b",
       "title": "Implement focus trap for session import modals",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -4410,6 +4410,12 @@
         "activity_created_at": "2026-09-17T22:32:50Z",
         "session_id": "5281172529465129648",
         "dispatch_key": "834737434002f519954a86a3"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-19T05:41:03Z",
+        "note": "Implemented externally in merged PR #73 (https://github.com/Omnividente/omp-desktop/pull/73), main d709db88760e74ba4c5ad7555701513f37d1c8d1. Tab and Shift+Tab remain in import modals and skip unavailable controls."
       }
     },
     {
