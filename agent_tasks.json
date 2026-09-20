@@ -19413,6 +19413,10 @@
         "research_detached": {
           "at": "2026-09-20T21:07:21.656493Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-20T21:07:21.656493Z",
+          "result": "pending"
         }
       }
     }
