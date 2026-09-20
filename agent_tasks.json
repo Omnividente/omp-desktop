@@ -16181,7 +16181,8 @@
             "session_id": "6288452164179696039",
             "dispatch_key": "9409abbee4fdafe8f75e7549"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-9409abbee4fdafe8f75e7549"
       },
       "research_result": {
         "summary": "Investigated the performance of ModelPicker search and the preservation of accessibility settings during default generation, and confirmed duplicated backup creation on failed default/recovery writes.",
