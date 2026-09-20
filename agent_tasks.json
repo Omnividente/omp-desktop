@@ -16338,13 +16338,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T10:20:40.190058Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T10:27:51.125866Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T10:28:09.011089Z",
+    "last_poll_at": "2026-09-20T10:28:11.509077Z",
     "last_tick_at": "2026-09-20T10:22:09.641731Z",
     "run_id": "35504793209"
   }
