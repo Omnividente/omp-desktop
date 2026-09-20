@@ -15308,7 +15308,7 @@
       "id": "research-workspace-navigation-ux-4",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -15414,18 +15414,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6357891920277397065",
         "dispatch_key": "8d2f22c7e5a2103137f998a5",
         "base_sha": "ce58bebd0614c330d202a668638d36f846a70bb1",
         "starting_branch": "autonomous/attempt-8d2f22c7e5a2103137f998a5",
         "started_at": "2026-09-20T08:39:31.376816Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T09:10:43.960254Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-20T08:58:42.680595Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T09:10:43.960254Z",
         "research_detached": {
           "at": "2026-09-20T08:58:42.680595Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -15433,6 +15433,52 @@
         "feedback_nudge": {
           "at": "2026-09-20T08:58:42.680595Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of focus and state when cancelling a workspace or session rename. The application correctly updates state but lacks focus restoration logic inside ProjectRail and SessionList upon cancelling a rename, leaving focus stranded on the document body instead of the edit button.",
+        "observations": [
+          {
+            "scenario": "Cancelling a workspace rename operation via the Escape key after clicking the edit button in ProjectRail.",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/test-rename-escape.test.tsx`) rendering a mocked `<ProjectRail />`. Triggered a rename via the edit button while it is focused. After rendering the autoFocus input field, fired an Escape keydown and rerendered without the renaming state. Verified via `document.activeElement` that focus dropped to `document.body` because the input unmounted and there is no equivalent to `removalFocusRef` for renaming operations in `ProjectRail.tsx`.",
+            "result": "Establishes that the frontend fails to trap and restore focus when a workspace rename is canceled in `ProjectRail`. A similar limitation applies to `SessionList`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+        ],
+        "proposed_task_ids": [
+          "discovery-1b0c3efa0c72ca8c"
+        ],
+        "completed_at": "2026-09-20T09:10:43.960254Z",
+        "source": {
+          "activity_id": "sessions/6357891920277397065/activities/4ef3dbb94b7c479a9ca2aa2ef3759e23",
+          "report_sha256": "64e4947dab3a7fdb9ac64a14ffcb6b5a02aff2b7e7c73d66dcd3d1b52311f5fb",
+          "activity_created_at": "2026-09-20T08:59:28.780945Z",
+          "session_id": "6357891920277397065",
+          "dispatch_key": "8d2f22c7e5a2103137f998a5"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6357891920277397065/activities/4ef3dbb94b7c479a9ca2aa2ef3759e23",
+          "report_sha256": "64e4947dab3a7fdb9ac64a14ffcb6b5a02aff2b7e7c73d66dcd3d1b52311f5fb",
+          "activity_created_at": "2026-09-20T08:59:28.780945Z",
+          "session_id": "6357891920277397065",
+          "dispatch_key": "8d2f22c7e5a2103137f998a5"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-1b0c3efa0c72ca8c"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -15579,10 +15625,53 @@
         "session_state": "QUEUED",
         "observed_at": "2026-09-20T08:58:42.680595Z"
       }
+    },
+    {
+      "id": "discovery-1b0c3efa0c72ca8c",
+      "title": "Restore focus to edit button after cancelling a workspace or session rename",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-20T09:10:43.960254Z",
+      "acceptance": [
+        "Focus moves back to the edit button when a workspace rename is canceled via Escape",
+        "Focus moves back to the edit button when a session rename is canceled via Escape"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. A canceled rename leaves focus stranded on `document.body` because the corresponding rename input is unmounted without focus restoration logic.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Focus the edit button for a workspace or session using keyboard navigation",
+            "Press Enter/Space to initiate the rename, shifting focus to the input field",
+            "Press Escape to cancel the rename, causing the input to unmount"
+          ],
+          "expected": "Focus correctly shifts back to the edit button that initiated the rename.",
+          "actual": "Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document."
+        }
+      },
+      "target_paths": [
+        "src/ProjectRail.tsx",
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-4",
+        "activity_id": "sessions/6357891920277397065/activities/4ef3dbb94b7c479a9ca2aa2ef3759e23",
+        "report_sha256": "64e4947dab3a7fdb9ac64a14ffcb6b5a02aff2b7e7c73d66dcd3d1b52311f5fb",
+        "activity_created_at": "2026-09-20T08:59:28.780945Z",
+        "session_id": "6357891920277397065",
+        "dispatch_key": "8d2f22c7e5a2103137f998a5"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T09:00:14.778256Z",
+    "last_poll_at": "2026-09-20T09:11:01.705384Z",
     "last_tick_at": "2026-09-20T09:00:16.794591Z",
     "run_id": "35501017765"
   }
