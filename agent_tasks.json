@@ -16230,7 +16230,7 @@
       "id": "discovery-1b0c3efa0c72ca8c",
       "title": "Restore focus to edit button after cancelling a workspace or session rename",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 25,
       "risk": "low",
       "focus": [
@@ -16267,6 +16267,12 @@
         "activity_created_at": "2026-09-20T08:59:28.780945Z",
         "session_id": "6357891920277397065",
         "dispatch_key": "8d2f22c7e5a2103137f998a5"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:31:50Z",
+        "note": "Approved only for the still-unfixed WORKSPACE rename Escape focus path in ProjectRail/App. Session rename was already fixed in merged PR #81 and resolved discovery-093977724114020f; do not reopen or regress that accepted row-focus contract merely to satisfy the obsolete edit-button wording. Cancel workspace draft and restore an available initiating workspace control without stealing newer deliberate focus; cover unmount/auto-hide and ensure Escape never saves. Verify current base first and keep the PR scoped."
       }
     },
     {
