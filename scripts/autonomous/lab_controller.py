@@ -22,6 +22,7 @@ from jules_dispatch import (
 )
 from jules_provenance import bind_proposal, session_pull_request, trusted_pull_request
 from research_cycle import plan_research, scope_fingerprints
+from research_disposition import append_recovery_event, disposition_state, research_incident
 from select_task import pending_rejection, pending_report_repair, select, valid_research_detachment
 from state_store import load_state, save_state
 from proposal_backlog import authorize
@@ -179,10 +180,12 @@ def tick(
         raise ValueError("laboratory controller requires manual acceptance")
     if config.get("parallel_mode", {}).get("integration_branch") != LAB_BRANCH:
         raise ValueError("laboratory target must not be main")
-    if repair_after:
-        if automatic or not recover_report or not task_id:
-            raise ValueError("repeat repair requires an explicit report recovery for one task")
+    if recover_report:
+        if automatic or not task_id:
+            raise ValueError("report recovery requires an explicit task and cannot be automatic")
         actor = authorize(config, actor)
+    elif repair_after:
+        raise ValueError("repeat repair requires an explicit report recovery")
     if automatic:
         if task_id or focus or recover_report:
             raise ValueError("automatic ticks cannot select or recover a task")
@@ -226,6 +229,7 @@ def tick(
             checkpoint()
         return result
 
+    disposed_recovery = False
     if recover_report:
         target = find_task(manifest, task_id)
         if target is None:
@@ -242,6 +246,27 @@ def tick(
                                  or prior.get("status") not in ("invalid", "rejected", "expired", "failed")
                                  or parse_iso(repair_after) is None or now <= parse_iso(repair_after)):
                 raise ValueError("repeat repair must identify a settled failed receipt by its exact at timestamp")
+        disposition = disposition_state(target)
+        if disposition:
+            incident = research_incident(target)
+            if incident["attempt"] != target["research_disposition"]["events"][0]["attempt"]:
+                raise ValueError("report recovery cannot change the acknowledged attempt")
+            if disposition in ("close_unaccepted", "recovery_failed"):
+                source = incident["basis"].get("source")
+                if not isinstance(source, dict):
+                    raise ValueError("disposed report recovery requires saved source identity")
+                append_recovery_event(
+                    target, "recover_authorized", now=iso(now), actor=actor, source=source,
+                    mode="repair" if repair_after else "reparse", repair_after=repair_after or None,
+                )
+            elif disposition == "recover_authorized":
+                authorization = target["research_disposition"]["events"][-1]
+                if repair_after and (authorization.get("mode") != "repair"
+                                     or authorization.get("repair_after") != repair_after):
+                    raise ValueError("pending recovery must retain its recorded authorization")
+            else:
+                return dict(result, reason="attempt_already_resolved")
+            disposed_recovery = True
     # Explicit recovery must not reconcile or quarantine unrelated attempts.
     if not recover_report:
         reconcile(manifest, now=now)
@@ -259,6 +284,8 @@ def tick(
         execution = task.setdefault("execution", {})
         if (execution.get("last_error") or {}).get("detail") != message:
             execution["last_error"] = {"at": iso(now), "detail": message}
+        if disposition_state(task) == "recover_authorized":
+            append_recovery_event(task, "recovery_failed", now=iso(now), reason="controller_error")
         observation = dict(worker_observation(task, now), reason=message)
         result["observations"].append(observation)
         result["attention"].append(observation)
@@ -408,6 +435,11 @@ def tick(
         if execution.get("session_state") != state:
             execution["session_state"] = state
             execution["observed_at"] = iso(now)
+        if disposition_state(task) == "recover_authorized" and session_is_active(session):
+            authorization = task["research_disposition"]["events"][-1]
+            if (authorization.get("mode") != "repair" or not repair
+                    or repair.get("after") != authorization.get("repair_after")):
+                raise ValueError("saved report recovery requires a terminal worker")
         observation = worker_observation(task, now)
         result["observations"].append(observation)
         if state in WAITING_REASONS:
@@ -432,6 +464,8 @@ def tick(
             if parked:
                 if repair and repair["status"] == "pending":
                     repair.update(status="failed", detail="report_repair_session_failed")
+                if disposition_state(task) == "recover_authorized":
+                    append_recovery_event(task, "recovery_failed", now=iso(now), reason="session_failed")
             else:
                 complete(manifest, task["id"], outcome="failed", note="Jules reported a terminal failure", now=now)
         elif state == "COMPLETED" or (state == "FAILED" and parked and recover_report):
@@ -442,6 +476,7 @@ def tick(
                                 diagnostics=diagnostics)
             current = find_task(manifest, task["id"])
             if (awaiting_report(current) and not quarantined and state == "COMPLETED"
+                    and (not disposed_recovery or (repair_after and disposition_state(current) == "recover_authorized"))
                     and harvested.get("report_error_code") != "report_identity_conflict"
                     and harvested.get("reason") != "report_source_unavailable"
                     and (not parked or recover_report)):
@@ -451,6 +486,9 @@ def tick(
         if not awaiting_report(current):
             current["execution"].pop("last_error", None)
         elif (current["execution"].get("report_repair") or {}).get("status") not in (None, "pending"):
+            if disposition_state(current) == "recover_authorized":
+                append_recovery_event(current, "recovery_failed", now=iso(now),
+                                      reason="report_repair_" + current["execution"]["report_repair"]["status"])
             result["attention"].append({"task_id": task["id"], "reason": "report_repair_" + current["execution"]["report_repair"]["status"]})
         detach_waiting_research(find_task(manifest, task["id"]), state)
         checkpoint()
@@ -479,7 +517,13 @@ def tick(
             if now >= parse_iso(repair["at"]) + timedelta(hours=6):
                 repair.update(status="expired", detail="no valid repaired report within six hours; explicit inspection required")
                 result["attention"].append({"task_id": task["id"], "reason": "report_repair_expired"})
+                if disposition_state(task) == "recover_authorized":
+                    append_recovery_event(task, "recovery_failed", now=iso(now), reason="report_repair_expired")
                 checkpoint()
+        if (not recovering and disposition_state(task)
+                and not (disposition_state(task) == "recover_authorized" and pending_report_repair(task)
+                         and task["research_disposition"]["events"][-1].get("mode") == "repair")):
+            continue
         if not (task.get("status") == "in_progress" or execution.get("state") == "quarantined"
                 or recovering or pending_report_repair(task)):
             continue
@@ -663,6 +707,8 @@ def main(argv=None) -> int:
         if "GITHUB_ACTOR" in os.environ and args.actor.casefold() != os.environ["GITHUB_ACTOR"].casefold():
             raise ValueError("--actor must match GITHUB_ACTOR")
         config = json.loads(args.config.read_text(encoding="utf-8"))
+        if args.recover_report:
+            authorize(config, args.actor)
         manifest = load_state(args.repo, args.manifest, args.revision_file)
         loaded = True
         if args.quarantine_all:

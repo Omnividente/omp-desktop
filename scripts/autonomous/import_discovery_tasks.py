@@ -38,9 +38,11 @@ from typing import Any, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_tasks import (  # noqa: E402
     VALID_RISKS, VALID_TASK_TYPES, validate, validate_reproduction,
+    _utc_timestamp, _validate_report_source,
 )
 from check_change_scope import evaluate as evaluate_scope  # noqa: E402
 from task_lifecycle import find_task  # noqa: E402
+from select_task import pending_rejection  # noqa: E402
 
 BEGIN = "AUTONOMOUS_TASKS_BEGIN"
 END = "AUTONOMOUS_TASKS_END"
@@ -302,6 +304,46 @@ def _closed_finding(task: Mapping[str, Any]) -> bool:
             or (task.get("proposal_decision") or {}).get("action") == "reject")
 
 
+def _historical_profiles(tasks: list) -> list:
+    profiles = []
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("task_type") == "project_discovery":
+            continue
+        decision = task.get("proposal_decision") or {}
+        if (task.get("status") != "done" or decision.get("action") not in {"reject", "resolve"}
+                or pending_rejection(task)):
+            continue
+        if not _utc_timestamp(decision.get("at")):
+            raise ValueError("historical proposal decision requires a UTC timestamp")
+        profiles.append((_finding_profile(task), decision,
+                         datetime.fromisoformat(decision["at"].replace("Z", "+00:00"))))
+    # Stable sorts retain task identity ordering for decisions at the same instant.
+    profiles.sort(key=lambda item: item[0]["task"]["id"])
+    profiles.sort(key=lambda item: item[2], reverse=True)
+    return profiles
+
+
+def _historical_review_context(profile: dict, profiles: list, report_at: datetime) -> dict | None:
+    matches = []
+    title = profile["fields"]["title"].strip().lower()
+    for previous, decision, decision_at in profiles:
+        verdict = _finding_match(profile, previous)
+        match = {"duplicate": "exact", "possible_duplicate": "possible"}.get(verdict)
+        if not match and previous["fields"]["title"].strip().lower() == title:
+            match = "same_title"
+        if match:
+            matches.append({"task_id": previous["task"]["id"], "action": decision["action"],
+                            "decision_at": decision["at"], "match": match,
+                            "timing": "pre" if report_at <= decision_at else "post"})
+    if not matches:
+        return None
+    rank = {"exact": 0, "possible": 1, "same_title": 2}
+    matches.sort(key=lambda item: (rank[item["match"]],
+                                   -datetime.fromisoformat(item["decision_at"].replace("Z", "+00:00")).timestamp(),
+                                   item["task_id"]))
+    return {"kind": "historical_decision_overlap", "matches": matches}
+
+
 def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                  max_new: int = DEFAULT_MAX_NEW, now: str | None = None,
                  origin: Mapping[str, str] | None = None) -> dict:
@@ -319,6 +361,9 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
             or not re.fullmatch(re.escape(resource) + r"/activities/[^/]+", str(origin.get("activity_id") or ""))
             or origin.get("report_sha256") != hashlib.sha256(body.encode("utf-8")).hexdigest()):
         raise ValueError("discovery origin does not identify the accepted session report")
+    source_errors = _validate_report_source(dict(accepted), "discovery origin")
+    if source_errors:
+        raise ValueError("; ".join(source_errors))
     if not isinstance(config, Mapping):
         raise ValueError("discovery import requires trusted product configuration")
     receipt = source.get("discovery_import")
@@ -330,12 +375,14 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                                   "existing_task_id": identifier} for identifier in result["added"])
         result.update(changed=False, duplicates=list(dict.fromkeys(result["added"] + result["duplicates"])), added=[])
         return result
+    report_at = datetime.fromisoformat(origin["activity_created_at"].replace("Z", "+00:00"))
     block = parse_block(body)
     tasks = manifest.get("tasks", [])
     known_ids = {str(task.get("id")): task for task in tasks if isinstance(task, dict)}
     profiles = [_finding_profile(task) for task in tasks
                 if isinstance(task, dict) and task.get("task_type") != "project_discovery"
                 and (not _closed_finding(task) or task.get("origin") == origin)]
+    historical_profiles = None
     pending, added, skipped, duplicates, deferred = [], [], [], [], []
     invalid = block["status"] == STATUS_MALFORMED
     for entry in block["entries"]:
@@ -381,6 +428,23 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                 "target_paths": candidate.get("target_paths", []), "acceptance": candidate["acceptance"],
             })
             continue
+        if historical_profiles is None:
+            historical_profiles = _historical_profiles(tasks)
+        context = _historical_review_context(profile, historical_profiles, report_at)
+        if context:
+            strong = [item for item in context["matches"] if item["match"] != "same_title"]
+            if strong and all(item["timing"] == "pre" for item in strong):
+                reason = "historical_predecision_overlap"
+                skipped.append({"id": candidate["id"], "reason": reason,
+                                "existing_task_id": strong[0]["task_id"]})
+                deferred.append({
+                    "title": candidate["title"], "reason": reason,
+                    "evidence": json.dumps(entry["evidence"], ensure_ascii=False, sort_keys=True),
+                    "target_paths": candidate.get("target_paths", []), "acceptance": candidate["acceptance"],
+                    "review_context": context,
+                })
+                continue
+            candidate["review_context"] = context
         if len(added) >= max_new:
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
             invalid = True

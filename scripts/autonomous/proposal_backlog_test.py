@@ -14,10 +14,10 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-import proposal_backlog
-from proposal_backlog import backlog, decide, main, render_summary
+from research_disposition import append_recovery_event, validate_research_disposition
+from proposal_backlog import backlog, close_research_unaccepted, decide, main, render_summary
 from state_store import StateConflict, load_state, save_state
-from task_lifecycle import start
+from task_lifecycle import complete, start
 from validate_tasks import validate
 
 NOW = "2026-09-14T12:00:00Z"
@@ -42,6 +42,26 @@ def manifest(*tasks):
 def decision(data, action="approve", **kwargs):
     return decide(data, CONFIG, action=action, task_id="finding", actor="Owner",
                   note="Inspected the reported behavior", now=NOW, **kwargs)
+
+
+def research_task(*, exhausted=False):
+    source = {"session_id": "s1", "dispatch_key": "d1",
+              "activity_id": "sessions/s1/activities/report", "report_sha256": "a" * 64,
+              "activity_created_at": NOW}
+    execution = {"state": "awaiting_report", "outcome": "report_invalid", "session_state": "FAILED",
+                 "session_id": "s1", "dispatch_key": "d1", "attempts": 1, "finished_at": NOW,
+                 "report_error": {"code": "research_json", "detail": "invalid JSON",
+                                   "reported_at": NOW, "source": source}}
+    if exhausted:
+        execution.update(state="exhausted", outcome="failed", attempts=2)
+        del execution["report_error"]
+    return proposal("research", task_type="project_discovery", status="blocked", execution=execution)
+
+
+def close_research(data, **overrides):
+    arguments = {"task_id": "research", "actor": "Owner", "note": "Inspected invalid report", "now": NOW}
+    arguments.update(overrides)
+    return close_research_unaccepted(data, CONFIG, **arguments)
 
 
 class DecisionTests(unittest.TestCase):
@@ -161,6 +181,170 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(data, before)
 
 
+class ResearchDispositionTests(unittest.TestCase):
+    def test_owner_closes_invalid_and_exhausted_without_reclassifying_any_machine_evidence(self):
+        for exhausted in (False, True):
+            with self.subTest(exhausted=exhausted):
+                data = manifest(research_task(exhausted=exhausted), proposal())
+                before = copy.deepcopy(data)
+                with patch("urllib.request.urlopen", side_effect=AssertionError("unexpected external request")):
+                    result = close_research(data)
+                self.assertTrue(result["changed"])
+                saved = copy.deepcopy(data)
+                del saved["tasks"][0]["research_disposition"]
+                self.assertEqual(saved, before)
+                self.assertEqual(validate(data), [])
+                view = backlog(data)
+                self.assertTrue(view["research_dispositions"][0]["acknowledged"])
+                self.assertEqual(view["tasks"][0]["id"], "finding")
+                self.assertNotIn("research_result", data["tasks"][0])
+
+    def test_exact_repeated_close_is_immutable_but_new_note_or_incident_is_not_acknowledged(self):
+        data = manifest(research_task())
+        close_research(data)
+        saved = copy.deepcopy(data)
+        self.assertFalse(close_research(data, actor="owner", now="2026-09-15T12:00:00Z")["changed"])
+        self.assertEqual(data, saved)
+        with self.assertRaises(ValueError):
+            close_research(data, note="Replace audit")
+        self.assertEqual(data, saved)
+        data["tasks"][0]["execution"]["report_error"]["detail"] = "New parser failure"
+        changed = copy.deepcopy(data)
+        with self.assertRaises(ValueError):
+            close_research(data)
+        self.assertEqual(data, changed)
+        self.assertFalse(backlog(data)["research_dispositions"][0]["acknowledged"])
+
+    def test_unsafe_or_unidentified_research_cannot_be_closed(self):
+        cases = [
+            {"session_state": "IN_PROGRESS"}, {"session_state": "UNKNOWN"},
+            {"pull_request": 42}, {"session_id": ""}, {"dispatch_key": ""}, {"attempts": 0},
+            {"report_repair": {"at": NOW, "result": "sent", "status": "pending"}},
+            {"report_repair": {"at": NOW, "result": "sent", "status": "conflict", "detail": "Changed source"}},
+        ]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                data = manifest(research_task())
+                data["tasks"][0]["execution"].update(changes)
+                before = copy.deepcopy(data)
+                with self.assertRaises(ValueError):
+                    close_research(data)
+                self.assertEqual(data, before)
+        for task, overrides in (
+            (research_task(exhausted=True), {}), (research_task(), {"actor": "stranger"}),
+            (research_task(), {"note": " "}), (research_task(), {"task_id": "missing"}),
+            (proposal("research"), {}), (research_task(), {"now": "2026-09-13T12:00:00Z"}),
+        ):
+            data = manifest(task)
+            data["autonomous_loop_policy"] = {"lifecycle": {"max_attempts": 3}}
+            before = copy.deepcopy(data)
+            with self.subTest(task=task, overrides=overrides), self.assertRaises(ValueError):
+                close_research(data, **overrides)
+            self.assertEqual(data, before)
+
+    def test_historical_repair_chain_survives_real_completion_and_serialization(self):
+        data = manifest(research_task(), proposal())
+        task = data["tasks"][0]
+        execution = task["execution"]
+        source = copy.deepcopy(execution["report_error"]["source"])
+        first = {"at": "2026-09-14T10:00:00Z", "result": "sent", "status": "invalid",
+                 "detail": "Missing report markers", "source": source}
+        execution["report_repair_history"] = [first]
+        execution["report_repair"] = {**first, "at": "2026-09-14T11:00:00Z",
+                                      "after": first["at"], "actor": "Owner", "detail": "Malformed JSON"}
+        execution["last_error"] = "Report remained invalid"
+        close_research(data)
+        initial = copy.deepcopy(task["research_disposition"]["events"][0])
+        append_recovery_event(task, "recover_authorized", now=NOW, actor="Owner", source=source)
+        task["research_result"] = {"summary": "Recovered observations", "completed_at": NOW,
+            "observations": [{"scenario": "Resume", "evidence": "Clock trace", "result": "Advanced"}],
+            "next_hypotheses": ["Observe cancellation"], "proposed_task_ids": [], "source": source}
+        self.assertTrue(complete(data, "research", outcome="no_change", retry_report=True,
+                                 now=datetime.fromisoformat(NOW.replace("Z", "+00:00")))["changed"])
+        append_recovery_event(task, "report_accepted", now=NOW, source=source)
+        restored = json.loads(json.dumps(data))
+        self.assertEqual(validate(restored), [])
+        self.assertEqual(restored["tasks"][0]["research_disposition"]["events"][0], initial)
+        self.assertNotIn("report_error", task["execution"])
+        self.assertNotIn("last_error", task["execution"])
+        self.assertEqual(task["execution"]["report_repair"]["status"], "resolved")
+        self.assertEqual(task["execution"]["report_repair_history"], [first])
+        self.assertEqual(task["execution"]["attempts"], 1)
+        view = backlog(restored)
+        self.assertFalse(view["research_dispositions"][0]["acknowledged"])
+        self.assertEqual(view["research_hypotheses"][0]["next_hypotheses"], ["Observe cancellation"])
+
+    def test_malformed_json_audit_types_are_rejected_without_mutation_or_exceptions(self):
+        data = manifest(research_task())
+        close_research(data)
+        original = data["tasks"][0]
+        cases = [
+            (("research_disposition",), []), (("research_disposition", "events"), {}),
+            (("research_disposition", "events", 0), []),
+            (("research_disposition", "events", 0, "attempt"), "invalid"),
+            (("research_disposition", "events", 0, "attempt", "attempts"), True),
+            (("research_disposition", "events", 0, "basis", "report_error"), ["invalid"]),
+            (("research_disposition", "events", 0, "basis", "report_repair"), {"status": []}),
+            (("research_disposition", "events", 0, "basis", "report_repair_history"), {}),
+            (("research_disposition", "events", 0, "basis", "state"), {}),
+            (("research_disposition", "events", 0, "basis", "source"), []),
+            (("research_disposition", "events", 0, "action"), []),
+        ]
+        for path, value in cases:
+            with self.subTest(path=path):
+                invalid = copy.deepcopy(original)
+                target = invalid
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                before = copy.deepcopy(invalid)
+                self.assertTrue(validate_research_disposition(invalid, "task"))
+                self.assertEqual(invalid, before)
+
+    def test_invalid_recovery_event_does_not_change_audit(self):
+        data = manifest(research_task())
+        close_research(data)
+        task = data["tasks"][0]
+        before = copy.deepcopy(task)
+        for changes in ({"actor": ""}, {"source": []}, {"mode": []},
+                        {"now": "2026-09-13T12:00:00Z"}, {"mode": "repair"}):
+            args = {"now": NOW, "actor": "Owner", "source": task["execution"]["report_error"]["source"]}
+            args.update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                append_recovery_event(task, "recover_authorized", **args)
+            self.assertEqual(task, before)
+
+    def test_accepted_event_requires_an_object_report_not_a_malformed_json_value(self):
+        data = manifest(research_task())
+        close_research(data)
+        task = data["tasks"][0]
+        source = task["execution"]["report_error"]["source"]
+        append_recovery_event(task, "recover_authorized", now=NOW, actor="Owner", source=source)
+        for report in (None, [], ["invalid"], "invalid", True):
+            invalid = copy.deepcopy(task)
+            invalid["research_result"] = report
+            before = copy.deepcopy(invalid)
+            with self.subTest(report=report), self.assertRaises(ValueError):
+                append_recovery_event(invalid, "report_accepted", now=NOW, source=source)
+            self.assertEqual(invalid, before)
+
+    def test_existing_result_and_invalid_unrelated_queue_cannot_be_closed(self):
+        for accepted in (True, False):
+            data = manifest(research_task(), proposal())
+            if accepted:
+                data["tasks"][0]["research_result"] = {
+                    "summary": "Existing observations", "completed_at": NOW,
+                    "observations": [{"scenario": "Resume", "evidence": "Clock trace", "result": "Advanced"}],
+                    "next_hypotheses": [], "proposed_task_ids": [],
+                }
+            else:
+                data["tasks"][1]["title"] = ""
+            before = copy.deepcopy(data)
+            with self.subTest(accepted=accepted), self.assertRaises(ValueError):
+                close_research(data)
+            self.assertEqual(data, before)
+
+
 class BacklogStoreTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -239,6 +423,59 @@ class BacklogStoreTests(unittest.TestCase):
             self.assertEqual(main([*self.argv, "--action", "reject"]), 1)
         self.assertFalse(self.queue.exists())
         self.assertEqual((self.repo / "agent_tasks.json").read_bytes(), self.seed)
+
+    def seed_research(self):
+        data = load_state(self.repo, self.queue, self.revision)
+        data["tasks"].insert(0, research_task())
+        self.queue.write_text(json.dumps(data), encoding="utf-8")
+        save_state(self.repo, self.queue, self.revision)
+        self.argv[self.argv.index("--task-id") + 1] = "research"
+        return data
+
+    def test_cli_closes_research_once_without_code_or_unrelated_queue_mutation(self):
+        original = self.seed_research()
+        with patch("urllib.request.urlopen", side_effect=AssertionError("unexpected external request")):
+            self.assertEqual(self.call("close_research_unaccepted"), 0)
+            closed_sha = self.git(self.remote, "rev-parse", "autonomous/state")
+            self.assertEqual(self.call("close_research_unaccepted"), 0)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state"), closed_sha)
+        stored = json.loads(self.queue.read_bytes())
+        event = stored["tasks"][0].pop("research_disposition")["events"][0]
+        self.assertEqual(event["actor"], "Owner")
+        self.assertEqual(stored, original)
+        self.assertTrue(json.loads(self.view.read_bytes())["research_dispositions"][0]["acknowledged"])
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.head)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/lab"), self.head)
+
+    def test_stale_cli_closure_cannot_acknowledge_a_concurrent_new_incident(self):
+        original = self.seed_research()
+        newer_sha = []
+
+        def concurrent_save(repo, manifest_path, revision_path):
+            fresh_queue = self.root / "fresh.json"
+            fresh_revision = self.root / "fresh-revision.json"
+            fresh = load_state(repo, fresh_queue, fresh_revision)
+            fresh["tasks"][0]["execution"]["report_error"]["detail"] = "New incident after owner loaded queue"
+            fresh_queue.write_text(json.dumps(fresh), encoding="utf-8")
+            newer_sha.append(save_state(repo, fresh_queue, fresh_revision))
+            return save_state(repo, manifest_path, revision_path)
+
+        with patch("proposal_backlog.save_state", side_effect=concurrent_save):
+            self.assertEqual(self.call("close_research_unaccepted"), 1)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), newer_sha[0])
+        restored = load_state(self.repo, self.queue, self.revision)
+        self.assertNotIn("research_disposition", restored["tasks"][0])
+        self.assertEqual(restored["tasks"][0]["execution"]["report_error"]["detail"],
+                         "New incident after owner loaded queue")
+        self.assertEqual(restored["tasks"][1:], original["tasks"][1:])
+        self.assertEqual(restored["history"], original["history"])
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/lab"), self.head)
+
+    def test_nonowner_research_command_is_rejected_before_loading_state(self):
+        self.argv[self.argv.index("--actor") + 1] = "stranger"
+        with patch("proposal_backlog.load_state", side_effect=AssertionError("unauthorized state access")):
+            self.assertEqual(self.call("close_research_unaccepted"), 1)
+        self.assertFalse(self.queue.exists())
 
 
 if __name__ == "__main__":

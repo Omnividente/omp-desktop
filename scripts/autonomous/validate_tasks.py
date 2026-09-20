@@ -212,6 +212,66 @@ def _validate_discovery_import(task: dict, task_ids: set, prefix: str) -> list:
     return errors
 
 
+def _validate_review_context(context: Any, tasks_by_id: dict, report_time: Any,
+                             prefix: str) -> list:
+    """Validate importer-owned links to an earlier human decision."""
+    if not isinstance(context, dict):
+        return [prefix + " must be an object"]
+    if context.get("kind") != "historical_decision_overlap":
+        return [prefix + ".kind must be historical_decision_overlap"]
+    matches = context.get("matches")
+    if not isinstance(matches, list) or not matches:
+        return [prefix + ".matches must be a non-empty list"]
+    if not _utc_timestamp(report_time):
+        return [prefix + ".report_time must be an ISO UTC timestamp"]
+    report_moment = datetime.fromisoformat(str(report_time).replace("Z", "+00:00"))
+    errors = []
+    seen = set()
+    match_types = ("exact", "possible", "same_title")
+    for index, match in enumerate(matches):
+        item_prefix = prefix + ".matches[" + str(index) + "]"
+        if not isinstance(match, dict):
+            errors.append(item_prefix + " must be an object")
+            continue
+        task_id = match.get("task_id")
+        if not _nonblank(task_id):
+            errors.append(item_prefix + ".task_id must be a non-empty string")
+            continue
+        if task_id in seen:
+            errors.append(item_prefix + ".task_id must be unique")
+        seen.add(task_id)
+        previous = tasks_by_id.get(task_id)
+        if previous is None:
+            errors.append(item_prefix + ".task_id must identify an existing task")
+            continue
+        if previous.get("task_type") == "project_discovery":
+            errors.append(item_prefix + ".task_id must identify a nonresearch task")
+        decision = previous.get("proposal_decision")
+        if (not isinstance(decision, dict) or decision.get("action") not in ("reject", "resolve")
+                or previous.get("status") != "done" or pending_rejection(previous)):
+            errors.append(item_prefix + ".task_id must have a settled reject or resolve decision")
+            continue
+        if match.get("action") != decision.get("action"):
+            errors.append(item_prefix + ".action does not match the canonical decision")
+        decision_at = match.get("decision_at")
+        if not _utc_timestamp(decision_at) or not _utc_timestamp(decision.get("at")):
+            errors.append(item_prefix + ".decision_at must be an ISO UTC timestamp")
+        elif decision_at != decision.get("at"):
+            errors.append(item_prefix + ".decision_at does not match the canonical decision")
+        if match.get("match") not in match_types:
+            errors.append(item_prefix + ".match must be exact, possible or same_title")
+        timing = match.get("timing")
+        if timing not in ("pre", "post"):
+            errors.append(item_prefix + ".timing must be pre or post")
+        elif _utc_timestamp(decision.get("at")):
+            decision_moment = datetime.fromisoformat(decision["at"].replace("Z", "+00:00"))
+            expected = "pre" if report_moment <= decision_moment else "post"
+            if timing != expected:
+                errors.append(item_prefix + ".timing contradicts report and decision timestamps")
+    return errors
+
+
+
 def _validate_repair_receipt(repair: Any, execution: dict, prefix: str) -> list:
     if not isinstance(repair, dict):
         return [prefix + " must be an object"]
@@ -341,6 +401,8 @@ def _validate_research(task: dict, prefix: str) -> list:
                             and datetime.fromisoformat(previous["at"].replace("Z", "+00:00"))
                             >= datetime.fromisoformat(following["at"].replace("Z", "+00:00"))):
                         errors.append(prefix + ".report repair timestamps must advance")
+    from research_disposition import validate_research_disposition
+    errors.extend(validate_research_disposition(task, prefix))
     return errors
 
 def _validate_execution(block: Any, prefix: str) -> list:
@@ -425,6 +487,8 @@ def validate(manifest: Any) -> list:
         return errors + ["tasks must be a list"]
 
     task_ids = {task["id"] for task in tasks if isinstance(task, dict) and isinstance(task.get("id"), str)}
+    tasks_by_id = {task["id"]: task for task in tasks
+                   if isinstance(task, dict) and isinstance(task.get("id"), str)}
     seen_ids: set = set()
     lane_counts = {False: 0, True: 0}
     research_pairs = set()
@@ -517,10 +581,32 @@ def validate(manifest: Any) -> list:
             if isinstance(source, dict) and any(source.get(field) != execution.get(field) for field in ("session_id", "dispatch_key")):
                 errors.append(prefix + ".research_result.source must belong to the stored attempt")
         origin = task.get("origin")
-        if isinstance(origin, dict) and ("activity_id" in origin or "report_sha256" in origin):
+        if "review_context" in task or isinstance(origin, dict) and ("activity_id" in origin or "report_sha256" in origin):
             errors.extend(_validate_report_source(origin, prefix + ".origin"))
+        if "review_context" in task:
+            errors.extend(_validate_review_context(
+                task["review_context"], tasks_by_id,
+                origin.get("activity_created_at") if isinstance(origin, dict) else None,
+                prefix + ".review_context"))
         errors.extend(_validate_research(task, prefix))
         errors.extend(_validate_discovery_import(task, task_ids, prefix))
+        report = task.get("research_result")
+        if isinstance(report, dict):
+            report_source = report.get("source")
+            report_time = report_source.get("activity_created_at") if isinstance(report_source, dict) else None
+            receipt = task.get("discovery_import")
+            import_result = receipt.get("result") if isinstance(receipt, dict) else None
+            deferred_groups = [(".research_result", report.get("deferred_findings"))]
+            if isinstance(import_result, dict):
+                deferred_groups.append((".discovery_import", import_result.get("deferred")))
+            for suffix, deferred in deferred_groups:
+                if not isinstance(deferred, list):
+                    continue
+                for item_index, item in enumerate(deferred):
+                    if isinstance(item, dict) and "review_context" in item:
+                        errors.extend(_validate_review_context(
+                            item["review_context"], tasks_by_id, report_time,
+                            prefix + suffix + ".deferred[" + str(item_index) + "].review_context"))
         errors.extend(_validate_proposal(task, prefix))
 
     for discovery, count in lane_counts.items():

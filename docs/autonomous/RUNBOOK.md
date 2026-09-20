@@ -227,6 +227,22 @@ Worker-supplied IDs are suggestions, not authority over an existing task. If an
 independent valid finding reuses an occupied ID, its new ID is deterministically
 bound to the report origin and behavioral contract. The old task and decision
 remain unchanged; the import receipt keeps replay idempotent.
+
+Closed nonresearch tasks with a settled owner `reject` or `resolve` are also
+checked at admission time. The boundary is the accepted source's
+`activity_created_at`, not the import time: reports at or before the decision
+are PRE, later reports are POST. Exact or possible overlaps that are all PRE
+remain in `deferred_findings` as `historical_predecision_overlap`, not another
+proposal. A strong POST match permits a new `proposed` task with review context;
+it does not reopen or overwrite the old decision. A title-only match is weak
+context and never suppresses an independent behavioral contract. All historical
+links, match strengths and PRE/POST classifications are retained deterministically
+in controller-owned `review_context` and validated against canonical decisions.
+Worker-supplied review metadata is ignored. A missing/invalid trusted source time
+refuses import without mutation. Open-task deduplication and closed tasks without
+an owner decision retain their existing behavior. An already materialized import
+receipt is replayed unchanged, even after a later owner decision; stale importers
+must reload authoritative state after a CAS conflict before applying this policy.
 Existing proposals are included as a labeled, bounded queue-context snapshot.
 Shortened previous reports carry `context_excerpt` and original array counts;
 their stored source reports remain unchanged.
@@ -328,6 +344,9 @@ may read a previously completed session and save its result without dispatching.
 - **Autonomous Backlog** is manual-only on `main`: use `list` to review the full
   uncapped JSON artifact and escaped summary; `approve`, `reject` or `resolve`
   require an exact proposal `task_id`, configured owner actor and nonblank note.
+  `close_research_unaccepted` acknowledges one settled research incident under the
+  same owner/task/note requirements; it does not accept its report or alter its
+  machine execution outcome.
 
 ### Continuation evidence and recovery
 
@@ -376,6 +395,19 @@ and deferred research hypotheses rather than truncating to active workers.
   Closed proposals cannot reopen. Earlier approval remains in the parent state
   revision when later rejected or resolved. All writes use the authoritative
   state CAS and owner allowlist; workflow `GITHUB_ACTOR` cannot be impersonated.
+- `close_research_unaccepted` applies only to bound `blocked` research in
+  `awaiting_report / report_invalid` or an exhausted failed attempt. The saved
+  session must be terminal, without a PR, accepted result or unsettled format
+  repair. Active/unknown workers, pending/conflicting repairs and unexhausted
+  retries cannot be dismissed. The command writes only the state branch: no
+  messages, worker dispatch, PR action, product ref change or reset of attempts.
+  Its append-only `research_disposition.events` starts with `close_unaccepted`,
+  owner, UTC timestamp, rationale and the exact attempt/incident snapshot. The
+  snapshot preserves saved sources, errors, repair receipt and optional repair
+  history even if a later successful recovery clears the execution diagnostics.
+  Backlog exposes the audit trail; health lists an exactly matching old incident
+  in `acknowledged` rather than repeating its alarm. A new error, source/identity
+  mismatch, PR or active worker remains attention. Closure never means success.
 
 Local administration uses `proposal_backlog.py --action ACTION --repo LAB
 --config CONTROL/autonomous-project.json --manifest queue.json --revision-file
@@ -422,26 +454,43 @@ Open the NextTask run's `laboratory-result-<run>-<attempt>` artifact. Its
 `research-diagnostics.json` contains the exact task/session/dispatch binding,
 parser status and rejection reason, plus a redacted report excerpt of at most
 24,000 characters. `lab-result.json` records the last confirmed state revision.
-Redaction occurs before truncation; artifacts are retained for 14 days. Ordinary
-health reports do not include worker prose or dispatch keys.
+Redaction occurs before truncation; artifacts are retained for 14 days. Health
+does not fetch worker prose; acknowledged records expose their saved incident
+binding and diagnostics.
 
 A valid observation report may omit the optional findings array when there are
 no tasks. A present but malformed array is an error, never an empty list. To
 re-read a report from the same session, run **Autonomous Next Task** on `main`
-with `task_id` and `recover_report = true`. It never starts a worker, charges an
-extra attempt, or reconciles unrelated workers. A valid newer report can resolve
+with `task_id` and `recover_report = true`. Every explicit recovery requires a
+configured owner actor. It never starts a worker, charges an extra attempt, or
+reconciles unrelated workers. A valid newer report can resolve
 the attempt; after a parser fix the exact saved latest activity/hash can also be
 reparsed. If a formatting repair left Jules `FAILED`, only that exact saved source
 is eligible, not a new or older report. This does not turn the failed worker into
 a successful implementation. Missing, ambiguous or rewritten output stays parked.
-For local administration use `lab_controller.py --recover-report --task-id ID`
-with its repo/config/manifest/revision-file/out arguments, so the independent
-state is saved with CAS. Calling the collector alone only modifies its input file.
+For local administration use `lab_controller.py --recover-report --task-id ID
+--actor OWNER` with its repo/config/manifest/revision-file/out arguments, so the
+independent state is saved with CAS. Actions passes the actual `github.actor`;
+an explicit CLI actor must match `GITHUB_ACTOR` when that variable is present.
 
 Explicit recovery does not advance `controller.last_poll_at` or `last_tick_at`,
 or replace `controller.run_id`: these are global scheduler anchors. Its target's
 observations and report are still saved, while unrelated workers retain their
 polling deadlines, including workers awaiting completion of a rejection.
+
+After `close_research_unaccepted`, ordinary recovery is strictly reparse-only.
+The controller CAS-saves a `recover_authorized` event before reading Jules, then
+selects the authorized saved activity and verifies its hash, timestamp, session
+and dispatch binding, even if a newer activity exists. It cannot substitute a
+different report or attempt. A valid result and `report_accepted` event are saved
+together; parser, identity or transport failure leaves the report unaccepted and
+records `recovery_failed`. The original closure remains in history. A crash after
+authorization remains visible and needs explicit owner recovery to resume;
+ordinary scheduler ticks do not resume a pending reparse. A benign parser failure
+can remain acknowledged only while the original incident still matches exactly.
+Missing/rewritten output, new transport errors, active workers and PR conflicts
+are never hidden by the old acknowledgement. Recovery that loses a CAS race
+cannot overwrite the fresh state or silently authorize further external effects.
 
 When the latest output genuinely lacks the required research structure, do not
 invent observations or reset the attempt. If the previous `report_repair` is
@@ -453,9 +502,13 @@ one format-only `sendMessage`. Replaying the same timestamp cannot send again,
 even after a crash or lost acknowledgement. Pending/conflicting repairs cannot
 be superseded this way; failed sessions must be inspected if exact-source reparse
 cannot recover them. No automatic repair loop or replacement session is created.
-The CLI equivalent adds `--repair-after TIMESTAMP --actor OWNER`; in Actions the
-actor must match `GITHUB_ACTOR`. Collector-only `--retry-report --reparse-report`
-performs no messaging and is useful for an isolated report replay.
+After disposition, a new format request likewise requires explicit `repair_after`;
+its durable recovery authorization records `mode = repair` and the exact receipt
+timestamp. Only that pending authorized repair may resume normal report polling.
+The CLI equivalent adds `--repair-after TIMESTAMP --actor OWNER`. Collector-only
+`--retry-report --reparse-report --actor OWNER` performs no messaging and is useful
+for an isolated replay of undisposed reports. Disposed reports require the
+CAS-backed laboratory controller, not a collector-only file rewrite.
 
 ### Resolving a failed main synchronization
 
