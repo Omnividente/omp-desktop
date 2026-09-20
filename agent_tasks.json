@@ -14449,7 +14449,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T06:20:10.573370Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-4eee5c647206465bf7e3ee2d"
       },
       "research_result": {
         "summary": "Investigated the session import modal interactions and focus management during renaming.",
