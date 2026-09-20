@@ -17745,7 +17745,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T15:53:21.812965Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-c56462049430c5171aa2ca10"
       },
       "research_result": {
         "summary": "Investigated session lifecycle and import behavior, specifically around cleanup of orphaned import artifacts, error handling in import modals, and focus management during rename cancellations.",
