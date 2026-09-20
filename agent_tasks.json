@@ -7531,7 +7531,7 @@
       "id": "research-transcript-links-behavior-2",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -7654,34 +7654,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "7801058078139277203",
         "dispatch_key": "d1b8264874b0cdcfa51eab55",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-d1b8264874b0cdcfa51eab55",
         "started_at": "2026-09-18T13:16:55.112874Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T07:24:41.798177Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: findings_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
         "observed_at": "2026-09-18T13:56:32.088017Z",
-        "report_error": {
-          "code": "findings_invalid",
-          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
-          "reported_at": "2026-09-18T13:43:25.604088Z",
-          "source": {
-            "activity_id": "sessions/7801058078139277203/activities/207884197907401fb78b48af470c8c1a",
-            "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
-            "activity_created_at": "2026-09-18T13:33:15.880272Z",
-            "session_id": "7801058078139277203",
-            "dispatch_key": "d1b8264874b0cdcfa51eab55"
-          }
-        },
         "report_repair": {
           "at": "2026-09-18T13:43:50.879986Z",
           "result": "sent",
-          "status": "invalid",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/7801058078139277203/activities/2f6c8c275dd54c8c9acd6a3538cd3b60",
             "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
@@ -7690,6 +7678,78 @@
             "dispatch_key": "d1b8264874b0cdcfa51eab55"
           },
           "detail": "incomplete discovery findings; nothing imported: conflicting_id"
+        }
+      },
+      "research_result": {
+        "summary": "Verified context menu interaction when triggered by a keyboard shortcut with non-coordinates.",
+        "observations": [
+          {
+            "scenario": "Simulating a keyboard-triggered context menu (Shift+F10 or Context Menu key) which dispatches a contextmenu event with clientX=0 and clientY=0 in TranscriptModal and TerminalView.",
+            "evidence": "Created a synthetic vitest test using jsdom simulating a context menu event triggered from a keyboard interaction, verifying that the clientX and clientY are 0. Examined the source in `TranscriptModal` and `TerminalView` where `setMenu` directly map `event.clientX` and `event.clientY` to the menu's top/left styles, meaning a keyboard trigger places the context menu at the top-left (0,0) of the viewport instead of relative to the active element. Prototype fixes using `getBoundingClientRect` on the current target worked conceptually in fixing this.",
+            "result": "The current behavior forces the context menu to the top left of the screen for keyboard interactions. An appropriate fix is to fallback to the bounding rect of the target element when clientX and clientY are 0. Cite existing proposal: discovery-ccd17b3cdd6d7d64."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T07:24:41.798177Z",
+        "source": {
+          "activity_id": "sessions/7801058078139277203/activities/2f6c8c275dd54c8c9acd6a3538cd3b60",
+          "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
+          "activity_created_at": "2026-09-18T13:44:35.253851Z",
+          "session_id": "7801058078139277203",
+          "dispatch_key": "d1b8264874b0cdcfa51eab55"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix context menu placement when triggered via keyboard in transcript links",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527; not established as a duplicate. {\"detail\": \"Simulated contextmenu event with clientX=0 and clientY=0, representing a keyboard interaction. Observed the style placement set to left/top 0.\", \"reproduction\": {\"actual\": \"The context menu appears at the top left corner (0,0) of the viewport.\", \"expected\": \"The context menu appears aligned with the currently focused element.\", \"steps\": [\"Focus a link in the transcript modal or terminal\", \"Press Shift+F10 to open context menu\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TranscriptModal.tsx",
+              "src/TerminalView.tsx"
+            ],
+            "acceptance": [
+              "When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0)."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7801058078139277203/activities/2f6c8c275dd54c8c9acd6a3538cd3b60",
+          "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
+          "activity_created_at": "2026-09-18T13:44:35.253851Z",
+          "session_id": "7801058078139277203",
+          "dispatch_key": "d1b8264874b0cdcfa51eab55"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-ccd17b3cdd6d7d64",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix context menu placement when triggered via keyboard in transcript links",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527; not established as a duplicate. {\"detail\": \"Simulated contextmenu event with clientX=0 and clientY=0, representing a keyboard interaction. Observed the style placement set to left/top 0.\", \"reproduction\": {\"actual\": \"The context menu appears at the top left corner (0,0) of the viewport.\", \"expected\": \"The context menu appears aligned with the currently focused element.\", \"steps\": [\"Focus a link in the transcript modal or terminal\", \"Press Shift+F10 to open context menu\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TranscriptModal.tsx",
+                "src/TerminalView.tsx"
+              ],
+              "acceptance": [
+                "When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0)."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
