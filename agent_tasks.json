@@ -16775,7 +16775,7 @@
       "id": "research-diagnostics-resources-behavior-4",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -16881,18 +16881,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14999717263476957575",
         "dispatch_key": "b8ef30ecb4134e96ad4e3fea",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-b8ef30ecb4134e96ad4e3fea",
         "started_at": "2026-09-20T11:11:51.088507Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T11:50:50.736071Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T11:44:46.469240Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T11:50:50.736071Z",
         "research_detached": {
           "at": "2026-09-20T11:37:20.188194Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -16900,6 +16900,53 @@
         "feedback_nudge": {
           "at": "2026-09-20T11:37:20.188194Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Verified that extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large transcript is loaded.",
+        "observations": [
+          {
+            "scenario": "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+            "evidence": "Executed an isolated React testing library simulation inside a temporary test (`src/hypothesis3.test.tsx` using jsdom) by manually providing 50,000 synthetic items to the `useVirtualList` hook. Simulated rapid sequential horizontal resizing (100 rapid changes to container clientWidth, triggering scroll/resize events). Verified that each width change triggers `setMeasurementRevision`, which in turn invalidates the `useMemo` calculating the `layout` (calling `getItemKey` for all 50,000 items in a loop). Observed ~4,950,000 calls to `getItemKey` and the test timed out after 5 seconds due to main thread exhaustion.",
+            "result": "Establishes that the user interface is vulnerable to layout thrashing during continuous horizontal window resizes for large lists because it clears the active measurement cache and recalculates the complete layout matrix on every width change without debouncing or tracking if heights actually changed."
+          }
+        ],
+        "next_hypotheses": [
+          "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS due to differences in scroll event frequency and handling in useVirtualList.",
+          "Verify the fallback mapping boundaries in `sample_resource_health` when traversing canonical parent directories for non-existent root or leaf paths."
+        ],
+        "proposed_task_ids": [
+          "discovery-03f973c614f72064"
+        ],
+        "completed_at": "2026-09-20T11:50:50.736071Z",
+        "source": {
+          "activity_id": "sessions/14999717263476957575/activities/77da22cc0ec24a9cb806bf668b9021fa",
+          "report_sha256": "8ee63e008f390773d18d135a614765cd06a152a2e56dd2e391dc7857cf518d50",
+          "activity_created_at": "2026-09-20T11:38:31.767776Z",
+          "session_id": "14999717263476957575",
+          "dispatch_key": "b8ef30ecb4134e96ad4e3fea"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14999717263476957575/activities/77da22cc0ec24a9cb806bf668b9021fa",
+          "report_sha256": "8ee63e008f390773d18d135a614765cd06a152a2e56dd2e391dc7857cf518d50",
+          "activity_created_at": "2026-09-20T11:38:31.767776Z",
+          "session_id": "14999717263476957575",
+          "dispatch_key": "b8ef30ecb4134e96ad4e3fea"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-03f973c614f72064"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -17026,10 +17073,49 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-20T11:37:20.188194Z"
       }
+    },
+    {
+      "id": "discovery-03f973c614f72064",
+      "title": "Debounce horizontal resize invalidation in VirtualList",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T11:50:50.736071Z",
+      "acceptance": [
+        "Rapid sequential width resizes do not lock the main thread by recalculating layout on every single pixel change"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Synthetic React testing library hook observation isolating the layout computation loop; no live UI interactions.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Mount useVirtualList with a simulated 50,000 items",
+            "Rapidly change the container clientWidth 100 times sequentially and dispatch a scroll/resize event for each"
+          ],
+          "expected": "The layout is only fully re-evaluated at a throttled/debounced interval, preventing main thread exhaustion",
+          "actual": "The activeMeasurementsRef is cleared and the entire layout array is reconstructed 100 times synchronously, timing out the interaction and blocking the thread"
+        }
+      },
+      "target_paths": [
+        "src/useVirtualList.ts"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-4",
+        "activity_id": "sessions/14999717263476957575/activities/77da22cc0ec24a9cb806bf668b9021fa",
+        "report_sha256": "8ee63e008f390773d18d135a614765cd06a152a2e56dd2e391dc7857cf518d50",
+        "activity_created_at": "2026-09-20T11:38:31.767776Z",
+        "session_id": "14999717263476957575",
+        "dispatch_key": "b8ef30ecb4134e96ad4e3fea"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T11:45:10.193659Z",
+    "last_poll_at": "2026-09-20T11:51:07.990372Z",
     "last_tick_at": "2026-09-20T11:45:12.838442Z",
     "run_id": "35508672675"
   }
