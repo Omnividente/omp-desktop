@@ -6832,6 +6832,27 @@
         "observed_at": "2026-09-18T10:25:38.466091Z",
         "released_attempt_ref": "autonomous/attempt-b63fc851a32b0fca0905948d",
         "session_state": "FAILED"
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-09-20T16:52:04Z",
+            "note": "Owner review 2026-09-20: this research session ended FAILED after both allowed attempts. No accepted report or PR exists. Close this old incident as unaccepted; preserve the original failure, identities, attempts and history. Do not restart research or mark it successful.",
+            "attempt": {
+              "session_id": "8240336203072323818",
+              "dispatch_key": "b63fc851a32b0fca0905948d",
+              "attempts": 2
+            },
+            "basis": {
+              "state": "exhausted",
+              "outcome": "failed",
+              "session_state": "FAILED",
+              "event_at": "2026-09-18T10:25:38.466091Z"
+            }
+          }
+        ]
       }
     },
     {
