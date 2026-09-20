@@ -17022,12 +17022,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T11:37:20.188194Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T11:37:39.055304Z",
+    "last_poll_at": "2026-09-20T11:39:00.449757Z",
     "last_tick_at": "2026-09-20T11:31:37.141611Z",
     "run_id": "35508056508"
   }
