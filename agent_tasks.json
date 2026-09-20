@@ -19713,12 +19713,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T21:21:58.416700Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T21:22:18.293351Z",
+    "last_poll_at": "2026-09-20T21:23:57.946161Z",
     "last_tick_at": "2026-09-20T21:14:24.360960Z",
     "run_id": "35538060187"
   }
