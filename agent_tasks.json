@@ -15433,7 +15433,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T08:58:42.680595Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8d2f22c7e5a2103137f998a5"
       },
       "research_result": {
         "summary": "Verified frontend handling of focus and state when cancelling a workspace or session rename. The application correctly updates state but lacks focus restoration logic inside ProjectRail and SessionList upon cancelling a rename, leaving focus stranded on the document body instead of the edit button.",
