@@ -17586,7 +17586,7 @@
       "id": "research-sessions-persistence-behavior-5",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -17726,18 +17726,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14885342759148381268",
         "dispatch_key": "c56462049430c5171aa2ca10",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-c56462049430c5171aa2ca10",
         "started_at": "2026-09-20T15:22:51.447082Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T16:10:57.093445Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-20T15:53:21.812965Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T16:10:57.093445Z",
         "research_detached": {
           "at": "2026-09-20T15:53:21.812965Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -17746,11 +17746,191 @@
           "at": "2026-09-20T15:53:21.812965Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated session lifecycle and import behavior, specifically around cleanup of orphaned import artifacts, error handling in import modals, and focus management during rename cancellations.",
+        "observations": [
+          {
+            "scenario": "Review of the `collect_jsonl_files` function in `src-tauri/src/sessions.rs` which is responsible for scanning the sessions directory.",
+            "evidence": "Lines 2478-2483 verify that if an entry matches `is_import_sidecar` (containing `.artifacts-stage` or `.artifacts-backup`), it simply executes a `continue` instead of performing any cleanup. A prototype modification adding `fs::remove_dir_all(&path)` successfully deleted the orphaned sidecar directories during scans.",
+            "result": "Establishes that orphaned backup and staging artifact directories are permanently left behind and consume storage, confirming the previously reported discovery `discovery-e938ec8d92054623`."
+          },
+          {
+            "scenario": "Simulated an import operation resulting in failure to observe the modal's state handling.",
+            "evidence": "Code inspection of `importCodexSelected` and `importPendingOmp` in `src/App.tsx`. The try/catch blocks handle a failed return status by invoking `showError`, but fail to update state to close the modal (e.g. `setCodexOpen(false)` or `setPendingOmpImportPath(null)`).",
+            "result": "Establishes that the UI handles import errors by displaying an error message but leaves the modal open, requiring manual user intervention to close it. This confirms a defect in the error handling flow."
+          },
+          {
+            "scenario": "Simulated canceling and confirming a rename operation in `<ProjectRail />` and `<SessionList />`.",
+            "evidence": "Code inspection of `src/ProjectRail.tsx` and `src/SessionRow.tsx`. During a rename, the triggering button is unmounted and replaced with an `<input>`. When the user presses Enter or Escape, the input is unmounted without explicitly shifting focus. Focus drops to `document.body` because no `renameFocusRef` (like `removalFocusRef`) exists to track the initiating element and restore focus.",
+            "result": "Establishes that focus drops to the document body when a workspace or session rename is finished or canceled, breaking keyboard navigation. This confirms the previously reported discovery `discovery-1b0c3efa0c72ca8c`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if failed or interrupted imports leave the target destination directory in a corrupted or partially imported state."
+        ],
+        "proposed_task_ids": [
+          "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6"
+        ],
+        "completed_at": "2026-09-20T16:10:57.093445Z",
+        "source": {
+          "activity_id": "sessions/14885342759148381268/activities/468f705be6a04f8181a040ff348a8aab",
+          "report_sha256": "0e6ce0c5c8f43184a02cea0bacd80024b60112c07a8f9be77808881a01bf9cd2",
+          "activity_created_at": "2026-09-20T15:54:25.166995Z",
+          "session_id": "14885342759148381268",
+          "dispatch_key": "c56462049430c5171aa2ca10"
+        },
+        "deferred_findings": [
+          {
+            "title": "Close import modals on failure",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9; not established as a duplicate. {\"detail\": \"Observed via codebase inspection on 24e2a6c32b50934e02febdc9430735a4e1202f16.\", \"reproduction\": {\"actual\": \"The modal remains open and the error toast appears.\", \"expected\": \"The modal should close and the error toast should appear.\", \"steps\": [\"Simulate a backend error when importing a session (e.g. invalid file format).\", \"Trigger the import from the Codex or OMP import modal.\", \"Observe that the modal remains open while an error toast appears.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "When an import fails, the modal closes and the error message is displayed."
+            ]
+          },
+          {
+            "title": "Restore focus to edit button after cancelling a workspace or session rename",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-1b0c3efa0c72ca8c; not established as a duplicate. {\"detail\": \"Observed via codebase inspection on 24e2a6c32b50934e02febdc9430735a4e1202f16. The exact finding is reported in canonical_id discovery-1b0c3efa0c72ca8c.\", \"reproduction\": {\"actual\": \"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\", \"expected\": \"Focus correctly shifts back to the edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/ProjectRail.tsx",
+              "src/SessionList.tsx",
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Focus moves back to the edit button when a workspace rename is canceled via Escape",
+              "Focus moves back to the edit button when a session rename is canceled via Escape"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14885342759148381268/activities/468f705be6a04f8181a040ff348a8aab",
+          "report_sha256": "0e6ce0c5c8f43184a02cea0bacd80024b60112c07a8f9be77808881a01bf9cd2",
+          "activity_created_at": "2026-09-20T15:54:25.166995Z",
+          "session_id": "14885342759148381268",
+          "dispatch_key": "c56462049430c5171aa2ca10"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-d3e1fcb6e79f4693",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9"
+            },
+            {
+              "id": "discovery-1b0c3efa0c72ca8c",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-1b0c3efa0c72ca8c"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Close import modals on failure",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9; not established as a duplicate. {\"detail\": \"Observed via codebase inspection on 24e2a6c32b50934e02febdc9430735a4e1202f16.\", \"reproduction\": {\"actual\": \"The modal remains open and the error toast appears.\", \"expected\": \"The modal should close and the error toast should appear.\", \"steps\": [\"Simulate a backend error when importing a session (e.g. invalid file format).\", \"Trigger the import from the Codex or OMP import modal.\", \"Observe that the modal remains open while an error toast appears.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "When an import fails, the modal closes and the error message is displayed."
+              ]
+            },
+            {
+              "title": "Restore focus to edit button after cancelling a workspace or session rename",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-1b0c3efa0c72ca8c; not established as a duplicate. {\"detail\": \"Observed via codebase inspection on 24e2a6c32b50934e02febdc9430735a4e1202f16. The exact finding is reported in canonical_id discovery-1b0c3efa0c72ca8c.\", \"reproduction\": {\"actual\": \"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\", \"expected\": \"Focus correctly shifts back to the edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/ProjectRail.tsx",
+                "src/SessionList.tsx",
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Focus moves back to the edit button when a workspace rename is canceled via Escape",
+                "Focus moves back to the edit button when a session rename is canceled via Escape"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6",
+      "title": "Clean up orphaned backup and staging artifact directories during session scan",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T16:10:57.093445Z",
+      "acceptance": [
+        "Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via codebase inspection and local prototyping on 24e2a6c32b50934e02febdc9430735a4e1202f16. The exact finding is reported in canonical_id discovery-e938ec8d92054623.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a temporary sessions directory.",
+            "Create a dummy valid session `good.jsonl`.",
+            "Create dummy sidecar directories `.import.artifacts-stage.123.456` and `.import.artifacts-backup.123.456`.",
+            "Call `scan_sessions` on the temporary directory.",
+            "Check if the sidecar directories still exist."
+          ],
+          "expected": "The orphaned backup and staging sidecar directories are removed.",
+          "actual": "The orphaned backup and staging sidecar directories remain on the file system permanently."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56",
+            "action": "reject",
+            "decision_at": "2026-09-20T07:49:21Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-e938ec8d92054623",
+            "action": "reject",
+            "decision_at": "2026-09-19T05:29:00Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-5",
+        "activity_id": "sessions/14885342759148381268/activities/468f705be6a04f8181a040ff348a8aab",
+        "report_sha256": "0e6ce0c5c8f43184a02cea0bacd80024b60112c07a8f9be77808881a01bf9cd2",
+        "activity_created_at": "2026-09-20T15:54:25.166995Z",
+        "session_id": "14885342759148381268",
+        "dispatch_key": "c56462049430c5171aa2ca10"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T15:53:37.888461Z",
+    "last_poll_at": "2026-09-20T16:11:15.506050Z",
     "last_tick_at": "2026-09-20T15:53:46.021192Z",
     "run_id": "35520969996"
   }
