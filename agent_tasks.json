@@ -10302,7 +10302,7 @@
       "id": "discovery-5b8c7bde2b0e0468",
       "title": "Fix race condition during concurrent workspace modifications",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -10339,10 +10339,10 @@
         "dispatch_key": "be010efe0937ae85b805894d"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T07:50:03Z",
-        "note": "Разбор и acceptance: https://github.com/Omnividente/omp-desktop/issues/80 . Подтверждён stale UI: в настоящем Windows/Tauri две записи rename_workspace; задержка доставки первого настоящего Rust response до завершения второго откатывает имя B в UI, хотя bootstrap хранит оба новых имени. Payload не mocked. Guard у refresh уже существует; исправить именно согласованность мутаций. После любого порядка завершения add/remove/rename/import UI должен отражать все успешные записи; ошибка позднего запроса не скрывает успешный ранний, выбор проекта и refresh guards сохраняются. Простой latest-start seq недостаточен без доказательства порядка commit. Одобрена отдельная задача, не автоматический запуск реализации."
+        "at": "2026-09-20T09:02:18Z",
+        "note": "Реализовано Main и принято в main: https://github.com/Omnividente/omp-desktop/pull/81 ; commit dddb77564c155dfbebf829f89793f74c53e8171c. Общая failure-safe очередь IPC для полных снимков не допускает откат успешных rename/add/remove/import устаревшим ответом; новый явный выбор проекта сохраняется. Подтверждено настоящим Windows/Tauri/WebView2 на изолированных данных: задержанная доставка реального rename response, два rename, remove+add, настоящая поздняя ошибка, ручной выбор при rename, импорт и second-instance request. Integration regressions и полный frontend: 273 tests; Windows/Linux Quality Gate 35500656777 и CodeQL 35500656796 success. После реального restart состояние сохранено. Закрыто как externally implemented; Jules реализацию не запускать. Релиз/установка и правила петли не изменялись."
       }
     },
     {
