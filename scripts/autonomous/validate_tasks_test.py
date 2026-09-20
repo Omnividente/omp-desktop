@@ -422,5 +422,56 @@ class ProposalAndLaneTest(unittest.TestCase):
         self.assertTrue(validate(manifest(entry)))
 
 
+class HistoricalReviewContextTest(unittest.TestCase):
+    def linked_queue(self):
+        stamp = "2026-09-14T12:00:00Z"
+        source = {"session_id": "s1", "dispatch_key": "d1", "activity_id": "sessions/s1/activities/a1",
+                  "report_sha256": "a" * 64, "activity_created_at": stamp}
+        previous = task("previous", status="done", proposal_decision={
+            "action": "reject", "actor": "Owner", "at": stamp, "note": "Inspected"})
+        context = {"kind": "historical_decision_overlap", "matches": [
+            {"task_id": "previous", "action": "reject", "decision_at": stamp, "match": "exact", "timing": "pre"}]}
+        candidate = task("candidate", status="proposed", origin={"task_id": "research", **source},
+                         review_context=copy.deepcopy(context))
+        deferred = {"title": "Prior clock claim", "reason": "historical_predecision_overlap",
+                    "evidence": "Observed old clock", "target_paths": ["src/clock.ts"],
+                    "acceptance": ["Clock advances"], "review_context": copy.deepcopy(context)}
+        research = task("research", task_type="project_discovery", status="done", research_result={
+            "summary": "Observed clock", "observations": [
+                {"scenario": "resume", "evidence": "clock reading", "result": "stale"}],
+            "next_hypotheses": [], "proposed_task_ids": ["candidate"], "completed_at": stamp,
+            "source": source, "deferred_findings": [deferred]}, discovery_import={
+                "source": source, "result": {"status": "ok", "changed": True, "added": ["candidate"],
+                    "duplicates": [], "skipped": [], "deferred": [copy.deepcopy(deferred)],
+                    "detail": "Imported findings", "unverified_count": 0}})
+        return manifest(previous, candidate, research)
+
+    def test_candidate_and_both_deferred_copies_validate_canonical_decision_and_time(self):
+        original = self.linked_queue()
+        self.assertEqual(validate(original), [])
+        def contexts(data):
+            return [data["tasks"][1]["review_context"],
+                    data["tasks"][2]["research_result"]["deferred_findings"][0]["review_context"],
+                    data["tasks"][2]["discovery_import"]["result"]["deferred"][0]["review_context"]]
+        for index in range(3):
+            for changes in ({"task_id": "missing"}, {"task_id": "research"}, {"action": "resolve"},
+                            {"decision_at": "2026-09-14T11:59:59Z"}, {"timing": "post"}, {"match": []}):
+                with self.subTest(location=index, changes=changes):
+                    data = copy.deepcopy(original)
+                    contexts(data)[index]["matches"][0].update(changes)
+                    self.assertTrue(validate(data))
+            data = copy.deepcopy(original)
+            context = contexts(data)[index]
+            context["matches"].append(copy.deepcopy(context["matches"][0]))
+            self.assertTrue(validate(data))
+        data = copy.deepcopy(original)
+        data["tasks"][0].pop("proposal_decision")
+        self.assertTrue(validate(data))
+        data = copy.deepcopy(original)
+        data["tasks"][1]["origin"].pop("activity_id")
+        self.assertTrue(validate(data))
+        self.assertEqual(validate(original), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

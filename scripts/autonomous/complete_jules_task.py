@@ -21,6 +21,7 @@ from jules_dispatch import (
     DEFAULT_API_BASE, KeyRing, get_session, list_activities, session_id,
     session_matches, session_resource, session_state, urllib_transport,
 )
+from research_disposition import append_recovery_event, disposition_state
 from task_lifecycle import awaiting_report, complete, find_task, iso, park_report, parse_iso, utcnow
 from validate_tasks import _validate_report_source, validate, validate_research_result
 
@@ -113,6 +114,22 @@ def latest_report(activities: list) -> tuple[str, dict]:
                   "activity_created_at": iso(newest)}
 
 
+def saved_report(activities: list, source: dict) -> tuple[str, dict]:
+    """Select only the activity explicitly authorized by the owner, never latest."""
+    matches = [activity for activity in activities if activity.get("name") == source["activity_id"]]
+    if not matches:
+        raise InvalidReport("saved report activity is unavailable", "report_source_unavailable")
+    try:
+        text, observed = latest_report(matches)
+    except InvalidReport as exc:
+        code = "report_source_unavailable" if exc.code == "report_absent" else "report_identity_conflict"
+        raise InvalidReport("saved report activity cannot be verified", code, exc.text) from None
+    observed.update(session_id=source["session_id"], dispatch_key=source["dispatch_key"])
+    if observed != source:
+        raise InvalidReport("saved report activity identity changed", "report_identity_conflict", text)
+    return text, observed
+
+
 def research_report(text: str, *, completed_at: str) -> dict:
     match = re.search(RESEARCH_BEGIN + r"(.*?)" + RESEARCH_END, text, re.DOTALL)
     if text.count(RESEARCH_BEGIN) != 1 or text.count(RESEARCH_END) != 1 or match is None:
@@ -172,9 +189,22 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     if retry_report and task.get("status") == "done" and execution.get("outcome") in ("no_change", "researched"):
         return {"changed": False, "reason": "attempt_already_resolved", "task_id": task_id,
                 "imported_count": 0}
+    disposition = disposition_state(task)
+    authorization = None
+    if disposition:
+        if disposition != "recover_authorized":
+            return {"changed": False, "reason": "research_closed_unaccepted", "task_id": task_id,
+                    "imported_count": 0}
+        authorization = task["research_disposition"]["events"][-1]
+        attempt = task["research_disposition"]["events"][0]["attempt"]
+        if any(execution.get(field) != value for field, value in attempt.items()):
+            raise ValueError("report recovery cannot change the acknowledged attempt")
+        if not retry_report:
+            raise ValueError("disposed research recovery requires its durable owner authorization")
     recovering = retry_report and awaiting_report(task)
     failed_repair = (reparse_report and recovering and session_state(snapshot) == "FAILED"
-                     and (execution.get("report_repair") or {}).get("status") == "failed")
+                     and ((execution.get("report_repair") or {}).get("status") == "failed"
+                          or authorization is not None))
     if retry_report and (not recovering or task.get("task_type") != "project_discovery"
                          or (session_state(snapshot) != "COMPLETED" and not failed_repair)):
         raise ValueError("report retry requires the stored completed research attempt")
@@ -221,11 +251,21 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     text = ""
     source = None
     fresh_report = False
+    exact_source = None
+    if authorization:
+        repair = execution.get("report_repair") or {}
+        if (authorization.get("mode", "reparse") == "reparse"
+                or repair.get("after") != authorization.get("repair_after")):
+            exact_source = authorization["source"]
     try:
         if task.get("task_type") == "project_discovery":
             # Finish all API reads before any mutation, even for invalid output.
-            text, source = latest_report(list_activities(transport, api_base, ring, resource))
-            source.update(session_id=str(execution["session_id"]), dispatch_key=str(execution["dispatch_key"]))
+            activities = list_activities(transport, api_base, ring, resource)
+            if exact_source:
+                text, source = saved_report(activities, exact_source)
+            else:
+                text, source = latest_report(activities)
+                source.update(session_id=str(execution["session_id"]), dispatch_key=str(execution["dispatch_key"]))
             if _validate_report_source(source, "report.source"):
                 source = None
                 raise InvalidReport("report activity provenance is invalid", "report_provenance")
@@ -240,7 +280,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                 )) if saved]
                 if any(source["activity_id"] == saved.get("activity_id") and source != saved
                        for saved in saved_sources):
-                    if not reparse_report:
+                    if not reparse_report and not authorization:
                         return {"changed": False, "reason": "report_unchanged", "task_id": task_id,
                                 "imported_count": 0}
                     source = None
@@ -253,7 +293,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                 created = parse_iso(source["activity_created_at"])
                 boundary = parse_iso(previous.get("activity_created_at"))
                 requested = parse_iso(receipt.get("at"))
-                if not (reparse_report and same_source):
+                if not (same_source and (reparse_report or exact_source)):
                     if ((previous and (source["activity_id"] == previous.get("activity_id")
                                        or (boundary and created <= boundary)))
                             or (requested and created < requested)):
@@ -261,7 +301,8 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
                                 "imported_count": 0}
             fresh_report = not recovering or not same_source
             diagnostic["source"] = source
-            diagnostic["selection"] = {"status": "ok", "detail": "latest worker report selected"}
+            diagnostic["selection"] = {"status": "ok", "detail": "authorized saved report selected" if exact_source
+                                       else "latest worker report selected"}
             block = parse_block(text)
             diagnostic["tasks_parser"] = {key: block[key] for key in ("status", "detail")}
             try:
@@ -288,6 +329,8 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
         result = complete(staged, task_id, outcome="researched" if useful else "no_change",
                           note="completed Jules session without a pull request", now=moment,
                           retry_report=recovering)
+        if authorization:
+            append_recovery_event(staged_task, "report_accepted", now=iso(moment), source=source)
         if imported["skipped"]:
             staged_task["execution"]["note"] += "; skipped findings: " + ", ".join(
                 sorted({item["reason"] for item in imported["skipped"]}))
@@ -305,13 +348,18 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
             diagnostic["selection"] = {"status": exc.code, "detail": str(exc)}
         diagnostic["error_code"] = exc.code
         result = park_report(staged, task_id, code=exc.code,
-                             detail=redact(str(exc), secrets)[:2000], now=moment, source=source)
+                             detail=redact(str(exc), secrets)[:2000], now=moment,
+                             source=None if exact_source else source)
         result["report_error_code"] = exc.code
         repair = find_task(staged, task_id)["execution"].get("report_repair")
         if recovering and fresh_report and repair:
             repair["source"] = source
             if repair["status"] == "pending":
                 repair.update(status="invalid", detail=redact(str(exc), secrets)[:2000])
+            result["changed"] = True
+        if authorization and (authorization.get("mode", "reparse") == "reparse" or fresh_report
+                              or exc.code in ("report_identity_conflict", "report_source_unavailable")):
+            append_recovery_event(find_task(staged, task_id), "recovery_failed", now=iso(moment), reason=exc.code)
             result["changed"] = True
         imported = {"added": []}
     errors = validate(staged)
@@ -362,6 +410,7 @@ def main(argv=None) -> int:
                         help="with --retry-report, reparse the exact saved immutable report")
     parser.add_argument("--api-base", default=os.environ.get("JULES_API_BASE", DEFAULT_API_BASE))
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT", ""))
+    parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
     args = parser.parse_args(argv)
     try:
         if args.diagnostics and args.diagnostics.resolve() in {
@@ -371,6 +420,13 @@ def main(argv=None) -> int:
         original = args.manifest.read_bytes()
         manifest = json.loads(original)
         config = json.loads(args.config.read_text(encoding="utf-8"))
+        if args.retry_report:
+            from proposal_backlog import authorize
+            if "GITHUB_ACTOR" in os.environ and args.actor.casefold() != os.environ["GITHUB_ACTOR"].casefold():
+                raise ValueError("--actor must match GITHUB_ACTOR")
+            authorize(config, args.actor)
+            if any("research_disposition" in task for task in manifest["tasks"] if task.get("id") == args.task_id):
+                raise ValueError("disposed research recovery requires the CAS-backed laboratory controller")
         snapshot = json.loads(args.session_file.read_text(encoding="utf-8"))
         if not isinstance(snapshot, dict):
             raise ValueError("invalid session snapshot")

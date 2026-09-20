@@ -16,11 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from select_task import is_unresolved, pending_rejection
+from research_disposition import acknowledged_disposition, research_incident, validate_research_disposition, _settled
 from state_store import load_state, save_state
-from task_lifecycle import quarantine, parse_iso
+from task_lifecycle import quarantine, parse_iso, limits
 from validate_tasks import proposal_mutation_error, validate
 
-ACTIONS = ("list", "approve", "reject", "resolve")
+ACTIONS = ("list", "approve", "reject", "resolve", "close_research_unaccepted")
 
 
 def authorize(config: dict, actor: str) -> str:
@@ -37,7 +38,7 @@ def decide(manifest: dict, config: dict, *, action: str, task_id: str,
            actor: str, note: str, now: str | None = None) -> dict:
     """Apply one audited human decision, leaving all worker history untouched."""
     actor = authorize(config, actor)
-    if action not in ACTIONS[1:]:
+    if action not in ("approve", "reject", "resolve"):
         raise ValueError("a decision must be approve, reject or resolve")
     if not note.strip():
         raise ValueError("a decision requires a nonblank note")
@@ -85,6 +86,42 @@ def decide(manifest: dict, config: dict, *, action: str, task_id: str,
     return {"changed": True, "task_id": task_id, "decision": copy.deepcopy(decision)}
 
 
+def close_research_unaccepted(manifest: dict, config: dict, *, task_id: str,
+                              actor: str, note: str, now: str | None = None) -> dict:
+    """Acknowledge one settled incident without rewriting machine outcomes or evidence."""
+    actor = authorize(config, actor)
+    if not note.strip():
+        raise ValueError("a research disposition requires a nonblank note")
+    errors = validate(manifest)
+    if errors:
+        raise ValueError("invalid queue: " + "; ".join(errors))
+    task = next((item for item in manifest["tasks"] if item["id"] == task_id), None)
+    if task is None:
+        raise ValueError("unknown task_id")
+    if not _settled(task):
+        raise ValueError("only a settled bound unaccepted research incident can be closed")
+    execution = task["execution"]
+    if execution["state"] == "exhausted" and execution["attempts"] < limits(manifest)[0]:
+        raise ValueError("research retry attempts are not exhausted")
+    if "research_disposition" in task:
+        prior = acknowledged_disposition(task)
+        if (prior is not None and prior["actor"].casefold() == actor.casefold()
+                and prior["note"] == note.strip()):
+            return {"changed": False, "task_id": task_id, "disposition": prior}
+        raise ValueError("the research disposition is immutable; the current incident requires attention")
+    event = {"action": "close_unaccepted", "actor": actor,
+             "at": now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "note": note.strip(), **research_incident(task)}
+    candidate = copy.deepcopy(task)
+    candidate["research_disposition"] = {"events": [event]}
+    errors = validate_research_disposition(candidate, "task")
+    errors.extend(validate({**manifest, "tasks": [candidate if item is task else item for item in manifest["tasks"]]}))
+    if errors:
+        raise ValueError("invalid research disposition: " + "; ".join(errors))
+    task.update(candidate)
+    return {"changed": True, "task_id": task_id, "disposition": copy.deepcopy(event)}
+
+
 def review_state(task: dict) -> str:
     execution = task.get("execution") or {}
     if pending_rejection(task):
@@ -107,10 +144,14 @@ def review_state(task: dict) -> str:
 
 def backlog(manifest: dict) -> dict:
     """List every proposal and preserved research hypothesis, without a cap."""
-    tasks, hypotheses = [], []
+    tasks, hypotheses, dispositions = [], [], []
     counts: dict[str, int] = {}
     for task in manifest.get("tasks", []):
         if task.get("task_type") == "project_discovery":
+            if "research_disposition" in task:
+                dispositions.append({"task_id": task["id"],
+                                     "research_disposition": copy.deepcopy(task["research_disposition"]),
+                                     "acknowledged": acknowledged_disposition(task) is not None})
             result = task.get("research_result") or {}
             if result.get("deferred_findings") or result.get("next_hypotheses"):
                 hypotheses.append({"task_id": task["id"], "source": copy.deepcopy(result.get("source")),
@@ -120,7 +161,8 @@ def backlog(manifest: dict) -> dict:
         state = review_state(task)
         counts[state] = counts.get(state, 0) + 1
         tasks.append({**copy.deepcopy(task), "review_state": state})
-    return {"counts": counts, "tasks": tasks, "research_hypotheses": hypotheses}
+    return {"counts": counts, "tasks": tasks, "research_hypotheses": hypotheses,
+            "research_dispositions": dispositions}
 
 
 def render_summary(view: dict) -> str:
@@ -138,6 +180,10 @@ def render_summary(view: dict) -> str:
         lines.extend(["", "### Deferred findings and research hypotheses", "",
                       "These are preserved observations, not approved implementation tasks.", "",
                       "<pre>" + html.escape(json.dumps(view["research_hypotheses"], ensure_ascii=False, indent=2)) + "</pre>"])
+    if view["research_dispositions"]:
+        lines.extend(["", "### Research dispositions", "",
+                      "Owner acknowledgements preserve failed or invalid machine outcomes; they do not accept reports.", "",
+                      "<pre>" + html.escape(json.dumps(view["research_dispositions"], ensure_ascii=False, indent=2)) + "</pre>"])
     return "\n".join(lines) + "\n"
 
 
@@ -162,8 +208,12 @@ def main(argv=None) -> int:
         data = load_state(args.repo, args.manifest, args.revision_file)
         result = {"changed": False, "action": args.action}
         if args.action != "list":
-            result.update(decide(data, config, action=args.action, task_id=args.task_id,
-                                 actor=actor, note=args.note))
+            if args.action == "close_research_unaccepted":
+                result.update(close_research_unaccepted(data, config, task_id=args.task_id,
+                                                       actor=actor, note=args.note))
+            else:
+                result.update(decide(data, config, action=args.action, task_id=args.task_id,
+                                     actor=actor, note=args.note))
             if result["changed"]:
                 args.manifest.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                 result["state_sha"] = save_state(args.repo, args.manifest, args.revision_file)

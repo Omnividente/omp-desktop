@@ -13,7 +13,7 @@ on:
         type: string
         default: ""
       recover_report:
-        description: Re-read the same completed research report without another worker
+        description: Owner-only recovery; disposed research reparses only its exact saved report
         type: boolean
         default: false
       repair_after:
@@ -81,6 +81,7 @@ jobs:
           RISK_CEILING: ${{ inputs.risk_ceiling }}
           RECOVER_REPORT: ${{ inputs.recover_report }}
           REPAIR_AFTER: ${{ inputs.repair_after }}
+          RECOVERY_ACTOR: ${{ github.actor }}
           AUTOMATIC: ${{ inputs.automatic }}
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_API_KEY_BACKUP: ${{ secrets.JULES_API_KEY_BACKUP }}
@@ -93,7 +94,7 @@ jobs:
           python3 control/scripts/autonomous/lab_controller.py \
             --repo lab --config control/autonomous-project.json \
             --manifest queue.json --revision-file queue-revision.json \
-            --task-id "${TASK_ID}" --focus "${FOCUS}" \
+            --task-id "${TASK_ID}" --focus "${FOCUS}" --actor "${RECOVERY_ACTOR}" \
             --risk-ceiling "${RISK_CEILING:-medium}" --run-id "${GITHUB_RUN_ID}" \
             --out lab-result.json "${options[@]}"
 

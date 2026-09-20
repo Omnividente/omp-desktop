@@ -12,12 +12,13 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from complete_jules_task import latest_report
 from jules_dispatch import Response
 from jules_provenance import bind_proposal
 from lab_controller import GitHub, StateWriteError, _git, tick
 from loop_health import assess_health
 from state_store import load_state, save_state
-from proposal_backlog import decide
+from proposal_backlog import close_research_unaccepted, decide
 from task_lifecycle import start
 from validate_tasks import validate
 
@@ -794,7 +795,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.reload()[1], untouched)
         self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
         self.github.is_enabled = False
-        self.run_tick(recover_report=True, now=NOW + timedelta(minutes=11))
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=11))
         self.assertEqual(self.reload()[1], untouched)
 
     def test_report_recovery_preserves_unrelated_active_and_rejecting_worker_deadlines(self):
@@ -834,7 +835,7 @@ class ControllerTests(unittest.TestCase):
                 self.assertEqual((before["action"], before["due_at"]),
                                  ("next_task", "2026-09-13T12:30:00Z"))
 
-                result = self.run_tick(recover_report=True, now=due, run_id="11")
+                result = self.run_tick(recover_report=True, actor="Omnividente", now=due, run_id="11")
                 recovered, unrelated = self.reload()
                 self.assertEqual(result["attention"], [])
                 self.assertEqual(recovered["status"], "done")
@@ -846,7 +847,7 @@ class ControllerTests(unittest.TestCase):
                                  ("next_task", before["due_at"], 0))
                 self.assertEqual(self.data["controller"], clocks)
 
-                self.run_tick(recover_report=True, now=due + timedelta(minutes=1), run_id="12")
+                self.run_tick(recover_report=True, actor="Omnividente", now=due + timedelta(minutes=1), run_id="12")
                 self.reload()
                 repeated = health(due + timedelta(minutes=1))
                 self.assertEqual((repeated["action"], repeated["due_at"], repeated["scheduler"]["overdue_seconds"]),
@@ -863,21 +864,215 @@ class ControllerTests(unittest.TestCase):
         gets = self.api.gets
         self.run_tick(now=NOW + timedelta(minutes=5))
         self.assertEqual(self.api.gets, gets)
-        self.run_tick(recover_report=True, now=NOW + timedelta(minutes=10))
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=10))
         self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
         self.assertNotIn("research_result", self.reload()[0])
+
+    def test_disposed_failed_worker_keeps_failed_session_and_exact_report_identity(self):
+        original = self.disposed_research()
+        self.api.values["7"]["state"] = "FAILED"
+        self.repair_activity(self.valid_report().replace("Observed clock", "Later activity"),
+                             "later", NOW + timedelta(minutes=2))
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+        saved = self.reload()[0]
+        self.assertEqual((saved["status"], saved["execution"]["session_state"]), ("done", "FAILED"))
+        self.assertEqual(saved["research_result"]["source"], original["execution"]["report_repair"]["source"])
+        self.assertEqual(saved["execution"]["attempts"], original["execution"]["attempts"])
+        self.assertEqual((self.api.posts, self.api.messages), (0, []))
+
+    def valid_report(self):
+        report = {"summary": "Observed clock", "observations": [
+            {"scenario": "resume", "evidence": "synthetic transcript", "result": "clock stayed stale"}],
+            "next_hypotheses": []}
+        finding = {"id": "clock-finding", "title": "Clock remains stale after resume", "task_type": "bugfix",
+                   "risk": "low", "target_paths": ["src/clock.ts"], "acceptance": ["Clock advances on resume"],
+                   "evidence": {"source": "smoke", "detail": "Clock stayed at the previous time",
+                                "reproduction": {"steps": ["Suspend then resume"], "expected": "Current time",
+                                                 "actual": "Previous time"}}}
+        return ("AUTONOMOUS_RESEARCH_BEGIN\n" + json.dumps(report) + "\nAUTONOMOUS_RESEARCH_END\n"
+                + "AUTONOMOUS_TASKS_BEGIN\n" + json.dumps([finding]) + "\nAUTONOMOUS_TASKS_END")
+
+    def disposed_research(self, text=None):
+        self.broken_research()
+        self.api.activities["7"][0]["agentMessaged"]["agentMessage"] = text or self.valid_report()
+        _, source = latest_report(self.api.activities["7"])
+        source.update(session_id="7", dispatch_key="repair")
+        entry = self.data["tasks"][0]
+        entry["status"] = "blocked"
+        entry["execution"].update(state="awaiting_report", outcome="report_invalid", session_state="COMPLETED",
+            report_error={"code": "findings_invalid", "detail": "prior parser rejected the report",
+                          "reported_at": NOW.isoformat(), "source": source},
+            report_repair={"at": NOW.isoformat(), "status": "invalid", "result": "sent",
+                           "source": source, "detail": "prior parser rejected the repaired report"})
+        close_research_unaccepted(self.data, CONFIG, task_id="first", actor="Omnividente",
+                                 note="Inspected but not accepted", now=(NOW + timedelta(minutes=1)).isoformat())
+        self.persist(self.data)
+        return copy.deepcopy(entry)
+
+    def test_recovery_requires_owner_before_any_read_or_persistence(self):
+        self.broken_research()
+        before = copy.deepcopy(self.data)
+        for options in ({"actor": ""}, {"actor": "stranger"}, {"actor": "Omnividente", "automatic": True},
+                        {"actor": "Omnividente", "task_id": ""}):
+            with self.subTest(options=options), patch.object(self.github, "enabled") as enabled, \
+                    patch.object(self, "persist") as persist:
+                with self.assertRaises(ValueError):
+                    self.run_tick(recover_report=True, **options)
+                self.assertEqual(self.data, before)
+                self.assertEqual((self.api.gets, self.api.posts, self.api.messages), (0, 0, []))
+                enabled.assert_not_called()
+                persist.assert_not_called()
+
+    def test_disposed_recovery_selects_saved_older_source_and_retains_history(self):
+        original = self.disposed_research()
+        self.data["tasks"].append(task("unrelated"))
+        self.persist(self.data)
+        unrelated = copy.deepcopy(self.data["tasks"][1])
+        self.repair_activity(self.valid_report().replace("Observed clock", "Unrequested newer report"),
+                             "newer", NOW + timedelta(minutes=2))
+        result = self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+        saved = self.reload()[0]
+        self.assertEqual(result["attention"], [])
+        self.assertEqual((saved["status"], saved["execution"]["outcome"]), ("done", "researched"))
+        self.assertEqual(saved["research_result"]["source"], original["execution"]["report_repair"]["source"])
+        self.assertEqual(saved["research_result"]["summary"], "Observed clock")
+        self.assertEqual(self.data["tasks"][-1]["status"], "proposed")
+        self.assertEqual(self.data["tasks"][1], unrelated)
+        events = saved["research_disposition"]["events"]
+        self.assertEqual([e["action"] for e in events], ["close_unaccepted", "recover_authorized", "report_accepted"])
+        self.assertEqual(events[0], original["research_disposition"]["events"][0])
+        self.assertEqual(events[-1]["source"], saved["research_result"]["source"])
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(saved["execution"][field], original["execution"][field])
+        self.assertEqual((self.api.posts, self.api.messages), (0, []))
+        repeated = copy.deepcopy(self.data)
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=4))
+        self.assertEqual(self.reload(), repeated["tasks"])
+
+    def test_disposed_reparse_failure_never_sends_without_explicit_repair_after(self):
+        original = self.disposed_research("Final prose without structured report")
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+        saved = self.reload()[0]
+        self.assertEqual(saved["research_disposition"]["events"][-1]["action"], "recovery_failed")
+        self.assertEqual(saved["execution"], original["execution"])
+        self.assertEqual((self.api.posts, self.api.messages), (0, []))
+        after = original["execution"]["report_repair"]["at"]
+        self.run_tick(recover_report=True, repair_after=after, actor="Omnividente", now=NOW + timedelta(minutes=4))
+        pending = self.reload()[0]
+        self.assertEqual(pending["research_disposition"]["events"][-1]["mode"], "repair")
+        self.assertEqual(pending["execution"]["report_repair"]["after"], after)
+        self.assertEqual(len(self.api.messages), 1)
+        self.run_tick(recover_report=True, repair_after=after, actor="Omnividente", now=NOW + timedelta(minutes=5))
+        self.assertEqual(len(self.api.messages), 1)
+        self.repair_activity(self.valid_report(), "fixed", NOW + timedelta(minutes=6))
+        self.run_tick(now=NOW + timedelta(minutes=7))
+        saved = self.reload()[0]
+        self.assertEqual(saved["research_disposition"]["events"][-1]["action"], "report_accepted")
+        self.assertEqual(saved["research_disposition"]["events"][0], original["research_disposition"]["events"][0])
+        self.assertEqual(saved["execution"]["report_repair_history"], [original["execution"]["report_repair"]])
+        self.assertEqual(saved["research_result"]["source"]["activity_id"], "sessions/7/activities/fixed")
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+
+    def test_disposed_recovery_preserves_anomalies_and_never_repairs_or_retargets(self):
+        original = self.disposed_research()
+        baseline = copy.deepcopy(self.data)
+        activities = copy.deepcopy(self.api.activities)
+        for anomaly in ("missing", "rewritten", "empty", "active", "pr", "get_failed"):
+            with self.subTest(anomaly=anomaly):
+                self.data = copy.deepcopy(baseline)
+                self.api.activities = copy.deepcopy(activities)
+                self.api.values["7"] = session("7", "repair", "COMPLETED")
+                self.persist(self.data)
+                if anomaly == "missing":
+                    self.api.activities["7"] = []
+                elif anomaly == "rewritten":
+                    self.api.activities["7"][0]["agentMessaged"]["agentMessage"] += "changed"
+                elif anomaly == "empty":
+                    self.api.activities["7"][0]["agentMessaged"]["agentMessage"] = ""
+                elif anomaly == "active":
+                    self.api.values["7"]["state"] = "IN_PROGRESS"
+                elif anomaly == "pr":
+                    self.api.values["7"] = session("7", "repair", "COMPLETED", pull_request=59)
+                if anomaly == "get_failed":
+                    with patch("lab_controller.get_session", side_effect=RuntimeError("upstream unavailable")):
+                        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+                else:
+                    self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3),
+                                  repair_after=original["execution"]["report_repair"]["at"] if anomaly == "empty" else "")
+                saved = self.reload()[0]
+                self.assertEqual(saved["research_disposition"]["events"][-1]["action"], "recovery_failed")
+                self.assertEqual(saved["execution"]["report_error"], original["execution"]["report_error"])
+                self.assertNotIn("research_result", saved)
+                self.assertEqual((self.api.posts, self.api.messages, self.github.retargets), (0, [], 0))
+                health = assess_health(self.data, CONFIG, main_sha=self.head, lab_sha=self.head,
+                    main_is_ancestor=True, fingerprints={}, runs=[], sync_runs=[], pull_requests=[],
+                    enabled=True, now=NOW + timedelta(minutes=4))
+                self.assertEqual(health["acknowledged"], [])
+                self.assertTrue(any(item.get("task_id") == "first" for item in health["attention"]))
+
+    def test_disposed_recovery_authorization_survives_crash_but_not_automatic_resume(self):
+        self.disposed_research()
+        with patch("lab_controller.get_session", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+        saved = self.reload()[0]
+        self.assertEqual(saved["research_disposition"]["events"][-1]["action"], "recover_authorized")
+        before = copy.deepcopy(saved)
+        self.run_tick(now=NOW + timedelta(minutes=4))
+        self.assertEqual(self.reload()[0], before)
+        self.assertEqual(self.api.gets, 0)
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=5))
+        self.assertEqual([event["action"] for event in self.reload()[0]["research_disposition"]["events"]],
+                         ["close_unaccepted", "recover_authorized", "report_accepted"])
+
+    def test_disposed_recovery_cas_refuses_stale_authorization_and_acceptance(self):
+        self.disposed_research()
+        def concurrent_change():
+            queue, revision = self.root / "other.json", self.root / "other-revision.json"
+            other = load_state(self.repo, queue, revision)
+            other["tasks"][0]["title"] += " reviewed"
+            queue.write_text(json.dumps(other), encoding="utf-8")
+            save_state(self.repo, queue, revision)
+        concurrent_change()
+        with self.assertRaises(StateWriteError):
+            self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=3))
+        self.assertEqual(self.api.gets, 0)
+        self.assertEqual(self.reload()[0]["research_disposition"]["events"][-1]["action"], "close_unaccepted")
+        transport = self.api
+        raced = False
+        def race_on_report(method, url, headers, payload):
+            nonlocal raced
+            if urlsplit(url).path.endswith("/activities") and not raced:
+                raced = True
+                concurrent_change()
+            return transport(method, url, headers, payload)
+        with self.assertRaises(StateWriteError):
+            tick(self.data, CONFIG, repo=self.repo, templates=TEMPLATES, github=self.github,
+                 persist=self.persist, api_keys=["fixture-only"], transport=race_on_report,
+                 api_base="http://localhost/v1alpha", task_id="first", recover_report=True,
+                 actor="Omnividente", now=NOW + timedelta(minutes=4))
+        pending = self.reload()[0]
+        self.assertNotIn("research_result", pending)
+        self.assertEqual(pending["research_disposition"]["events"][-1]["action"], "recover_authorized")
+        title = pending["title"]
+        self.run_tick(recover_report=True, actor="Omnividente", now=NOW + timedelta(minutes=5))
+        saved = self.reload()[0]
+        self.assertEqual(saved["title"], title)
+        self.assertEqual(saved["status"], "done")
+        self.assertEqual([event["action"] for event in saved["research_disposition"]["events"]],
+                         ["close_unaccepted", "recover_authorized", "report_accepted"])
+        self.assertEqual((self.api.posts, self.api.messages), (0, []))
 
     def test_historical_report_requires_explicit_enabled_recovery(self):
         self.broken_research()
         self.github.is_enabled = False
         self.run_tick()
         self.reload()
-        self.run_tick(recover_report=True)
+        self.run_tick(recover_report=True, actor="Omnividente")
         self.assertEqual(self.api.messages, [])
         self.github.is_enabled = True
         self.run_tick()
         self.assertEqual(self.api.messages, [])
-        self.run_tick(recover_report=True)
+        self.run_tick(recover_report=True, actor="Omnividente")
         self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
 
     def test_switch_after_repair_intent_prevents_post(self):
@@ -890,7 +1085,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.api.messages, [])
         self.assertEqual(self.reload()[0]["execution"]["report_repair"]["status"], "rejected")
         self.github.is_enabled = True
-        self.run_tick(recover_report=True)
+        self.run_tick(recover_report=True, actor="Omnividente")
         self.assertEqual(self.api.messages, [])
 
     def test_unknown_repair_expires_without_new_attempt_or_resend(self):
