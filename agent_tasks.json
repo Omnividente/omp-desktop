@@ -15808,7 +15808,7 @@
       "id": "research-settings-models-reliability-4",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -15931,23 +15931,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2518139009468094769",
         "dispatch_key": "895c0989ba2cfb3773796bec",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-895c0989ba2cfb3773796bec",
         "started_at": "2026-09-20T09:23:28.136007Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T09:55:02.952937Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T09:30:34.438081Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T09:55:02.952937Z"
+      },
+      "research_result": {
+        "summary": "Investigated duplicate backup file creation when settings recovery or start with defaults fails during the save phase.",
+        "observations": [
+          {
+            "scenario": "Simulated multiple failed writes during 'Start with defaults' and corrupted recovery.",
+            "evidence": "Locally injected test code in `src-tauri/src/settings.rs` showing that `prepare_defaults_at_with` and `recover_invalid_settings_with` unconditionally call `unique_settings_backup` each time before generating and saving the payload. When the save step fails, the backup remains and retries generate another identical backup.",
+            "result": "Establishes that the system leaks duplicate `settings.backup-*` or `settings.invalid-*` files with identical content if the recovery/defaults process is repeatedly triggered and fails to save."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if wiping settings via other paths like dropping the settings file or deleting cache could also be optimized to deduplicate temporary files."
+        ],
+        "proposed_task_ids": [
+          "discovery-4b09e5c211d7eb93"
+        ],
+        "completed_at": "2026-09-20T09:55:02.952937Z",
+        "source": {
+          "activity_id": "sessions/2518139009468094769/activities/ca750b282d884e91b495ba1e22221ea6",
+          "report_sha256": "4bb6d40b6006fb3a228949ae4511dfeaf6acc98eee11f7175b7daaaf0a1e7bbc",
+          "activity_created_at": "2026-09-20T09:44:59.391777Z",
+          "session_id": "2518139009468094769",
+          "dispatch_key": "895c0989ba2cfb3773796bec"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2518139009468094769/activities/ca750b282d884e91b495ba1e22221ea6",
+          "report_sha256": "4bb6d40b6006fb3a228949ae4511dfeaf6acc98eee11f7175b7daaaf0a1e7bbc",
+          "activity_created_at": "2026-09-20T09:44:59.391777Z",
+          "session_id": "2518139009468094769",
+          "dispatch_key": "895c0989ba2cfb3773796bec"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4b09e5c211d7eb93"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4b09e5c211d7eb93",
+      "title": "Prevent duplicate backup file generation during failed recovery and defaults operations",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-20T09:55:02.952937Z",
+      "acceptance": [
+        "Repeated failed attempts to recover settings or start with defaults do not leak duplicate identical .backup or .invalid files"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via localized test injection on `recover_invalid_settings_with` and `prepare_defaults_at_with`. The process creates a unique backup on disk *before* attempting the actual write/commit. If the subsequent commit fails, retrying the operation generates another backup of the exact same corrupted original state, cluttering the configuration directory.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a corrupted settings.json file",
+            "Attempt to recover or 'Start with defaults' and simulate a write failure on the final save operation",
+            "Repeat the process multiple times and inspect the settings directory"
+          ],
+          "expected": "There is at most one backup file per identical original corrupted state",
+          "actual": "Each attempt generates a new randomly-named backup file with identical contents"
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/settings.rs"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-4",
+        "activity_id": "sessions/2518139009468094769/activities/ca750b282d884e91b495ba1e22221ea6",
+        "report_sha256": "4bb6d40b6006fb3a228949ae4511dfeaf6acc98eee11f7175b7daaaf0a1e7bbc",
+        "activity_created_at": "2026-09-20T09:44:59.391777Z",
+        "session_id": "2518139009468094769",
+        "dispatch_key": "895c0989ba2cfb3773796bec"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T09:49:13.878774Z",
+    "last_poll_at": "2026-09-20T09:55:22.315452Z",
     "last_tick_at": "2026-09-20T09:49:16.364001Z",
     "run_id": "35503335238"
   }
