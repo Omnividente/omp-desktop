@@ -86,10 +86,12 @@ export function SessionList({
   canLaunch,
 }: SessionListProps) {
   const listRef = useRef<HTMLDivElement>(null)
-  const removalFocusRef = useRef<{
+  const actionFocusRef = useRef<{
     id: string
     workspace: string | null
-    button: HTMLButtonElement
+    kind: "remove" | "rename" | "renamed"
+    origin: HTMLElement
+    target: HTMLElement | null
   } | null>(null)
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
   const sessionTree = useMemo(
@@ -111,44 +113,58 @@ export function SessionList({
   }, [selectedWorkspacePath])
 
   useEffect(() => {
-    const cancelRemovalFocus = (event: Event) => {
-      const pending = removalFocusRef.current
+    const cancelActionFocus = (event: Event) => {
+      const pending = actionFocusRef.current
       if (
         !pending ||
-        event.target === pending.button ||
-        pending.button.contains(event.target as Node)
+        event.target === pending.origin ||
+        pending.origin.contains(event.target as Node)
       )
         return
-      // Disabling/removing the initiating button may itself move focus to the body.
+      // Disabling/removing the initiating control may itself move focus to the body.
       if (
         event.type === "focusin" &&
         event.target === document.body &&
-        (pending.button.disabled || !pending.button.isConnected)
+        (pending.origin.matches(":disabled") || !pending.origin.isConnected)
       )
         return
-      removalFocusRef.current = null
+      actionFocusRef.current = null
     }
-    document.addEventListener("focusin", cancelRemovalFocus)
-    document.addEventListener("pointerdown", cancelRemovalFocus)
+    document.addEventListener("focusin", cancelActionFocus)
+    document.addEventListener("pointerdown", cancelActionFocus)
     return () => {
-      document.removeEventListener("focusin", cancelRemovalFocus)
-      document.removeEventListener("pointerdown", cancelRemovalFocus)
+      document.removeEventListener("focusin", cancelActionFocus)
+      document.removeEventListener("pointerdown", cancelActionFocus)
     }
   }, [])
 
+  // Virtual scrolling can unmount the input without changing the rename id or sessions.
+  // Resolve the pending keyboard action after every list commit, before paint.
   useLayoutEffect(() => {
-    const pending = removalFocusRef.current
+    const pending = actionFocusRef.current
     if (!pending) return
     if (pending.workspace !== selectedWorkspacePath) {
-      removalFocusRef.current = null
+      actionFocusRef.current = null
       return
     }
-    if (allSessions.some((session) => session.id === pending.id)) return
-    removalFocusRef.current = null
-    if (document.activeElement === document.body || document.activeElement === pending.button) {
-      listRef.current?.focus({ preventScroll: true })
+    if (
+      pending.kind === "remove"
+        ? allSessions.some((session) => session.id === pending.id)
+        : pending.origin.isConnected &&
+          (pending.kind === "renamed" || renamingSessionId === pending.id)
+    )
+      return
+    actionFocusRef.current = null
+    if (document.activeElement === document.body || document.activeElement === pending.origin) {
+      const target = pending.target?.isConnected ? pending.target : listRef.current
+      if (pending.kind === "rename" && target && target !== listRef.current) {
+        // A saved title can leave the current search after the backend responds.
+        // Keep guarding this focused row until it disappears or the user moves on.
+        actionFocusRef.current = { ...pending, kind: "renamed", origin: target, target: null }
+      }
+      target?.focus({ preventScroll: true })
     }
-  }, [allSessions, selectedWorkspacePath])
+  })
 
   useEffect(() => {
     if (!selectedSessionId) return
@@ -265,8 +281,21 @@ export function SessionList({
               const launchDisabled = deletingSessionId !== null || launching !== null || !canLaunch
 
               const submit = () => onSubmitRename(session)
-              const keyDown = (e: ReactKeyboardEvent<HTMLInputElement>) =>
+              const keyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+                if (
+                  (e.key === "Enter" || e.key === "Escape") &&
+                  document.activeElement === e.currentTarget
+                ) {
+                  actionFocusRef.current = {
+                    id: session.id,
+                    workspace: selectedWorkspacePath,
+                    kind: "rename",
+                    origin: e.currentTarget,
+                    target: e.currentTarget.closest<HTMLElement>(".session-select"),
+                  }
+                }
                 onRenameKeyDown(e, session)
+              }
 
               return (
                 <div key={session.id} style={{ height: vi.height, display: "flow-root" }}>
@@ -281,13 +310,15 @@ export function SessionList({
                     hasChildren={vi.item.hasChildren}
                     onDelete={(e) => {
                       e.stopPropagation()
-                      removalFocusRef.current =
+                      actionFocusRef.current =
                         e.currentTarget instanceof HTMLButtonElement &&
                         document.activeElement === e.currentTarget
                           ? {
                               id: session.id,
                               workspace: selectedWorkspacePath,
-                              button: e.currentTarget,
+                              kind: "remove",
+                              origin: e.currentTarget,
+                              target: null,
                             }
                           : null
                       onDeleteSession(session)

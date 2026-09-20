@@ -71,6 +71,7 @@ export function SessionRow({
   onRenameKeyDown,
 }: SessionRowProps) {
   const titleAnchorRef = useRef<HTMLDivElement>(null)
+  const renameFinishedByKeyboardRef = useRef(false)
   const titleTooltipId = useId()
   const [titleTooltipOpen, setTitleTooltipOpen] = useState(false)
   const [titleTooltipPosition, setTitleTooltipPosition] = useState({
@@ -79,6 +80,10 @@ export function SessionRow({
     width: 240,
     above: false,
   })
+
+  useLayoutEffect(() => {
+    renameFinishedByKeyboardRef.current = false
+  }, [renaming])
 
   useLayoutEffect(() => {
     if (!titleTooltipOpen) return undefined
@@ -161,11 +166,16 @@ export function SessionRow({
               <input
                 autoFocus
                 className="session-rename"
-                onBlur={onSubmitRename}
+                onBlur={() => {
+                  if (!renameFinishedByKeyboardRef.current) onSubmitRename()
+                }}
                 onChange={(e) => onRenameChange(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation()
+                  if (e.key === "Enter" || e.key === "Escape") {
+                    renameFinishedByKeyboardRef.current = true
+                  }
                   onRenameKeyDown(e)
                 }}
                 value={renameValue}
