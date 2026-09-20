@@ -14138,7 +14138,7 @@
       "id": "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56",
       "title": "Clean up orphaned backup and staging artifact directories during session scan",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -14173,6 +14173,12 @@
         "activity_created_at": "2026-09-20T05:02:23.169142Z",
         "session_id": "13596234776108211712",
         "dispatch_key": "2ff838f3cb9ef7ac45e7fc5c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:49:21Z",
+        "note": "Разбор владельца: https://github.com/Omnividente/omp-desktop/issues/80 . Повтор discovery-e938ec8d92054623. Backup/staging могут быть последней копией после незавершённого rollback; сам факт существования каталога не доказывает orphan/safe-to-delete. Проверка dummy-каталогов не моделирует crash-recovery. Не добавлять destructive cleanup в session scan; сохраняем прежний отказ."
       }
     },
     {
