@@ -16032,6 +16032,130 @@
         "session_id": "2518139009468094769",
         "dispatch_key": "895c0989ba2cfb3773796bec"
       }
+    },
+    {
+      "id": "research-settings-models-performance-4",
+      "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-20T09:55:02Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\",\"status\":\"proposed\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring latency of `useMemo` operations. Matches exactly the proposed change in discovery-37764527ab2ab728.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset, reducing latency.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]}},{\"canonical_id\":\"discovery-a674fea024868caf\",\"status\":\"proposed\",\"title\":\"Preserve application language preference when reverting to default settings\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `prepare_defaults_at_with` in `src-tauri/src/settings.rs`. The backend resets all preferences including language to their defaults by calling `AppSettings::default()`. The language property is not extracted from the backup, confirming the related finding in discover [excerpt]\",\"expected\":\"The generated default settings file has `language` set to `en`.\",\"actual\":\"The generated default settings file has `language` reset to `ru`.\",\"acceptance\":[\"When the user selects \\\"Start with defaults\\\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file.\"]}},{\"canonical_id\":\"discovery-4b09e5c211d7eb93\",\"status\":\"proposed\",\"title\":\"Prevent duplicate backup file generation during failed recovery and defaults operations\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via localized test injection on `recover_invalid_settings_with` and `prepare_defaults_at_with`. The process creates a unique backup on disk *before* attempting the actual write/commit. If the subsequent commit fails, retrying the operation generates another backup of the exact same corrupte [excerpt]\",\"expected\":\"There is at most one backup file per identical original corrupted state\",\"actual\":\"Each attempt generates a new randomly-named backup file with identical contents\",\"acceptance\":[\"Repeated failed attempts to recover settings or start with defaults do not leak duplicate identical .backup or .invalid files\"]}},{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"done\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"done\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"done\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-db32c1ac35bd4222\",\"status\":\"done\",\"title\":\"Preserve language preference during settings recovery\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.\",\"expected\":\"The recovery screen text and logs reflect the recovered language preference.\",\"actual\":\"The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it.\",\"acceptance\":[\"Partial settings recovery extracts and preserves the `language` field when it is readable\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-37764527ab2ab728\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring `useMemo` latency. The code spreads the models into a new array, sorts the entire array, and then filters it.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "performance",
+        "fingerprint": "29dd832f17b75d6a77c1cf6b27d279325cbfd13fd6a25b3d621feeed8cf26bd2",
+        "cycle": 4,
+        "previous_reports": [
+          {
+            "summary": "Investigated the omission of non-sensitive accessibility preferences (language, fonts) during settings recovery, confirming existing proposal discovery-db32c1ac35bd4222, and analyzed the performance of filtering and sorting in ModelPicker, confirming existing proposal discovery-37764527ab2ab728.",
+            "observations": [
+              {
+                "scenario": "Application performs partial recovery of corrupted `settings.json`.",
+                "evidence": "Source code review of `recover_settings_fields` in `src-tauri/src/settings.rs`. The function specifically extracts `providerEnvKeys`, `ompExecutable` and others, but ignores `language`, `app_font_family`, `app_font_size`, `terminal_font_family`, and `terminal_font_size`. Synthetic JavaScript parsing of a sample JSON confirmed the missing logic for these fields.",
+                "result": "Establishes that safe accessibility and language preferences are dropped during partial settings recovery. This reproduces and expands upon the contract observed in canonical_id discovery-db32c1ac35bd4222 to include font accessibility preferences."
+              },
+              {
+                "scenario": "User selects 'Start with defaults' from the SettingsRecoveryScreen.",
+                "evidence": "Source code review of `prepare_defaults_at_with` in `src-tauri/src/settings.rs`. This function creates a backup but immediately generates the new configuration using `AppSettings::default()` without preserving the language from the backup.",
+                "result": "Establishes that using 'Start with defaults' discards all user preferences, including safe ones like language (related to canonical_id discovery-db32c1ac35bd4222), causing an abrupt language reset."
+              },
+              {
+                "scenario": "Evaluating performance overhead in ModelPicker filtering/sorting logic.",
+                "evidence": "Source inspection of `src/ModelPicker.tsx` and execution of synthetic Node.js benchmark scripts. The code pattern `[...models].sort(...).filter(...)` clones the array, runs `localeCompare` on all items, and then filters. Reversing to `models.filter(...).sort(...)` reduced execution time from ~172ms to ~54ms for 100 iterations on a 1000-model array.",
+                "result": "Establishes that filtering before sorting is functionally equivalent but significantly faster, preventing unnecessary allocations. This confirms the exact contract observed in canonical_id discovery-37764527ab2ab728."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if memoizing the joined and lowercased search strings in the model array itself would further reduce allocation overhead during frequent keystrokes in ModelPicker.",
+              "Investigate if proxy configurations and provider environment variables are safely managed and fully removed from the corrupted backup file during `prepare_defaults_at_with`, ensuring no accidental secret exposure."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T10:54:28.305911Z",
+            "source": {
+              "activity_id": "sessions/8737317161181600306/activities/27cece1ee721431dba8af19a7920965c",
+              "report_sha256": "9690682ac479d12af7683a96f77b9669d35383f8efc668101c47741303b3d720",
+              "activity_created_at": "2026-09-19T10:47:17.793915Z",
+              "session_id": "8737317161181600306",
+              "dispatch_key": "8135b5d66137257a92f88774"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated if proxy and provider environment variables are safely managed in `prepare_defaults_at_with` when resetting to defaults, and benchmarked `ModelPicker` search filtering and sorting logic.",
+            "observations": [
+              {
+                "scenario": "Verify if proxy configurations and provider environment variables are safely managed and fully removed from the corrupted backup file during `prepare_defaults_at_with`.",
+                "evidence": "Source code review of `prepare_defaults_at_with` in `src-tauri/src/settings.rs` and `harden_private_file` in `src-tauri/src/sessions.rs`. The code uses `fs::read` on the original corrupted file and writes its contents exactly as-is to `settings.backup` without scrubbing `proxyHost` or `providerEnvKeys`.\n\nHowever, before backing up, it calls `secrets::set_private_permissions(path)`, which sets the file mode to `0o600` (read/write by owner only) on Unix, and equivalent ACLs on Windows. This prevents unintended secret exposure to other users on the system, though the secrets remain intact on disk in the backup.",
+                "result": "Establishes that secrets are NOT removed from the backup file. However, they are safely managed from an OS-level permissions standpoint because the backup inherits the locked-down `0o600` permissions."
+              },
+              {
+                "scenario": "Synthetic benchmarks of the `ModelPicker.tsx` filtering logic.",
+                "evidence": "Observed in `src/ModelPicker.tsx` that the `filteredModels` array uses `[...models].sort(...).filter(...)`. Executed a Node.js synthetic benchmark comparing `[...models].sort().filter()` to `models.filter().sort()` over 1,000 artificial models. The `filter` then `sort` method took ~414ms for 1000 iterations vs ~1865ms for the current `sort` then `filter` approach.",
+                "result": "Confirms the finding from discovery-37764527ab2ab728: Filtering the array before sorting is significantly faster and avoids unnecessary array copies."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if the `ModelPicker` input debounce can be optimized further so typing rapidly doesn't block the UI thread during the filtering/sorting operations.",
+              "Investigate if restoring a settings backup via `SettingsRecoveryScreen` will also re-apply the locked-down `0o600` permissions on the newly restored `settings.json`."
+            ],
+            "proposed_task_ids": [
+              "discovery-a674fea024868caf",
+              "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d"
+            ],
+            "completed_at": "2026-09-20T09:23:28.136007Z",
+            "source": {
+              "activity_id": "sessions/10311295633018430364/activities/c9c05b2dec404c4eab41226ae805bc95",
+              "report_sha256": "58b46b94a633565414f5c71075916162287236d2caf88c3e6efcd8fb400086a7",
+              "activity_created_at": "2026-09-20T09:16:10.604354Z",
+              "session_id": "10311295633018430364",
+              "dispatch_key": "78a3078529158db815de0c7b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated duplicate backup file creation when settings recovery or start with defaults fails during the save phase.",
+            "observations": [
+              {
+                "scenario": "Simulated multiple failed writes during 'Start with defaults' and corrupted recovery.",
+                "evidence": "Locally injected test code in `src-tauri/src/settings.rs` showing that `prepare_defaults_at_with` and `recover_invalid_settings_with` unconditionally call `unique_settings_backup` each time before generating and saving the payload. When the save step fails, the backup remains and retries generate another identical backup.",
+                "result": "Establishes that the system leaks duplicate `settings.backup-*` or `settings.invalid-*` files with identical content if the recovery/defaults process is repeatedly triggered and fails to save."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if wiping settings via other paths like dropping the settings file or deleting cache could also be optimized to deduplicate temporary files."
+            ],
+            "proposed_task_ids": [
+              "discovery-4b09e5c211d7eb93"
+            ],
+            "completed_at": "2026-09-20T09:55:02.952937Z",
+            "source": {
+              "activity_id": "sessions/2518139009468094769/activities/ca750b282d884e91b495ba1e22221ea6",
+              "report_sha256": "4bb6d40b6006fb3a228949ae4511dfeaf6acc98eee11f7175b7daaaf0a1e7bbc",
+              "activity_created_at": "2026-09-20T09:44:59.391777Z",
+              "session_id": "2518139009468094769",
+              "dispatch_key": "895c0989ba2cfb3773796bec"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
