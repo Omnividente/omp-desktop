@@ -17736,13 +17736,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T15:22:51.447082Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T15:30:05.749350Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T15:24:24.811652Z",
+    "last_poll_at": "2026-09-20T15:30:20.980495Z",
     "last_tick_at": "2026-09-20T15:24:27.080704Z",
     "run_id": "35519379457"
   }
