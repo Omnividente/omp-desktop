@@ -15581,7 +15581,7 @@
       "id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
       "title": "Close session import modals when an import failure occurs",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -15615,6 +15615,12 @@
         "activity_created_at": "2026-09-20T07:49:27.439154Z",
         "session_id": "13416721222502802073",
         "dispatch_key": "d821a5cf6467b1a0c1d9461b"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:30:51Z",
+        "note": "Rejected: retaining the import dialog and selection after a failed or partially failed import allows correction/retry and explicit dismissal. Current main intentionally closes only on success, reports failures, and releases the importing lock in finally. A mocked assertion that the dialog should always close does not establish a defect; do not discard the users retry context."
       }
     },
     {
