@@ -16681,7 +16681,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T11:11:51.088507Z"
+        "observed_at": "2026-09-20T11:11:51.088507Z",
+        "released_attempt_ref": "autonomous/attempt-93ae78280819755c96972ccc"
       },
       "research_result": {
         "summary": "Investigated interaction clarity around model selection and settings recovery flows, identifying an issue where the ModelPicker's search input does not receive focus when opened, forcing manual keyboard/mouse focus to search.",
