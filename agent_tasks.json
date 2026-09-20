@@ -19269,7 +19269,7 @@
       "id": "research-transcript-links-ux-4",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -19398,18 +19398,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4287502329410131960",
         "dispatch_key": "e99e31748c31695a2bdbe323",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-e99e31748c31695a2bdbe323",
         "started_at": "2026-09-20T20:50:57.938018Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T21:21:58.416700Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T21:08:04.594169Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T21:21:58.416700Z",
         "research_detached": {
           "at": "2026-09-20T21:07:21.656493Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -19418,11 +19418,146 @@
           "at": "2026-09-20T21:07:21.656493Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified keyboard accessibility and screen reader reporting for transcript empty and error states.",
+        "observations": [
+          {
+            "scenario": "Simulated keyboard focus interaction clicking the 'Clear search' button within the 'No matches' empty state view.",
+            "evidence": "Created a synthetic vitest DOM test rendering TranscriptModal with a search term that yields no matches. Focusing the secondary 'Clear search' button inside the empty state container and triggering a click invoked `onClearSearch`. Since it does not manually refocus the search input, the button disappears and focus is thrown to the document body (and subsequently grabbed by `useModalFocus` back to the `.settings-panel` wrapper). This breaks the expected interaction flow.",
+            "result": "Establishes a focus-restoration defect where the secondary Clear search button fails to return focus to the search input, unlike the primary Clear search button in the toolbar."
+          },
+          {
+            "scenario": "Analyzed ARIA properties on transcript result states.",
+            "evidence": "Inspected the rendered elements in `TranscriptModal.tsx` for `transcriptEmpty` and `transcriptNoMatches`. Neither container applies `role=\"status\"` or `aria-live=\"polite\"`. In contrast, the `transcriptLoading` container correctly uses `aria-live=\"polite\"` and the `transcriptError` uses `role=\"alert\"`.",
+            "result": "Establishes an accessibility omission where a completely empty transcript or a filter returning no matches is not automatically announced to screen readers."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if focus is correctly restored to the original transcript entry when recovering from an error state using the 'Retry' button."
+        ],
+        "proposed_task_ids": [
+          "discovery-1259f8a3d3fd8128",
+          "discovery-47b68bc64b47ba91"
+        ],
+        "completed_at": "2026-09-20T21:21:58.416700Z",
+        "source": {
+          "activity_id": "sessions/4287502329410131960/activities/7316d985a2084ce9aff5d6c0488385f5",
+          "report_sha256": "7769610a1f6e9001acf95f6f4d8fb8f2a9e2620ada0451a1f923cd3f7afc5931",
+          "activity_created_at": "2026-09-20T21:12:04.755037Z",
+          "session_id": "4287502329410131960",
+          "dispatch_key": "e99e31748c31695a2bdbe323"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4287502329410131960/activities/7316d985a2084ce9aff5d6c0488385f5",
+          "report_sha256": "7769610a1f6e9001acf95f6f4d8fb8f2a9e2620ada0451a1f923cd3f7afc5931",
+          "activity_created_at": "2026-09-20T21:12:04.755037Z",
+          "session_id": "4287502329410131960",
+          "dispatch_key": "e99e31748c31695a2bdbe323"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-1259f8a3d3fd8128",
+            "discovery-47b68bc64b47ba91"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-1259f8a3d3fd8128",
+      "title": "Restore focus to search input on empty state clear search",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-20T21:21:58.416700Z",
+      "acceptance": [
+        "Clicking 'Clear search' in the 'No matches' state restores focus to the search input"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Synthetic React DOM testing observed focus dropping to the panel wrapper when the empty state button is clicked.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a transcript modal",
+            "Focus the search input and type a query with no matches",
+            "Press Tab to focus the 'Clear search' button inside the empty state message",
+            "Press Enter or Space to trigger the button"
+          ],
+          "expected": "The search input receives focus after the search is cleared",
+          "actual": "Focus is lost from the interactive area and defaults to the modal wrapper"
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-4",
+        "activity_id": "sessions/4287502329410131960/activities/7316d985a2084ce9aff5d6c0488385f5",
+        "report_sha256": "7769610a1f6e9001acf95f6f4d8fb8f2a9e2620ada0451a1f923cd3f7afc5931",
+        "activity_created_at": "2026-09-20T21:12:04.755037Z",
+        "session_id": "4287502329410131960",
+        "dispatch_key": "e99e31748c31695a2bdbe323"
+      }
+    },
+    {
+      "id": "discovery-47b68bc64b47ba91",
+      "title": "Announce empty transcript states to screen readers",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y"
+      ],
+      "created_at": "2026-09-20T21:21:58.416700Z",
+      "acceptance": [
+        "The 'No matches' empty state container has a role of 'status' or aria-live='polite'",
+        "The entirely empty transcript container has a role of 'status' or aria-live='polite'"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "DOM inspection of the TranscriptModal rendering logic for empty and no-match conditions.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open an empty transcript or filter an existing transcript to show no matches",
+            "Inspect the resulting empty state container in the DOM"
+          ],
+          "expected": "The container uses ARIA live regions to announce the state change",
+          "actual": "The container lacks role='status' and aria-live='polite' attributes"
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-4",
+        "activity_id": "sessions/4287502329410131960/activities/7316d985a2084ce9aff5d6c0488385f5",
+        "report_sha256": "7769610a1f6e9001acf95f6f4d8fb8f2a9e2620ada0451a1f923cd3f7afc5931",
+        "activity_created_at": "2026-09-20T21:12:04.755037Z",
+        "session_id": "4287502329410131960",
+        "dispatch_key": "e99e31748c31695a2bdbe323"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T21:22:15.637016Z",
+    "last_poll_at": "2026-09-20T21:22:18.293351Z",
     "last_tick_at": "2026-09-20T21:14:24.360960Z",
     "run_id": "35538060187"
   }
