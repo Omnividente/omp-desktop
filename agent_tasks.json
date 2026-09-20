@@ -6374,7 +6374,7 @@
       "id": "research-settings-models-performance-2",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -6492,34 +6492,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "15220953140120496057",
         "dispatch_key": "6d589303dad7e3843ce4fb4a",
         "base_sha": "9e4978b2e35e525afaf84f2b3500d458e2fde952",
         "starting_branch": "autonomous/attempt-6d589303dad7e3843ce4fb4a",
         "started_at": "2026-09-18T09:25:56.491548Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T16:51:06.701659Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: findings_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_predecision_overlap",
         "session_state": "COMPLETED",
         "observed_at": "2026-09-18T09:58:43.571566Z",
-        "report_error": {
-          "code": "findings_invalid",
-          "detail": "incomplete discovery findings; nothing imported: conflicting_id",
-          "reported_at": "2026-09-18T09:45:18.336116Z",
-          "source": {
-            "activity_id": "sessions/15220953140120496057/activities/7dd81efbdbf042f4b15750f51f3a6a05",
-            "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
-            "activity_created_at": "2026-09-18T09:34:12.542276Z",
-            "session_id": "15220953140120496057",
-            "dispatch_key": "6d589303dad7e3843ce4fb4a"
-          }
-        },
         "report_repair": {
           "at": "2026-09-18T09:45:41.670195Z",
           "result": "sent",
-          "status": "invalid",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/15220953140120496057/activities/3981a2c748f244679624f5b7910f76c1",
             "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
@@ -6528,6 +6516,183 @@
             "dispatch_key": "6d589303dad7e3843ce4fb4a"
           },
           "detail": "incomplete discovery findings; nothing imported: conflicting_id"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated Settings recovery and model selection behavior, discovering bugs with draft loss on structured API failures, and model selector :off / :auto dropping. Language setting is properly preserved during recovery and restart.",
+        "observations": [
+          {
+            "scenario": "Reviewing and simulating fallback chain change logic during operational settings updates.",
+            "evidence": "Tested the behavior of operational drafts saving in SettingsPanel.tsx via a synthetic node script mimicking logic: `!draft.reset && setting.type === 'number' && (draft.value.trim() === '' || !Number.isFinite(Number(draft.value)))`. Confirmed that it handles non-numbers and empty strings correctly by throwing an error, but handles valid numbers correctly.",
+            "result": "Establishes that numerical input validation logic in operational settings works correctly, contrary to an earlier hypothesis about dropping internal state."
+          },
+          {
+            "scenario": "Investigate UI behavior when saveSettingsBundle returns a structured failure via IPC.",
+            "evidence": "Observed via source inspection of `src/SettingsPanel.tsx`. When `saveSettingsBundle` returns an error, it calls `refreshConfig(true)`, forcing a reload from the backend via `acceptConfig(snapshot)`, which overwrites user drafts such as fallback chains, operational changes, etc. (Canonical ID: discovery-be56185691369523).",
+            "result": "Establishes that drafts are lost on structured backend failure, contradicting user expectation to preserve drafts so they can correct errors."
+          },
+          {
+            "scenario": "Simulate model switching when base thinking modifiers (:off, :auto) are applied.",
+            "evidence": "Tested `selectorForModel` logic mimicking `src/ModelPicker.tsx`. When `current` includes `:off` or `:auto` modifiers, and switching to a new model that also supports thinking levels, the returned string is missing the modifier because `model.thinking.includes(thinking)` checks strictly against `['low', 'high', etc.]` without treating base modifiers generically. (Canonical ID: discovery-f94f0fd889c52402).",
+            "result": "Establishes that switching models fails to preserve the `:off` or `:auto` base thinking modifiers, causing silent regression to the model's base behavior."
+          },
+          {
+            "scenario": "Test if application language preferences survive SettingsRecoveryScreen when reverting to defaults.",
+            "evidence": "Observed `src-tauri/src/settings.rs` which implements `start_with_defaults` and tests like `test_start_with_defaults_preserves_language` (if it existed) or `explicit_defaults_preserve_byte_identical_backup`. `AppSettings::default()` uses `default_language()` which returns 'ru'. There is no logic to preserve the current language from the damaged state into the defaults.",
+            "result": "Establishes that `start_with_defaults` resets language to `ru` and does not attempt to preserve it from the old invalid settings snapshot, although safe-field recovery via `recover_invalid_settings` tries to preserve it."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the UI allows creating proxy providers that overlap with reserved generic provider pins.",
+          "Verify if reverting settings to defaults preserves current application window dimensions and state."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T16:51:06.701659Z",
+        "source": {
+          "activity_id": "sessions/15220953140120496057/activities/3981a2c748f244679624f5b7910f76c1",
+          "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
+          "activity_created_at": "2026-09-18T09:46:25.548983Z",
+          "session_id": "15220953140120496057",
+          "dispatch_key": "6d589303dad7e3843ce4fb4a"
+        },
+        "deferred_findings": [
+          {
+            "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
+            "reason": "historical_predecision_overlap",
+            "evidence": "{\"detail\": \"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\", \"reproduction\": {\"actual\": \"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\", \"expected\": \"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\", \"steps\": [\"Select a model with a thinking level of `:off` or `:auto`.\", \"Switch to another model that also supports thinking levels.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers"
+            ],
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-21935d2cee4d8a7e",
+                  "action": "resolve",
+                  "decision_at": "2026-09-19T05:40:15Z",
+                  "match": "possible",
+                  "timing": "pre"
+                },
+                {
+                  "task_id": "discovery-f94f0fd889c52402",
+                  "action": "reject",
+                  "decision_at": "2026-09-18T16:41:06Z",
+                  "match": "possible",
+                  "timing": "pre"
+                }
+              ]
+            }
+          },
+          {
+            "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
+            "reason": "historical_predecision_overlap",
+            "evidence": "{\"detail\": \"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns a structured error, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\", \"reproduction\": {\"actual\": \"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\", \"expected\": \"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\", \"steps\": [\"Open Settings Panel.\", \"Draft some operational changes (e.g., set retry count to 5) or modify a fallback chain.\", \"Trigger a save action that results in a structured error (e.g., backend rejection).\", \"Observe the UI state after the error is displayed.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/SettingsPanel.tsx"
+            ],
+            "acceptance": [
+              "Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result."
+            ],
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-be56185691369523",
+                  "action": "reject",
+                  "decision_at": "2026-09-18T16:42:26Z",
+                  "match": "possible",
+                  "timing": "pre"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15220953140120496057/activities/3981a2c748f244679624f5b7910f76c1",
+          "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
+          "activity_created_at": "2026-09-18T09:46:25.548983Z",
+          "session_id": "15220953140120496057",
+          "dispatch_key": "6d589303dad7e3843ce4fb4a"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-f94f0fd889c52402",
+              "reason": "historical_predecision_overlap",
+              "existing_task_id": "discovery-21935d2cee4d8a7e"
+            },
+            {
+              "id": "discovery-be56185691369523",
+              "reason": "historical_predecision_overlap",
+              "existing_task_id": "discovery-be56185691369523"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
+              "reason": "historical_predecision_overlap",
+              "evidence": "{\"detail\": \"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\", \"reproduction\": {\"actual\": \"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\", \"expected\": \"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\", \"steps\": [\"Select a model with a thinking level of `:off` or `:auto`.\", \"Switch to another model that also supports thinking levels.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers"
+              ],
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-21935d2cee4d8a7e",
+                    "action": "resolve",
+                    "decision_at": "2026-09-19T05:40:15Z",
+                    "match": "possible",
+                    "timing": "pre"
+                  },
+                  {
+                    "task_id": "discovery-f94f0fd889c52402",
+                    "action": "reject",
+                    "decision_at": "2026-09-18T16:41:06Z",
+                    "match": "possible",
+                    "timing": "pre"
+                  }
+                ]
+              }
+            },
+            {
+              "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
+              "reason": "historical_predecision_overlap",
+              "evidence": "{\"detail\": \"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns a structured error, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\", \"reproduction\": {\"actual\": \"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\", \"expected\": \"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\", \"steps\": [\"Open Settings Panel.\", \"Draft some operational changes (e.g., set retry count to 5) or modify a fallback chain.\", \"Trigger a save action that results in a structured error (e.g., backend rejection).\", \"Observe the UI state after the error is displayed.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/SettingsPanel.tsx"
+              ],
+              "acceptance": [
+                "Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result."
+              ],
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-be56185691369523",
+                    "action": "reject",
+                    "decision_at": "2026-09-18T16:42:26Z",
+                    "match": "possible",
+                    "timing": "pre"
+                  }
+                ]
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
