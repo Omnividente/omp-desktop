@@ -17490,13 +17490,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T13:18:27.674560Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T13:25:33.864492Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T13:19:50.933283Z",
+    "last_poll_at": "2026-09-20T13:25:50.208180Z",
     "last_tick_at": "2026-09-20T13:19:52.927186Z",
     "run_id": "35513103419"
   }
