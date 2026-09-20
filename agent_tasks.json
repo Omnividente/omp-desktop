@@ -20077,6 +20077,10 @@
         "research_detached": {
           "at": "2026-09-20T22:35:49.793453Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-20T22:35:49.793453Z",
+          "result": "pending"
         }
       }
     }
