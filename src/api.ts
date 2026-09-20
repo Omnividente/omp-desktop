@@ -34,6 +34,19 @@ async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions
   }
 }
 
+let bootstrapQueue: Promise<unknown> = Promise.resolve()
+
+function invokeBootstrap<T>(cmd: string, args?: InvokeArgs): Promise<T> {
+  // A full snapshot replaces the UI state. Serialize reads as well as mutations so a
+  // delayed response cannot undo a newer commit. PTY and other independent IPC stay live.
+  const result = bootstrapQueue.then(() => invoke<T>(cmd, args))
+  bootstrapQueue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
 export function subscribeSettingsUnavailable(listener: SettingsUnavailableListener): () => void {
   settingsUnavailableListeners.add(listener)
   return () => {
@@ -42,11 +55,11 @@ export function subscribeSettingsUnavailable(listener: SettingsUnavailableListen
 }
 
 export function bootstrap(): Promise<BootstrapPayload> {
-  return invoke("bootstrap")
+  return invokeBootstrap("bootstrap")
 }
 
 export function startWithDefaults(): Promise<BootstrapPayload> {
-  return invoke("start_with_defaults")
+  return invokeBootstrap("start_with_defaults")
 }
 
 export function openSettingsFolder(): Promise<void> {
@@ -54,15 +67,15 @@ export function openSettingsFolder(): Promise<void> {
 }
 
 export function addWorkspace(path: string): Promise<BootstrapPayload> {
-  return invoke("add_workspace", { path })
+  return invokeBootstrap("add_workspace", { path })
 }
 
 export function renameWorkspace(path: string, name: string): Promise<BootstrapPayload> {
-  return invoke("rename_workspace", { path, name })
+  return invokeBootstrap("rename_workspace", { path, name })
 }
 
 export function removeWorkspace(path: string): Promise<BootstrapPayload> {
-  return invoke("remove_workspace", { path })
+  return invokeBootstrap("remove_workspace", { path })
 }
 
 export function saveWorkspaceSelection(path: string | null): Promise<void> {
@@ -70,7 +83,7 @@ export function saveWorkspaceSelection(path: string | null): Promise<void> {
 }
 
 export function saveSettingsBundle(request: SettingsSaveRequest): Promise<SettingsSavePayload> {
-  return invoke("save_settings_bundle", { request })
+  return invokeBootstrap("save_settings_bundle", { request })
 }
 
 export function startTerminal(
@@ -169,11 +182,11 @@ export function closeTerminal(terminalId: string): Promise<void> {
 }
 
 export function setSessionTitlePin(path: string, title: string | null): Promise<BootstrapPayload> {
-  return invoke("set_session_title_pin", { path, title })
+  return invokeBootstrap("set_session_title_pin", { path, title })
 }
 
 export function deleteSession(path: string, forceSessionLease = false): Promise<BootstrapPayload> {
-  return invoke("delete_session", { path, forceSessionLease })
+  return invokeBootstrap("delete_session", { path, forceSessionLease })
 }
 
 export function readSessionTranscript(path: string): Promise<SessionTranscript> {
@@ -193,7 +206,7 @@ export function openContentLink(
 }
 
 export function importSessions(requests: ImportSessionRequest[]): Promise<ImportBatchPayload> {
-  return invoke("import_sessions", { requests })
+  return invokeBootstrap("import_sessions", { requests })
 }
 
 export function listCodexSessions(): Promise<CodexSessionSummary[]> {
