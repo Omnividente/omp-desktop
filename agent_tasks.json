@@ -14543,7 +14543,7 @@
       "id": "research-workspace-navigation-behavior-4",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -14670,18 +14670,42 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2104167432117570696",
         "dispatch_key": "9713da0385753c0ead5fda00",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-9713da0385753c0ead5fda00",
         "started_at": "2026-09-20T06:20:10.573370Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T06:39:45.672987Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T06:20:10.573370Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T06:39:45.672987Z"
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of focus and state when deleting a session from SessionList. The hypothesis that the application lacks focus restoration logic inside SessionList upon deleting a session was found to be incorrect or non-reproducible; the code correctly implements removalFocusRef logic and successfully restores focus to the session list container.",
+        "observations": [
+          {
+            "scenario": "Deleting a session via keyboard navigation from the session list using an isolated synthetic React Testing Library fixture.",
+            "evidence": "Wrote a synthetic React Testing Library suite (`src/test-session-focus.test.tsx`) rendering a mocked `<SessionList />` and triggering a delete action via the `.session-delete` button while it is focused. Verified the behavior via `document.activeElement` after the promise returned and the active session element unmounted. Focus was successfully restored to the `.session-list` container because `removalFocusRef` and a related `useLayoutEffect` intercept the element unmounting.",
+            "result": "Establishes that the frontend correctly traps and restores focus when deleting a session inside the SessionList, contrary to the previous report. The component utilizes `removalFocusRef` properly."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate latency and resource retention when frequently opening and closing Codex/Import session modals with very large session lists.",
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T06:39:45.672987Z",
+        "source": {
+          "activity_id": "sessions/2104167432117570696/activities/bd5a41eeaec6402ea19983246d7892fc",
+          "report_sha256": "3ff3f2f86314136ff157e1fe696a651db1812aaab935c92be91785ddba60c610",
+          "activity_created_at": "2026-09-20T06:32:42.075347Z",
+          "session_id": "2104167432117570696",
+          "dispatch_key": "9713da0385753c0ead5fda00"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -14728,7 +14752,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T06:34:01.182706Z",
+    "last_poll_at": "2026-09-20T06:40:02.652186Z",
     "last_tick_at": "2026-09-20T06:34:07.671721Z",
     "run_id": "35494538654"
   }
