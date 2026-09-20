@@ -13933,7 +13933,7 @@
       "id": "discovery-39c130be90c4a65e",
       "title": "Close session import modals when an import failure occurs",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -13967,6 +13967,12 @@
         "activity_created_at": "2026-09-20T00:47:18.589870Z",
         "session_id": "16425046943503938760",
         "dispatch_key": "bbe6a1fa78b566d892bf9edc"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:49:50Z",
+        "note": "Разбор владельца: https://github.com/Omnividente/omp-desktop/issues/80 . Native Windows/Tauri import искусственного JSONL без session header вернул failed; диалог остался открытым, Close/Cancel/Import и режим разблокировались. Переключение режима в copy и Cancel работают. finally снимает importing в обоих OMP/Codex обработчиках; Codex UI отдельно не запускался. Не закрывать форму принудительно при ошибке: сохранить выбор, исправление режима и retry. Ошибочная предпосылка о заблокированном диалоге опровергнута."
       }
     },
     {
