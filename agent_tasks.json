@@ -20072,13 +20072,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T22:10:03.001985Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T22:17:39.436788Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T22:17:55.981656Z",
+    "last_poll_at": "2026-09-20T22:17:58.564286Z",
     "last_tick_at": "2026-09-20T22:11:55.073150Z",
     "run_id": "35540804487"
   }
