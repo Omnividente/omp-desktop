@@ -523,7 +523,7 @@ class CompletionTest(unittest.TestCase):
             diagnostics.write_bytes(b"previous diagnostic\n")
             stdout, stderr = StringIO(), StringIO()
             with patch("complete_jules_task.get_session", side_effect=RuntimeError("PRIVATE_UPSTREAM_BODY")) as get_session, \
-                    patch.dict("os.environ", {"JULES_API_KEY": "test-only"}), \
+                    patch.dict("os.environ", {"JULES_API_KEY": "test-only", "GITHUB_ACTOR": "Owner"}), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
                 result = main(["--manifest", str(queue), "--config", str(config), "--task-id", "research-clock",
                                "--session-file", str(snapshot), "--diagnostics", str(diagnostics), "--retry-report",
