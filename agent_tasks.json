@@ -17370,7 +17370,7 @@
       "id": "research-diagnostics-resources-ux-4",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "a11y",
         "i18n",
@@ -17477,6 +17477,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "ff981dab807c9ca1525a5fa5",
+        "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
+        "starting_branch": "autonomous/attempt-ff981dab807c9ca1525a5fa5",
+        "started_at": "2026-09-20T13:18:27.674560Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
