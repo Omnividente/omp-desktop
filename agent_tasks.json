@@ -9271,6 +9271,59 @@
           },
           "detail": "report_repair_session_failed"
         }
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-09-20T17:03:56Z",
+            "note": "Owner review 2026-09-20: the same research session ended FAILED during format repair; targeted recovery 35523954935 did not accept a report. Acknowledge this settled unaccepted incident while retaining its saved report identity, diagnostics and original failure. Any further recovery must be separately owner-authorized and reparse only that exact saved source; no new worker, attempt, message or implementation.",
+            "attempt": {
+              "session_id": "17793537861787869447",
+              "dispatch_key": "8a2cad01e88bcabf8e0aaa46",
+              "attempts": 1
+            },
+            "basis": {
+              "state": "awaiting_report",
+              "outcome": "report_invalid",
+              "session_state": "FAILED",
+              "event_at": "2026-09-18T22:55:53.593518Z",
+              "source": {
+                "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+                "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+                "activity_created_at": "2026-09-18T22:42:37.210573Z",
+                "session_id": "17793537861787869447",
+                "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+              },
+              "report_error": {
+                "code": "findings_invalid",
+                "detail": "incomplete discovery findings; nothing imported: conflicting_id",
+                "reported_at": "2026-09-18T22:55:53.593518Z",
+                "source": {
+                  "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+                  "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+                  "activity_created_at": "2026-09-18T22:42:37.210573Z",
+                  "session_id": "17793537861787869447",
+                  "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+                }
+              },
+              "report_repair": {
+                "at": "2026-09-18T22:56:17.561113Z",
+                "result": "sent",
+                "status": "failed",
+                "source": {
+                  "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+                  "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+                  "activity_created_at": "2026-09-18T22:42:37.210573Z",
+                  "session_id": "17793537861787869447",
+                  "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+                },
+                "detail": "report_repair_session_failed"
+              }
+            }
+          }
+        ]
       }
     },
     {
