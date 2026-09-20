@@ -14106,7 +14106,7 @@
       "id": "research-sessions-persistence-performance-4",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -14213,18 +14213,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6048502817186540544",
         "dispatch_key": "b2aa4dd720cc8213d96d7014",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-b2aa4dd720cc8213d96d7014",
         "started_at": "2026-09-20T05:10:03.321008Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T06:00:22.446951Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-20T05:29:50.244060Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T06:00:22.446951Z",
         "research_detached": {
           "at": "2026-09-20T05:29:50.244060Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -14233,11 +14233,83 @@
           "at": "2026-09-20T05:29:50.244060Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Confirmed that orphaned session import artifacts (staging and backup directories) are skipped but not deleted during session scanning.",
+        "observations": [
+          {
+            "scenario": "Review of the `collect_jsonl_files` function in `src-tauri/src/sessions.rs` which is responsible for scanning the sessions directory.",
+            "evidence": "Lines in `collect_jsonl_files` verify that if an entry matches `is_import_sidecar` (containing `.artifacts-stage` or `.artifacts-backup`), it simply executes a `continue` instead of performing any cleanup. Wrote a synthetic Rust unit test verifying that orphaned sidecar directories (like `.import.artifacts-stage.123.456`) are skipped but left on disk.",
+            "result": "Establishes that orphaned backup and staging artifact directories are permanently left behind and consume storage, confirming the previously reported discovery."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if failed or interrupted imports leave the target destination directory in a corrupted or partially imported state."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T06:00:22.446951Z",
+        "source": {
+          "activity_id": "sessions/6048502817186540544/activities/1dfc1d0bd7894ccb8a2a4cf7b6e09c51",
+          "report_sha256": "a59e6115126926b16d237fec5ac73302ba7be715415b133849e2138904b6bd07",
+          "activity_created_at": "2026-09-20T05:30:24.714481Z",
+          "session_id": "6048502817186540544",
+          "dispatch_key": "b2aa4dd720cc8213d96d7014"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clean up orphaned backup and staging artifact directories during session scan",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56; not established as a duplicate. {\"detail\": \"Observed via synthetic Rust test against `scan_sessions` and `collect_jsonl_files`. This reproduces the exact finding reported in canonical_id discovery-e938ec8d92054623.\", \"reproduction\": {\"actual\": \"The orphaned backup and staging sidecar directories remain on the file system permanently.\", \"expected\": \"The orphaned backup and staging sidecar directories are removed.\", \"steps\": [\"Create a temporary sessions directory.\", \"Create a dummy valid session `good.jsonl`.\", \"Create dummy sidecar directories `.import.artifacts-stage.123.456` and `.import.artifacts-backup.123.456`.\", \"Call `scan_sessions` on the temporary directory.\", \"Check if the sidecar directories still exist.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/sessions.rs"
+            ],
+            "acceptance": [
+              "Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6048502817186540544/activities/1dfc1d0bd7894ccb8a2a4cf7b6e09c51",
+          "report_sha256": "a59e6115126926b16d237fec5ac73302ba7be715415b133849e2138904b6bd07",
+          "activity_created_at": "2026-09-20T05:30:24.714481Z",
+          "session_id": "6048502817186540544",
+          "dispatch_key": "b2aa4dd720cc8213d96d7014"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e938ec8d92054623",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clean up orphaned backup and staging artifact directories during session scan",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56; not established as a duplicate. {\"detail\": \"Observed via synthetic Rust test against `scan_sessions` and `collect_jsonl_files`. This reproduces the exact finding reported in canonical_id discovery-e938ec8d92054623.\", \"reproduction\": {\"actual\": \"The orphaned backup and staging sidecar directories remain on the file system permanently.\", \"expected\": \"The orphaned backup and staging sidecar directories are removed.\", \"steps\": [\"Create a temporary sessions directory.\", \"Create a dummy valid session `good.jsonl`.\", \"Create dummy sidecar directories `.import.artifacts-stage.123.456` and `.import.artifacts-backup.123.456`.\", \"Call `scan_sessions` on the temporary directory.\", \"Check if the sidecar directories still exist.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/sessions.rs"
+              ],
+              "acceptance": [
+                "Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T05:30:07.992989Z",
+    "last_poll_at": "2026-09-20T06:00:42.428055Z",
     "last_tick_at": "2026-09-20T05:30:17.766591Z",
     "run_id": "35491814447"
   }
