@@ -234,6 +234,7 @@ function App() {
   proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
+  const workspaceSelectionRequestRef = useRef(0)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -620,7 +621,7 @@ function App() {
       setRailModeSaving(true)
       try {
         const result = await saveSettingsBundle({ update: { railMode: mode }, ompConfig: null })
-        applyPayload(result.bootstrap, selectedWorkspaceKey ?? undefined)
+        applyPayload(result.bootstrap)
         setRailAutoOpen(mode === "autoHide")
       } catch (error) {
         showError(errorMessage(error, lang))
@@ -628,7 +629,7 @@ function App() {
         setRailModeSaving(false)
       }
     },
-    [applyPayload, lang, payload, railModeSaving, selectedWorkspaceKey, showError],
+    [applyPayload, lang, payload, railModeSaving, showError],
   )
 
   const startWorkspaceRename = useCallback((workspace: WorkspaceSummary) => {
@@ -641,18 +642,17 @@ function App() {
       if (renamingWorkspaceKey !== workspace.key || workspaceBusyKey === workspace.key) return
       const name = workspaceNameValue.trim()
       setRenamingWorkspaceKey(null)
+      setWorkspaceNameValue("")
       if (!name || name === workspace.name) {
-        setWorkspaceNameValue("")
         return
       }
       setWorkspaceBusyKey(workspace.key)
       try {
-        applyPayload(await renameWorkspace(workspace.path, name), workspace.key)
+        applyPayload(await renameWorkspace(workspace.path, name))
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
-        setWorkspaceBusyKey(null)
-        setWorkspaceNameValue("")
+        setWorkspaceBusyKey((current) => (current === workspace.key ? null : current))
       }
     },
     [applyPayload, lang, renamingWorkspaceKey, showError, workspaceBusyKey, workspaceNameValue],
@@ -683,17 +683,14 @@ function App() {
       setWorkspaceBusyKey(workspace.key)
       try {
         applyPayload(await removeWorkspaceFromList(workspace.path))
-        if (renamingWorkspaceKey === workspace.key) {
-          setRenamingWorkspaceKey(null)
-          setWorkspaceNameValue("")
-        }
+        setRenamingWorkspaceKey((current) => (current === workspace.key ? null : current))
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
-        setWorkspaceBusyKey(null)
+        setWorkspaceBusyKey((current) => (current === workspace.key ? null : current))
       }
     },
-    [applyPayload, lang, renamingWorkspaceKey, showError, workspaceBusyKey],
+    [applyPayload, lang, showError, workspaceBusyKey],
   )
 
   const focusPersistentRailControl = useCallback(() => {
@@ -778,6 +775,7 @@ function App() {
       const requested = extractSingleInstanceWorkspace(event.payload.args)
       if (requested) {
         const request = ++latestRequest
+        const selectionRequest = ++workspaceSelectionRequestRef.current
         ++pendingRequests
         // A bootstrap started before this intent must not remove its workspace later.
         ++payloadRevisionRef.current
@@ -788,9 +786,12 @@ function App() {
             needsReconcile = true
             return
           }
-          applyPayload(next, requested)
-          setSelectedSessionId(null)
-          setSearch("")
+          const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+          applyPayload(next, selectRequested ? requested : undefined)
+          if (selectRequested) {
+            setSelectedSessionId(null)
+            setSearch("")
+          }
           return
         } catch (error) {
           if (!disposed && request === latestRequest) {
@@ -1219,10 +1220,14 @@ function App() {
         title: t(lang, "pickProjectDir"),
       })
       if (typeof selected !== "string") return
+      const selectionRequest = ++workspaceSelectionRequestRef.current
       const next = await addWorkspace(selected)
-      applyPayload(next, selected)
-      setSelectedSessionId(null)
-      setSearch("")
+      const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+      applyPayload(next, selectRequested ? selected : undefined)
+      if (selectRequested) {
+        setSelectedSessionId(null)
+        setSearch("")
+      }
     } catch (error) {
       showError(errorMessage(error, lang))
     }
@@ -1436,7 +1441,7 @@ function App() {
           mode: importMode,
         })),
       )
-      applyPayload(result.bootstrap, selectedWorkspace.path)
+      applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failures.length > 0) {
@@ -1495,7 +1500,7 @@ function App() {
           mode: importMode,
         },
       ])
-      applyPayload(result.bootstrap, selectedWorkspace.path)
+      applyPayload(result.bootstrap)
       const failure = result.items.find((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failure) {
@@ -1844,7 +1849,7 @@ function App() {
         )
         if (!next) return
         for (const tab of matchingTabs) closeTab(tab.id)
-        applyPayload(next, selectedWorkspace?.path)
+        applyPayload(next)
         showNotice(t(lang, "sessionDeleted"))
       } catch (error) {
         showError(errorMessage(error, lang))
@@ -1852,16 +1857,7 @@ function App() {
         setDeletingSessionId(null)
       }
     },
-    [
-      applyPayload,
-      closeTab,
-      lang,
-      payload?.runtime.platform,
-      selectedWorkspace?.path,
-      showError,
-      showNotice,
-      tabs,
-    ],
+    [applyPayload, closeTab, lang, payload?.runtime.platform, showError, showNotice, tabs],
   )
 
   const updateSessionTitlePin = useCallback(
@@ -2206,6 +2202,7 @@ function App() {
           onModeChange={(mode) => void changeRailMode(mode)}
           onOpenFolder={() => void openFolder()}
           onSelectWorkspace={(key) => {
+            ++workspaceSelectionRequestRef.current
             setSelectedWorkspaceKey(key)
             setSelectedSessionId(null)
             setSearch("")

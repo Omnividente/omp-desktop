@@ -5,17 +5,22 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "./App"
 import * as api from "./api"
-import { confirm } from "@tauri-apps/plugin-dialog"
+import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { listen, type EventCallback } from "@tauri-apps/api/event"
 import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
 import type {
   BootstrapPayload,
+  ImportBatchPayload,
+  ImportSessionRequest,
   OmpConfigSnapshot,
   SingleInstanceEvent,
   TerminalStarted,
 } from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
 vi.mock("./useClientUpdater", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./useClientUpdater")>()
@@ -34,6 +39,7 @@ vi.mock("./api", async (importOriginal) => ({
   addWorkspace: vi.fn(),
   removeWorkspace: vi.fn(),
   deleteSession: vi.fn(),
+  readSessionAnswers: vi.fn(),
   saveWorkspaceSelection: vi.fn(),
   loadOmpConfig: vi.fn(),
   saveSettingsBundle: vi.fn(),
@@ -190,6 +196,116 @@ function workspacePayload(...names: string[]): BootstrapPayload {
   }
 }
 
+const pendingWorkspaceDeliveries = new Set<() => void>()
+
+async function workspaceBackend(initial: BootstrapPayload) {
+  const actual = await vi.importActual<typeof api>("./api")
+  vi.mocked(api.bootstrap).mockImplementation(actual.bootstrap)
+  vi.mocked(api.addWorkspace).mockImplementation(actual.addWorkspace)
+  vi.mocked(api.removeWorkspace).mockImplementation(actual.removeWorkspace)
+  let persisted = initial
+  const held: {
+    command: string
+    path: string | undefined
+    delivery: Promise<void>
+    failure?: Error
+  }[] = []
+
+  invokeMock.mockImplementation(
+    (
+      command: string,
+      args?: {
+        path?: string
+        name?: string
+        requests?: ImportSessionRequest[]
+      },
+    ) => {
+      if (command === "bootstrap") return Promise.resolve(persisted)
+      const response = held.find((item) => item.command === command && item.path === args?.path)
+      let result: BootstrapPayload | ImportBatchPayload = persisted
+      if (!response?.failure) {
+        switch (command) {
+          case "rename_workspace":
+            persisted = {
+              ...persisted,
+              workspaces: persisted.workspaces.map((workspace) =>
+                workspace.path === args?.path ? { ...workspace, name: args.name! } : workspace,
+              ),
+            }
+            break
+          case "remove_workspace":
+            persisted = {
+              ...persisted,
+              workspaces: persisted.workspaces.filter((workspace) => workspace.path !== args?.path),
+              sessions: persisted.sessions.filter((session) => session.cwd !== args?.path),
+            }
+            break
+          case "add_workspace": {
+            const added = workspacePayload(args!.path!.split("/").at(-1)!)
+            persisted = {
+              ...persisted,
+              workspaces: [...persisted.workspaces, ...added.workspaces],
+              sessions: [...persisted.sessions, ...added.sessions],
+            }
+            break
+          }
+          case "import_sessions": {
+            const request = args!.requests![0]
+            const workspace = persisted.workspaces.find((item) => item.path === request.targetCwd)!
+            persisted = {
+              ...persisted,
+              sessions: [
+                ...persisted.sessions,
+                {
+                  ...bootstrap.sessions[0],
+                  id: "imported-session",
+                  title: "Imported session",
+                  projectKey: workspace.key,
+                  cwd: workspace.path,
+                  filePath: "C:/fixture/sessions/imported.jsonl",
+                },
+              ],
+            }
+            result = {
+              bootstrap: persisted,
+              items: [
+                {
+                  sourcePath: request.path,
+                  destinationPath: "C:/fixture/sessions/imported.jsonl",
+                  status: "imported",
+                  message: null,
+                },
+              ],
+            }
+            break
+          }
+          default:
+            throw new Error(`Unexpected workspace fixture command: ${command}`)
+        }
+        if (command !== "import_sessions") result = persisted
+      }
+      // Commit now, deliver the captured snapshot later. Bootstrap always reads persisted state.
+      return (response?.delivery ?? Promise.resolve()).then(() => {
+        if (response?.failure) throw response.failure
+        return result
+      })
+    },
+  )
+
+  return {
+    hold(command: string, path?: string, failure?: Error) {
+      const delivery = deferred<void>()
+      held.push({ command, path, delivery: delivery.promise, failure })
+      const deliver = () => {
+        pendingWorkspaceDeliveries.delete(deliver)
+        delivery.resolve(undefined)
+      }
+      pendingWorkspaceDeliveries.add(deliver)
+      return deliver
+    },
+  }
+}
+
 describe("App lifecycle serialization", () => {
   let root: Root
   let container: HTMLDivElement
@@ -224,6 +340,26 @@ describe("App lifecycle serialization", () => {
     })
   }
 
+  async function renameProject(name: string, replacement: string) {
+    const row = element(`.project-item[aria-label^="${name},"]`).closest(".project-item-row")!
+    await act(async () =>
+      row.querySelector<HTMLButtonElement>('[title="Переименовать проект"]')!.click(),
+    )
+    act(() => {
+      const input = element<HTMLInputElement>(".project-rename")
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        replacement,
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => element<HTMLInputElement>(".project-rename").blur())
+  }
+
+  function projectNames() {
+    return [...container.querySelectorAll(".project-item strong")].map((item) => item.textContent)
+  }
+
   async function openAndChangeSettings() {
     await act(async () => element(".runtime-pill").click())
     act(() => {
@@ -236,11 +372,21 @@ describe("App lifecycle serialization", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    invokeMock.mockReset()
+    vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
     vi.mocked(api.addWorkspace).mockReset()
     vi.mocked(api.removeWorkspace).mockReset()
     vi.mocked(api.deleteSession).mockReset()
+    vi.mocked(api.readSessionAnswers).mockReset().mockResolvedValue({
+      session: bootstrap.sessions[0],
+      entries: [],
+      updatedAt: 1,
+      truncated: false,
+      malformedRecords: 0,
+      incompleteLastRecord: false,
+    })
     vi.mocked(api.saveWorkspaceSelection).mockReset().mockResolvedValue(undefined)
     vi.mocked(api.loadOmpConfig).mockReset().mockResolvedValue(config("Initial"))
     vi.mocked(api.saveSettingsBundle).mockReset()
@@ -264,8 +410,12 @@ describe("App lifecycle serialization", () => {
     root = createRoot(container)
   })
 
-  afterEach(() => {
-    act(() => root.unmount())
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+      // A failed assertion must not leave the real API queue blocked for the next test.
+      for (const deliver of pendingWorkspaceDeliveries) deliver()
+    })
     container.remove()
     vi.restoreAllMocks()
   })
@@ -320,6 +470,80 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelectorAll(".project-item")).toHaveLength(1)
     expect(api.addWorkspace).not.toHaveBeenCalled()
     expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("keeps both committed workspace renames when the first response is delayed", async () => {
+    const backend = await workspaceBackend(workspacePayload("A", "B"))
+    const deliverFirst = backend.hold("rename_workspace", "C:/fixture/A")
+    await act(async () => root.render(<App />))
+    await renameProject("A", "Renamed A")
+    await renameProject("B", "Renamed B")
+    // Parallel IPC commits B before delivering A's stale snapshot. A serialized backend
+    // starts B after this release instead; both schedules must preserve both user edits.
+    await act(async () => deliverFirst())
+    expect(projectNames()).toEqual(["Renamed A", "Renamed B"])
+    await act(async () => element('.project-item[aria-label^="Renamed B,"]').click())
+    expect(container.textContent).toContain("B session")
+  })
+
+  it("does not resurrect a removed workspace or lose a concurrent addition", async () => {
+    const backend = await workspaceBackend(workspacePayload("A", "B"))
+    const deliverRemoval = backend.hold("remove_workspace", "C:/fixture/A")
+    await act(async () => root.render(<App />))
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    await act(async () => requestWorkspace("C"))
+    await act(async () => deliverRemoval())
+    expect(projectNames()).toEqual(["B", "C"])
+    expect(element(".project-item.is-active").textContent).toContain("C")
+    expect(container.textContent).toContain("C session")
+  })
+
+  it("preserves a successful workspace write when an overlapping rename later fails", async () => {
+    const backend = await workspaceBackend(workspacePayload("A", "B"))
+    const deliverSuccess = backend.hold("rename_workspace", "C:/fixture/A")
+    const deliverFailure = backend.hold(
+      "rename_workspace",
+      "C:/fixture/B",
+      new Error("Workspace rename could not be saved"),
+    )
+    await act(async () => root.render(<App />))
+    await renameProject("A", "Saved A")
+    await renameProject("B", "Unsaved B")
+    await act(async () => deliverSuccess())
+    await act(async () => deliverFailure())
+    expect(projectNames()).toEqual(["Saved A", "B"])
+    expect(container.textContent).toContain("Workspace rename could not be saved")
+    await act(async () => element('.project-item[aria-label^="Saved A,"]').click())
+    expect(container.textContent).toContain("A session")
+  })
+
+  it("keeps a manual project selection made while a workspace rename is pending", async () => {
+    const backend = await workspaceBackend(workspacePayload("A", "B"))
+    const deliverRename = backend.hold("rename_workspace", "C:/fixture/A")
+    await act(async () => root.render(<App />))
+    await renameProject("A", "Renamed A")
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    await act(async () => deliverRename())
+    expect(projectNames()).toEqual(["Renamed A", "B"])
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("B session")
+  })
+
+  it("keeps a newer manual project selection while applying imported sessions", async () => {
+    const backend = await workspaceBackend(workspacePayload("A", "B"))
+    const deliverImport = backend.hold("import_sessions")
+    vi.mocked(open).mockResolvedValue("C:/fixture/incoming.jsonl")
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Импорт Codex/OMP"]').click())
+    await act(async () => element('[aria-labelledby="omp-import-title"] .primary').click())
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    await act(async () => deliverImport())
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("B session")
+    expect(container.querySelector('[aria-labelledby="omp-import-title"]')).toBeNull()
+    await act(async () => element('.project-item[aria-label^="A,"]').click())
+    expect(container.textContent).toContain("Imported session")
+    expect(container.textContent).toContain("A session")
   })
 
   it("restores focus to the session list after deleting its focused final session", async () => {
