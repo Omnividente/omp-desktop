@@ -20241,7 +20241,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T22:50:08.278571Z"
+        "observed_at": "2026-09-20T22:50:08.278571Z",
+        "released_attempt_ref": "autonomous/attempt-829ee1edc09343eb9f9d72ec"
       },
       "research_result": {
         "summary": "Investigated handling of invalid continuity payloads correctly. Checked how `TerminalView.tsx` rejects massively large and disconnected terminal output effectively while rejecting out of sequence elements safely without fatally throwing.",
