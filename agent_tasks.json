@@ -10302,7 +10302,7 @@
       "id": "discovery-5b8c7bde2b0e0468",
       "title": "Fix race condition during concurrent workspace modifications",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -10337,6 +10337,12 @@
         "activity_created_at": "2026-09-19T08:04:52.685009Z",
         "session_id": "13029739796552350738",
         "dispatch_key": "be010efe0937ae85b805894d"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:50:03Z",
+        "note": "Разбор и acceptance: https://github.com/Omnividente/omp-desktop/issues/80 . Подтверждён stale UI: в настоящем Windows/Tauri две записи rename_workspace; задержка доставки первого настоящего Rust response до завершения второго откатывает имя B в UI, хотя bootstrap хранит оба новых имени. Payload не mocked. Guard у refresh уже существует; исправить именно согласованность мутаций. После любого порядка завершения add/remove/rename/import UI должен отражать все успешные записи; ошибка позднего запроса не скрывает успешный ранний, выбор проекта и refresh guards сохраняются. Простой latest-start seq недостаточен без доказательства порядка commit. Одобрена отдельная задача, не автоматический запуск реализации."
       }
     },
     {
