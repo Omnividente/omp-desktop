@@ -15203,8 +15203,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "1272267180866602471",
         "dispatch_key": "1895b3f49c13e1081fb60e35",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-1895b3f49c13e1081fb60e35",
