@@ -15942,7 +15942,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T09:55:02.952937Z"
+        "observed_at": "2026-09-20T09:55:02.952937Z",
+        "released_attempt_ref": "autonomous/attempt-895c0989ba2cfb3773796bec"
       },
       "research_result": {
         "summary": "Investigated duplicate backup file creation when settings recovery or start with defaults fails during the save phase.",
