@@ -2302,7 +2302,7 @@
         "released_attempt_ref": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
         "report_repair": {
           "at": "2026-09-20T16:49:41.196583Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/14048779049664362841/activities/06dcb00386b54002b6f9f6ec9160cf26",
