@@ -19407,12 +19407,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T20:50:57.938018Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T20:51:17.378972Z",
+    "last_poll_at": "2026-09-20T20:52:56.920348Z",
     "last_tick_at": "2026-09-20T20:49:25.071894Z",
     "run_id": "35536749237"
   }
