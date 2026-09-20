@@ -14011,7 +14011,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T05:10:03.321008Z"
+        "observed_at": "2026-09-20T05:10:03.321008Z",
+        "released_attempt_ref": "autonomous/attempt-2ff838f3cb9ef7ac45e7fc5c"
       },
       "research_result": {
         "summary": "Confirmed that orphaned backup and staging artifact directories are not garbage collected during session scanning.",
