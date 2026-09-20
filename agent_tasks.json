@@ -17735,12 +17735,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T15:22:51.447082Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T13:37:58.418645Z",
+    "last_poll_at": "2026-09-20T15:24:24.811652Z",
     "last_tick_at": "2026-09-20T13:38:06.894664Z",
     "run_id": "35514054144"
   }
