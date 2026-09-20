@@ -17072,7 +17072,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T11:50:50.736071Z"
+        "observed_at": "2026-09-20T11:50:50.736071Z",
+        "released_attempt_ref": "autonomous/attempt-ef814f93f55e9b5d06254463"
       },
       "research_result": {
         "summary": "Verified that runtime incidents correctly persist, state is cleanly recovered and distinct/identical errors are deduplicated without data loss across cancellations and restarts.",
