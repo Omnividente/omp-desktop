@@ -20088,7 +20088,7 @@
       "id": "research-terminal-input-reliability-5",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -20230,23 +20230,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9741620055531251226",
         "dispatch_key": "829ee1edc09343eb9f9d72ec",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-829ee1edc09343eb9f9d72ec",
         "started_at": "2026-09-20T22:35:49.793453Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T22:50:08.278571Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T22:43:57.628202Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T22:50:08.278571Z"
+      },
+      "research_result": {
+        "summary": "Investigated handling of invalid continuity payloads correctly. Checked how `TerminalView.tsx` rejects massively large and disconnected terminal output effectively while rejecting out of sequence elements safely without fatally throwing.",
+        "observations": [
+          {
+            "scenario": "A mock scenario executing `applyTerminalOutputEvent` with successive out-of-order `seq` values simulating dropped networking.",
+            "evidence": "Wrote a test script evaluating `test-out-of-order.test.ts`. Confirmed `terminalContinuity.ts` correctly flags missing payload numbers and rejects later payloads while logging gaps, maintaining state safely.",
+            "result": "Establishes that the terminal continuity algorithm handles duplicated or malformed generation sequence gaps correctly without crashing the frontend."
+          },
+          {
+            "scenario": "A mock scenario executing `applyTerminalOutputEvent` with massive blocks of chunks and out of order inputs.",
+            "evidence": "Wrote a test `test-massive-blocks.test.ts` where large repetitive out of order blocks are given. The TS algorithm simply rejects `accept: false` and proceeds cleanly without fatal errors.",
+            "result": "Establishes that memory allocation gracefully bounds itself by dropping unknown/past seq numbers from large out of order batches during an active disconnect."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the precise rendering constraints inside XTerm.js to check if the 256kb write limit inside `MAX_TERMINAL_WRITE_BATCH` delays screen updates for very fast `omp` sub-commands.",
+          "Examine if Terminal shortcuts unmount during agent view replacement causing lingering keydown listeners."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T22:50:08.278571Z",
+        "source": {
+          "activity_id": "sessions/9741620055531251226/activities/90d5ebb11624481497235f0bcccd0bb9",
+          "report_sha256": "daaea1f4c4c8aff0cc4ddaf92634bfed3f9c640e95a8555d0f998931493704ab",
+          "activity_created_at": "2026-09-20T22:41:08.905955Z",
+          "session_id": "9741620055531251226",
+          "dispatch_key": "829ee1edc09343eb9f9d72ec"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T22:50:29.577199Z",
+    "last_poll_at": "2026-09-20T22:50:33.021411Z",
     "last_tick_at": "2026-09-20T22:44:24.688513Z",
     "run_id": "35542542207"
   }
