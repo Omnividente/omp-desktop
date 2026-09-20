@@ -18428,7 +18428,7 @@
       "id": "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6",
       "title": "Clean up orphaned backup and staging artifact directories during session scan",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -18483,6 +18483,12 @@
         "activity_created_at": "2026-09-20T15:54:25.166995Z",
         "session_id": "14885342759148381268",
         "dispatch_key": "c56462049430c5171aa2ca10"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:25:59Z",
+        "note": "Rejected as duplicate of discovery-e938ec8d92054623. Deleting orphaned artifact backups during scanning can remove the only recovery copy after a crash; no proven recovery protocol justifies this cleanup."
       }
     },
     {
