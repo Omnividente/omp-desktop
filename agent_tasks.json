@@ -17928,6 +17928,138 @@
         "session_id": "14885342759148381268",
         "dispatch_key": "c56462049430c5171aa2ca10"
       }
+    },
+    {
+      "id": "research-transcript-links-performance-4",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-20T16:10:57Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-bb5925f45c903d0e\",\"status\":\"proposed\",\"title\":\"Fix transcript scroll position jump on window resize\",\"target_paths\":[\"src/useVirtualList.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest simulation of `useVirtualList`. Resizing container width clears all measurements immediately, temporarily shrinking `totalHeight` to the estimate and causing the browser to snap `scrollTop` to the new shortened bounds before items remeasure.\",\"expected\":\"The user stays at their approximate scroll position within the transcript.\",\"actual\":\"The scroll position randomly jumps upward due to temporary list height collapse.\",\"acceptance\":[\"Resizing the window horizontally preserves the apparent scroll position or anchors to the topmost visible element in the transcript\"]}},{\"canonical_id\":\"discovery-03f973c614f72064\",\"status\":\"proposed\",\"title\":\"Debounce horizontal resize invalidation in VirtualList\",\"target_paths\":[\"src/useVirtualList.ts\"],\"observed_contract\":{\"detail\":\"Synthetic React testing library hook observation isolating the layout computation loop; no live UI interactions.\",\"expected\":\"The layout is only fully re-evaluated at a throttled/debounced interval, preventing main thread exhaustion\",\"actual\":\"The activeMeasurementsRef is cleared and the entire layout array is reconstructed 100 times synchronously, timing out the interaction and blocking the thread\",\"acceptance\":[\"Rapid sequential width resizes do not lock the main thread by recalculating layout on every single pixel change\"]}},{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9327b83174e38ad4\",\"status\":\"done\",\"title\":\"Make transcript scrolling area focusable for keyboard navigation\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of `src/TranscriptModal.tsx` and DOM focus behavior. Without `tabIndex={0}`, custom overflow areas cannot receive keyboard focus directly.\",\"expected\":\"The user can Tab into the scrollable area and scroll up/down using the keyboard.\",\"actual\":\"The scrollable area cannot receive focus, preventing keyboard scrolling.\",\"acceptance\":[\"The `.transcript-scroll` container has a `tabIndex={0}` attribute.\",\"A keyboard-only user can Tab into the empty transcript container to scroll it using Arrow keys.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-af2b979b73ceb228\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source analysis and synthetic testing that the TranscriptModal component lacks a cleanup phase to synchronously persist its active scroll position upon unmounting (matches canonical_id: discovery-f25052402356bf34).\",\"expected\":\"The modal restores its scroll position to the previously viewed message without needing further manual scrolling.\",\"actual\":\"The modal forces the scroll position to the top of the transcript view (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/MarkdownContent.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest simulation. Keyboard-triggered contextmenu events often have clientX=0 and clientY=0. The current implementation passes these exactly as coordinates to the ContentActionMenu (matches canonical_id: discovery-ccd17b3cdd6d7d64).\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10) on a link inside the transcript, it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "cb1fa31eeeb2a755933e73fab5effadff560442d181b7e2638dbbced021753e9",
+        "cycle": 4,
+        "previous_reports": [
+          {
+            "summary": "Verified keyboard-triggered context menu placement on links and accessibility of empty transcripts.",
+            "observations": [
+              {
+                "scenario": "Triggering a context menu on a transcript link via the keyboard (e.g. Shift+F10) inside MarkdownContent.",
+                "evidence": "Ran synthetic Vitest UI simulation. When a context menu is triggered via the keyboard, the `clientX` and `clientY` coordinates are often 0. `src/MarkdownContent.tsx` captures these via `onContextMenu` and `TranscriptModal` passes them blindly to `ContentActionMenu`, placing the popup menu at (0,0) in the viewport instead of near the focused link element. (Matches canonical_id: discovery-ccd17b3cdd6d7d64)",
+                "result": "Establishes that keyboard-triggered context menus on transcript links exhibit severe positional displacement due to relying purely on raw pointer coordinates."
+              },
+              {
+                "scenario": "Navigating via keyboard Tab keys into an empty or error state TranscriptModal.",
+                "evidence": "Source inspection of `src/TranscriptModal.tsx` and synthetic accessibility testing simulating `useModalFocus`. The `.transcript-scroll` container indeed possesses `tabIndex={0}` and is correctly discovered by the focus-trapping logic in `useModalFocus`, meaning users can shift focus to the container text even if there are no inner links.",
+                "result": "Establishes that the empty and error states of the transcript are technically focusable, contrasting with a previous unverified hypothesis."
+              },
+              {
+                "scenario": "Simulating close (unmount) on TranscriptModal to verify if it properly runs cleanup logic that commits the current reading position synchronously.",
+                "evidence": "Ran synthetic Vitest UI test verifying unmount behavior. `TranscriptModal` properly triggers `rememberPosition` on unmount layout effect cleanup, pushing the active scroll coordinates to the `readingPositions` LRU cache map.",
+                "result": "Establishes that modal unmount cleanup correctly preserves scroll state, refuting incomplete synchronous persistence hypotheses."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence behaviors related to zooming or window resizing when TranscriptModal is open and the menu is visible.",
+              "Examine empty state placeholder and transcript text legibility/contrast with non-default themes (a11y)."
+            ],
+            "proposed_task_ids": [
+              "discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527"
+            ],
+            "completed_at": "2026-09-19T17:54:03.431194Z",
+            "source": {
+              "activity_id": "sessions/12539571519700795785/activities/8d969dfad5c9411cb5abe102b33fbb58",
+              "report_sha256": "bf36ca68ff040962d1a7c0a38f3dfe8899827abad46e63ce7710220fd08cd23d",
+              "activity_created_at": "2026-09-19T17:23:58.859967Z",
+              "session_id": "12539571519700795785",
+              "dispatch_key": "b8ba31b176bb458349c1f4ee"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified context menu interaction when triggered by a keyboard shortcut with non-coordinates.",
+            "observations": [
+              {
+                "scenario": "Simulating a keyboard-triggered context menu (Shift+F10 or Context Menu key) which dispatches a contextmenu event with clientX=0 and clientY=0 in TranscriptModal and TerminalView.",
+                "evidence": "Created a synthetic vitest test using jsdom simulating a context menu event triggered from a keyboard interaction, verifying that the clientX and clientY are 0. Examined the source in `TranscriptModal` and `TerminalView` where `setMenu` directly map `event.clientX` and `event.clientY` to the menu's top/left styles, meaning a keyboard trigger places the context menu at the top-left (0,0) of the viewport instead of relative to the active element. Prototype fixes using `getBoundingClientRect` on the current target worked conceptually in fixing this.",
+                "result": "The current behavior forces the context menu to the top left of the screen for keyboard interactions. An appropriate fix is to fallback to the bounding rect of the target element when clientX and clientY are 0. Cite existing proposal: discovery-ccd17b3cdd6d7d64."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-20T07:24:41.798177Z",
+            "source": {
+              "activity_id": "sessions/7801058078139277203/activities/2f6c8c275dd54c8c9acd6a3538cd3b60",
+              "report_sha256": "e6588c277c691f9c0e9d4defc54897a6cf1838603e048846dcbda57bd014889d",
+              "activity_created_at": "2026-09-18T13:44:35.253851Z",
+              "session_id": "7801058078139277203",
+              "dispatch_key": "d1b8264874b0cdcfa51eab55"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix context menu placement when triggered via keyboard in transcript links",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527; not established as a duplicate. {\"detail\": \"Simulated contextmenu event with clientX=0 and clientY=0, representing a keyboard interaction. Observed the style placement set to left/top 0.\", \"reproduction\": {\"actual\": \"The context menu appears at the top left corner (0,0) of the viewport.\", \"expected\": \"The context menu appears aligned with the currently focused element.\", \"steps\": [\"Focus a link in the transcript modal or terminal\", \"Press Shift+F10 to open context menu\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx",
+                  "src/TerminalView.tsx"
+                ],
+                "acceptance": [
+                  "When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0)."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified useTranscript and TranscriptModal recovery and concurrent behaviors.",
+            "observations": [
+              {
+                "scenario": "Simulating multiple rapid and overlapping calls to loadTranscript for different session profiles.",
+                "evidence": "Ran a synthetic test simulating race conditions for `useTranscript.loadTranscript`. When an old slow network request resolves after a newer request has already been dispatched, `useTranscript` successfully ignores the old response via `requestRef.current === requestId` check.",
+                "result": "Establishes that the transcript fetching logic correctly avoids clobbering state in case of race conditions or rapid retries/cancellations."
+              },
+              {
+                "scenario": "Simulating interaction with the Retry/Refresh button during a transcript network load failure.",
+                "evidence": "Tested `TranscriptModal` in an error state containing the \"Retry\" button. Pressing the button correctly triggers the `refresh` handler which invokes `preservePosition()` and then `onRefresh()`.",
+                "result": "Establishes that failure recovery UI properly invokes the transcript reload mechanics while preserving reading context if applicable."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate persistence behaviors when loading transcripts with invalid/corrupt data schemas to check if it crashes or safely enters an error state."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-20T10:59:35.713372Z",
+            "source": {
+              "activity_id": "sessions/409476077093786262/activities/3b2291ce0afe45f180bb99bfea65887e",
+              "report_sha256": "480bd2a8ed57b951ed13a6df872f43b04cbfb151cd28e8fb2ab504dde0435036",
+              "activity_created_at": "2026-09-20T10:47:07.323767Z",
+              "session_id": "409476077093786262",
+              "dispatch_key": "0dccab637b70690acfd01641"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
