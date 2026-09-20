@@ -5,17 +5,17 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: List proposals, approve for explicit implementation, reject, or resolve externally
+        description: Review proposals or acknowledge an unaccepted settled research incident
         type: choice
-        options: [list, approve, reject, resolve]
+        options: [list, approve, reject, resolve, close_research_unaccepted]
         default: list
         required: true
       task_id:
-        description: Exact proposal id (required except for list)
+        description: Exact proposal or research task id (required except for list)
         type: string
         default: ""
       note:
-        description: Decision rationale or externally completed work (required except for list)
+        description: Decision or research incident acknowledgement rationale (required except for list)
         type: string
         default: ""
 
@@ -36,6 +36,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
       BACKLOG_ACTION: ${{ inputs.action }}
+      BACKLOG_ACTOR: ${{ github.actor }}
       BACKLOG_TASK_ID: ${{ inputs.task_id }}
       BACKLOG_NOTE: ${{ inputs.note }}
     steps:
@@ -60,7 +61,7 @@ jobs:
           python3 control/scripts/autonomous/proposal_backlog.py \
             --action "${BACKLOG_ACTION}" --repo lab --config control/autonomous-project.json \
             --manifest queue.json --revision-file queue-revision.json \
-            --actor "${GITHUB_ACTOR}" --task-id "${BACKLOG_TASK_ID}" --note "${BACKLOG_NOTE}" \
+            --actor "${BACKLOG_ACTOR}" --task-id "${BACKLOG_TASK_ID}" --note "${BACKLOG_NOTE}" \
             --json-out backlog.json --summary-out "${GITHUB_STEP_SUMMARY}"
 
       - name: Preserve the full uncapped review snapshot

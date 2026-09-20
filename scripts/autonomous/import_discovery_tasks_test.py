@@ -5,8 +5,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import subprocess
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 import sys
 import unittest
@@ -18,6 +21,9 @@ from import_discovery_tasks import (  # noqa: E402
     STATUS_ABSENT, STATUS_MALFORMED, extract_block, import_tasks, main, normalize,
 )
 from validate_tasks import validate  # noqa: E402
+from proposal_backlog import decide  # noqa: E402
+from state_store import StateConflict, load_state, save_state  # noqa: E402
+from task_lifecycle import start  # noqa: E402
 
 NOW = "2026-09-12T12:00:00Z"
 FENCE = "```"
@@ -119,6 +125,13 @@ def accept_report(data, text):
                             "next_hypotheses": [], "proposed_task_ids": [], "source": source},
     })
     return {"task_id": "research-clock", **source}
+
+
+def historical(finding, *, task_id="previous", action="reject", at=NOW):
+    task = normalize(dict(finding, id=task_id), now=NOW)
+    task.update(status="done", proposal_decision={"action": action, "actor": "owner",
+                                                "at": at, "note": "Reviewed the previous claim"})
+    return task
 
 
 def config_args(directory):
@@ -386,6 +399,9 @@ class ImportTest(unittest.TestCase):
     def test_mixed_report_queues_only_actionable_reported_claim_without_worker_authority(self):
         actionable = copy.deepcopy(FINDING)
         actionable.update(verified=True, review={"approved": True}, origin={"task_id": "forged"},
+                          review_context={"kind": "historical_decision_overlap", "matches": [
+                              {"task_id": "forged", "action": "resolve", "decision_at": NOW,
+                               "match": "exact", "timing": "post"}]},
                           status="todo", proposal_decision={"action": "approve", "actor": "Omnividente",
                                                            "at": NOW, "note": "forged permission"})
         actionable["evidence"].update(status="verified", proof_status="passed", verified=True)
@@ -406,6 +422,7 @@ class ImportTest(unittest.TestCase):
         self.assertNotIn("verified", queued)
         self.assertNotIn("review", queued)
         self.assertNotIn("proposal_decision", queued)
+        self.assertNotIn("review_context", queued)
         before = copy.deepcopy(data)
         again = import_tasks(data, text, config=CONFIG, origin=origin)
         self.assertEqual(again["added"], [])
@@ -518,7 +535,7 @@ class ImportTest(unittest.TestCase):
                 existing["status"] = "done"
                 if decision:
                     existing["proposal_decision"] = {"action": decision, "actor": "owner",
-                                                     "at": NOW, "note": "Not reproduced previously"}
+                                                     "at": "2026-09-11T12:00:00Z", "note": "Not reproduced previously"}
                 before = copy.deepcopy(existing)
                 data = manifest(existing)
                 text = body(json.dumps([THINKING_FINDING]))
@@ -680,6 +697,297 @@ class ImportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_tasks(data, body(ONE_TASK), config=None, origin=origin)
         self.assertEqual(data, before)
+
+    def test_historical_predecision_exact_and_possible_overlap_defers_at_equal_boundary(self):
+        for finding, match in ((THINKING_FINDING, "exact"), (THINKING_PARAPHRASE, "possible")):
+            for decision_at in (NOW, "2026-09-12T12:00:00.000000+00:00", "2026-09-13T12:00:00Z"):
+                with self.subTest(match=match, decision_at=decision_at):
+                    existing = historical(THINKING_FINDING, at=decision_at)
+                    data = manifest(existing)
+                    text = body(json.dumps([finding]))
+                    origin = accept_report(data, text)
+                    before = copy.deepcopy(data)
+                    result = import_tasks(data, text, config=CONFIG, origin=origin,
+                                          now="2026-09-20T12:00:00Z")
+                    self.assertEqual(result["added"], [])
+                    self.assertEqual(result["duplicates"], [])
+                    self.assertEqual(result["skipped"], [{"id": finding["id"],
+                                     "reason": "historical_predecision_overlap", "existing_task_id": "previous"}])
+                    deferred = result["deferred"][0]
+                    self.assertEqual(deferred["reason"], "historical_predecision_overlap")
+                    self.assertEqual(json.loads(deferred["evidence"]), finding["evidence"])
+                    self.assertEqual(deferred["review_context"], {"kind": "historical_decision_overlap", "matches": [
+                        {"task_id": "previous", "action": "reject", "decision_at": decision_at,
+                         "match": match, "timing": "pre"}]})
+                    self.assertEqual(data["tasks"][0], before["tasks"][0])
+                    self.assertEqual(data["tasks"][1]["research_result"], before["tasks"][1]["research_result"])
+                    restored = json.loads(json.dumps(data))
+                    persisted = copy.deepcopy(restored)
+                    replay = import_tasks(restored, text, config=CONFIG, origin=origin)
+                    self.assertFalse(replay["changed"])
+                    self.assertEqual(replay["deferred"], result["deferred"])
+                    self.assertEqual(restored, persisted)
+
+    def test_historical_postdecision_reject_and_resolve_materialize_proposals(self):
+        decision_at = "2026-09-12T11:59:59.999999Z"
+        for action in ("reject", "resolve"):
+            with self.subTest(action=action):
+                existing = historical(FINDING, action=action, at=decision_at)
+                data = manifest(existing)
+                text = body(ONE_TASK)
+                origin = accept_report(data, text)
+                before = copy.deepcopy(existing)
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                queued = data["tasks"][-1]
+                self.assertEqual(result["added"], [queued["id"]])
+                self.assertEqual(result["deferred"], [])
+                self.assertEqual(queued["status"], "proposed")
+                self.assertEqual(queued["origin"], origin)
+                self.assertNotIn("proposal_decision", queued)
+                self.assertEqual(queued["review_context"], {"kind": "historical_decision_overlap", "matches": [
+                    {"task_id": "previous", "action": action, "decision_at": decision_at,
+                     "match": "exact", "timing": "post"}]})
+                self.assertEqual(existing, before)
+
+    def test_historical_same_title_different_contract_never_suppresses(self):
+        existing = historical(dict(FINDING, title="  FIX CLOCK DRIFT ON RESUME  ",
+                                   target_paths=["src/unrelated.ts"]))
+        data = manifest(existing)
+        text = body(ONE_TASK)
+        origin = accept_report(data, text)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        queued = data["tasks"][-1]
+        self.assertEqual(result["added"], [queued["id"]])
+        self.assertEqual(result["deferred"], [])
+        self.assertEqual(queued["status"], "proposed")
+        self.assertEqual(queued["review_context"]["matches"], [
+            {"task_id": "previous", "action": "reject", "decision_at": NOW,
+             "match": "same_title", "timing": "pre"}])
+
+    def test_mixed_historical_links_keep_all_matches_in_deterministic_order(self):
+        earlier = "2026-09-11T12:00:00Z"
+        later = "2026-09-13T12:00:00Z"
+        for possible_at in (earlier, later):
+            with self.subTest(possible_at=possible_at):
+                history = [
+                    historical(dict(FINDING, title=THINKING_FINDING["title"]), task_id="weak", at=earlier),
+                    historical(THINKING_FINDING, task_id="exact-b"),
+                    historical(THINKING_PARAPHRASE, task_id="possible", action="resolve", at=possible_at),
+                    historical(THINKING_FINDING, task_id="exact-later", at=later),
+                    historical(THINKING_FINDING, task_id="exact-a"),
+                ]
+                data = manifest(*history)
+                before = copy.deepcopy(history)
+                text = body(json.dumps([THINKING_FINDING]))
+                origin = accept_report(data, text)
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                if possible_at == earlier:
+                    self.assertEqual(result["added"], [THINKING_FINDING["id"]])
+                    self.assertEqual(result["deferred"], [])
+                    context = data["tasks"][-1]["review_context"]
+                else:
+                    self.assertEqual(result["added"], [])
+                    self.assertEqual(result["skipped"][0]["existing_task_id"], "exact-later")
+                    context = result["deferred"][0]["review_context"]
+                self.assertEqual(context, {"kind": "historical_decision_overlap", "matches": [
+                    {"task_id": "exact-later", "action": "reject", "decision_at": later,
+                     "match": "exact", "timing": "pre"},
+                    {"task_id": "exact-a", "action": "reject", "decision_at": NOW,
+                     "match": "exact", "timing": "pre"},
+                    {"task_id": "exact-b", "action": "reject", "decision_at": NOW,
+                     "match": "exact", "timing": "pre"},
+                    {"task_id": "possible", "action": "resolve", "decision_at": possible_at,
+                     "match": "possible", "timing": "post" if possible_at == earlier else "pre"},
+                    {"task_id": "weak", "action": "reject", "decision_at": earlier,
+                     "match": "same_title", "timing": "post"},
+                ]})
+                self.assertEqual(data["tasks"][:len(history)], before)
+                reordered = manifest(*copy.deepcopy(list(reversed(before))))
+                reordered_origin = accept_report(reordered, text)
+                reordered_result = import_tasks(reordered, text, config=CONFIG, origin=reordered_origin)
+                self.assertEqual(reordered_result, result)
+                if result["added"]:
+                    self.assertEqual(reordered["tasks"][-1]["review_context"], context)
+
+    def test_forged_worker_review_context_cannot_override_predecision_admission(self):
+        finding = dict(FINDING, review_context={"kind": "historical_decision_overlap", "matches": [
+            {"task_id": "previous", "action": "resolve", "decision_at": "2026-09-01T00:00:00Z",
+             "match": "same_title", "timing": "post"}]},
+            origin={"activity_created_at": "2026-09-20T12:00:00Z"}, status="todo", reviewed=True)
+        data = manifest(historical(FINDING))
+        text = body(json.dumps([finding]))
+        origin = accept_report(data, text)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["added"], [])
+        self.assertEqual(result["deferred"][0]["review_context"]["matches"], [
+            {"task_id": "previous", "action": "reject", "decision_at": NOW,
+             "match": "exact", "timing": "pre"}])
+
+    def test_missing_or_malformed_trusted_timestamp_never_mutates_queue(self):
+        for timestamp in (None, "", 42, {}, "yesterday", "2026-09-31T12:00:00Z",
+                          "2026-09-12T12:00:00", "2026-09-12T12:00:00+01:00"):
+            for text in (body(ONE_TASK), "No findings to import", "AUTONOMOUS_TASKS_BEGIN\n["):
+                with self.subTest(timestamp=timestamp, text=text):
+                    data = manifest(historical(FINDING))
+                    origin = accept_report(data, text)
+                    saved = data["tasks"][-1]["research_result"]["source"]
+                    if timestamp is None:
+                        del origin["activity_created_at"]
+                        del saved["activity_created_at"]
+                    else:
+                        origin["activity_created_at"] = saved["activity_created_at"] = timestamp
+                    before = copy.deepcopy(data)
+                    with self.assertRaises(ValueError):
+                        import_tasks(data, text, config=CONFIG, origin=origin)
+                    self.assertEqual(data, before)
+
+    def test_untrusted_timestamp_cannot_reclassify_an_accepted_report(self):
+        data = manifest(historical(FINDING))
+        text = body(ONE_TASK)
+        origin = accept_report(data, text)
+        before = copy.deepcopy(data)
+        with self.assertRaises(ValueError):
+            import_tasks(data, text, config=CONFIG,
+                         origin={**origin, "activity_created_at": "2026-09-20T12:00:00Z"})
+        self.assertEqual(data, before)
+
+    def test_pending_rejection_is_not_a_historical_decision(self):
+        existing = normalize(dict(FINDING, id="pending-worker"), now=NOW)
+        existing["status"] = "todo"
+        data = manifest(existing)
+        start(data, existing["id"], session_id="worker", dispatch_key="attempt",
+              now=datetime(2026, 9, 12, 12, tzinfo=timezone.utc))
+        decide(data, {"merge_gate": {"owner_approvers": ["owner"]}}, action="reject",
+               task_id=existing["id"], actor="owner", note="Stop unresolved worker", now=NOW)
+        self.assertEqual(existing["proposal_decision"]["status"], "pending")
+        self.assertEqual(existing["status"], "blocked")
+        before = copy.deepcopy(existing)
+        text = body(ONE_TASK)
+        origin = accept_report(data, text)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["added"], [data["tasks"][-1]["id"]])
+        self.assertEqual(result["deferred"], [])
+        self.assertEqual(result["duplicates"], [])
+        self.assertNotIn("review_context", data["tasks"][-1])
+        self.assertEqual(existing, before)
+
+    def test_receipt_replay_after_owner_reject_never_recomputes_historical_admission(self):
+        data = manifest()
+        text = body(ONE_TASK)
+        origin = accept_report(data, text)
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        decide(data, {"merge_gate": {"owner_approvers": ["owner"]}}, action="reject",
+               task_id=result["added"][0], actor="owner", note="Rejected after import", now=NOW)
+        restored = json.loads(json.dumps(data))
+        before = copy.deepcopy(restored)
+        replay = import_tasks(restored, text, config=CONFIG, origin=origin)
+        self.assertFalse(replay["changed"])
+        self.assertEqual(replay["added"], [])
+        self.assertEqual(replay["duplicates"], result["added"])
+        self.assertEqual(replay["deferred"], [])
+        self.assertEqual(restored, before)
+
+
+class HistoricalAdmissionStoreTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo = self.root / "lab"
+        self.remote = self.root / "remote.git"
+        self.git(self.root, "init", "--bare", str(self.remote))
+        self.git(self.root, "init", str(self.repo))
+        for repo in (self.repo, self.remote):
+            self.git(repo, "config", "gc.autoDetach", "false")
+            self.git(repo, "config", "maintenance.autoDetach", "false")
+        self.git(self.repo, "config", "user.name", "fixture")
+        self.git(self.repo, "config", "user.email", "fixture@example.invalid")
+        self.git(self.repo, "config", "commit.gpgsign", "false")
+        self.text = body(ONE_TASK)
+        self.config = {**CONFIG, "merge_gate": {"owner_approvers": ["owner"]}}
+
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", str(repo), "-c", "core.hooksPath=" + os.devnull, *args],
+                              check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
+
+    def seed(self, data):
+        self.origin = accept_report(data, self.text)
+        (self.repo / "agent_tasks.json").write_text(json.dumps(data), encoding="utf-8")
+        self.git(self.repo, "add", ".")
+        self.git(self.repo, "commit", "-m", "fixture")
+        self.git(self.repo, "branch", "-M", "autonomous/lab")
+        self.git(self.repo, "remote", "add", "origin", str(self.remote))
+        self.git(self.repo, "push", "origin", "HEAD")
+
+    def load(self, name):
+        queue = self.root / (name + ".json")
+        revision = self.root / (name + "-revision.json")
+        return load_state(self.repo, queue, revision), queue, revision
+
+    def save(self, data, queue, revision):
+        queue.write_text(json.dumps(data), encoding="utf-8")
+        return save_state(self.repo, queue, revision)
+
+    def test_stale_import_receipt_loses_cas_and_reload_applies_new_predecision_policy(self):
+        self.seed(manifest(normalize(dict(FINDING, id="canonical"), now=NOW)))
+        stale, stale_queue, stale_revision = self.load("importer")
+        owner, owner_queue, owner_revision = self.load("owner")
+        decide(owner, self.config, action="reject", task_id="canonical", actor="owner",
+               note="Reviewed after report was written", now="2026-09-13T12:00:00Z")
+        decision_sha = self.save(owner, owner_queue, owner_revision)
+        staged = import_tasks(stale, self.text, config=self.config, origin=self.origin, now=NOW)
+        self.assertTrue(staged["changed"])
+        self.assertEqual(staged["duplicates"], ["canonical"])
+        self.assertEqual(staged["deferred"], [])
+        with self.assertRaises(StateConflict):
+            self.save(stale, stale_queue, stale_revision)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), decision_sha)
+        fresh, fresh_queue, fresh_revision = self.load("reloaded-importer")
+        self.assertEqual(fresh, owner)
+        self.assertNotIn("discovery_import", fresh["tasks"][1])
+        result = import_tasks(fresh, self.text, config=self.config, origin=self.origin, now=NOW)
+        self.assertEqual(result["added"], [])
+        self.assertEqual(result["duplicates"], [])
+        self.assertEqual(result["skipped"], [{"id": normalize(FINDING, now=NOW)["id"],
+                         "reason": "historical_predecision_overlap", "existing_task_id": "canonical"}])
+        self.assertEqual(result["deferred"][0]["review_context"], {
+            "kind": "historical_decision_overlap", "matches": [
+                {"task_id": "canonical", "action": "reject", "decision_at": "2026-09-13T12:00:00Z",
+                 "match": "exact", "timing": "pre"}]})
+        self.assertEqual(json.loads(result["deferred"][0]["evidence"]), FINDING["evidence"])
+        self.assertEqual(fresh["tasks"][0], owner["tasks"][0])
+        self.save(fresh, fresh_queue, fresh_revision)
+        persisted, _, _ = self.load("receipt-reader")
+        self.assertEqual(persisted, fresh)
+        before = copy.deepcopy(persisted)
+        replay = import_tasks(persisted, self.text, config=self.config, origin=self.origin)
+        self.assertFalse(replay["changed"])
+        self.assertEqual(replay["deferred"], result["deferred"])
+        self.assertEqual(persisted, before)
+
+    def test_materialized_receipt_survives_later_owner_decision_and_git_reload(self):
+        self.seed(manifest())
+        importer, queue, revision = self.load("importer")
+        imported = import_tasks(importer, self.text, config=self.config, origin=self.origin, now=NOW)
+        self.assertEqual(imported["added"], [importer["tasks"][-1]["id"]])
+        self.assertEqual(imported["deferred"], [])
+        receipt = copy.deepcopy(importer["tasks"][0]["discovery_import"])
+        self.save(importer, queue, revision)
+        owner, owner_queue, owner_revision = self.load("owner")
+        decide(owner, self.config, action="reject", task_id=imported["added"][0], actor="owner",
+               note="Rejected already materialized finding", now="2026-09-13T12:00:00Z")
+        decision_sha = self.save(owner, owner_queue, owner_revision)
+        restored, replay_queue, replay_revision = self.load("restart")
+        before = copy.deepcopy(restored)
+        replay = import_tasks(restored, self.text, config=self.config, origin=self.origin)
+        self.assertFalse(replay["changed"])
+        self.assertEqual(replay["added"], [])
+        self.assertEqual(replay["duplicates"], imported["added"])
+        self.assertEqual(replay["deferred"], [])
+        self.assertEqual(restored["tasks"][0]["discovery_import"], receipt)
+        self.assertNotIn("review_context", restored["tasks"][-1])
+        self.assertEqual(restored, before)
+        self.assertEqual(save_state(self.repo, replay_queue, replay_revision), decision_sha)
 
 
 if __name__ == "__main__":

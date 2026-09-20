@@ -23,7 +23,7 @@ from validate_tasks import validate
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
 CONFIG = {"repository": "owner/project", "product": {"editable_globs": ["src/**"], "excluded": ["src/secrets/**"]},
-          "risk_ceiling": "medium"}
+          "risk_ceiling": "medium", "merge_gate": {"owner_approvers": ["Owner"]}}
 FINDING = {"id": "fix-clock", "title": "Fix stale clock after resume", "task_type": "bugfix",
            "risk": "low", "target_paths": ["src/clock.ts"],
            "acceptance": ["Resuming the app displays the current clock"],
@@ -522,12 +522,14 @@ class CompletionTest(unittest.TestCase):
             snapshot.write_text(json.dumps(SESSION), encoding="utf-8")
             diagnostics.write_bytes(b"previous diagnostic\n")
             stdout, stderr = StringIO(), StringIO()
-            with patch("complete_jules_task.get_session", side_effect=RuntimeError("PRIVATE_UPSTREAM_BODY")), \
+            with patch("complete_jules_task.get_session", side_effect=RuntimeError("PRIVATE_UPSTREAM_BODY")) as get_session, \
                     patch.dict("os.environ", {"JULES_API_KEY": "test-only"}), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
                 result = main(["--manifest", str(queue), "--config", str(config), "--task-id", "research-clock",
-                               "--session-file", str(snapshot), "--diagnostics", str(diagnostics), "--retry-report"])
+                               "--session-file", str(snapshot), "--diagnostics", str(diagnostics), "--retry-report",
+                               "--actor", "Owner"])
             self.assertEqual(result, 1)
+            get_session.assert_called_once()
             self.assertEqual(queue.read_bytes(), original)
             self.assertEqual(diagnostics.read_bytes(), b"previous diagnostic\n")
             self.assertNotIn("PRIVATE_UPSTREAM_BODY", stdout.getvalue() + stderr.getvalue())

@@ -18,6 +18,9 @@ from loop_health import assess_health, main, workflow_runs
 from research_cycle import plan_research
 from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
+from proposal_backlog import close_research_unaccepted
+from research_disposition import append_recovery_event
+from task_lifecycle import complete
 from urllib.parse import parse_qs, urlsplit
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
@@ -600,6 +603,133 @@ class DecisionTest(unittest.TestCase):
         pr["head"]["repo"]["full_name"] = "foreign/repo"
         with self.assertRaises(ValueError):
             snapshot_proposals(lambda path: pr, data, "owner/repo")
+
+
+class ResearchDispositionHealthTest(unittest.TestCase):
+    def closed(self, *, exhausted=False):
+        stamp = NOW.isoformat()
+        source = {"session_id": "saved", "dispatch_key": "attempt",
+                  "activity_id": "sessions/saved/activities/report", "activity_created_at": stamp,
+                  "report_sha256": "a" * 64}
+        execution = {"state": "awaiting_report", "outcome": "report_invalid", "session_id": "saved",
+                     "dispatch_key": "attempt", "attempts": 2, "session_state": "FAILED",
+                     "finished_at": stamp,
+                     "report_error": {"code": "research_json", "detail": "Malformed report",
+                                      "reported_at": stamp, "source": source}}
+        if exhausted:
+            execution.update(state="exhausted", outcome="failed")
+            del execution["report_error"]
+        data = queue(task(id="research", task_type="project_discovery", status="blocked", execution=execution))
+        data["controller"] = {"last_tick_at": stamp}
+        close_research_unaccepted(data, {"merge_gate": {"owner_approvers": ["Owner"]}},
+                                  task_id="research", actor="Owner", note="Reviewed incident", now=stamp)
+        return data
+
+    def test_acknowledged_failures_remain_visible_without_repeating_old_attention(self):
+        for exhausted in (False, True):
+            with self.subTest(exhausted=exhausted):
+                data = self.closed(exhausted=exhausted)
+                before = copy.deepcopy(data)
+                result = health(data)
+                self.assertEqual([item["task_id"] for item in result["acknowledged"]], ["research"])
+                self.assertEqual(result["acknowledged"][0]["disposition"],
+                                 data["tasks"][0]["research_disposition"]["events"][0])
+                self.assertFalse(any(item.get("task_id") == "research" for item in result["attention"]))
+                self.assertEqual(data, before)
+                del data["tasks"][0]["research_disposition"]
+                fresh = health(data)
+                self.assertEqual(fresh["acknowledged"], [])
+                self.assertIn("research_failed" if exhausted else "report_invalid",
+                              [item["reason"] for item in fresh["attention"]])
+
+    def test_new_diagnostics_source_identity_and_unsettled_repair_restore_attention(self):
+        for change in ("fresh_error", "source", "identity", "last_error", "pending_repair", "unknown"):
+            with self.subTest(change=change):
+                data = self.closed()
+                execution = data["tasks"][0]["execution"]
+                if change == "fresh_error":
+                    execution["report_error"]["reported_at"] = (NOW + timedelta(minutes=1)).isoformat()
+                elif change == "source":
+                    execution["report_error"]["source"]["report_sha256"] = "b" * 64
+                elif change == "identity":
+                    execution["session_id"] = "replacement"
+                    source = execution["report_error"]["source"]
+                    source.update(session_id="replacement", activity_id="sessions/replacement/activities/report")
+                elif change == "last_error":
+                    execution["last_error"] = "Session GET failed"
+                elif change == "pending_repair":
+                    execution["report_repair"] = {"at": NOW.isoformat(), "result": "sent", "status": "pending"}
+                else:
+                    execution["session_state"] = "UNKNOWN"
+                before = copy.deepcopy(data)
+                result = health(data)
+                self.assertEqual(result["acknowledged"], [])
+                self.assertEqual(result["health"], "attention")
+                self.assertIn("research_disposition_attention", [item["reason"] for item in result["attention"]])
+                self.assertEqual(data, before)
+
+    def test_recovery_authorization_and_transport_failure_need_attention_but_parser_failure_can_stay_acknowledged(self):
+        for reason in (None, "research_json", "report_source_unavailable"):
+            with self.subTest(reason=reason):
+                data = self.closed()
+                research = data["tasks"][0]
+                append_recovery_event(research, "recover_authorized", now=NOW.isoformat(), actor="Owner",
+                                      source=research["execution"]["report_error"]["source"])
+                if reason:
+                    append_recovery_event(research, "recovery_failed", now=NOW.isoformat(), reason=reason)
+                result = health(data)
+                self.assertEqual(bool(result["acknowledged"]), reason == "research_json")
+                self.assertEqual(any(item["reason"] == "research_disposition_attention"
+                                    for item in result["attention"]), reason != "research_json")
+
+    def test_active_worker_and_real_proposal_are_never_hidden_by_old_closure(self):
+        for active in (True, False):
+            with self.subTest(active=active):
+                data = self.closed()
+                research = data["tasks"][0]
+                execution = research["execution"]
+                del execution["report_error"]
+                prs = []
+                if active:
+                    research["status"] = "in_progress"
+                    execution.update(state="dispatched", outcome="", session_state="IN_PROGRESS",
+                                     observed_at=(NOW - timedelta(days=2)).isoformat())
+                else:
+                    proposed, pr = proposal()
+                    execution.update(copy.deepcopy(proposed["execution"]))
+                    execution["session_state"] = "COMPLETED"
+                    pr["mergeable"] = False
+                    prs.append(pr)
+                before = copy.deepcopy(data)
+                result = health(data, pull_requests=prs)
+                self.assertEqual(result["acknowledged"], [])
+                self.assertIn("worker_stale" if active else "proposal_conflict",
+                              [item["reason"] for item in result["attention"]])
+                self.assertIn("research_disposition_attention", [item["reason"] for item in result["attention"]])
+                if not active:
+                    self.assertEqual(result["proposals"][0]["pull_request"], 9)
+                self.assertEqual(data, before)
+
+
+    def test_successful_recovery_retires_old_attention_but_not_new_execution_errors(self):
+        data = self.closed()
+        research = data["tasks"][0]
+        source = copy.deepcopy(research["execution"]["report_error"]["source"])
+        append_recovery_event(research, "recover_authorized", now=NOW.isoformat(), actor="Owner", source=source)
+        research["research_result"] = {
+            "summary": "Recovered observations", "completed_at": NOW.isoformat(), "source": source,
+            "observations": [{"scenario": "Resume", "evidence": "Clock trace", "result": "Advanced"}],
+            "next_hypotheses": [], "proposed_task_ids": [],
+        }
+        complete(data, "research", outcome="no_change", retry_report=True, now=NOW)
+        append_recovery_event(research, "report_accepted", now=NOW.isoformat(), source=source)
+        result = health(data)
+        self.assertEqual(result["acknowledged"], [])
+        self.assertFalse(any(item.get("task_id") == "research" for item in result["attention"]))
+        research["execution"]["last_error"] = "Subsequent identity lookup failed"
+        result = health(data)
+        self.assertEqual(result["health"], "attention")
+        self.assertIn("research_disposition_attention", [item["reason"] for item in result["attention"]])
 
 
 class GitReadinessTest(unittest.TestCase):

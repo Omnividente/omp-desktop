@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
+from research_disposition import acknowledged_disposition, disposition_state
 from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, pending_report_repair, select, valid_research_detachment
 from task_lifecycle import awaiting_report, sweep
 from validate_tasks import validate
@@ -144,6 +145,7 @@ def assess_health(
                        and run.get("conclusion") in FAILED_CONCLUSIONS | {"success"}]
     last_sync = max(completed_syncs, key=lambda run: _run_time(run) or minimum, default=None)
     attention = []
+    acknowledged = []
     proposals = []
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
@@ -180,6 +182,18 @@ def assess_health(
         attention.append({"reason": "sync_outcome_missing"})
     for task in manifest["tasks"]:
         execution = task.get("execution") or {}
+        disposition = acknowledged_disposition(task)
+        if disposition is not None:
+            acknowledged.append({"task_id": task["id"], "disposition": disposition})
+            continue
+        if "research_disposition" in task and (
+            disposition_state(task) != "report_accepted" or execution.get("last_error")
+            or task.get("status") != "done" or execution.get("state") != "completed"
+            or execution.get("outcome") not in ("researched", "no_change")
+            or execution.get("pull_request")
+            or execution.get("session_state") not in ("COMPLETED", "FAILED")
+        ):
+            attention.append({"reason": "research_disposition_attention", "task_id": task["id"]})
         if awaiting_report(task):
             reported_at = _time((execution.get("report_error") or {}).get("reported_at"))
             attention.append({"reason": "report_invalid", "task_id": task["id"],
@@ -188,6 +202,10 @@ def assess_health(
             if repair:
                 attention[-1]["repair_status"] = repair["status"]
                 attention[-1]["repair_result"] = repair["result"]
+        elif (task.get("task_type") == DISCOVERY_TYPE
+              and execution.get("state") == "exhausted" and execution.get("outcome") == "failed"):
+            attention.append({"reason": "research_failed", "task_id": task["id"],
+                              "observed_at": execution.get("finished_at")})
     failed_sync = not main_is_ancestor and last_sync is not None and last_sync.get("conclusion") in FAILED_CONCLUSIONS
     failed_sync = failed_sync or bool(observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"))
     if failed_sync:
@@ -213,7 +231,7 @@ def assess_health(
                             and (task.get("execution") or {}).get("session_state") in WAITING_REASONS],
         "observed_at": _iso(now), "last_next_task": _run_summary(latest),
         "next_task_age_seconds": max(0, int((now - last_at).total_seconds())) if last_at else None,
-        "last_sync": _run_summary(last_sync), "attention": attention,
+        "last_sync": _run_summary(last_sync), "attention": attention, "acknowledged": acknowledged,
         "research_next_at": None, "due_at": None,
         "scheduler": {
             "last_tick_at": _iso(last_tick) if last_tick else None,
