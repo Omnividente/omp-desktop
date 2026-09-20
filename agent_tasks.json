@@ -15423,12 +15423,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T08:39:31.376816Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T08:24:15.648317Z",
+    "last_poll_at": "2026-09-20T08:40:54.166507Z",
     "last_tick_at": "2026-09-20T08:24:30.945485Z",
     "run_id": "35499428117"
   }
