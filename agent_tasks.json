@@ -16770,6 +16770,115 @@
         "session_id": "3208303810442365502",
         "dispatch_key": "93ae78280819755c96972ccc"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-4",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-20T11:11:51Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "7be08511193947d2fd03623f2192fea09aac3c1a46c6296b33f02ce03457f3b0",
+        "cycle": 4,
+        "previous_reports": [
+          {
+            "summary": "Verified that resource warning counts and the UI appropriately reflect and respect when a resource repeatedly crosses the threshold back and forth in rapid succession, resulting in no cache misses or stale renders.",
+            "observations": [
+              {
+                "scenario": "Verify whether the resource warning badge in ResourceHealthPanel respects the severity change of a volume that crosses back and forth over the warning threshold repeatedly in rapid succession (thrashing).",
+                "evidence": "Executed an isolated React testing library simulation inside a temporary test (`test-hypothesis-2.test.tsx` using jsdom) by manually providing simulated `ResourceHealthSnapshot` objects sequentially oscillating between a `warning` and `ok` severity level to the `ResourceHealthPanel`. Verified that the rendered HTML container correctly alternated between the `is-warning` class (displaying an alert icon) and the `is-ok` class (displaying a check icon) synchronously, because `ResourceHealthPanel` recalculates warning statuses directly off the inbound deterministic snapshot props rather than keeping complex internal caching.",
+                "result": "Establishes that the user interface correctly responds to volume severity thrashing without stale or overlapping severity visual states."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS.",
+              "Investigate if incident counts properly expire timeouts internally without memory leaking when thousands of distinct incidents are continuously added to the incident queue."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T11:32:24.212035Z",
+            "source": {
+              "activity_id": "sessions/16334819171632799417/activities/929a8844789f48d7af3cf62db12dfc05",
+              "report_sha256": "76f4e3bd28de09db5ace6fc6dce8d510fb319fc5b8f96338b692bc1ce098dad1",
+              "activity_created_at": "2026-09-19T11:25:44.706350Z",
+              "session_id": "16334819171632799417",
+              "dispatch_key": "ed5c66ebcaf49cdf2bb72081"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated incident count expiration and potential memory leaks under heavy continuous ingestion of distinct incidents. Verified that the incident queue is strictly bounded without relying on internal timeouts, and continuous overflow efficiently garbage collects without leaking memory.",
+            "observations": [
+              {
+                "scenario": "Verify if incident counts properly expire timeouts internally without memory leaking when thousands of distinct incidents are continuously added to the incident queue.",
+                "evidence": "Executed synthetic local tests in tsx continuously inserting up to 5,000,000 completely distinct runtime incident events into the `runtimeIncidentState` reducer. Measured V8 heap memory during ingestion and observed stable memory usage under 25MB, confirming that old immutable state states are cleanly garbage-collected. Reviewed `src/runtimeIncidents.ts` and confirmed there are no internal `setTimeout` calls for incidents; eviction is strictly driven by the 100-item hard limit in `enforceIncidentBound` and explicit terminal lifecycle events.",
+                "result": "Establishes that the incident queue does not leak memory under continuous extreme ingestion of distinct incidents and relies on a hard bounds limit rather than internal timeouts to prevent memory exhaustion."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T12:29:23.483158Z",
+            "source": {
+              "activity_id": "sessions/12096810179707805609/activities/037156f446544fe29cabe484b09b5d00",
+              "report_sha256": "974b15a73fbd12db452f25f902e3bd24b2a3d43494923693146f6a803d892255",
+              "activity_created_at": "2026-09-19T11:58:39.159613Z",
+              "session_id": "12096810179707805609",
+              "dispatch_key": "209d80b319249365bfc97c55"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified keyboard-only focus navigation, focus restoration logic, and empty-state messaging correctness in the IncidentCenter dialog.",
+            "observations": [
+              {
+                "scenario": "Simulate complete keyboard-driven dialog lifecycles and evaluate focus bounds and empty-state text logic in the IncidentCenter under distinct filtered state combinations.",
+                "evidence": "Executed isolated jsdom + @testing-library/react tests to simulate Shift+Tab interactions and panel closures. Verified that the custom keydown focus boundary correctly intercepts boundary Tab events, safely wrapping focus around the inner focusable query collection without halting standard internal element tabbing. When a user triggers focusTerminal, restoreTriggerFocusRef.current is properly flipped to false so that the panel closure does not steal focus back from the opened terminal. Furthermore, synthetic render tests validated that the component precisely distinguishes between a globally empty incident list ('No runtime incidents yet') versus a scenario where incidents exist but are filtered out by the 'active' toggle ('No active runtime incidents').",
+                "result": "Establishes that the IncidentCenter’s focus trapping, unmount focus-return delegation, and filtered empty-state translations are fundamentally robust and perform as intended with no observable accessibility traps."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T13:36:51.364892Z",
+            "source": {
+              "activity_id": "sessions/5511203793730529794/activities/a4409aa74d3d4967a9a32efb71936167",
+              "report_sha256": "6129aa1219bd1a62f80bc4613474dfb3883f36986ca8f3c030cb5d95300e3f97",
+              "activity_created_at": "2026-09-19T13:27:23.942334Z",
+              "session_id": "5511203793730529794",
+              "dispatch_key": "82f1ab66971986dd523e206f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
