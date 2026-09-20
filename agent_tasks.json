@@ -18818,7 +18818,7 @@
       "id": "discovery-91c421b7b33a4fcc4f466eefa3d26972453e867ce57abf14a65da950f8529b14",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "low",
       "focus": [
@@ -18888,6 +18888,12 @@
         "activity_created_at": "2026-09-18T22:42:37.210573Z",
         "session_id": "17793537861787869447",
         "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:26:15Z",
+        "note": "Rejected as duplicate/extension of discovery-d47c6c8c6e6f2995. Silently clearing pending switch recovery on new input discards recoverable user data and violates the explicit user-choice contract; preserve the recovery until explicit send or discard."
       }
     },
     {
