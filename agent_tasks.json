@@ -19555,6 +19555,153 @@
         "session_id": "4287502329410131960",
         "dispatch_key": "e99e31748c31695a2bdbe323"
       }
+    },
+    {
+      "id": "research-terminal-input-behavior-5",
+      "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-20T21:21:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-5640a0d5b2031811\",\"status\":\"done\",\"title\":\"Fix terminal continuity generation changes during failure recovery\",\"target_paths\":[\"src/terminalContinuity.ts\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is  [excerpt]\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTermina [excerpt]\"]}},{\"canonical_id\":\"discovery-d47c6c8c6e6f2995\",\"status\":\"done\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\",\"src/terminalInput.ts\"],\"observed_contract\":{\"detail\":\"Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order.\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-87e9827baf673422\",\"status\":\"done\",\"title\":\"Clear pending terminal input recovery when new input is typed\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch input recovery should fail because typing new input invalidates the pending recovery.\",\"actual\":\"The switch input recovery succeeds and writes the stale input after the new input.\",\"acceptance\":[\"Typing new input clears any pending switch_recovery state so that stale input cannot be retried later.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-fba4bf1ceccfc72b\",\"status\":\"done\",\"title\":\"Clear pending switch input recovery automatically upon receiving new user input\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native backend evaluation using source code tracing matched against `xterm.js` buffer characteristics. The `process.switch_recovery` state in `write_bytes` persists during regular terminal inputs.\",\"expected\":\"The new manual characters are accepted and sent to the PTY. The old recovery buffer is abandoned and clicking Retry safely fails because it's stale, maintaining correct chronological order.\",\"actual\":\"The new manual characters are accepted and sent to the PTY immediately. Clicking Retry then sends the OLD recovery buffer AFTER the new input.\",\"acceptance\":[\"Any pending or failedSend switch recovery buffer is silently discarded if new bytes are manually written to the terminal\",\"The UI subsequently processes the resulting stale recovery attempt cleanly without echoing the discarded bytes out of order\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-e1a64022fb094a98\",\"status\":\"done\",\"title\":\"Link terminal help button to its content via aria-controls\",\"target_paths\":[\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Static inspection of src/TerminalView.tsx during a11y interaction research. The button declares aria-expanded but lacks aria-controls.\",\"expected\":\"The button has an aria-controls attribute pointing to the ID of the help text container\",\"actual\":\"The button has aria-expanded but no aria-controls attribute, and the container has no ID\",\"acceptance\":[\"The terminal help trigger button includes an aria-controls attribute\",\"The terminal help content container has a unique id matching the button's aria-controls\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0\",\"status\":\"done\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995.\",\"expected\":\"The switch_recovery state is None\",\"actual\":\"The switch_recovery state remains present\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-91c421b7b33a4fcc4f466eefa3d26972453e867ce57abf14a65da950f8529b14\",\"status\":\"done\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\",\"src/terminalInput.ts\"],\"observed_contract\":{\"detail\":\"Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order.\",\"expected\":\"Typing new input clears the pending switch_recovery state so that stale input cannot be retried later.\",\"actual\":\"The switch input recovery succeeds and writes the stale input after the new input.\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "behavior",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 5,
+        "previous_reports": [
+          {
+            "summary": "Investigated xterm.js performance with massive complex ANSI attachments and terminal tab switching behavior during a primary provider pin.",
+            "observations": [
+              {
+                "scenario": "Writing a massive 2MB buffer containing deeply nested and complex ANSI escape sequences to the terminal.",
+                "evidence": "Ran a synthetic benchmark writing 2MB of nested ANSI sequences to xterm.js headless. The execution completed in ~150-190ms, demonstrating that complex sequences do not cause extreme degradation.",
+                "result": "Establishes that xterm.js handles extreme limit-bound recovery outputs rapidly and does not cause unbounded hangs or main thread lock-ups during UI rendering."
+              },
+              {
+                "scenario": "Terminal tab switching while a primary provider pin operation is pending.",
+                "evidence": "Source inspection of `src/terminalInput.ts` (`terminalInputBlocked`), `src/SessionControls.tsx`, and `src/App.tsx`. Terminal input correctly restricts interactions by validating `tab.primaryProviderPinPending`. Tab state securely tracks the pending pin state when navigating away and back.",
+                "result": "Establishes that tab switching safely preserves the blocked input state and retains the pending pin UI upon returning without dropping the constraint."
+              },
+              {
+                "scenario": "A terminal process is in a switch_recovery state and new input bytes are written via write_bytes.",
+                "evidence": "Confirmed via source code inspection in `src-tauri/src/terminal.rs` and local Rust tests that `process.switch_recovery` is not cleared when new input successfully arrives. Matches canonical finding discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0.",
+                "result": "Re-establishes the known defect (discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0) where stale switch recovery buffers can be transmitted out of order after subsequent manual inputs."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the impact of resizing the terminal window rapidly while a massive output stream is continuously appending.",
+              "Examine if rapid consecutive pin provider toggles can race and leave the terminal in a permanently pending state."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T22:37:22.500483Z",
+            "source": {
+              "activity_id": "sessions/7325436381013268072/activities/b266411fc1aa42fda0b8c7616572018f",
+              "report_sha256": "77c752202f118ab291773b7a61804e377e8f80174d930135cd0f1c67bd3d3bd0",
+              "activity_created_at": "2026-09-19T22:29:39.004029Z",
+              "session_id": "7325436381013268072",
+              "dispatch_key": "c8e01b9aea48439ff236c69c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated tab switching behavior during a pending primary provider pin, and confirmed no UI regressions.",
+            "observations": [
+              {
+                "scenario": "A user clicks to toggle the primary provider pin on a terminal, which puts the terminal into a 'primaryProviderPinPending' state. While this request is pending, the user switches to another terminal tab and then returns to the original tab.",
+                "evidence": "Inspected `src/App.tsx` and `src/SessionControls.tsx`. `App.tsx` stores `primaryProviderPinPending` on the `tab` objects inside a state array. Wrote and ran a temporary test script that verified when returning to the tab, the `primaryProviderPinPending` state remains true and the UI correctly displays 'Restarting...' (disabling the pin toggle and other controls) until the backend resolves the pin request.",
+                "result": "Establishes that terminal tab switching while a primary provider pin is pending correctly restores the pin input UI upon returning to the tab, because the state is centrally managed in the top-level React component rather than local to the unmounted tab view."
+              }
+            ],
+            "next_hypotheses": [
+              "Examine if extremely large terminal continuity attachments gracefully handle window re-rendering without triggering browser main-thread stalls or dropped payloads."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-19T23:17:47.351846Z",
+            "source": {
+              "activity_id": "sessions/7363275175199270214/activities/e6c34f7cf36e45f39f067bca62693bb6",
+              "report_sha256": "7ce94eee906bc6b72bd97092ff4072da99b8dc48220585b989664ca8820f9f98",
+              "activity_created_at": "2026-09-19T22:59:28.379077Z",
+              "session_id": "7363275175199270214",
+              "dispatch_key": "681d30248799382c0c36bb63"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the lack of an aria-controls attribute on the terminal input help button and verified the backend behavior where terminal input does not clear a pending switch recovery.",
+            "observations": [
+              {
+                "scenario": "Static inspection of src/TerminalView.tsx to check the aria properties of the terminal input help trigger and its associated help block.",
+                "evidence": "Inspected src/TerminalView.tsx lines 675-691. The help trigger button `<button className=\"terminal-input-help-trigger\">` has `aria-expanded` and `aria-label` but lacks `aria-controls`. The associated help container `<div className=\"terminal-input-help\" role=\"note\">` lacks a unique ID.",
+                "result": "Establishes that a11y standards are not met because the aria-controls attribute is missing and cannot link to the corresponding element. Matches observation discovery-e1a64022fb094a98."
+              },
+              {
+                "scenario": "Review of terminal input dispatch logic when a process is in a switch_recovery state to see if new user input clears the pending recovery buffer.",
+                "evidence": "Inspected `write_bytes` in `src-tauri/src/terminal.rs`. If `process.switch_pending` is true, the input is appended to `switch_input_buffer` instead of abandoning it. If `process.switch_pending` is false, it gets enqueued via `process.writer`. The `switch_recovery` state itself is not discarded during new manual input.",
+                "result": "Establishes that new user input does not clear a pending switch recovery state, meaning the stale recovery payload is kept and could be sent out of order later. Matches observation discovery-d47c6c8c6e6f2995."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if screen readers correctly announce the terminal input selection status update (`aria-live=\"polite\"`) when dragging to select text within the terminal bounds."
+            ],
+            "proposed_task_ids": [
+              "discovery-91c421b7b33a4fcc4f466eefa3d26972453e867ce57abf14a65da950f8529b14"
+            ],
+            "completed_at": "2026-09-20T17:05:04.646527Z",
+            "source": {
+              "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+              "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+              "activity_created_at": "2026-09-18T22:42:37.210573Z",
+              "session_id": "17793537861787869447",
+              "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+            },
+            "deferred_findings": [
+              {
+                "title": "Link terminal help button to its content via aria-controls",
+                "reason": "historical_predecision_overlap",
+                "evidence": "{\"detail\": \"Static inspection of src/TerminalView.tsx. The button declares aria-expanded but lacks aria-controls.\", \"reproduction\": {\"actual\": \"The button has aria-expanded but no aria-controls attribute, and the container has no ID.\", \"expected\": \"The button has an aria-controls attribute pointing to the ID of the help text container.\", \"steps\": [\"Open an agent tab that renders the terminal input help button.\", \"Inspect the DOM for the terminal input help trigger and its associated help text block.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TerminalView.tsx"
+                ],
+                "acceptance": [
+                  "The terminal help trigger button includes an aria-controls attribute",
+                  "The terminal help content container has a unique id matching the button's aria-controls"
+                ],
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-e1a64022fb094a98",
+                      "action": "resolve",
+                      "decision_at": "2026-09-19T05:42:03Z",
+                      "match": "possible",
+                      "timing": "pre"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
