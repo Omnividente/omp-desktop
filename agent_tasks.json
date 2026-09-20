@@ -19063,7 +19063,8 @@
             "session_id": "6863993237095465948",
             "dispatch_key": "71e496120dc26eee50a9e51e"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-71e496120dc26eee50a9e51e"
       },
       "research_result": {
         "summary": "Investigated interrupted session imports causing permanent desynchronization between JSONL and artifacts.",
