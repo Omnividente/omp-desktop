@@ -18864,7 +18864,7 @@
       "id": "research-sessions-persistence-reliability-5",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -19040,34 +19040,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "6863993237095465948",
         "dispatch_key": "71e496120dc26eee50a9e51e",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-71e496120dc26eee50a9e51e",
         "started_at": "2026-09-20T17:22:45.963480Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T17:55:01.851274Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T17:48:53.477263Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-20T17:42:41.514731Z",
-          "source": {
-            "activity_id": "sessions/6863993237095465948/activities/8f70bba2327a474aace8fb046fe8c135",
-            "report_sha256": "9e6f723d75d6a402f4a59d01ba6dba83d5f4168568bb7f93b0e865055fba298b",
-            "activity_created_at": "2026-09-20T17:32:14.326589Z",
-            "session_id": "6863993237095465948",
-            "dispatch_key": "71e496120dc26eee50a9e51e"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T17:55:01.851274Z",
         "report_repair": {
           "at": "2026-09-20T17:43:00.076496Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/6863993237095465948/activities/8f70bba2327a474aace8fb046fe8c135",
             "report_sha256": "9e6f723d75d6a402f4a59d01ba6dba83d5f4168568bb7f93b0e865055fba298b",
@@ -19076,11 +19064,98 @@
             "dispatch_key": "71e496120dc26eee50a9e51e"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated interrupted session imports causing permanent desynchronization between JSONL and artifacts.",
+        "observations": [
+          {
+            "scenario": "Simulated an interruption (e.g. power loss or crash) during a session import update, specifically after the artifact directories are swapped but before the JSONL write completes.",
+            "evidence": "Observed via synthetic Rust test analyzing 'commit_import_with' in 'src-tauri/src/sessions.rs'. The function swaps artifact directories ('target_artifacts' to 'backup', then 'staging' to 'target_artifacts') before attempting to write the JSONL file. If interrupted, the target artifact directory contains the new artifacts while the JSONL file retains the old session state.",
+            "result": "Establishes that the JSONL and artifact directory become permanently desynchronized. The subsequent 'scan_sessions' will mistakenly associate the old JSONL with the new artifacts, corrupting the session state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the application can detect this desynchronization on startup and rollback the artifacts using the backup directory."
+        ],
+        "proposed_task_ids": [
+          "discovery-a1eefff4576aa5c1"
+        ],
+        "completed_at": "2026-09-20T17:55:01.851274Z",
+        "source": {
+          "activity_id": "sessions/6863993237095465948/activities/1293570223ff496ea4a7881f47570fba",
+          "report_sha256": "429ae68ec249b4348a45974414fba167a71be0c9bcfcb6abc37060fcc10f7e09",
+          "activity_created_at": "2026-09-20T17:43:55.411106Z",
+          "session_id": "6863993237095465948",
+          "dispatch_key": "71e496120dc26eee50a9e51e"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6863993237095465948/activities/1293570223ff496ea4a7881f47570fba",
+          "report_sha256": "429ae68ec249b4348a45974414fba167a71be0c9bcfcb6abc37060fcc10f7e09",
+          "activity_created_at": "2026-09-20T17:43:55.411106Z",
+          "session_id": "6863993237095465948",
+          "dispatch_key": "71e496120dc26eee50a9e51e"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-a1eefff4576aa5c1"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-a1eefff4576aa5c1",
+      "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "medium",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T17:55:01.851274Z",
+      "acceptance": [
+        "If a crash occurs during session import update, the session state and its artifacts remain synchronized"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via codebase inspection and synthetic Rust testing on 2725a1f6255b75974bde7983a1e5694288a4a222.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a valid session with artifacts.",
+            "Begin an update import with new artifacts.",
+            "Interrupt the process after the artifact swap but before 'write_session' completes.",
+            "Scan the sessions directory."
+          ],
+          "expected": "The session should retain its original JSONL and its original artifacts.",
+          "actual": "The session retains its original JSONL but is permanently associated with the new artifacts."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-5",
+        "activity_id": "sessions/6863993237095465948/activities/1293570223ff496ea4a7881f47570fba",
+        "report_sha256": "429ae68ec249b4348a45974414fba167a71be0c9bcfcb6abc37060fcc10f7e09",
+        "activity_created_at": "2026-09-20T17:43:55.411106Z",
+        "session_id": "6863993237095465948",
+        "dispatch_key": "71e496120dc26eee50a9e51e"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T17:49:11.500079Z",
+    "last_poll_at": "2026-09-20T17:55:19.582088Z",
     "last_tick_at": "2026-09-20T17:49:14.741362Z",
     "run_id": "35527046877"
   }
