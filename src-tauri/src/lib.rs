@@ -718,6 +718,31 @@ async fn read_session_transcript(
 }
 
 #[tauri::command]
+async fn read_session_answers(path: String, app: AppHandle) -> Result<SessionTranscript, AppError> {
+    run_blocking(
+        "чтения завершённых ответов",
+        "session_answers_read_failed",
+        "Не удалось прочитать завершённые ответы",
+        move || {
+            let settings = app.state::<SettingsState>();
+            let snapshot = settings_snapshot(&app, &settings)?;
+            let root = settings::session_root(&app, &snapshot)?;
+            let mut transcript = sessions::read_session_answers(&path, &root)?;
+            sessions::apply_session_title_pin(
+                &mut transcript.session,
+                &snapshot.session_title_pins,
+            );
+            sessions::apply_session_primary_provider_pin(
+                &mut transcript.session,
+                &snapshot.primary_provider_pins,
+            );
+            Ok(transcript)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 async fn load_omp_config(app: AppHandle) -> Result<OmpConfigSnapshot, AppError> {
     run_blocking(
         "загрузки настроек OMP",
@@ -831,6 +856,7 @@ pub fn run() {
             import_sessions,
             list_codex_sessions,
             read_session_transcript,
+            read_session_answers,
             content_links::open_content_link,
             load_omp_config,
             refresh_omp_config,

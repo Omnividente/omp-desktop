@@ -382,6 +382,7 @@ button:disabled {
 
 .workbench {
   display: grid;
+  grid-row: 3;
   grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
@@ -3962,6 +3963,26 @@ button:disabled {
   min-height: 0;
   overflow: hidden;
   background: #101312;
+}
+
+.terminal-pane {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-pane.is-active {
+  display: flex;
+}
+
+.terminal-pane-console {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 180px;
 }
 
 .terminal-view {

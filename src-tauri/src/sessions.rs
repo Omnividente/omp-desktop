@@ -1015,6 +1015,12 @@ struct TranscriptRegions {
     tail_reaches_end: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TranscriptEntryFilter {
+    All,
+    CompletedAnswers,
+}
+
 pub fn read_session_transcript(
     path: &str,
     session_root: &Path,
@@ -1026,11 +1032,38 @@ pub fn read_session_transcript(
         TRANSCRIPT_TAIL_BYTES,
     )
 }
+
+pub fn read_session_answers(path: &str, session_root: &Path) -> Result<SessionTranscript, String> {
+    read_session_transcript_with_filter(
+        path,
+        session_root,
+        TRANSCRIPT_PREFIX_BYTES,
+        TRANSCRIPT_TAIL_BYTES,
+        TranscriptEntryFilter::CompletedAnswers,
+    )
+}
+
 fn read_session_transcript_with_limits(
     path: &str,
     session_root: &Path,
     prefix_limit: usize,
     tail_limit: usize,
+) -> Result<SessionTranscript, String> {
+    read_session_transcript_with_filter(
+        path,
+        session_root,
+        prefix_limit,
+        tail_limit,
+        TranscriptEntryFilter::All,
+    )
+}
+
+fn read_session_transcript_with_filter(
+    path: &str,
+    session_root: &Path,
+    prefix_limit: usize,
+    tail_limit: usize,
+    entry_filter: TranscriptEntryFilter,
 ) -> Result<SessionTranscript, String> {
     let path = validated_session_file(path, session_root)?;
     let session = parse_session(&path)?
@@ -1043,12 +1076,14 @@ fn read_session_transcript_with_limits(
         !regions.truncated,
         &mut line_index,
         &mut entries,
+        entry_filter,
     );
     let (tail_malformed, tail_incomplete) = parse_transcript_region(
         &regions.tail,
         regions.tail_reaches_end,
         &mut line_index,
         &mut entries,
+        entry_filter,
     );
 
     Ok(SessionTranscript {
@@ -1170,6 +1205,7 @@ fn parse_transcript_region(
     reaches_end: bool,
     line_index: &mut usize,
     entries: &mut Vec<TranscriptEntry>,
+    entry_filter: TranscriptEntryFilter,
 ) -> (usize, bool) {
     let mut malformed_records = 0;
     let mut incomplete_last_record = false;
@@ -1185,8 +1221,10 @@ fn parse_transcript_region(
         }
         match serde_json::from_slice::<Value>(row) {
             Ok(value) => {
-                if let Some(entry) = transcript_entry_from_value(&value, current_index) {
-                    entries.push(entry);
+                if entry_filter.allows(&value) {
+                    if let Some(entry) = transcript_entry_from_value(&value, current_index) {
+                        entries.push(entry);
+                    }
                 }
             }
             Err(_) if !terminated => incomplete_last_record = true,
@@ -1194,6 +1232,86 @@ fn parse_transcript_region(
         }
     }
     (malformed_records, incomplete_last_record)
+}
+
+impl TranscriptEntryFilter {
+    fn allows(self, value: &Value) -> bool {
+        match self {
+            Self::All => true,
+            Self::CompletedAnswers => is_completed_assistant_answer(value),
+        }
+    }
+}
+
+fn is_completed_assistant_answer(value: &Value) -> bool {
+    if value.get("type").and_then(Value::as_str) != Some("message") {
+        return false;
+    }
+    let message = value.get("message").unwrap_or(value);
+    if message
+        .get("role")
+        .and_then(Value::as_str)
+        .is_none_or(|role| !role.trim().eq_ignore_ascii_case("assistant"))
+    {
+        return false;
+    }
+    if message
+        .get("errorMessage")
+        .and_then(Value::as_str)
+        .is_some_and(|error| !error.trim().is_empty())
+    {
+        return false;
+    }
+    let has_tool_call = message
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                matches!(
+                    item.get("type").and_then(Value::as_str),
+                    Some("toolCall" | "tool_use" | "function_call")
+                )
+            })
+        });
+    if has_tool_call {
+        return false;
+    }
+    match message.get("stopReason") {
+        Some(Value::String(reason)) => {
+            let reason = reason.trim();
+            if !(reason.eq_ignore_ascii_case("stop")
+                || reason.eq_ignore_ascii_case("endTurn")
+                || reason.eq_ignore_ascii_case("length"))
+            {
+                return false;
+            }
+        }
+        Some(_) => return false,
+        None => {}
+    }
+    has_dialogue_content(message.get("content"))
+}
+
+fn has_dialogue_content(content: Option<&Value>) -> bool {
+    let Some(content) = content else {
+        return false;
+    };
+    if content.as_str().is_some_and(|text| !text.trim().is_empty()) {
+        return true;
+    }
+    content.as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            if item.as_str().is_some_and(|text| !text.trim().is_empty()) {
+                return true;
+            }
+            let item_type = item.get("type").and_then(Value::as_str);
+            matches!(item_type, Some("text" | "input_text" | "output_text"))
+                && item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| !text.trim().is_empty())
+        })
+    })
 }
 
 fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<TranscriptEntry> {
@@ -3174,12 +3292,13 @@ mod tests {
         encode_relative_session_dir_name, encode_session_dir_name, handoff_session_titles,
         import_destination, import_session, parse_codex_session_with_names, parse_session,
         parse_session_with_names, path_key, read_codex_discovery_prefix, read_import_bytes,
-        read_session_transcript, read_session_transcript_with_limits, restorable_session_model,
-        scan_sessions, serialize_title_slot, stage_import_artifacts_with_limits,
-        transfer_session_primary_provider_pin, validated_external_import_source, AppSettings,
-        ArtifactLimits, CodexSessionSummary, ImportItemStatus, ImportMode, ImportSessionRequest,
-        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
-        CODEX_DISCOVERY_MAX_LINES, MAX_IMPORT_BYTES,
+        read_session_answers, read_session_transcript, read_session_transcript_with_limits,
+        restorable_session_model, scan_sessions, serialize_title_slot,
+        stage_import_artifacts_with_limits, transfer_session_primary_provider_pin,
+        validated_external_import_source, AppSettings, ArtifactLimits, CodexSessionSummary,
+        ImportItemStatus, ImportMode, ImportSessionRequest, SessionSummary,
+        TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
+        MAX_IMPORT_BYTES,
     };
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
@@ -3888,6 +4007,76 @@ mod tests {
 
         assert_eq!(first.title, "First");
         assert_eq!(updated.title, "Updated cache title");
+    }
+
+    #[test]
+    fn session_answers_filter_completed_assistant_messages_and_keep_warnings() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-session-answers-{}-{nonce}",
+            std::process::id()
+        ));
+        let path = root.join("project").join("session.jsonl");
+        fs::create_dir_all(path.parent().expect("fixture parent should exist"))
+            .expect("fixture directory should be writable");
+        let mut file = fs::File::create(&path).expect("fixture should be writable");
+        file.write_all(
+            concat!(
+                r#"{"type":"session","id":"answers","cwd":"/tmp/project"}"#,
+                "\n",
+                r##"{"type":"message","id":"final","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"# Answer\n\ncode"}]}}"##,
+                "\n",
+                r#"{"type":"message","id":"tool-stop","message":{"role":"assistant","stopReason":"stop","content":[{"type":"toolCall","name":"read"},{"type":"text","text":"tool turn"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"tool-reason","message":{"role":"assistant","stopReason":"toolUse","content":[{"type":"text","text":"tool turn"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"error","message":{"role":"assistant","stopReason":"error","content":[{"type":"text","text":"error"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"aborted","message":{"role":"assistant","stopReason":"aborted","content":[{"type":"text","text":"aborted"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"cancelled","message":{"role":"assistant","stopReason":"cancelled","content":[{"type":"text","text":"cancelled"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"length","message":{"role":"assistant","stopReason":"length","content":[{"type":"output_text","text":"length answer"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"end-turn","message":{"role":"assistant","stopReason":"endTurn","content":[{"type":"input_text","text":"end turn answer"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"legacy","message":{"role":"assistant","content":"legacy answer"}}"#,
+                "\n",
+                r#"{"type":"message","id":"legacy-tool","message":{"role":"assistant","content":[{"type":"tool_use","name":"read"},{"type":"text","text":"legacy tool"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"thinking","message":{"role":"assistant","stopReason":"stop","content":[{"type":"thinking","thinking":"private reasoning"}]}}"#,
+                "\n",
+                "{malformed}\n",
+                r#"{"type":"message","id":"partial","message":{"role":"assistant","stopReason":"stop","content":"incomplete"}"#,
+            )
+            .as_bytes(),
+        )
+        .expect("fixture should be writable");
+        drop(file);
+
+        let transcript = read_session_answers(path.to_string_lossy().as_ref(), &root)
+            .expect("answers should be readable");
+        assert_eq!(transcript.session.id, "answers");
+        assert_eq!(
+            transcript
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["final", "length", "end-turn", "legacy"]
+        );
+        assert_eq!(
+            transcript.entries[0].dialogue_text.as_deref(),
+            Some("# Answer\n\ncode")
+        );
+        assert_eq!(transcript.malformed_records, 1);
+        assert!(transcript.incomplete_last_record);
+        assert!(!transcript.truncated);
+
+        fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 
     #[test]
