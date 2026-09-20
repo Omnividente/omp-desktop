@@ -13680,7 +13680,7 @@
       "id": "research-sessions-persistence-behavior-4",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -13789,23 +13789,109 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16425046943503938760",
         "dispatch_key": "bbe6a1fa78b566d892bf9edc",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-bbe6a1fa78b566d892bf9edc",
         "started_at": "2026-09-20T00:29:23.340612Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T00:54:43.340876Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T00:36:26.770824Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T00:54:43.340876Z"
+      },
+      "research_result": {
+        "summary": "Investigated error feedback handling when importing unsupported or invalid file formats. Discovered that modal dialogs remain open upon failure.",
+        "observations": [
+          {
+            "scenario": "Simulated importing an invalid session file where `importSessions` from Tauri returns an `ImportItemResult` with status 'failed'.",
+            "evidence": "Source inspection of `App.tsx`: `importPendingOmp` and `importCodexSelected` check for `failure` and call `showError` (displaying a global toast). However, they only close the modal (`setPendingOmpImportPath(null)` or `setCodexOpen(false)`) in the `else` branch, meaning the modals do not close when an error occurs.",
+            "result": "Establishes that the UI handles import errors by displaying a generic toast while leaving the modal open, creating a potentially confusing state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the lack of inline error messages in `ImportSessionModal` and `CodexImportModal` impacts screen reader accessibility."
+        ],
+        "proposed_task_ids": [
+          "discovery-39c130be90c4a65e"
+        ],
+        "completed_at": "2026-09-20T00:54:43.340876Z",
+        "source": {
+          "activity_id": "sessions/16425046943503938760/activities/03474706f2304648a026cb10dda1182f",
+          "report_sha256": "12d2535c080bde9ae3d4576d49a94e8ae522a9412b0fd48b6e7ed30fc8273a9b",
+          "activity_created_at": "2026-09-20T00:47:18.589870Z",
+          "session_id": "16425046943503938760",
+          "dispatch_key": "bbe6a1fa78b566d892bf9edc"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16425046943503938760/activities/03474706f2304648a026cb10dda1182f",
+          "report_sha256": "12d2535c080bde9ae3d4576d49a94e8ae522a9412b0fd48b6e7ed30fc8273a9b",
+          "activity_created_at": "2026-09-20T00:47:18.589870Z",
+          "session_id": "16425046943503938760",
+          "dispatch_key": "bbe6a1fa78b566d892bf9edc"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-39c130be90c4a65e"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-39c130be90c4a65e",
+      "title": "Close session import modals when an import failure occurs",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T00:54:43.340876Z",
+      "acceptance": [
+        "Both OMP and Codex import modals close when the backend returns a 'failed' status for the import"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Analyzed React state transitions in `App.tsx` during `importPendingOmp` and `importCodexSelected`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the import modal",
+            "Select an invalid or unsupported file to import",
+            "Trigger the import action"
+          ],
+          "expected": "The system displays an error toast AND the modal closes.",
+          "actual": "The system displays an error toast BUT the modal remains open and intractable."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-4",
+        "activity_id": "sessions/16425046943503938760/activities/03474706f2304648a026cb10dda1182f",
+        "report_sha256": "12d2535c080bde9ae3d4576d49a94e8ae522a9412b0fd48b6e7ed30fc8273a9b",
+        "activity_created_at": "2026-09-20T00:47:18.589870Z",
+        "session_id": "16425046943503938760",
+        "dispatch_key": "bbe6a1fa78b566d892bf9edc"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T00:49:05.461891Z",
+    "last_poll_at": "2026-09-20T00:54:59.806749Z",
     "last_tick_at": "2026-09-20T00:49:07.889735Z",
     "run_id": "35479738245"
   }
