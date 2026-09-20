@@ -19715,7 +19715,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T21:48:13.852537Z"
+        "observed_at": "2026-09-20T21:48:13.852537Z",
+        "released_attempt_ref": "autonomous/attempt-387ea5e5bf84aed210611ace"
       },
       "research_result": {
         "summary": "Investigated Terminal input, output and continuity behavior. Specifically investigated how `terminalContinuity.ts` calculates sequences upon generation reset and whether `TerminalView.tsx` fatally throws on deferred output causing a generation change. Confirmed backend behavior for switch input recovery matches previous known findings.",
