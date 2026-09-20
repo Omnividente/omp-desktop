@@ -16327,7 +16327,7 @@
       "id": "research-transcript-links-reliability-4",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -16455,7 +16455,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "409476077093786262",
         "dispatch_key": "0dccab637b70690acfd01641",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
@@ -16463,15 +16463,39 @@
         "started_at": "2026-09-20T10:20:40.190058Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T10:27:51.125866Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T10:46:02.609417Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-20T10:46:02.609417Z",
+          "source": {
+            "activity_id": "sessions/409476077093786262/activities/2460f7b0a15144d19be72f5f71a366b9",
+            "report_sha256": "9b206848b7f3d648267b6462a9a63489f9a9318b861bf977be24169da540d749",
+            "activity_created_at": "2026-09-20T10:34:45.026911Z",
+            "session_id": "409476077093786262",
+            "dispatch_key": "0dccab637b70690acfd01641"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-20T10:46:22.049685Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/409476077093786262/activities/2460f7b0a15144d19be72f5f71a366b9",
+            "report_sha256": "9b206848b7f3d648267b6462a9a63489f9a9318b861bf977be24169da540d749",
+            "activity_created_at": "2026-09-20T10:34:45.026911Z",
+            "session_id": "409476077093786262",
+            "dispatch_key": "0dccab637b70690acfd01641"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T10:40:17.944288Z",
+    "last_poll_at": "2026-09-20T10:46:20.410502Z",
     "last_tick_at": "2026-09-20T10:40:19.811088Z",
     "run_id": "35505701288"
   }
