@@ -19714,13 +19714,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T21:21:58.416700Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T21:29:41.706310Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T21:29:58.604009Z",
+    "last_poll_at": "2026-09-20T21:30:01.261711Z",
     "last_tick_at": "2026-09-20T21:23:59.634783Z",
     "run_id": "35538462470"
   }
