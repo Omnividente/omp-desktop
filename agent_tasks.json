@@ -17144,7 +17144,7 @@
       "id": "research-diagnostics-resources-performance-4",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -17251,7 +17251,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "15545669729491098020",
         "dispatch_key": "40b1fe521963c6702ea792dd",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
@@ -17259,15 +17259,39 @@
         "started_at": "2026-09-20T11:50:50.736071Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T11:58:07.127365Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T12:16:44.304228Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-20T12:16:44.304228Z",
+          "source": {
+            "activity_id": "sessions/15545669729491098020/activities/4805d0543e8b4be691593f2b335829f6",
+            "report_sha256": "53991f7240405f714fc899fd9e472d4412dbda06035c4e6b7613172a870505b0",
+            "activity_created_at": "2026-09-20T12:04:00.334447Z",
+            "session_id": "15545669729491098020",
+            "dispatch_key": "40b1fe521963c6702ea792dd"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-20T12:17:01.727613Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/15545669729491098020/activities/4805d0543e8b4be691593f2b335829f6",
+            "report_sha256": "53991f7240405f714fc899fd9e472d4412dbda06035c4e6b7613172a870505b0",
+            "activity_created_at": "2026-09-20T12:04:00.334447Z",
+            "session_id": "15545669729491098020",
+            "dispatch_key": "40b1fe521963c6702ea792dd"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T12:11:07.305888Z",
+    "last_poll_at": "2026-09-20T12:17:00.366317Z",
     "last_tick_at": "2026-09-20T12:11:09.365868Z",
     "run_id": "35509873823"
   }
