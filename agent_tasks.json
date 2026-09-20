@@ -17736,13 +17736,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T15:30:05.749350Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-20T15:53:21.812965Z",
+        "research_detached": {
+          "at": "2026-09-20T15:53:21.812965Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T15:36:31.462028Z",
+    "last_poll_at": "2026-09-20T15:53:37.888461Z",
     "last_tick_at": "2026-09-20T15:36:33.789983Z",
     "run_id": "35520088074"
   }
