@@ -17915,7 +17915,7 @@
       "id": "discovery-145f7f8b08d0c398",
       "title": "Prevent resource sampling failure from concurrent workspace unmounts",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -17950,6 +17950,12 @@
         "activity_created_at": "2026-09-20T12:19:16.330311Z",
         "session_id": "15545669729491098020",
         "dispatch_key": "40b1fe521963c6702ea792dd"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:32:57Z",
+        "note": "Approved for an isolated PR after a real backend reproduction on synthetic paths. A transient unavailable workspace volume must not discard memory and healthy-volume samples, but a failed/missing measurement must remain explicitly visible as unavailable/partial rather than silently producing an all-clear status, zero free bytes, or measuring an unrelated ancestor volume as the vanished mount. Preserve truthful error reporting and existing concurrency; extend the existing frontend/backend contract only where needed. Keep real user data untouched. Rust proof requires honest documented manual review, not a false green TypeScript gate."
       }
     },
     {
