@@ -15308,7 +15308,7 @@
       "id": "research-workspace-navigation-ux-4",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "a11y",
         "i18n",
@@ -15411,6 +15411,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "8d2f22c7e5a2103137f998a5",
+        "base_sha": "ce58bebd0614c330d202a668638d36f846a70bb1",
+        "starting_branch": "autonomous/attempt-8d2f22c7e5a2103137f998a5",
+        "started_at": "2026-09-20T08:39:31.376816Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
