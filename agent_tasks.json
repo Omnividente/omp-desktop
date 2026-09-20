@@ -17365,6 +17365,119 @@
         "session_id": "15545669729491098020",
         "dispatch_key": "40b1fe521963c6702ea792dd"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-4",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-20T13:18:27Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-145f7f8b08d0c398\",\"status\":\"proposed\",\"title\":\"Prevent resource sampling failure from concurrent workspace unmounts\",\"target_paths\":[\"src-tauri/src/resource_health.rs\"],\"observed_contract\":{\"detail\":\"Native backend observation using a synthetic test harness mimicking sample_volume and existing_resource_path; no live user data or GUI exercised.\",\"expected\":\"The resource health snapshot successfully completes for memory and remaining stable volumes (like the sessions directory).\",\"actual\":\"The entire resource sampling operation fails with an IO error (No such file or directory) propagating from sample_volume, returning no metrics.\",\"acceptance\":[\"The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.\",\"Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check.\"]}}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "7be08511193947d2fd03623f2192fea09aac3c1a46c6296b33f02ce03457f3b0",
+        "cycle": 4,
+        "previous_reports": [
+          {
+            "summary": "Verified that extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large transcript is loaded.",
+            "observations": [
+              {
+                "scenario": "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+                "evidence": "Executed an isolated React testing library simulation inside a temporary test (`src/hypothesis3.test.tsx` using jsdom) by manually providing 50,000 synthetic items to the `useVirtualList` hook. Simulated rapid sequential horizontal resizing (100 rapid changes to container clientWidth, triggering scroll/resize events). Verified that each width change triggers `setMeasurementRevision`, which in turn invalidates the `useMemo` calculating the `layout` (calling `getItemKey` for all 50,000 items in a loop). Observed ~4,950,000 calls to `getItemKey` and the test timed out after 5 seconds due to main thread exhaustion.",
+                "result": "Establishes that the user interface is vulnerable to layout thrashing during continuous horizontal window resizes for large lists because it clears the active measurement cache and recalculates the complete layout matrix on every width change without debouncing or tracking if heights actually changed."
+              }
+            ],
+            "next_hypotheses": [
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS due to differences in scroll event frequency and handling in useVirtualList.",
+              "Verify the fallback mapping boundaries in `sample_resource_health` when traversing canonical parent directories for non-existent root or leaf paths."
+            ],
+            "proposed_task_ids": [
+              "discovery-03f973c614f72064"
+            ],
+            "completed_at": "2026-09-20T11:50:50.736071Z",
+            "source": {
+              "activity_id": "sessions/14999717263476957575/activities/77da22cc0ec24a9cb806bf668b9021fa",
+              "report_sha256": "8ee63e008f390773d18d135a614765cd06a152a2e56dd2e391dc7857cf518d50",
+              "activity_created_at": "2026-09-20T11:38:31.767776Z",
+              "session_id": "14999717263476957575",
+              "dispatch_key": "b8ef30ecb4134e96ad4e3fea"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that runtime incidents correctly persist, state is cleanly recovered and distinct/identical errors are deduplicated without data loss across cancellations and restarts.",
+            "observations": [
+              {
+                "scenario": "Exercise runtime incident cancellation (resolving an active model error by returning to idle activity), restart (the same error recurring later), and check that state remains recoverable without loss or duplicate operations.",
+                "evidence": "Executed synthetic local vitest tests on `src/runtimeIncidents.ts`. Triggered a `modelError`, verified it became active with count 1. Issued an `idle` activity event, observing it successfully transitioned to `resolved` with `recovered` reason. Retriggered the exact same `modelError`, verifying that instead of creating a duplicate row, the existing incident was cleanly reactivated (status flipped to `active`) and its occurrence count bumped to 2 without losing the original timestamp ID. When explicit state clearing (`clearResolvedRuntimeIncidents`) was called while active, it safely persisted. Finally, verified that if a resolved incident is cleared and *then* the error recurs, it restarts cleanly with a new incident entry.",
+                "result": "Establishes that the incident reducer natively supports state recovery after cancellation and restart. It securely deduplicates identical returning errors without data loss and respects the clearance boundaries, ensuring recoverable state remains robust."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+              "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS.",
+              "Investigate the robustness of ResourceHealth snapshot disk volume detection under extremely rapid concurrent unmounting of a workspace."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-20T11:50:50.736071Z",
+            "source": {
+              "activity_id": "sessions/14673479148851661311/activities/9b782f05bf0b4c69bd770864edd7f85b",
+              "report_sha256": "3492ced821023a5b8f8c268bb9150101b7d26ee7a804762719244903bfb96c76",
+              "activity_created_at": "2026-09-20T11:43:36.084254Z",
+              "session_id": "14673479148851661311",
+              "dispatch_key": "ef814f93f55e9b5d06254463"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that a concurrent workspace unmount during resource sampling causes the entire resource health snapshot to fail.",
+            "observations": [
+              {
+                "scenario": "Simulate a concurrent unmounting of a workspace directory between its path resolution and metadata inspection in the resource sampling routine.",
+                "evidence": "Executed an isolated Rust test harness (`/tmp/workspace_concurrent_unmount2.rs`) mimicking `sample_volume` in `src-tauri/src/resource_health.rs`. Triggered a race condition by spawning a thread that removes a target directory immediately after it is resolved by `existing_resource_path` but before `fs::metadata` is invoked. Observed that `fs::metadata` fails with an OS Error 2 (No such file or directory). Because `sample_volumes` loops over all resource paths and uses the `?` operator on `sample_volume`, this localized error propagates upwards and aborts the entire `sample_resource_health` process.",
+                "result": "Establishes that the resource sampling is fragile to concurrent unmounts. A transient error on a single volume (e.g., an external drive workspace being ejected) results in the loss of all resource health metrics (including memory and stable session volumes) instead of gracefully skipping or falling back."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether large application logs generated concurrently block the resource sampling thread from executing efficiently.",
+              "Investigate if high-frequency workspace filesystem changes cause lock contention when taking resource snapshots."
+            ],
+            "proposed_task_ids": [
+              "discovery-145f7f8b08d0c398"
+            ],
+            "completed_at": "2026-09-20T12:29:02.575707Z",
+            "source": {
+              "activity_id": "sessions/15545669729491098020/activities/db54fb2b18154a9babcf7a2677ef282a",
+              "report_sha256": "9c1a97420006309342037a46e034c84a45732a2a0aed30d1dcac50f98ee7d375",
+              "activity_created_at": "2026-09-20T12:19:16.330311Z",
+              "session_id": "15545669729491098020",
+              "dispatch_key": "40b1fe521963c6702ea792dd"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
