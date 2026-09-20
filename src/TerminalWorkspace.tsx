@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { CompletedAnswers } from "./CompletedAnswers"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
@@ -245,19 +246,38 @@ export function TerminalWorkspace({
         </div>
         <div className="terminal-stack">
           {tabs.map((tab) => (
-            <TerminalView
-              active={tab.id === activeTabId}
-              focusRequestSequence={focusRequest?.terminalId === tab.id ? focusRequest.sequence : 0}
-              language={language}
-              platform={runtime.platform}
-              terminalFontFamily={terminalFontFamily}
-              terminalFontSize={terminalFontSize}
+            <div
+              className={`terminal-pane${tab.id === activeTabId ? " is-active" : ""}`}
               key={tab.id}
-              onError={onError}
-              onExit={onExit}
-              onReady={onReady}
-              tab={tab}
-            />
+            >
+              {tab.kind === "agent" && tab.sessionPath && (
+                <CompletedAnswers
+                  key={tab.sessionPath}
+                  active={tab.id === activeTabId}
+                  busy={tab.status === "running" && (tab.activity === "thinking" || tab.switching)}
+                  version={tab.completedResponseVersion ?? 0}
+                  sessionPath={tab.sessionPath}
+                  lang={language}
+                  onError={onError}
+                />
+              )}
+              <div className="terminal-pane-console">
+                <TerminalView
+                  active={tab.id === activeTabId}
+                  focusRequestSequence={
+                    focusRequest?.terminalId === tab.id ? focusRequest.sequence : 0
+                  }
+                  language={language}
+                  platform={runtime.platform}
+                  terminalFontFamily={terminalFontFamily}
+                  terminalFontSize={terminalFontSize}
+                  onError={onError}
+                  onExit={onExit}
+                  onReady={onReady}
+                  tab={tab}
+                />
+              </div>
+            </div>
           ))}
         </div>
       </div>

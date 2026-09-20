@@ -448,6 +448,7 @@ export interface TerminalTab {
   currentModelRole?: string | null
   currentThinking?: string | null
   currentThinkingConfigured?: string | null
+  completedResponseVersion?: number
   primaryProviderPinned: boolean
   primaryProviderPinPending: boolean
 }

@@ -1,0 +1,92 @@
+.completed-answers {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: 65%;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+
+.completed-answers-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.completed-answers-toolbar > strong {
+  color: var(--text);
+}
+
+.completed-answers-toolbar nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.completed-answers-toolbar button,
+.completed-answer-warning button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-soft);
+  background: var(--panel);
+  font: inherit;
+  cursor: pointer;
+}
+
+.completed-answers-toolbar button:hover:not(:disabled),
+.completed-answer-warning button:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.completed-answers-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.completed-answers-toolbar button:focus-visible,
+.completed-answer-warning button:focus-visible,
+.completed-answer-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.completed-answer-previous svg {
+  transform: rotate(180deg);
+}
+
+.completed-answer-toggle {
+  margin-inline-start: auto;
+}
+
+.completed-answer-body {
+  min-height: 0;
+  padding: 8px 18px 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.completed-answer-warning {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--warning);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

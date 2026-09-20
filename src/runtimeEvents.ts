@@ -102,5 +102,10 @@ export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent)
     currentThinking: event.thinkingLevel ?? tab.currentThinking,
     currentThinkingConfigured: event.configuredThinkingLevel ?? tab.currentThinkingConfigured,
     activity: event.activity ?? tab.activity,
+    // A completion must survive thinking -> idle events batched into one React render.
+    completedResponseVersion:
+      event.activity === "idle" || event.activity === "error"
+        ? (tab.completedResponseVersion ?? 0) + 1
+        : tab.completedResponseVersion,
   }
 }
