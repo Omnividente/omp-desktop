@@ -2290,9 +2290,28 @@
         "report_error": {
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-17T01:03:54Z"
+          "reported_at": "2026-09-17T01:03:54Z",
+          "source": {
+            "activity_id": "sessions/14048779049664362841/activities/06dcb00386b54002b6f9f6ec9160cf26",
+            "report_sha256": "a5da362d6217a527f839a6f01a277ead4452d11a2f3693756cdfe7ef21c83280",
+            "activity_created_at": "2026-09-17T00:45:21.251668Z",
+            "session_id": "14048779049664362841",
+            "dispatch_key": "641f6e7c12f2a07601c0abd6"
+          }
         },
-        "released_attempt_ref": "autonomous/attempt-641f6e7c12f2a07601c0abd6"
+        "released_attempt_ref": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
+        "report_repair": {
+          "at": "2026-09-20T16:49:41.196583Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/14048779049664362841/activities/06dcb00386b54002b6f9f6ec9160cf26",
+            "report_sha256": "a5da362d6217a527f839a6f01a277ead4452d11a2f3693756cdfe7ef21c83280",
+            "activity_created_at": "2026-09-17T00:45:21.251668Z",
+            "session_id": "14048779049664362841",
+            "dispatch_key": "641f6e7c12f2a07601c0abd6"
+          }
+        }
       }
     },
     {
