@@ -18071,12 +18071,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T16:10:57.093445Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T16:11:15.506050Z",
+    "last_poll_at": "2026-09-20T16:12:40.139574Z",
     "last_tick_at": "2026-09-20T15:53:46.021192Z",
     "run_id": "35520969996"
   }
