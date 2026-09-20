@@ -7678,7 +7678,8 @@
             "dispatch_key": "d1b8264874b0cdcfa51eab55"
           },
           "detail": "incomplete discovery findings; nothing imported: conflicting_id"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d1b8264874b0cdcfa51eab55"
       },
       "research_result": {
         "summary": "Verified context menu interaction when triggered by a keyboard shortcut with non-coordinates.",
