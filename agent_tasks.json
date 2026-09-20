@@ -19417,7 +19417,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T21:07:21.656493Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-e99e31748c31695a2bdbe323"
       },
       "research_result": {
         "summary": "Verified keyboard accessibility and screen reader reporting for transcript empty and error states.",
