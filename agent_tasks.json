@@ -17586,7 +17586,7 @@
       "id": "research-sessions-persistence-behavior-5",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -17723,6 +17723,19 @@
             ]
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "c56462049430c5171aa2ca10",
+        "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
+        "starting_branch": "autonomous/attempt-c56462049430c5171aa2ca10",
+        "started_at": "2026-09-20T15:22:51.447082Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
