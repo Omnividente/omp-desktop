@@ -13894,7 +13894,7 @@
       "id": "research-sessions-persistence-reliability-4",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -14000,23 +14000,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13596234776108211712",
         "dispatch_key": "2ff838f3cb9ef7ac45e7fc5c",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-2ff838f3cb9ef7ac45e7fc5c",
         "started_at": "2026-09-20T04:44:35.124129Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T05:10:03.321008Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T04:44:35.124129Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T05:10:03.321008Z"
+      },
+      "research_result": {
+        "summary": "Confirmed that orphaned backup and staging artifact directories are not garbage collected during session scanning.",
+        "observations": [
+          {
+            "scenario": "Simulated an interrupted session import that leaves behind `.import.artifacts-stage.*` and `.import.artifacts-backup.*` directories in the session directory.",
+            "evidence": "Created a synthetic rust test `scan_sessions_garbage_collects_orphaned_import_artifacts` that created `.import.artifacts-stage.123.456` and `.import.artifacts-backup.123.456` in a temporary sessions directory, and called `scan_sessions`. The test failed, demonstrating that the `is_import_sidecar` branches in `scan_sessions`'s `collect_jsonl_files` merely skip these directories without removing them.",
+            "result": "Establishes that the observed contract in `discovery-e938ec8d92054623` is reproducible; orphaned import artifacts remain on disk indefinitely."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if interrupted `copy_import_artifact_directory` calls leave partially copied artifact files within the staging directory in an inconsistent state, and if there are memory or filesystem handle leaks if it fails."
+        ],
+        "proposed_task_ids": [
+          "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56"
+        ],
+        "completed_at": "2026-09-20T05:10:03.321008Z",
+        "source": {
+          "activity_id": "sessions/13596234776108211712/activities/9e4d1e55b1a64b8ba3791704eb06c55b",
+          "report_sha256": "24228184b9e2941c31a8e6dbaaf5cdd5aea9ca0d470358ec5853b84e73a5a9d0",
+          "activity_created_at": "2026-09-20T05:02:23.169142Z",
+          "session_id": "13596234776108211712",
+          "dispatch_key": "2ff838f3cb9ef7ac45e7fc5c"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13596234776108211712/activities/9e4d1e55b1a64b8ba3791704eb06c55b",
+          "report_sha256": "24228184b9e2941c31a8e6dbaaf5cdd5aea9ca0d470358ec5853b84e73a5a9d0",
+          "activity_created_at": "2026-09-20T05:02:23.169142Z",
+          "session_id": "13596234776108211712",
+          "dispatch_key": "2ff838f3cb9ef7ac45e7fc5c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-270f2003045180fda835962565c4a34515b0aaeaf1273e2b33ab283704730c56",
+      "title": "Clean up orphaned backup and staging artifact directories during session scan",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T05:10:03.321008Z",
+      "acceptance": [
+        "Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via synthetic Rust test against `scan_sessions` and `collect_jsonl_files`. This reproduces the exact finding reported in canonical_id discovery-e938ec8d92054623.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a temporary session root directory.",
+            "Create dummy sidecar directories like `.import.artifacts-stage.123.456` and `.import.artifacts-backup.123.456` inside it.",
+            "Call `scan_sessions` on the session root directory.",
+            "Check if the dummy sidecar directories still exist."
+          ],
+          "expected": "The orphaned backup and staging sidecar directories from interrupted imports are detected and removed.",
+          "actual": "The orphaned backup and staging sidecar directories remain permanently."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-4",
+        "activity_id": "sessions/13596234776108211712/activities/9e4d1e55b1a64b8ba3791704eb06c55b",
+        "report_sha256": "24228184b9e2941c31a8e6dbaaf5cdd5aea9ca0d470358ec5853b84e73a5a9d0",
+        "activity_created_at": "2026-09-20T05:02:23.169142Z",
+        "session_id": "13596234776108211712",
+        "dispatch_key": "2ff838f3cb9ef7ac45e7fc5c"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T05:04:14.607567Z",
+    "last_poll_at": "2026-09-20T05:10:21.209944Z",
     "last_tick_at": "2026-09-20T05:04:16.732239Z",
     "run_id": "35490712695"
   }
