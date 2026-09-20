@@ -16891,13 +16891,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T11:19:00.539340Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-20T11:37:20.188194Z",
+        "research_detached": {
+          "at": "2026-09-20T11:37:20.188194Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T11:31:34.409225Z",
+    "last_poll_at": "2026-09-20T11:37:39.055304Z",
     "last_tick_at": "2026-09-20T11:31:37.141611Z",
     "run_id": "35508056508"
   }
