@@ -9322,6 +9322,19 @@
                 "detail": "report_repair_session_failed"
               }
             }
+          },
+          {
+            "action": "recover_authorized",
+            "at": "2026-09-20T17:05:04.646527Z",
+            "actor": "Omnividente",
+            "source": {
+              "activity_id": "sessions/17793537861787869447/activities/ecdb9d90ab9044328e2c31082fe94190",
+              "report_sha256": "147f82510d557912b9a0473221eb755a5b4facb50b83e5796175b97c74936140",
+              "activity_created_at": "2026-09-18T22:42:37.210573Z",
+              "session_id": "17793537861787869447",
+              "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
+            },
+            "mode": "reparse"
           }
         ]
       }
