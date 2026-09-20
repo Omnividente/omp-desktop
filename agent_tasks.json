@@ -15624,7 +15624,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T09:23:28.136007Z"
+        "observed_at": "2026-09-20T09:23:28.136007Z",
+        "released_attempt_ref": "autonomous/attempt-78a3078529158db815de0c7b"
       },
       "research_result": {
         "summary": "Investigated if proxy and provider environment variables are safely managed in `prepare_defaults_at_with` when resetting to defaults, and benchmarked `ModelPicker` search filtering and sorting logic.",
