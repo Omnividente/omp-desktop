@@ -16037,7 +16037,7 @@
       "id": "research-settings-models-performance-4",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -16158,34 +16158,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "6288452164179696039",
         "dispatch_key": "9409abbee4fdafe8f75e7549",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-9409abbee4fdafe8f75e7549",
         "started_at": "2026-09-20T09:55:02.952937Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T10:33:54.272783Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T10:27:51.125866Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-20T10:20:40.190058Z",
-          "source": {
-            "activity_id": "sessions/6288452164179696039/activities/961ad6e4aa9a43dca83cc376c8a3844c",
-            "report_sha256": "703bb40b71d8eb3ab4e042420c3fec23d8657739fe66f1b84751078ef66bc943",
-            "activity_created_at": "2026-09-20T10:07:57.512975Z",
-            "session_id": "6288452164179696039",
-            "dispatch_key": "9409abbee4fdafe8f75e7549"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T10:33:54.272783Z",
         "report_repair": {
           "at": "2026-09-20T10:20:59.425377Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/6288452164179696039/activities/961ad6e4aa9a43dca83cc376c8a3844c",
             "report_sha256": "703bb40b71d8eb3ab4e042420c3fec23d8657739fe66f1b84751078ef66bc943",
@@ -16193,6 +16181,144 @@
             "session_id": "6288452164179696039",
             "dispatch_key": "9409abbee4fdafe8f75e7549"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the performance of ModelPicker search and the preservation of accessibility settings during default generation, and confirmed duplicated backup creation on failed default/recovery writes.",
+        "observations": [
+          {
+            "scenario": "Simulated synthetic debounce/filtering over 1,000 models mimicking the ModelPicker component logic.",
+            "evidence": "Executed Node.js synthetic benchmark comparing `[...models].sort().filter()` vs `models.filter().sort()` over 1,000 synthetic models representing rapid keystrokes (18 variants of search strokes * 100 iterations). Current logic took 1351.91ms allocating 4.55 MB, while precomputed/optimized filter logic took 240.10ms allocating 2.11 MB.",
+            "result": "Confirms the finding from discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d: filtering the models array *before* sorting avoids unnecessary sort passes and array copies, significantly reducing latency and memory allocations during search."
+          },
+          {
+            "scenario": "Review of settings recovery and default generation for safe accessibility properties (language, fonts).",
+            "evidence": "Source code review of `recover_settings_fields` in `src-tauri/src/settings.rs` shows that while `language` is recovered via `recover_top_level_json_field`, `app_font_family`, `app_font_size`, `terminal_font_family`, and `terminal_font_size` are strictly ignored. Furthermore, `prepare_defaults_at_with` blindly relies on `AppSettings::default()` and discards the backup data without applying `recover_settings_fields` to preserve safe fields like `language`.",
+            "result": "Establishes that both 'Start with defaults' and corrupted settings parsing reset safe font choices and language back to defaults, reproducing discovery-a674fea024868caf and discovery-db32c1ac35bd4222."
+          },
+          {
+            "scenario": "Review of the backup file leak during failed writes.",
+            "evidence": "Source inspection of `prepare_defaults_at_with` and `recover_invalid_settings_with` in `src-tauri/src/settings.rs`. The code generates a file path with `unique_settings_backup` and then executes the `write` closure. If `write` yields an `Err`, the function returns early without cleaning up the potentially partially written or empty unique backup path.",
+            "result": "Confirms discovery-4b09e5c211d7eb93: failing the write step leaks the newly generated `settings.backup-*` or `settings.invalid-*` file."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if user-configured window bounds and window max/min states could also be recovered from a partially broken settings file, similar to language and fonts."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T10:33:54.272783Z",
+        "source": {
+          "activity_id": "sessions/6288452164179696039/activities/0ed61e86cd3f4f529eb98b452adde394",
+          "report_sha256": "4915eeb6569f2f5cb65867bdff9cc50331597e48573c014f882d891e437ba9f5",
+          "activity_created_at": "2026-09-20T10:21:49.940988Z",
+          "session_id": "6288452164179696039",
+          "dispatch_key": "9409abbee4fdafe8f75e7549"
+        },
+        "deferred_findings": [
+          {
+            "title": "Optimize ModelPicker performance by filtering models before sorting",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d; not established as a duplicate. {\"detail\": \"Observed via synthetic Node.js benchmark simulation on a copy of the component's `useMemo` logic.\", \"reproduction\": {\"actual\": \"The system creates a shallow copy of the entire large array and sorts all entries before applying the text filter, generating measurable memory overhead and blocking latency.\", \"expected\": \"The UI handles the input with minimal debounce delay because filtering drastically reduces the array size before sorting.\", \"steps\": [\"Open ModelPicker with a large number of models\", \"Rapidly type a search query in the ModelPicker input field\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "The ModelPicker search applies the text filter to the model list before sorting the results"
+            ]
+          },
+          {
+            "title": "Preserve application language and fonts when reverting to default settings",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-a674fea024868caf; not established as a duplicate. {\"detail\": \"Source inspection of `prepare_defaults_at_with` and `recover_settings_fields` in `src-tauri/src/settings.rs`.\", \"reproduction\": {\"actual\": \"Language is reset to default by `prepare_defaults_at_with`, and font settings are not recovered by `recover_settings_fields`.\", \"expected\": \"Language and font settings are extracted and maintained.\", \"steps\": [\"Trigger a settings recovery (e.g. invalid settings.json)\", \"Observe that the language is discarded during defaults generation or fonts are discarded during recovery.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src-tauri/src/settings.rs"
+            ],
+            "acceptance": [
+              "When the user selects 'Start with defaults' in the recovery screen, the resulting default settings preserve the user's previously configured language and font settings from the corrupted settings file",
+              "Partial settings recovery extracts and preserves font fields when they are readable"
+            ]
+          },
+          {
+            "title": "Prevent duplicate backup file generation during failed recovery and defaults operations",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-4b09e5c211d7eb93; not established as a duplicate. {\"detail\": \"Code inspection of `recover_invalid_settings_with` and `prepare_defaults_at_with` where `unique_settings_backup` creates a path which is not cleaned up if `write` returns an error.\", \"reproduction\": {\"actual\": \"Every failed attempt generates a uniquely suffixed .backup or .invalid file without cleanup.\", \"expected\": \"The generated partial backup file is cleaned up, or only one duplicate is kept per corrupted original.\", \"steps\": [\"Trigger a failed write operation during settings recovery or defaults.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src-tauri/src/settings.rs"
+            ],
+            "acceptance": [
+              "Repeated failed attempts to recover settings or start with defaults do not leak duplicate identical .backup or .invalid files"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6288452164179696039/activities/0ed61e86cd3f4f529eb98b452adde394",
+          "report_sha256": "4915eeb6569f2f5cb65867bdff9cc50331597e48573c014f882d891e437ba9f5",
+          "activity_created_at": "2026-09-20T10:21:49.940988Z",
+          "session_id": "6288452164179696039",
+          "dispatch_key": "9409abbee4fdafe8f75e7549"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-37764527ab2ab728",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d"
+            },
+            {
+              "id": "discovery-26f43b41e2c7c5dc",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-a674fea024868caf"
+            },
+            {
+              "id": "discovery-4b09e5c211d7eb93",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-4b09e5c211d7eb93"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Optimize ModelPicker performance by filtering models before sorting",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d; not established as a duplicate. {\"detail\": \"Observed via synthetic Node.js benchmark simulation on a copy of the component's `useMemo` logic.\", \"reproduction\": {\"actual\": \"The system creates a shallow copy of the entire large array and sorts all entries before applying the text filter, generating measurable memory overhead and blocking latency.\", \"expected\": \"The UI handles the input with minimal debounce delay because filtering drastically reduces the array size before sorting.\", \"steps\": [\"Open ModelPicker with a large number of models\", \"Rapidly type a search query in the ModelPicker input field\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "The ModelPicker search applies the text filter to the model list before sorting the results"
+              ]
+            },
+            {
+              "title": "Preserve application language and fonts when reverting to default settings",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-a674fea024868caf; not established as a duplicate. {\"detail\": \"Source inspection of `prepare_defaults_at_with` and `recover_settings_fields` in `src-tauri/src/settings.rs`.\", \"reproduction\": {\"actual\": \"Language is reset to default by `prepare_defaults_at_with`, and font settings are not recovered by `recover_settings_fields`.\", \"expected\": \"Language and font settings are extracted and maintained.\", \"steps\": [\"Trigger a settings recovery (e.g. invalid settings.json)\", \"Observe that the language is discarded during defaults generation or fonts are discarded during recovery.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src-tauri/src/settings.rs"
+              ],
+              "acceptance": [
+                "When the user selects 'Start with defaults' in the recovery screen, the resulting default settings preserve the user's previously configured language and font settings from the corrupted settings file",
+                "Partial settings recovery extracts and preserves font fields when they are readable"
+              ]
+            },
+            {
+              "title": "Prevent duplicate backup file generation during failed recovery and defaults operations",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-4b09e5c211d7eb93; not established as a duplicate. {\"detail\": \"Code inspection of `recover_invalid_settings_with` and `prepare_defaults_at_with` where `unique_settings_backup` creates a path which is not cleaned up if `write` returns an error.\", \"reproduction\": {\"actual\": \"Every failed attempt generates a uniquely suffixed .backup or .invalid file without cleanup.\", \"expected\": \"The generated partial backup file is cleaned up, or only one duplicate is kept per corrupted original.\", \"steps\": [\"Trigger a failed write operation during settings recovery or defaults.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src-tauri/src/settings.rs"
+              ],
+              "acceptance": [
+                "Repeated failed attempts to recover settings or start with defaults do not leak duplicate identical .backup or .invalid files"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
         }
       }
     },
@@ -16344,7 +16470,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T10:28:11.509077Z",
+    "last_poll_at": "2026-09-20T10:34:11.007249Z",
     "last_tick_at": "2026-09-20T10:28:13.375152Z",
     "run_id": "35505133684"
   }
