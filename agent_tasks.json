@@ -13800,7 +13800,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T00:54:43.340876Z"
+        "observed_at": "2026-09-20T00:54:43.340876Z",
+        "released_attempt_ref": "autonomous/attempt-bbe6a1fa78b566d892bf9edc"
       },
       "research_result": {
         "summary": "Investigated error feedback handling when importing unsupported or invalid file formats. Discovered that modal dialogs remain open upon failure.",
