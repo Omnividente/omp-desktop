@@ -14440,13 +14440,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T06:00:22.446951Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-20T06:20:10.573370Z",
+        "research_detached": {
+          "at": "2026-09-20T06:20:10.573370Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T06:14:16.829243Z",
+    "last_poll_at": "2026-09-20T06:20:30.922602Z",
     "last_tick_at": "2026-09-20T06:14:19.121817Z",
     "run_id": "35493683189"
   }
