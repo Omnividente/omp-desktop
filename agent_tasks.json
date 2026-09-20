@@ -15941,13 +15941,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T09:23:28.136007Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T09:30:34.438081Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T09:24:57.515609Z",
+    "last_poll_at": "2026-09-20T09:30:50.107635Z",
     "last_tick_at": "2026-09-20T09:24:59.609864Z",
     "run_id": "35502137169"
   }
