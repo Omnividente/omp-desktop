@@ -180,6 +180,10 @@ export function readSessionTranscript(path: string): Promise<SessionTranscript> 
   return invoke("read_session_transcript", { path })
 }
 
+export function readSessionAnswers(path: string): Promise<SessionTranscript> {
+  return invoke("read_session_answers", { path })
+}
+
 export function openContentLink(
   uri: string,
   sessionPath?: string | null,
