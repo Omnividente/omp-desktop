@@ -16900,7 +16900,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T11:37:20.188194Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b8ef30ecb4134e96ad4e3fea"
       },
       "research_result": {
         "summary": "Verified that extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large transcript is loaded.",
