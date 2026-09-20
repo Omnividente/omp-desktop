@@ -16273,7 +16273,7 @@
       "id": "discovery-a674fea024868caf",
       "title": "Preserve application language preference when reverting to default settings",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "medium",
       "focus": [
@@ -16307,6 +16307,12 @@
         "activity_created_at": "2026-09-20T09:16:10.604354Z",
         "session_id": "10311295633018430364",
         "dispatch_key": "78a3078529158db815de0c7b"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:31:24Z",
+        "note": "Rejected: partial malformed-settings recovery already preserves language under resolved discovery-db32c1ac35bd4222 / merged PR #77. This separate Start with defaults action explicitly asks the user to back up the original and write default settings. Re-extracting preferences from the rejected file changes that fallback contract; resetting a preference under this explicit action is not evidence of data loss or failed recovery."
       }
     },
     {
