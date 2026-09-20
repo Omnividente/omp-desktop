@@ -16478,7 +16478,8 @@
             "session_id": "409476077093786262",
             "dispatch_key": "0dccab637b70690acfd01641"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-0dccab637b70690acfd01641"
       },
       "research_result": {
         "summary": "Verified useTranscript and TranscriptModal recovery and concurrent behaviors.",
