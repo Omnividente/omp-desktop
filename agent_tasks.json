@@ -17144,7 +17144,7 @@
       "id": "research-diagnostics-resources-performance-4",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -17251,34 +17251,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "15545669729491098020",
         "dispatch_key": "40b1fe521963c6702ea792dd",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-40b1fe521963c6702ea792dd",
         "started_at": "2026-09-20T11:50:50.736071Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T12:29:02.575707Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T12:22:56.206831Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-20T12:16:44.304228Z",
-          "source": {
-            "activity_id": "sessions/15545669729491098020/activities/4805d0543e8b4be691593f2b335829f6",
-            "report_sha256": "53991f7240405f714fc899fd9e472d4412dbda06035c4e6b7613172a870505b0",
-            "activity_created_at": "2026-09-20T12:04:00.334447Z",
-            "session_id": "15545669729491098020",
-            "dispatch_key": "40b1fe521963c6702ea792dd"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T12:29:02.575707Z",
         "report_repair": {
           "at": "2026-09-20T12:17:01.727613Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/15545669729491098020/activities/4805d0543e8b4be691593f2b335829f6",
             "report_sha256": "53991f7240405f714fc899fd9e472d4412dbda06035c4e6b7613172a870505b0",
@@ -17287,11 +17275,99 @@
             "dispatch_key": "40b1fe521963c6702ea792dd"
           }
         }
+      },
+      "research_result": {
+        "summary": "Verified that a concurrent workspace unmount during resource sampling causes the entire resource health snapshot to fail.",
+        "observations": [
+          {
+            "scenario": "Simulate a concurrent unmounting of a workspace directory between its path resolution and metadata inspection in the resource sampling routine.",
+            "evidence": "Executed an isolated Rust test harness (`/tmp/workspace_concurrent_unmount2.rs`) mimicking `sample_volume` in `src-tauri/src/resource_health.rs`. Triggered a race condition by spawning a thread that removes a target directory immediately after it is resolved by `existing_resource_path` but before `fs::metadata` is invoked. Observed that `fs::metadata` fails with an OS Error 2 (No such file or directory). Because `sample_volumes` loops over all resource paths and uses the `?` operator on `sample_volume`, this localized error propagates upwards and aborts the entire `sample_resource_health` process.",
+            "result": "Establishes that the resource sampling is fragile to concurrent unmounts. A transient error on a single volume (e.g., an external drive workspace being ejected) results in the loss of all resource health metrics (including memory and stable session volumes) instead of gracefully skipping or falling back."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether large application logs generated concurrently block the resource sampling thread from executing efficiently.",
+          "Investigate if high-frequency workspace filesystem changes cause lock contention when taking resource snapshots."
+        ],
+        "proposed_task_ids": [
+          "discovery-145f7f8b08d0c398"
+        ],
+        "completed_at": "2026-09-20T12:29:02.575707Z",
+        "source": {
+          "activity_id": "sessions/15545669729491098020/activities/db54fb2b18154a9babcf7a2677ef282a",
+          "report_sha256": "9c1a97420006309342037a46e034c84a45732a2a0aed30d1dcac50f98ee7d375",
+          "activity_created_at": "2026-09-20T12:19:16.330311Z",
+          "session_id": "15545669729491098020",
+          "dispatch_key": "40b1fe521963c6702ea792dd"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15545669729491098020/activities/db54fb2b18154a9babcf7a2677ef282a",
+          "report_sha256": "9c1a97420006309342037a46e034c84a45732a2a0aed30d1dcac50f98ee7d375",
+          "activity_created_at": "2026-09-20T12:19:16.330311Z",
+          "session_id": "15545669729491098020",
+          "dispatch_key": "40b1fe521963c6702ea792dd"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-145f7f8b08d0c398"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-145f7f8b08d0c398",
+      "title": "Prevent resource sampling failure from concurrent workspace unmounts",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "perf"
+      ],
+      "created_at": "2026-09-20T12:29:02.575707Z",
+      "acceptance": [
+        "The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.",
+        "Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native backend observation using a synthetic test harness mimicking sample_volume and existing_resource_path; no live user data or GUI exercised.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Set the workspace path to a temporary directory on disk.",
+            "Trigger a resource sampling check (e.g., via the resource health panel) while concurrently deleting the temporary directory to hit the window between path resolution and metadata inspection."
+          ],
+          "expected": "The resource health snapshot successfully completes for memory and remaining stable volumes (like the sessions directory).",
+          "actual": "The entire resource sampling operation fails with an IO error (No such file or directory) propagating from sample_volume, returning no metrics."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/resource_health.rs"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-performance-4",
+        "activity_id": "sessions/15545669729491098020/activities/db54fb2b18154a9babcf7a2677ef282a",
+        "report_sha256": "9c1a97420006309342037a46e034c84a45732a2a0aed30d1dcac50f98ee7d375",
+        "activity_created_at": "2026-09-20T12:19:16.330311Z",
+        "session_id": "15545669729491098020",
+        "dispatch_key": "40b1fe521963c6702ea792dd"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T12:23:13.519020Z",
+    "last_poll_at": "2026-09-20T12:29:24.510981Z",
     "last_tick_at": "2026-09-20T12:23:16.738234Z",
     "run_id": "35510440886"
   }
