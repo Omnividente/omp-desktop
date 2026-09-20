@@ -16890,12 +16890,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T11:11:51.088507Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T11:12:05.548741Z",
+    "last_poll_at": "2026-09-20T11:13:16.794113Z",
     "last_tick_at": "2026-09-20T11:06:06.097075Z",
     "run_id": "35506866683"
   }
