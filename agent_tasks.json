@@ -14810,7 +14810,7 @@
       "id": "discovery-093977724114020f",
       "title": "Restore focus after cancelling session rename",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -14846,6 +14846,12 @@
         "activity_created_at": "2026-09-20T06:21:00.562131Z",
         "session_id": "15156612584810245047",
         "dispatch_key": "4eee5c647206465bf7e3ee2d"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:50:18Z",
+        "note": "Разбор и acceptance: https://github.com/Omnividente/omp-desktop/issues/80 . Подтверждено в реальном Windows/Tauri/WebView2: Enter на Edit fixed title открывает input; Escape/Enter удаляют input и focus падает на BODY. После Escape вернуть focus доступной строке/кнопке и не сохранить отменённое имя; после Enter сохранить название и восстановить keyboard navigation. Не красть focus при обычном blur на другой элемент; учесть исчезнувшую/виртуализированную строку. Это rename session, не ранее исправленное удаление сессии. Одобрена отдельная задача, без запуска реализации."
       }
     },
     {
