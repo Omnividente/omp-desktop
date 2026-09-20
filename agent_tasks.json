@@ -14858,7 +14858,7 @@
       "id": "research-workspace-navigation-reliability-4",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -14984,23 +14984,109 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13416721222502802073",
         "dispatch_key": "d821a5cf6467b1a0c1d9461b",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-d821a5cf6467b1a0c1d9461b",
         "started_at": "2026-09-20T07:38:53.872689Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T07:58:47.668636Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T07:38:53.872689Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T07:58:47.668636Z"
+      },
+      "research_result": {
+        "summary": "Verified frontend handling of modal states upon receiving failed session imports. When an import fails entirely, the frontend correctly reports the error but incorrectly leaves the modal open, requiring an extra interaction step from the user.",
+        "observations": [
+          {
+            "scenario": "Importing a session via the Codex or OMP import modal when the backend returns a 'failed' status for all items.",
+            "evidence": "Source inspection of `src/App.tsx` and execution of synthetic React Testing Library suite. In `importCodexSelected` and `importPendingOmp`, the code checks `const failures = result.items.filter((item) => item.status === \"failed\")` and `const failure = result.items.find((item) => item.status === \"failed\")`. If failures are found, it calls `showError()` and skips the `setCodexOpen(false)` or `setPendingOmpImportPath(null)` call within the `else` block. The synthetic test demonstrated that after a failed mock API call, the Codex modal remains mounted and intractable instead of closing.",
+            "result": "Establishes that the application successfully handles and displays the failure via toasts, but leaves the modal open contrary to the expected contract (it should be automatically dismissed when the import operation completes)."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+        ],
+        "proposed_task_ids": [
+          "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9"
+        ],
+        "completed_at": "2026-09-20T07:58:47.668636Z",
+        "source": {
+          "activity_id": "sessions/13416721222502802073/activities/573a7fe32b984439b5576b90c622d4e1",
+          "report_sha256": "87acfc096453c7cf179e5e408f44e126542502d7f5ae4e7f133b982404a91322",
+          "activity_created_at": "2026-09-20T07:49:27.439154Z",
+          "session_id": "13416721222502802073",
+          "dispatch_key": "d821a5cf6467b1a0c1d9461b"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13416721222502802073/activities/573a7fe32b984439b5576b90c622d4e1",
+          "report_sha256": "87acfc096453c7cf179e5e408f44e126542502d7f5ae4e7f133b982404a91322",
+          "activity_created_at": "2026-09-20T07:49:27.439154Z",
+          "session_id": "13416721222502802073",
+          "dispatch_key": "d821a5cf6467b1a0c1d9461b"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+      "title": "Close session import modals when an import failure occurs",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-20T07:58:47.668636Z",
+      "acceptance": [
+        "Both OMP and Codex import modals close when the backend returns a 'failed' status for the import"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via source inspection of `src/App.tsx` and synthetic Vitest tests simulating import failures in a jsdom environment. The application uses conditional blocks that bypass closing the modal if the result contains failures.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Codex import modal.",
+            "Select a session to import.",
+            "Click the import button when the backend is mocked to return a 'failed' status."
+          ],
+          "expected": "The error toast is displayed and the modal is closed.",
+          "actual": "The error toast is displayed but the modal remains open."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-4",
+        "activity_id": "sessions/13416721222502802073/activities/573a7fe32b984439b5576b90c622d4e1",
+        "report_sha256": "87acfc096453c7cf179e5e408f44e126542502d7f5ae4e7f133b982404a91322",
+        "activity_created_at": "2026-09-20T07:49:27.439154Z",
+        "session_id": "13416721222502802073",
+        "dispatch_key": "d821a5cf6467b1a0c1d9461b"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T07:52:32.683292Z",
+    "last_poll_at": "2026-09-20T07:59:02.948773Z",
     "last_tick_at": "2026-09-20T07:52:35.206996Z",
     "run_id": "35498014867"
   }
