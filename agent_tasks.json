@@ -15214,7 +15214,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T08:23:48.485524Z"
+        "observed_at": "2026-09-20T08:23:48.485524Z",
+        "released_attempt_ref": "autonomous/attempt-1895b3f49c13e1081fb60e35"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and switching responsiveness, specifically targeting DOM rendering latency in the import modal with large session lists.",
