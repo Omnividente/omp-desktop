@@ -19897,7 +19897,7 @@
       "id": "research-sessions-persistence-performance-5",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -20062,18 +20062,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11362197586305436942",
         "dispatch_key": "6f43b4caebbd68bb90753b23",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-6f43b4caebbd68bb90753b23",
         "started_at": "2026-09-20T22:10:03.001985Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T23:21:14.571696Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T22:43:57.628202Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T23:21:14.571696Z",
         "research_detached": {
           "at": "2026-09-20T22:35:49.793453Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -20082,6 +20082,39 @@
           "at": "2026-09-20T22:35:49.793453Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the latency and caching behavior of list_codex_sessions and scan_sessions under large file inputs.",
+        "observations": [
+          {
+            "scenario": "Simulated list_codex_sessions performance with 50,000 synthetic codex session files using an isolated Rust benchmark running against src-tauri/src/sessions.rs.",
+            "evidence": "Executed an isolated synthetic test that creates 50k sessions. The cold run of list_codex_sessions took ~1082ms, and the warm run (immediately following) took ~1043ms. After modifying a single file, the warm run took ~986ms. The findings match the previously rejected caching proposal (discovery-9881e0c7ffe77346) which noted list_codex_sessions misses caching logic, causing sequential calls to essentially rebuild the list from disk repeatedly.",
+            "result": "Establishes that `list_codex_sessions` scales linearly with the number of codex session files on disk and does not cache parsed files effectively between invocations, unlike `scan_sessions`. However, caching list_codex_sessions was already proposed and rejected by controllers, so no new action is proposed for it."
+          },
+          {
+            "scenario": "Ran the existing ignored backend benchmark `ten_thousand_session_discovery_meets_cold_and_warm_budgets` for `scan_sessions`.",
+            "evidence": "Executed `cargo test --manifest-path src-tauri/Cargo.toml -- ten_thousand_session_discovery_meets_cold_and_warm_budgets --nocapture --ignored`. The test generated 10k sessions and printed `10k session scan: cold=714.263995ms, warm=254.488405ms`.",
+            "result": "Establishes that the main `scan_sessions` flow effectively uses its cache, reducing a 10k-session cold scan from ~714ms to a warm scan of ~254ms."
+          },
+          {
+            "scenario": "Analyzed `read_session_transcript` performance with an excessively large 295MB session file simulating prolonged interactions.",
+            "evidence": "Generated a synthetic 295MB JSONL session file (1.5 million message events). An isolated test calling `read_session_transcript` elapsed in ~286.5ms, correctly bounding the loaded output by returning a truncated transcript (81,300 entries, `truncated: true`).",
+            "result": "Establishes that reading an extremely large session transcript is bounded in memory and computation time; the process scales safely by truncating the loaded history instead of attempting to parse the entire massive file."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory and latency footprint of the session indexing system when importing a large external archive."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T23:21:14.571696Z",
+        "source": {
+          "activity_id": "sessions/11362197586305436942/activities/dd33559d05cf427696e5c0c79840cde2",
+          "report_sha256": "00f2d3d65060241fd0c59bc798cd9f981f1eaf6aad6e3e4fc6f28dfab5167a9b",
+          "activity_created_at": "2026-09-20T23:03:10.131370Z",
+          "session_id": "11362197586305436942",
+          "dispatch_key": "6f43b4caebbd68bb90753b23"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -20276,7 +20309,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T23:21:33.707656Z",
+    "last_poll_at": "2026-09-20T23:21:36.705907Z",
     "last_tick_at": "2026-09-20T22:50:42.783056Z",
     "run_id": "35542844332"
   }
