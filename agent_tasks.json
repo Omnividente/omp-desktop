@@ -14222,12 +14222,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T05:10:03.321008Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T05:10:21.209944Z",
+    "last_poll_at": "2026-09-20T05:11:31.076218Z",
     "last_tick_at": "2026-09-20T05:04:16.732239Z",
     "run_id": "35490712695"
   }
