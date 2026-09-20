@@ -14995,7 +14995,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T07:58:47.668636Z"
+        "observed_at": "2026-09-20T07:58:47.668636Z",
+        "released_attempt_ref": "autonomous/attempt-d821a5cf6467b1a0c1d9461b"
       },
       "research_result": {
         "summary": "Verified frontend handling of modal states upon receiving failed session imports. When an import fails entirely, the frontend correctly reports the error but incorrectly leaves the modal open, requiring an extra interaction step from the user.",
