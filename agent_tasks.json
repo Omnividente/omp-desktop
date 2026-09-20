@@ -15089,7 +15089,7 @@
       "id": "research-workspace-navigation-performance-4",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -15203,23 +15203,109 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1272267180866602471",
         "dispatch_key": "1895b3f49c13e1081fb60e35",
         "base_sha": "82d9b42dbc8749c22d797e82d1c1c43942127151",
         "starting_branch": "autonomous/attempt-1895b3f49c13e1081fb60e35",
         "started_at": "2026-09-20T08:09:05.846572Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T08:23:48.485524Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T08:09:05.846572Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T08:23:48.485524Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation and switching responsiveness, specifically targeting DOM rendering latency in the import modal with large session lists.",
+        "observations": [
+          {
+            "scenario": "DOM rendering cost of large session lists in CodexImportModal.",
+            "evidence": "Wrote a synthetic React Testing Library suite simulating CodexImportModal rendering with 10,000 sessions. The component rendered 50,021 DOM nodes and took over 5 seconds to complete the layout on a fast synthetic jsdom environment.",
+            "result": "Establishes that the CodexImportModal does not virtualize its list of sessions, leading to severe rendering lag and timeouts when a user attempts to import from a large session library."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs.",
+          "Measure rendering latency and scale factors for the settings view or incident center to see if they suffer from unbounded list growth."
+        ],
+        "proposed_task_ids": [
+          "discovery-3b7e4020aa434589"
+        ],
+        "completed_at": "2026-09-20T08:23:48.485524Z",
+        "source": {
+          "activity_id": "sessions/1272267180866602471/activities/e94f0b7e7384475d9d37a448d8b46f67",
+          "report_sha256": "e10d28bae255f82f16ed56457f961949d1efa877c3081fbfbe762d77d01436d9",
+          "activity_created_at": "2026-09-20T08:23:46.764155Z",
+          "session_id": "1272267180866602471",
+          "dispatch_key": "1895b3f49c13e1081fb60e35"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1272267180866602471/activities/e94f0b7e7384475d9d37a448d8b46f67",
+          "report_sha256": "e10d28bae255f82f16ed56457f961949d1efa877c3081fbfbe762d77d01436d9",
+          "activity_created_at": "2026-09-20T08:23:46.764155Z",
+          "session_id": "1272267180866602471",
+          "dispatch_key": "1895b3f49c13e1081fb60e35"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-3b7e4020aa434589"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-3b7e4020aa434589",
+      "title": "Virtualize the session list in CodexImportModal",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "medium",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-20T08:23:48.485524Z",
+      "acceptance": [
+        "The session list inside the CodexImportModal utilizes virtualization to remain performant even when thousands of sessions are available for import."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured rendering latency of CodexImportModal with an isolated synthetic list of 10,000 sessions via React Testing Library on jsdom.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Codex import modal",
+            "Provide an array of 10,000 mock sessions to the component"
+          ],
+          "expected": "The DOM size remains bounded, and the UI responds smoothly without significant lag or freezing.",
+          "actual": "The rendering scales linearly, producing over 50,000 DOM elements and timing out or causing multi-second lag to mount."
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-performance-4",
+        "activity_id": "sessions/1272267180866602471/activities/e94f0b7e7384475d9d37a448d8b46f67",
+        "report_sha256": "e10d28bae255f82f16ed56457f961949d1efa877c3081fbfbe762d77d01436d9",
+        "activity_created_at": "2026-09-20T08:23:46.764155Z",
+        "session_id": "1272267180866602471",
+        "dispatch_key": "1895b3f49c13e1081fb60e35"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T08:10:35.626797Z",
+    "last_poll_at": "2026-09-20T08:24:15.648317Z",
     "last_tick_at": "2026-09-20T08:10:37.974435Z",
     "run_id": "35498760255"
   }
