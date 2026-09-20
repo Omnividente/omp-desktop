@@ -6616,7 +6616,8 @@
             "dispatch_key": "6d589303dad7e3843ce4fb4a"
           },
           "detail": "incomplete discovery findings; nothing imported: conflicting_id"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-6d589303dad7e3843ce4fb4a"
       },
       "research_result": {
         "summary": "Investigated Settings recovery and model selection behavior, discovering bugs with draft loss on structured API failures, and model selector :off / :auto dropping. Language setting is properly preserved during recovery and restart.",
