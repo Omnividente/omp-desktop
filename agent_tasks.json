@@ -2145,7 +2145,7 @@
       "id": "research-settings-models-ux-1",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -2275,35 +2275,23 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "14048779049664362841",
         "dispatch_key": "641f6e7c12f2a07601c0abd6",
         "base_sha": "caa05692e0d0255f693cdcdeb8bf9e0d5e5bc948",
         "starting_branch": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
         "started_at": "2026-09-17T00:36:58Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T17:02:39.037459Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
         "observed_at": "2026-09-17T01:03:54Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-17T01:03:54Z",
-          "source": {
-            "activity_id": "sessions/14048779049664362841/activities/06dcb00386b54002b6f9f6ec9160cf26",
-            "report_sha256": "a5da362d6217a527f839a6f01a277ead4452d11a2f3693756cdfe7ef21c83280",
-            "activity_created_at": "2026-09-17T00:45:21.251668Z",
-            "session_id": "14048779049664362841",
-            "dispatch_key": "641f6e7c12f2a07601c0abd6"
-          }
-        },
         "released_attempt_ref": "autonomous/attempt-641f6e7c12f2a07601c0abd6",
         "report_repair": {
           "at": "2026-09-20T16:49:41.196583Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/14048779049664362841/activities/06dcb00386b54002b6f9f6ec9160cf26",
             "report_sha256": "a5da362d6217a527f839a6f01a277ead4452d11a2f3693756cdfe7ef21c83280",
@@ -2311,6 +2299,65 @@
             "session_id": "14048779049664362841",
             "dispatch_key": "641f6e7c12f2a07601c0abd6"
           }
+        }
+      },
+      "research_result": {
+        "summary": "I investigated the settings recovery flow and model selection component behavior for interaction clarity and accessibility issues, confirming findings related to missing backupPath formatting and missing accessibility focus restoration.",
+        "observations": [
+          {
+            "scenario": "SettingsUnavailable recovery dialog with a missing backupPath payload from backend.",
+            "evidence": "I manually rendered `<SettingsRecoveryScreen>` with a `SettingsUnavailableDetails` payload containing `details: null` and `backupPath: null`. The UI successfully omitted the Backup Path `<dt>` and `<dd>`, keeping the recovery screen stable.",
+            "result": "This establishes that the UI safely handles omitted (null) string fields dynamically sent from Tauri for the backend AppError structures without crashing."
+          },
+          {
+            "scenario": "Keyboard accessibility and focus restoration upon closing the ModelPicker component.",
+            "evidence": "I created synthetic testing environments utilizing `@testing-library/react` and manually dispatched DOM events (`Escape` key press, `Enter` key on options, `blur` to body) when `ModelPicker` was opened via the primary `<button>`. I observed `document.activeElement` transitioning to `document.body` instead of returning focus to the original toggle button after unmounting.",
+            "result": "This establishes that ModelPicker does not restore focus back to the trigger button when its menu is closed (via Enter on an item, Escape, or the 'Close' button). This results in lost focus and poor keyboard a11y."
+          },
+          {
+            "scenario": "Switching models using the ModelPicker component with `off` or `auto` base thinking modifiers.",
+            "evidence": "I inspected the `selectorForModel(model, current)` implementation and cross-referenced with previous reports. If the target model has empty `.thinking` options, modifiers are correctly discarded. However, if the new model does have `.thinking` choices, `model.thinking.includes(thinking)` drops `:off` or `:auto` because base pseudo-levels are not explicitly inside the capability array.",
+            "result": "This confirms the defect where valid fallback reasoning levels (`:off`, `:auto`) are stripped out when jumping between reasoning models because they're pseudo-options, not native options."
+          }
+        ],
+        "next_hypotheses": [
+          "I should verify if long list rendering in ModelPicker search handles focus cycling adequately out-of-bounds.",
+          "I need to verify if the SettingsPanel correctly updates screen reader live regions when a configuration reset or save finishes."
+        ],
+        "proposed_task_ids": [
+          "discovery-ac9f025a5a64cb62",
+          "discovery-fe6d703c4bc2a8cb"
+        ],
+        "completed_at": "2026-09-20T17:02:39.037459Z",
+        "source": {
+          "activity_id": "sessions/14048779049664362841/activities/0fde9295be3248a8b9dcb5dc4c3b7951",
+          "report_sha256": "44cef8f2c646f89e63045c236e2c6bf893c57d2ad7d5cf49cac601660e55c205",
+          "activity_created_at": "2026-09-20T16:51:56.889880Z",
+          "session_id": "14048779049664362841",
+          "dispatch_key": "641f6e7c12f2a07601c0abd6"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14048779049664362841/activities/0fde9295be3248a8b9dcb5dc4c3b7951",
+          "report_sha256": "44cef8f2c646f89e63045c236e2c6bf893c57d2ad7d5cf49cac601660e55c205",
+          "activity_created_at": "2026-09-20T16:51:56.889880Z",
+          "session_id": "14048779049664362841",
+          "dispatch_key": "641f6e7c12f2a07601c0abd6"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-ac9f025a5a64cb62",
+            "discovery-fe6d703c4bc2a8cb"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -18352,6 +18399,109 @@
           "status": "ok",
           "detail": "1 task entry/entries parsed"
         }
+      }
+    },
+    {
+      "id": "discovery-ac9f025a5a64cb62",
+      "title": "Restore focus to trigger button when ModelPicker is closed",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-20T17:02:39.037459Z",
+      "acceptance": [
+        "Pressing Escape to close the open ModelPicker returns keyboard focus to its main toggle button.",
+        "Selecting a model using Enter or Space via keyboard returns focus to the toggle button.",
+        "Clicking the confirmation button in the manual selector returns focus to the toggle button."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "I observed via React JSDOM testing that document.activeElement becomes the body when the open state changes to false and the DOM element containing focus is removed.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch OMP Desktop or test via React test runner.",
+            "Focus the ModelPicker trigger and press Enter/ArrowDown to open it.",
+            "Press Escape or select an item with Enter."
+          ],
+          "expected": "Focus returns to the trigger button.",
+          "actual": "Focus is lost, returning to the document body."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-1",
+        "activity_id": "sessions/14048779049664362841/activities/0fde9295be3248a8b9dcb5dc4c3b7951",
+        "report_sha256": "44cef8f2c646f89e63045c236e2c6bf893c57d2ad7d5cf49cac601660e55c205",
+        "activity_created_at": "2026-09-20T16:51:56.889880Z",
+        "session_id": "14048779049664362841",
+        "dispatch_key": "641f6e7c12f2a07601c0abd6"
+      }
+    },
+    {
+      "id": "discovery-fe6d703c4bc2a8cb",
+      "title": "Preserve explicit thinking modifier :off or :auto when switching to another reasoning model",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-20T17:02:39.037459Z",
+      "acceptance": [
+        "Switching from a model with `:off` or `:auto` to another model supporting reasoning retains the `:off` or `:auto` modifier.",
+        "Switching to a model that does not support reasoning still correctly drops the modifier."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "I observed this through code inspection and synthetic validation of `selectorForModel`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Select a model that supports thinking (e.g. claude-sonnet-4) and set reasoning to 'off' or 'auto'.",
+            "Switch to another model that also supports thinking."
+          ],
+          "expected": "The new selector includes the base level `:off` or `:auto` modifier.",
+          "actual": "The modifier is dropped because `model.thinking.includes(thinking)` evaluates to false for pseudo-levels."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-21935d2cee4d8a7e",
+            "action": "resolve",
+            "decision_at": "2026-09-19T05:40:15Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-f94f0fd889c52402",
+            "action": "reject",
+            "decision_at": "2026-09-18T16:41:06Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-settings-models-ux-1",
+        "activity_id": "sessions/14048779049664362841/activities/0fde9295be3248a8b9dcb5dc4c3b7951",
+        "report_sha256": "44cef8f2c646f89e63045c236e2c6bf893c57d2ad7d5cf49cac601660e55c205",
+        "activity_created_at": "2026-09-20T16:51:56.889880Z",
+        "session_id": "14048779049664362841",
+        "dispatch_key": "641f6e7c12f2a07601c0abd6"
       }
     }
   ],
