@@ -20071,12 +20071,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-20T22:10:03.001985Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T22:10:21.110523Z",
+    "last_poll_at": "2026-09-20T22:11:53.059666Z",
     "last_tick_at": "2026-09-20T21:48:43.241350Z",
     "run_id": "35539779584"
   }
