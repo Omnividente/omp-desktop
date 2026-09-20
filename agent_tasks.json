@@ -18073,7 +18073,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T16:30:39.628719Z"
+        "observed_at": "2026-09-20T16:30:39.628719Z",
+        "released_attempt_ref": "autonomous/attempt-e0210f3d850f61af794d7267"
       },
       "research_result": {
         "summary": "Verified the source of layout thrashing and lack of debounce when horizontally resizing the VirtualList container.",
