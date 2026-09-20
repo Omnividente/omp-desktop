@@ -13149,7 +13149,7 @@
       "id": "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -13184,6 +13184,12 @@
         "activity_created_at": "2026-09-19T21:10:08.917151Z",
         "session_id": "1210953113909380378",
         "dispatch_key": "fc210a07308a9a473173e7f8"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:49:04Z",
+        "note": "Разбор владельца: https://github.com/Omnividente/omp-desktop/issues/80 . Повтор отклонённого discovery-d47c6c8c6e6f2995. Не удалять pending switch recovery при новом вводе: ввод не является согласием уничтожить сохранённый текст. Recovery сохраняется до явной отправки/удаления. Synthetic тест, ожидающий очистку, не доказывает правильность политики. Старое решение и история сохраняются."
       }
     },
     {
