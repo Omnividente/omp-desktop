@@ -17370,7 +17370,7 @@
       "id": "research-diagnostics-resources-ux-4",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -17480,23 +17480,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16760437915490887260",
         "dispatch_key": "ff981dab807c9ca1525a5fa5",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-ff981dab807c9ca1525a5fa5",
         "started_at": "2026-09-20T13:18:27.674560Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T13:37:41.831781Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T13:25:33.864492Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T13:37:41.831781Z"
+      },
+      "research_result": {
+        "summary": "Verified that the ResourceHealthPanel displays contradictory visual indicators (a success checkmark and 'is-ok' styling) when presenting an error state due to unavailable metrics.",
+        "observations": [
+          {
+            "scenario": "Exercise the `ResourceHealthPanel` empty/error state when a resource health snapshot fails to load and an error string is provided.",
+            "evidence": "Rendered `ResourceHealthPanel` in an isolated synthetic DOM test with `snapshot={null}` and `error=\"Failed to sample volume\"`. The component unconditionally falls back to `const severity = snapshot?.severity ?? \"ok\"`. The resulting DOM explicitly renders `<div aria-live=\"polite\" class=\"resource-summary is-ok\">` with a success checkmark `<Icon name=\"check\">` directly beside the \"Resource metrics are unavailable\" status text.",
+            "result": "Establishes that the UI incorrectly styles a missing/error data state as a system success. Users receive conflicting visual cues (a checkmark for a failed operation), breaking semantic clarity."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether long localized strings in the ResourceHealthPanel cause text overflow or layout clipping on constrained screen boundaries."
+        ],
+        "proposed_task_ids": [
+          "discovery-5f30b23ec899ed07"
+        ],
+        "completed_at": "2026-09-20T13:37:41.831781Z",
+        "source": {
+          "activity_id": "sessions/16760437915490887260/activities/1c9b06cead7748b9874396faee4dc2c2",
+          "report_sha256": "3a6d550ea7ad701e40914d06bf33b62488770dac4d4419985d5ded9d4e09b4bd",
+          "activity_created_at": "2026-09-20T13:29:32.607149Z",
+          "session_id": "16760437915490887260",
+          "dispatch_key": "ff981dab807c9ca1525a5fa5"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16760437915490887260/activities/1c9b06cead7748b9874396faee4dc2c2",
+          "report_sha256": "3a6d550ea7ad701e40914d06bf33b62488770dac4d4419985d5ded9d4e09b4bd",
+          "activity_created_at": "2026-09-20T13:29:32.607149Z",
+          "session_id": "16760437915490887260",
+          "dispatch_key": "ff981dab807c9ca1525a5fa5"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5f30b23ec899ed07"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-5f30b23ec899ed07",
+      "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-20T13:37:41.831781Z",
+      "acceptance": [
+        "When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `ResourceHealthPanel` with `snapshot={null}` and a non-empty `error` string.",
+            "Inspect the rendered `<div className=\"resource-summary\">` for its CSS class and child `<Icon>`."
+          ],
+          "expected": "The summary container has an 'is-warning' or 'is-critical' class and displays an 'alert' icon for the unavailable metrics.",
+          "actual": "The summary container falls back to the 'is-ok' class and displays a 'check' success icon alongside the 'Resource metrics are unavailable' text."
+        }
+      },
+      "target_paths": [
+        "src/ResourceHealthPanel.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-ux-4",
+        "activity_id": "sessions/16760437915490887260/activities/1c9b06cead7748b9874396faee4dc2c2",
+        "report_sha256": "3a6d550ea7ad701e40914d06bf33b62488770dac4d4419985d5ded9d4e09b4bd",
+        "activity_created_at": "2026-09-20T13:29:32.607149Z",
+        "session_id": "16760437915490887260",
+        "dispatch_key": "ff981dab807c9ca1525a5fa5"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T13:31:50.349226Z",
+    "last_poll_at": "2026-09-20T13:37:58.418645Z",
     "last_tick_at": "2026-09-20T13:31:52.645422Z",
     "run_id": "35513751659"
   }
