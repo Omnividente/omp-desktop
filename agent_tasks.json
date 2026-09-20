@@ -17491,7 +17491,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T13:37:41.831781Z"
+        "observed_at": "2026-09-20T13:37:41.831781Z",
+        "released_attempt_ref": "autonomous/attempt-ff981dab807c9ca1525a5fa5"
       },
       "research_result": {
         "summary": "Verified that the ResourceHealthPanel displays contradictory visual indicators (a success checkmark and 'is-ok' styling) when presenting an error state due to unavailable metrics.",
