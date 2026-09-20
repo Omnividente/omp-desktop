@@ -18764,7 +18764,7 @@
       "id": "discovery-fe6d703c4bc2a8cb",
       "title": "Preserve explicit thinking modifier :off or :auto when switching to another reasoning model",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -18818,6 +18818,12 @@
         "activity_created_at": "2026-09-20T16:51:56.889880Z",
         "session_id": "14048779049664362841",
         "dispatch_key": "641f6e7c12f2a07601c0abd6"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:31:09Z",
+        "note": "Rejected as already fixed in merged PR #73. Current main 7fdbf311 and synchronized lab use thinkingOptionsForModel(model).includes(thinking) in selectorForModel, preserving supported off/auto modifiers. The report inspected an obsolete implementation and does not show a regression."
       }
     },
     {
