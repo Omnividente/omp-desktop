@@ -14232,7 +14232,8 @@
         "feedback_nudge": {
           "at": "2026-09-20T05:29:50.244060Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b2aa4dd720cc8213d96d7014"
       },
       "research_result": {
         "summary": "Confirmed that orphaned session import artifacts (staging and backup directories) are skipped but not deleted during session scanning.",
