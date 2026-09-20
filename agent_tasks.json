@@ -9259,7 +9259,8 @@
             "dispatch_key": "8a2cad01e88bcabf8e0aaa46"
           },
           "detail": "report_repair_session_failed"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8a2cad01e88bcabf8e0aaa46"
       },
       "research_disposition": {
         "events": [
