@@ -16954,7 +16954,7 @@
       "id": "research-diagnostics-resources-reliability-4",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -17060,18 +17060,43 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14673479148851661311",
         "dispatch_key": "ef814f93f55e9b5d06254463",
         "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
         "starting_branch": "autonomous/attempt-ef814f93f55e9b5d06254463",
         "started_at": "2026-09-20T11:37:20.188194Z",
-        "finished_at": "",
+        "finished_at": "2026-09-20T11:50:50.736071Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-20T11:37:20.188194Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-20T11:50:50.736071Z"
+      },
+      "research_result": {
+        "summary": "Verified that runtime incidents correctly persist, state is cleanly recovered and distinct/identical errors are deduplicated without data loss across cancellations and restarts.",
+        "observations": [
+          {
+            "scenario": "Exercise runtime incident cancellation (resolving an active model error by returning to idle activity), restart (the same error recurring later), and check that state remains recoverable without loss or duplicate operations.",
+            "evidence": "Executed synthetic local vitest tests on `src/runtimeIncidents.ts`. Triggered a `modelError`, verified it became active with count 1. Issued an `idle` activity event, observing it successfully transitioned to `resolved` with `recovered` reason. Retriggered the exact same `modelError`, verifying that instead of creating a duplicate row, the existing incident was cleanly reactivated (status flipped to `active`) and its occurrence count bumped to 2 without losing the original timestamp ID. When explicit state clearing (`clearResolvedRuntimeIncidents`) was called while active, it safely persisted. Finally, verified that if a resolved incident is cleared and *then* the error recurs, it restarts cleanly with a new incident entry.",
+            "result": "Establishes that the incident reducer natively supports state recovery after cancellation and restart. It securely deduplicates identical returning errors without data loss and respects the clearance boundaries, ensuring recoverable state remains robust."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected.",
+          "Examine if large log transcript inputs cause sluggish scroll events on Windows vs macOS.",
+          "Investigate the robustness of ResourceHealth snapshot disk volume detection under extremely rapid concurrent unmounting of a workspace."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-20T11:50:50.736071Z",
+        "source": {
+          "activity_id": "sessions/14673479148851661311/activities/9b782f05bf0b4c69bd770864edd7f85b",
+          "report_sha256": "3492ced821023a5b8f8c268bb9150101b7d26ee7a804762719244903bfb96c76",
+          "activity_created_at": "2026-09-20T11:43:36.084254Z",
+          "session_id": "14673479148851661311",
+          "dispatch_key": "ef814f93f55e9b5d06254463"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -17115,7 +17140,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T11:51:07.990372Z",
+    "last_poll_at": "2026-09-20T11:51:11.390605Z",
     "last_tick_at": "2026-09-20T11:45:12.838442Z",
     "run_id": "35508672675"
   }
