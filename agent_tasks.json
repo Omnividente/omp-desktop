@@ -19207,7 +19207,7 @@
       "id": "discovery-a1eefff4576aa5c1",
       "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 75,
       "risk": "medium",
       "focus": [
@@ -19242,6 +19242,12 @@
         "activity_created_at": "2026-09-20T17:43:55.411106Z",
         "session_id": "6863993237095465948",
         "dispatch_key": "71e496120dc26eee50a9e51e"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:33:12Z",
+        "note": "Approved for a separate HIGH-CARE unmerged proposal after isolated crash/restart reproduction. A JSONL update and artifact-directory swap are not atomic together: merely reversing their order is NOT a fix. Require a bounded recoverable transaction/recovery protocol that restores a consistent old or new pair after interruption at every transition, preserving originals/backups until commit is proven. Never delete orphan backups during scanning, silently replace user data, edit runtime, or use live sessions. Prove real filesystem failures and restart behavior for relevant platforms and label remaining proof gaps; no merge or Evidence Gate bypass is authorized."
       }
     }
   ],
