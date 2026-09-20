@@ -14681,7 +14681,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-20T06:39:45.672987Z"
+        "observed_at": "2026-09-20T06:39:45.672987Z",
+        "released_attempt_ref": "autonomous/attempt-9713da0385753c0ead5fda00"
       },
       "research_result": {
         "summary": "Verified frontend handling of focus and state when deleting a session from SessionList. The hypothesis that the application lacks focus restoration logic inside SessionList upon deleting a session was found to be incorrect or non-reproducible; the code correctly implements removalFocusRef logic and successfully restores focus to the session list container.",
