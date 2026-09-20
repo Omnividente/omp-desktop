@@ -14228,6 +14228,10 @@
         "research_detached": {
           "at": "2026-09-20T05:29:50.244060Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-20T05:29:50.244060Z",
+          "result": "pending"
         }
       }
     }
