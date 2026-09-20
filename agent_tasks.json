@@ -13031,7 +13031,7 @@
       "id": "discovery-bb5925f45c903d0e",
       "title": "Fix transcript scroll position jump on window resize",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 30,
       "risk": "medium",
       "focus": [
@@ -13065,6 +13065,12 @@
         "activity_created_at": "2026-09-19T15:47:07.953491Z",
         "session_id": "5797323890950650825",
         "dispatch_key": "aa8b18708ab0b9014f5dae59"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-20T20:32:41Z",
+        "note": "Approved for a separate unmerged PR only after reproducing resize scroll loss in a real browser with variable-height transcript rows. Preserve the visible entry and intra-entry offset across horizontal resizing without stale measured heights, bottom jump, or synthetic debounce. Retain existing search-to-message and per-session restoration behavior. Do not optimize synthetic event storms; that separate debounce proposal is rejected. Record before/after visible anchor, not just hook internals."
       }
     },
     {
