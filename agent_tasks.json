@@ -12926,7 +12926,7 @@
       "id": "discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527",
       "title": "Fix context menu placement when triggered via keyboard in transcript links",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -12964,6 +12964,12 @@
         "activity_created_at": "2026-09-19T17:23:58.859967Z",
         "session_id": "12539571519700795785",
         "dispatch_key": "b8ba31b176bb458349c1f4ee"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:48:51Z",
+        "note": "Разбор владельца: https://github.com/Omnividente/omp-desktop/issues/80 . Повтор discovery-ccd17b3cdd6d7d64; прежнее решение сохраняется. Реальный Windows Shift+F10 уже проверен: меню(628,230) около ссылки(591,223..661,238), а не(0,0). Новый отчёт опять синтетически задаёт clientX/clientY=0 и не добавляет native evidence. Linux не объявляем проверенным; новый доказанный платформенный сценарий рассматривать отдельно, не перезапускать старую гипотезу."
       }
     },
     {
