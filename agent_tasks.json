@@ -13799,13 +13799,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-20T00:29:23.340612Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-20T00:36:26.770824Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-20T00:30:43.652235Z",
+    "last_poll_at": "2026-09-20T00:36:47.898881Z",
     "last_tick_at": "2026-09-20T00:30:45.196661Z",
     "run_id": "35478895011"
   }
