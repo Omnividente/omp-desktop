@@ -17144,7 +17144,7 @@
       "id": "research-diagnostics-resources-performance-4",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "perf",
         "quality",
@@ -17248,6 +17248,19 @@
             "deferred_findings": []
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "40b1fe521963c6702ea792dd",
+        "base_sha": "24e2a6c32b50934e02febdc9430735a4e1202f16",
+        "starting_branch": "autonomous/attempt-40b1fe521963c6702ea792dd",
+        "started_at": "2026-09-20T11:50:50.736071Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
