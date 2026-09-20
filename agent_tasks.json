@@ -10343,7 +10343,7 @@
       "id": "discovery-4aa7ed2fdbe3adf0",
       "title": "Virtualize terminal views to avoid instantiating heavy xterm instances for background tabs",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "medium",
       "focus": [
@@ -10379,6 +10379,12 @@
         "activity_created_at": "2026-09-19T08:27:03.851589Z",
         "session_id": "14002894481142844556",
         "dispatch_key": "f7b0e309c309483a6b08e738"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-20T07:49:37Z",
+        "note": "Разбор владельца: https://github.com/Omnividente/omp-desktop/issues/80 . Отклонена предложенная оптимизация без измеренного native bottleneck. Synthetic React тест200tabs с mocked xterm не измеряет стоимость реальных xterm. Unmount TerminalView выполняет detach/dispose и теряет локальное состояние/scrollback; добавлять систему восстановления ради неподтверждённого сценария не обосновано. Hardlimit10tabs не утверждаем. Новый performance report должен измерять реальный Tauri/xterm, сохранность вывода/alt-screen и переключение вкладок."
       }
     },
     {
