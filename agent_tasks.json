@@ -17274,7 +17274,8 @@
             "session_id": "15545669729491098020",
             "dispatch_key": "40b1fe521963c6702ea792dd"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-40b1fe521963c6702ea792dd"
       },
       "research_result": {
         "summary": "Verified that a concurrent workspace unmount during resource sampling causes the entire resource health snapshot to fail.",
