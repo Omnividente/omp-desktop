@@ -104,7 +104,7 @@ export function ResourceHealthPanel({
   const closeOnBackdrop = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) onClose()
   }
-  const severity = snapshot?.severity ?? "ok"
+  const severity = snapshot?.severity ?? (error ? "warning" : "ok")
   const status = snapshot
     ? resourceSeverityLabel(language, snapshot.severity)
     : error
@@ -113,7 +113,8 @@ export function ResourceHealthPanel({
   const action =
     snapshot?.severity === "critical"
       ? t(language, "resourceCriticalAction")
-      : snapshot?.severity === "warning"
+      : snapshot?.memory.severity === "warning" ||
+          snapshot?.volumes.some((volume) => volume.severity === "warning")
         ? t(language, "resourceWarningAction")
         : null
 
@@ -154,6 +155,11 @@ export function ResourceHealthPanel({
 
         {snapshot && (
           <div className="resource-panel-scroll">
+            {snapshot.unavailableVolumes.length > 0 && (
+              <p className="resource-error" role="status">
+                {t(language, "resourcePartial")}
+              </p>
+            )}
             <section className={`resource-card is-${snapshot.memory.severity}`}>
               <div className="resource-card-heading">
                 <strong>{t(language, "resourceMemory")}</strong>
@@ -221,6 +227,21 @@ export function ResourceHealthPanel({
                       .replace("{available}", formatBytes(volume.availableBytes))
                       .replace("{total}", formatBytes(volume.totalBytes))}
                   </p>
+                </article>
+              ))}
+              {snapshot.unavailableVolumes.map((volume) => (
+                <article
+                  className="resource-card is-warning"
+                  key={`${volume.purpose}-${volume.path}`}
+                >
+                  <div className="resource-card-heading">
+                    <strong>{volume.path}</strong>
+                    <span>
+                      {resourcePurposeLabel(language, volume.purpose)}
+                      {` · ${t(language, "resourceUnavailable")}`}
+                    </span>
+                  </div>
+                  <p className="resource-error">{volume.error}</p>
                 </article>
               ))}
             </section>

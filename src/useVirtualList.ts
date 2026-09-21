@@ -109,6 +109,14 @@ export function useVirtualList<T>(
   const measurementObserverRef = useRef<ResizeObserver | null>(null)
   const previousContainerWidthRef = useRef<number | null>(null)
   const measurementCachesRef = useRef(new Map<unknown, Map<VirtualKey, number>>())
+  const resizeAnchorRef = useRef<{
+    items: T[]
+    measurements: Map<VirtualKey, number>
+    index: number
+    key: VirtualKey
+    offset: number
+    scrollTop: number
+  } | null>(null)
 
   let measurements = measurementCachesRef.current.get(measurementKey)
   if (!measurements) {
@@ -153,24 +161,56 @@ export function useVirtualList<T>(
     return { offsets, heights, totalHeight: nextOffset }
   }, [getItemKey, items, measurementRevision, measurements, safeEstimate, safeGap]) // eslint-disable-line react-hooks/exhaustive-deps -- measurementRevision is an invalidation counter, intentionally included
 
+  const layoutRef = useRef(layout)
+  const resizeAnchor = resizeAnchorRef.current
+  const anchor =
+    resizeAnchor?.items === items && resizeAnchor.measurements === measurements
+      ? resizeAnchor
+      : null
+  // Unknown heights must not clamp an offset inside a tall, not-yet-measured row.
+  const anchorHeight = anchor ? measurements.get(anchor.key) : undefined
+  const anchoredScrollTop = anchor
+    ? Math.max(
+        0,
+        Math.min(
+          layout.offsets[anchor.index] +
+            (anchorHeight === undefined
+              ? anchor.offset
+              : Math.min(anchor.offset, Math.max(0, anchorHeight - 1))),
+          layout.totalHeight - viewportHeight,
+        ),
+      )
+    : scrollTop
+
+  useLayoutEffect(() => {
+    layoutRef.current = layout
+    resizeAnchorRef.current = anchor
+    const container = containerRef.current
+    if (!anchor || !container) return
+    container.scrollTop = anchoredScrollTop
+    resizeAnchorRef.current!.scrollTop = container.scrollTop
+    setScrollTop(container.scrollTop)
+  }, [anchor, anchoredScrollTop, containerRef, layout])
+
   const range = useMemo(() => {
     if (safeEstimate <= 0 || items.length === 0) {
       return { start: 0, end: -1 }
     }
 
-    const first = firstVisibleIndex(layout.offsets, layout.heights, scrollTop)
-    const last = lastVisibleIndex(layout.offsets, scrollTop + viewportHeight)
+    const first = firstVisibleIndex(layout.offsets, layout.heights, anchoredScrollTop)
+    const last = lastVisibleIndex(layout.offsets, anchoredScrollTop + viewportHeight)
     return {
-      start: Math.max(0, first - safeOverscan),
+      start: Math.max(0, Math.min(first, anchor?.index ?? first) - safeOverscan),
       end: Math.min(items.length - 1, Math.max(first, last) + safeOverscan),
     }
   }, [
+    anchor,
+    anchoredScrollTop,
     items.length,
     layout.heights,
     layout.offsets,
     safeEstimate,
     safeOverscan,
-    scrollTop,
     viewportHeight,
   ])
 
@@ -189,29 +229,65 @@ export function useVirtualList<T>(
     return windowItems
   }, [items, layout.heights, layout.offsets, range.end, range.start])
 
-  const updateMeasurements = useCallback((elements: Iterable<HTMLElement>) => {
-    const currentItems = itemsRef.current
-    const currentGetItemKey = getItemKeyRef.current
-    const currentMeasurements = activeMeasurementsRef.current
-    let changed = false
+  const updateMeasurements = useCallback(
+    (elements: Iterable<HTMLElement>) => {
+      const currentItems = itemsRef.current
+      const currentGetItemKey = getItemKeyRef.current
+      const currentMeasurements = activeMeasurementsRef.current
+      const container = containerRef.current
+      let changed = false
 
-    for (const element of elements) {
-      const index = Number(element.dataset.virtualIndex)
-      if (!Number.isInteger(index) || index < 0 || index >= currentItems.length) continue
-
-      const height = element.getBoundingClientRect().height
-      if (!Number.isFinite(height) || height <= 0) continue
-
-      const key = virtualKeyFor(currentItems, index, currentGetItemKey)
-      const previous = currentMeasurements.get(key)
-      if (previous === undefined || Math.abs(previous - height) > MEASUREMENT_EPSILON) {
-        currentMeasurements.set(key, height)
-        changed = true
+      if (container) {
+        const width = container.clientWidth
+        const previousWidth = previousContainerWidthRef.current
+        previousContainerWidthRef.current = width
+        if (previousWidth !== null && Math.abs(previousWidth - width) > MEASUREMENT_EPSILON) {
+          // Capture against the last committed layout BEFORE either observer can
+          // publish new-width heights. Keeping the old pixel scrollTop loses rows
+          // when offscreen measurements are invalidated back to estimates.
+          const previousLayout = layoutRef.current
+          if (currentItems.length && measuredElementsRef.current.size) {
+            const index = firstVisibleIndex(
+              previousLayout.offsets,
+              previousLayout.heights,
+              container.scrollTop,
+            )
+            resizeAnchorRef.current = {
+              items: currentItems,
+              measurements: currentMeasurements,
+              index,
+              key: virtualKeyFor(currentItems, index, currentGetItemKey),
+              offset: container.scrollTop - previousLayout.offsets[index],
+              scrollTop: container.scrollTop,
+            }
+          }
+          for (const cache of measurementCachesRef.current.values()) cache.clear()
+          // Only mounted rows can be measured at the new width. Never retain stale
+          // offscreen heights; the anchor compensates as this window is measured.
+          elements = measuredElementsRef.current
+          changed = true
+        }
       }
-    }
 
-    if (changed) setMeasurementRevision((current) => current + 1)
-  }, [])
+      for (const element of elements) {
+        const index = Number(element.dataset.virtualIndex)
+        if (!Number.isInteger(index) || index < 0 || index >= currentItems.length) continue
+
+        const height = element.getBoundingClientRect().height
+        if (!Number.isFinite(height) || height <= 0) continue
+
+        const key = virtualKeyFor(currentItems, index, currentGetItemKey)
+        const previous = currentMeasurements.get(key)
+        if (previous === undefined || Math.abs(previous - height) > MEASUREMENT_EPSILON) {
+          currentMeasurements.set(key, height)
+          changed = true
+        }
+      }
+
+      if (changed) setMeasurementRevision((current) => current + 1)
+    },
+    [containerRef],
+  )
 
   const measureElement = useCallback<RefCallback<HTMLElement>>((element) => {
     if (!element) return undefined
@@ -249,20 +325,19 @@ export function useVirtualList<T>(
     let animationFrame: number | null = null
 
     const updateMetrics = () => {
+      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
       animationFrame = null
       setScrollTop(element.scrollTop)
       setViewportHeight(element.clientHeight || DEFAULT_VIEWPORT_HEIGHT)
-
-      const width = element.clientWidth
-      const previousWidth = previousContainerWidthRef.current
-      previousContainerWidthRef.current = width
-      if (previousWidth !== null && Math.abs(previousWidth - width) > MEASUREMENT_EPSILON) {
-        activeMeasurementsRef.current.clear()
-        setMeasurementRevision((current) => current + 1)
-      }
     }
 
     const scheduleMetrics = () => {
+      const anchor = resizeAnchorRef.current
+      if (anchor && Math.abs(element.scrollTop - anchor.scrollTop) > MEASUREMENT_EPSILON) {
+        // A real scroll (including find's intra-message adjustment) supersedes
+        // resize anchoring. Our own correction reports the already-applied top.
+        resizeAnchorRef.current = null
+      }
       if (animationFrame === null) {
         animationFrame = window.requestAnimationFrame(updateMetrics)
       }
@@ -270,7 +345,12 @@ export function useVirtualList<T>(
 
     element.addEventListener("scroll", scheduleMetrics, { passive: true })
     const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMetrics)
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            updateMeasurements(measuredElementsRef.current)
+            updateMetrics()
+          })
     observer?.observe(element)
     updateMetrics()
 
@@ -279,12 +359,13 @@ export function useVirtualList<T>(
       observer?.disconnect()
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
     }
-  }, [containerRef])
+  }, [containerRef, updateMeasurements])
 
   const scrollToIndex = useCallback(
     (index: number) => {
       const container = containerRef.current
       if (!container || index < 0 || index >= items.length) return
+      resizeAnchorRef.current = null
       const next = Math.max(
         0,
         Math.min(
