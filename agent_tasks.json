@@ -20468,12 +20468,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T00:30:16.770387Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T00:30:37.527748Z",
+    "last_poll_at": "2026-09-21T00:31:53.893414Z",
     "last_tick_at": "2026-09-21T00:23:51.751775Z",
     "run_id": "35547538355"
   }
