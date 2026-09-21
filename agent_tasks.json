@@ -24075,6 +24075,143 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-performance-5",
+      "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-21T12:53:48Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-145f7f8b08d0c398\",\"status\":\"todo\",\"title\":\"Prevent resource sampling failure from concurrent workspace unmounts\",\"target_paths\":[\"src-tauri/src/resource_health.rs\"],\"observed_contract\":{\"detail\":\"Native backend observation using a synthetic test harness mimicking sample_volume and existing_resource_path; no live user data or GUI exercised.\",\"expected\":\"The resource health snapshot successfully completes for memory and remaining stable volumes (like the sessions directory).\",\"actual\":\"The entire resource sampling operation fails with an IO error (No such file or directory) propagating from sample_volume, returning no metrics.\",\"acceptance\":[\"The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.\",\"Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check.\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-5f30b23ec899ed07\",\"status\":\"todo\",\"title\":\"Prevent ResourceHealthPanel from displaying a success icon in error states\",\"target_paths\":[\"src/ResourceHealthPanel.tsx\"],\"observed_contract\":{\"detail\":\"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used.\",\"expected\":\"The summary container has an 'is-warning' or 'is-critical' class and displays an 'alert' icon for the unavailable metrics.\",\"actual\":\"The summary container falls back to the 'is-ok' class and displays a 'check' success icon alongside the 'Resource metrics are unavailable' text.\",\"acceptance\":[\"When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'.\"]},\"decision\":\"approve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "performance",
+        "fingerprint": "7be08511193947d2fd03623f2192fea09aac3c1a46c6296b33f02ce03457f3b0",
+        "cycle": 5,
+        "previous_reports": [
+          {
+            "summary": "Verified that the ResourceHealthPanel displays contradictory visual indicators (a success checkmark and 'is-ok' styling) when presenting an error state due to unavailable metrics.",
+            "observations": [
+              {
+                "scenario": "Exercise the `ResourceHealthPanel` empty/error state when a resource health snapshot fails to load and an error string is provided.",
+                "evidence": "Rendered `ResourceHealthPanel` in an isolated synthetic DOM test with `snapshot={null}` and `error=\"Failed to sample volume\"`. The component unconditionally falls back to `const severity = snapshot?.severity ?? \"ok\"`. The resulting DOM explicitly renders `<div aria-live=\"polite\" class=\"resource-summary is-ok\">` with a success checkmark `<Icon name=\"check\">` directly beside the \"Resource metrics are unavailable\" status text.",
+                "result": "Establishes that the UI incorrectly styles a missing/error data state as a system success. Users receive conflicting visual cues (a checkmark for a failed operation), breaking semantic clarity."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether long localized strings in the ResourceHealthPanel cause text overflow or layout clipping on constrained screen boundaries."
+            ],
+            "proposed_task_ids": [
+              "discovery-5f30b23ec899ed07"
+            ],
+            "completed_at": "2026-09-20T13:37:41.831781Z",
+            "source": {
+              "activity_id": "sessions/16760437915490887260/activities/1c9b06cead7748b9874396faee4dc2c2",
+              "report_sha256": "3a6d550ea7ad701e40914d06bf33b62488770dac4d4419985d5ded9d4e09b4bd",
+              "activity_created_at": "2026-09-20T13:29:32.607149Z",
+              "session_id": "16760437915490887260",
+              "dispatch_key": "ff981dab807c9ca1525a5fa5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified vulnerabilities in ResourceHealthPanel presentation and sample_volumes fragility",
+            "observations": [
+              {
+                "scenario": "Review the UI behavior of `ResourceHealthPanel` when an error state occurs without a valid snapshot.",
+                "evidence": "Observed in `src/ResourceHealthPanel.tsx` that the `severity` falls back directly to `'ok'` when a snapshot is missing, ignoring the presence of an `error` prop (`const severity = snapshot?.severity ?? \"ok\"`). This results in rendering a checkmark icon with `is-ok` styling for error conditions.",
+                "result": "Establishes that the UI incorrectly styles an error state as a success, providing contradictory visual indicators to the user (canonical_id: discovery-5f30b23ec899ed07)."
+              },
+              {
+                "scenario": "Simulate a race condition where a workspace is concurrently unmounted during resource volume sampling in `src-tauri/src/resource_health.rs`.",
+                "evidence": "Running an isolated rust script mimicking `sample_volume` and `existing_resource_path` confirmed that when `fs::remove_dir_all` occurs right after path resolution but before `fs::metadata`, an `Os { code: 2, kind: NotFound }` error is produced. This error propagates up via the `?` operator in the `sample_volumes` loop, failing the entire snapshot.",
+                "result": "Establishes that the resource sampling thread is fragile to concurrent unmounts. A transient error on a single volume leads to the total loss of all resource health metrics (canonical_id: discovery-145f7f8b08d0c398)."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether large application logs generated concurrently block the resource sampling thread from executing efficiently.",
+              "Investigate if high-frequency workspace filesystem changes cause lock contention when taking resource snapshots.",
+              "Examine if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T12:39:50.942947Z",
+            "source": {
+              "activity_id": "sessions/3407958143082242044/activities/f774c781f46d4090b133c99d11fae67a",
+              "report_sha256": "de0fe38c08b4606150334799d530fdfcce3df3c77e82e1ef06567b5ceb9ad4e5",
+              "activity_created_at": "2026-09-21T12:29:59.197325Z",
+              "session_id": "3407958143082242044",
+              "dispatch_key": "c991d06a48e78254419f713b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-5f30b23ec899ed07; not established as a duplicate. {\"detail\": \"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used. Canonical ID: discovery-5f30b23ec899ed07\", \"reproduction\": {\"actual\": \"The component falls back to the 'is-ok' class and displays a 'check' success icon alongside the error message.\", \"expected\": \"The component assigns a warning/critical severity and renders an alert icon for the error.\", \"steps\": [\"Render the `ResourceHealthPanel` component in a test environment with `snapshot={null}` and a valid `error` string.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'."
+                ]
+              },
+              {
+                "title": "Prevent resource sampling failure from concurrent workspace unmounts",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-145f7f8b08d0c398; not established as a duplicate. {\"detail\": \"Native backend observation using a synthetic test harness mimicking `sample_volume` and `existing_resource_path`; no live user data or GUI exercised. Canonical ID: discovery-145f7f8b08d0c398\", \"reproduction\": {\"actual\": \"The entire resource sampling operation fails with an IO error (No such file or directory) propagating upwards, returning no metrics at all.\", \"expected\": \"The error from `sample_volume` is ignored or handled gracefully by `sample_volumes`, allowing other volumes to still be sampled and returned.\", \"steps\": [\"Create a temporary directory simulating a workspace volume.\", \"Spawn a concurrent thread that deletes the directory immediately after `existing_resource_path` resolves it but before `fs::metadata` is invoked in `sample_volume`.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src-tauri/src/resource_health.rs"
+                ],
+                "acceptance": [
+                  "The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.",
+                  "Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified that runtime incidents reducer safely maintains state identity across redundant state updates and when resolving empty incident lists.",
+            "observations": [
+              {
+                "scenario": "Dispatch identical, redundant runtime recovery resolution events and empty resolution clearance actions, inspecting the returned state identity.",
+                "evidence": "Locally executed test scripts using Vitest directly on `src/runtimeIncidents.ts`. Triggered a `modelError` to create an active incident, resolved it using an `idle` event, and then re-dispatched the exact same `idle` event. Observed that `applyRuntimeIncidentEvent` correctly returns the exact same object reference (`expect(state3).toBe(state2)`). Additionally verified that calling `clearResolvedRuntimeIncidents` when there are no resolved incidents in the state returns the unmodified state object without rebinding.",
+                "result": "Establishes that the incident reducer optimizes unnecessary React re-renders by enforcing strict referential identity equality on no-op actions, confirming robust and efficient state persistence."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the robustness of ResourceHealth snapshot disk volume detection under extremely rapid concurrent unmounting of a workspace."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T12:53:48.251946Z",
+            "source": {
+              "activity_id": "sessions/10463382452628247866/activities/2c34eaf2156a4cbb902b39942234eaf3",
+              "report_sha256": "4d7d3efee398ccb345d56ecc93d864646c4b4dcdab41fb7081b10a67e119af22",
+              "activity_created_at": "2026-09-21T12:46:21.702671Z",
+              "session_id": "10463382452628247866",
+              "dispatch_key": "43110a163ea60565926d46fb"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
