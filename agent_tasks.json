@@ -19835,7 +19835,7 @@
       "id": "discovery-006f3c08b902b31c3e70c21732b3003d5ec332198fe972f5aad416d03dc6a546",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "medium",
       "focus": [
@@ -19909,6 +19909,12 @@
         "activity_created_at": "2026-09-20T21:35:11.248037Z",
         "session_id": "13031422784557267909",
         "dispatch_key": "387ea5e5bf84aed210611ace"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:12:46Z",
+        "note": "Повтор отклонённых discovery-d47c6c8c6e6f2995, discovery-91c421b7b33a4fcc4f466eefa3d26972453e867ce57abf14a65da950f8529b14 и решения Issue #80. Новый ввод не является согласием уничтожить сохранённый switch recovery. Сохранить буфер до явной отправки или удаления пользователем; автоматическая очистка теряет восстанавливаемый текст. Новых доказательств, меняющих этот продуктовый контракт, нет."
       }
     },
     {
