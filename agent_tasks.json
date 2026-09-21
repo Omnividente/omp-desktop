@@ -21713,7 +21713,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T08:12:09.759864Z"
+        "observed_at": "2026-09-21T08:12:09.759864Z",
+        "released_attempt_ref": "autonomous/attempt-1a7133c9715ec1e803798a6d"
       },
       "research_result": {
         "summary": "Measured rendering and update latencies for TerminalWorkspace and ProjectRail with varying synthetic load scales using React Testing Library.",
