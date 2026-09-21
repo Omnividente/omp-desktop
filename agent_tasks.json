@@ -25922,7 +25922,8 @@
         "feedback_nudge": {
           "at": "2026-09-21T22:37:37.365603Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-2074796a53b3ca23c5d35b1f"
       },
       "research_result": {
         "summary": "Verified focus restoration defects when cancelling a rename operation in `<ProjectRail />` and `<SessionList />`.",
