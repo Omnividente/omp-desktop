@@ -20312,7 +20312,7 @@
       "id": "research-terminal-input-performance-5",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -20459,34 +20459,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "13101168840947795288",
         "dispatch_key": "a737806cb88e941801ca1726",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-a737806cb88e941801ca1726",
         "started_at": "2026-09-21T00:30:16.770387Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T01:03:32.673741Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T00:57:12.386905Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-21T00:50:59.316588Z",
-          "source": {
-            "activity_id": "sessions/13101168840947795288/activities/0a685596d0ae43c1b355c1b26b6d780a",
-            "report_sha256": "8d8d9fe8d85b3ade230825a0e09cb659efab1b3783fc265d49fc687ac2d24e91",
-            "activity_created_at": "2026-09-21T00:40:00.202362Z",
-            "session_id": "13101168840947795288",
-            "dispatch_key": "a737806cb88e941801ca1726"
-          }
-        },
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T01:03:32.673741Z",
         "report_repair": {
           "at": "2026-09-21T00:51:23.067247Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/13101168840947795288/activities/0a685596d0ae43c1b355c1b26b6d780a",
             "report_sha256": "8d8d9fe8d85b3ade230825a0e09cb659efab1b3783fc265d49fc687ac2d24e91",
@@ -20495,11 +20483,40 @@
             "dispatch_key": "a737806cb88e941801ca1726"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated terminal output batching and rendering limits for large output payloads.",
+        "observations": [
+          {
+            "scenario": "A mock scenario driving `createTerminalOutputBatcher` and xterm.js rendering with hundreds of kilobytes of output to measure UI thread latency.",
+            "evidence": "Executed synthetic benchmarks evaluating `createTerminalOutputBatcher` scheduling behavior and xterm.js sync write throughput. 100,000 tiny output chunks batch correctly in ~80ms in TypeScript, and a single contiguous 285KB buffer (exceeding MAX_TERMINAL_WRITE_BATCH of 256KB) renders synchronously via xterm.js in ~56ms in a headless Chromium environment.",
+            "result": "Establishes that frontend output batching correctly defers heavy PTY bursts into bounded 256KB chunks, preventing catastrophic UI thread freezing during massive command outputs."
+          },
+          {
+            "scenario": "A mock scenario evaluating `terminalContinuity.ts` sequence limit performance and base64 decode overhead.",
+            "evidence": "Executed isolated scripts to gauge performance. Decoding 10MB of base64 chunks using a custom Uint8Array map takes ~48ms. Updating terminal continuity state for 20,000 sequence increments executes in ~6.5ms.",
+            "result": "Establishes that current continuity processing scales linearly and is not a bottleneck even during sustained high-frequency terminal output events."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if screen readers correctly announce the terminal input selection status update (`aria-live=\"polite\"`) when dragging to select text within the terminal bounds.",
+          "Examine if lingering references exist for `terminalFontFamily` or `terminalFontSize` contexts that might prevent garbage collection of `TerminalView` closures during tab switching."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-21T01:03:32.673741Z",
+        "source": {
+          "activity_id": "sessions/13101168840947795288/activities/f4a9c617fb074fbf95529f8ad8e2d06a",
+          "report_sha256": "32eaa290ef1ca182050b812917814e1f2edd362098227ac0c0a081fcd2b5348d",
+          "activity_created_at": "2026-09-21T00:52:32.015711Z",
+          "session_id": "13101168840947795288",
+          "dispatch_key": "a737806cb88e941801ca1726"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T01:03:52.528921Z",
+    "last_poll_at": "2026-09-21T01:03:55.698949Z",
     "last_tick_at": "2026-09-21T00:57:40.981320Z",
     "run_id": "35549289800"
   }
