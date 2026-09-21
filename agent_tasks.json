@@ -17915,7 +17915,7 @@
       "id": "discovery-145f7f8b08d0c398",
       "title": "Prevent resource sampling failure from concurrent workspace unmounts",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -17952,10 +17952,10 @@
         "dispatch_key": "40b1fe521963c6702ea792dd"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T20:32:57Z",
-        "note": "Approved for an isolated PR after a real backend reproduction on synthetic paths. A transient unavailable workspace volume must not discard memory and healthy-volume samples, but a failed/missing measurement must remain explicitly visible as unavailable/partial rather than silently producing an all-clear status, zero free bytes, or measuring an unrelated ancestor volume as the vanished mount. Preserve truthful error reporting and existing concurrency; extend the existing frontend/backend contract only where needed. Keep real user data untouched. Rust proof requires honest documented manual review, not a false green TypeScript gate."
+        "at": "2026-09-21T22:02:11Z",
+        "note": "Implemented and verified in PR https://github.com/Omnividente/omp-desktop/pull/85; main commit 077ce508a08812574ddedbc9b7ea10056e518096 (tree identical to signed reviewed head 1d7480e6b3db0662b7e5b1d45355e93b7c4dd771). Finding: Prevent resource sampling failure from concurrent workspace unmounts. Windows/Linux Quality Gate and Rust/TypeScript CodeQL passed. Isolated Windows Tauri/WebView2 native before/after and restart smoke passed; frontend 282 tests, Rust 211 passed/1 ignored. Next-release checklist: https://github.com/Omnividente/omp-desktop/issues/86 . Source preparation only, not a release or local install. Separate JSONL/artifacts proposal discovery-a1eefff4576aa5c1 is not included or changed."
       }
     },
     {
