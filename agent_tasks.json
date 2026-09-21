@@ -24932,7 +24932,8 @@
             "session_id": "10215713486908434426",
             "dispatch_key": "742bd7ff1d96c28b7afe5d74"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-742bd7ff1d96c28b7afe5d74"
       },
       "research_result": {
         "summary": "Verified performance metrics for large transcript datasets and identified a focus dropping bug on ContentActionMenu dismissal.",
