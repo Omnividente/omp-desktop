@@ -17309,7 +17309,7 @@
       "id": "discovery-814b037be56c434b",
       "title": "Focus the search input when opening the ModelPicker dropdown",
       "task_type": "product_improvement",
-      "status": "todo",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -17345,10 +17345,10 @@
         "dispatch_key": "93ae78280819755c96972ccc"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T20:32:25Z",
-        "note": "Approved for a separate unmerged PR: opening the model picker should let the user type in model search immediately. Preserve keyboard access to filtered options, ArrowUp/Down/Home/End/Enter semantics and explicit-close focus restoration; no global focus trap or unsolicited focus after the user moves elsewhere. Another approved PR handles close-focus (discovery-ac9f025a5a64cb62); keep changes minimal and independently reviewable. Confirm on actual rendered current-base component before changing."
+        "at": "2026-09-21T22:01:52Z",
+        "note": "Implemented and verified in PR https://github.com/Omnividente/omp-desktop/pull/85; main commit 077ce508a08812574ddedbc9b7ea10056e518096 (tree identical to signed reviewed head 1d7480e6b3db0662b7e5b1d45355e93b7c4dd771). Finding: Focus the search input when opening the ModelPicker dropdown. Windows/Linux Quality Gate and Rust/TypeScript CodeQL passed. Isolated Windows Tauri/WebView2 native before/after and restart smoke passed; frontend 282 tests, Rust 211 passed/1 ignored. Next-release checklist: https://github.com/Omnividente/omp-desktop/issues/86 . Source preparation only, not a release or local install. Separate JSONL/artifacts proposal discovery-a1eefff4576aa5c1 is not included or changed."
       }
     },
     {
