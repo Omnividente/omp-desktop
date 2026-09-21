@@ -21946,7 +21946,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T08:32:12.061363Z"
+        "observed_at": "2026-09-21T08:32:12.061363Z",
+        "released_attempt_ref": "autonomous/attempt-eba073b9853d191a3357e2d7"
       },
       "research_result": {
         "summary": "Verified the lack of focus restoration when canceling rename modes in `<ProjectRail />` and `<SessionList />`.",
