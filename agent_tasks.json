@@ -23813,7 +23813,8 @@
             "session_id": "3407958143082242044",
             "dispatch_key": "c991d06a48e78254419f713b"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-c991d06a48e78254419f713b"
       },
       "research_result": {
         "summary": "Verified vulnerabilities in ResourceHealthPanel presentation and sample_volumes fragility",
