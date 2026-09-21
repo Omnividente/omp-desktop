@@ -25063,7 +25063,7 @@
       "id": "discovery-2bda3fee10eddd7c",
       "title": "Prevent focus drop when tabbing out of ContentActionMenu",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -25097,6 +25097,12 @@
         "activity_created_at": "2026-09-21T16:59:53.925513Z",
         "session_id": "10215713486908434426",
         "dispatch_key": "742bd7ff1d96c28b7afe5d74"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:15:24Z",
+        "note": "Принято для узкой проработки клавиатурного закрытия меню, не как подтверждённая нативная регрессия. ContentActionMenu.tsx:35-43 при Tab вызывает onDismiss(false), а потребители восстанавливают контекст только при true. Проверить Tab/Shift+Tab из сфокусированного menuitem и сохранить предсказуемый фокус после размонтирования в TranscriptModal и TerminalView. Нельзя безусловно глушить Tab, когда фокус остался вне меню: обычная навигация должна сохраниться. Без focus trap, глобальной переделки modal focus или изменения pointer-dismiss. Только backlog, без worker dispatch. Задание и критерии: https://github.com/Omnividente/omp-desktop/issues/84 ."
       }
     },
     {
