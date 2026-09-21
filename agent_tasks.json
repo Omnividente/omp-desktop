@@ -23487,7 +23487,7 @@
       "id": "discovery-db3c096c640b5c5d",
       "title": "Announce terminal selection via screen reader on mouse drag select",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -23521,6 +23521,12 @@
         "activity_created_at": "2026-09-21T10:39:51.554452Z",
         "session_id": "3539401217757495982",
         "dispatch_key": "c7946eec42bfd27fc616d32c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:14:47Z",
+        "note": "Синтетическое ожидание смешивает разные действия. TerminalView.tsx:291-303,694-698 использует inputSelectionArmed для Ctrl/Cmd+A в строке ввода агента; мышиное выделение вывода терминала — другое состояние. Объявлять выделение строки ввода при выделении логов неверно. Отсутствие этого баннера после mouseup не доказывает недоступность xterm selection; нужен отдельный наблюдаемый сценарий экранного диктора без переиспользования inputSelectionArmed. Полную доступность терминала данным разбором не подтверждаем."
       }
     },
     {
