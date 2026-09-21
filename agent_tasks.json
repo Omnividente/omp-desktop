@@ -21561,7 +21561,7 @@
       "id": "discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6",
       "title": "Fix race condition during concurrent workspace modifications",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -21616,6 +21616,12 @@
         "activity_created_at": "2026-09-21T06:41:28.791913Z",
         "session_id": "16136660201441106915",
         "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:13:40Z",
+        "note": "Устаревший повтор discovery-5b8c7bde2b0e0468, исправленного merged PR #81, commit dddb77564c155dfbebf829f89793f74c53e8171c. Текущий main 7fdbf311 использует общую failure-safe bootstrapQueue/invokeBootstrap в src/api.ts для полных snapshot. Mock всего api с произвольным обратным порядком promise исключает именно защиту, которую надо проверять, и не доказывает регрессию реального IPC. Не дублировать уже принятое исправление; новая регрессия должна проходить настоящий слой API."
       }
     },
     {
