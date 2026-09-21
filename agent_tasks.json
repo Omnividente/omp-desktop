@@ -24225,7 +24225,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T13:20:09.938055Z"
+        "observed_at": "2026-09-21T13:20:09.938055Z",
+        "released_attempt_ref": "autonomous/attempt-6275e1a037c9b1b0ca107ae5"
       },
       "research_result": {
         "summary": "Measured the scalability and latency of resource process sampling.",
