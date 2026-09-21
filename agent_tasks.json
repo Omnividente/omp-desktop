@@ -19789,7 +19789,7 @@
       "id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
       "title": "Fix terminal continuity generation changes during failure recovery",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "medium",
       "focus": [
@@ -19823,6 +19823,12 @@
         "activity_created_at": "2026-09-20T21:35:11.248037Z",
         "session_id": "13031422784557267909",
         "dispatch_key": "387ea5e5bf84aed210611ace"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:12:25Z",
+        "note": "Диагноз fatal error неверен для main 7fdbf311. terminalContinuity.ts:65-73 при смене поколения возвращает accept:true; TerminalView.tsx:435-442 сообщает диагностическое уведомление и продолжает enqueue данных, не выбрасывая исключение. Не удалять диагностику рассинхронизации ради синтетического ожидания. Для отдельного исправления нужен нативный трейс штатного восстановления/attach, где новый output действительно обгоняет согласование поколения; текущее предложение его не содержит. Изолированный вызов настоящего applyTerminalOutputEvent при generation 1 -> 2 вернул accept:true и generationChanged:true без исключения; нативный recovery не запускали."
       }
     },
     {
