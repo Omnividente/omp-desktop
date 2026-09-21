@@ -26126,6 +26126,10 @@
         "research_detached": {
           "at": "2026-09-21T22:52:16.908883Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-21T22:52:16.908883Z",
+          "result": "pending"
         }
       }
     },
