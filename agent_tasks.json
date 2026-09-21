@@ -25913,13 +25913,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T22:18:47.667342Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-21T22:37:37.365603Z",
+        "research_detached": {
+          "at": "2026-09-21T22:37:37.365603Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T22:37:52.800111Z",
+    "last_poll_at": "2026-09-21T22:37:55.594326Z",
     "last_tick_at": "2026-09-21T22:31:55.122657Z",
     "run_id": "35663087061"
   }
