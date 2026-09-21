@@ -27,6 +27,7 @@ export function resourceWarningCount(snapshot: ResourceHealthSnapshot | null): n
   if (!snapshot) return 0
   return (
     Number(snapshot.memory.severity !== "ok") +
-    snapshot.volumes.filter((volume) => volume.severity !== "ok").length
+    snapshot.volumes.filter((volume) => volume.severity !== "ok").length +
+    snapshot.unavailableVolumes.length
   )
 }

@@ -70,6 +70,11 @@ export function ProjectRail({
   const railRef = useRef<HTMLElement>(null)
   const openFolderRef = useRef<HTMLButtonElement>(null)
   const removalFocusRef = useRef<{ key: string; button: HTMLButtonElement } | null>(null)
+  const renameFocusRef = useRef<{
+    key: string
+    input: HTMLInputElement
+    row: HTMLElement | null
+  } | null>(null)
   const openTimerRef = useRef<number | null>(null)
   const closeTimerRef = useRef<number | null>(null)
   const revealed = mode === "expanded" || (mode === "autoHide" && autoOpen)
@@ -124,6 +129,19 @@ export function ProjectRail({
       openFolderRef.current?.focus()
     }
   }, [workspaces])
+
+  useLayoutEffect(() => {
+    const pending = renameFocusRef.current
+    if (!pending || (renamingWorkspaceKey === pending.key && pending.input.isConnected)) return
+    renameFocusRef.current = null
+    if (document.activeElement !== document.body && document.activeElement !== pending.input) return
+    const target = pending.row?.isConnected
+      ? pending.row.querySelector<HTMLButtonElement>(
+          compact ? "button.project-item:not(:disabled)" : ".project-actions button:not(:disabled)",
+        )
+      : null
+    ;(target ?? openFolderRef.current)?.focus({ preventScroll: true })
+  })
 
   const cancelAutoOpen = () => {
     if (openTimerRef.current === null) return
@@ -222,7 +240,19 @@ export function ProjectRail({
                       className="project-rename"
                       onBlur={() => onSubmitWorkspaceRename(workspace)}
                       onChange={(event) => onWorkspaceNameChange(event.target.value)}
-                      onKeyDown={(event) => onWorkspaceRenameKeyDown(event, workspace)}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Escape" &&
+                          document.activeElement === event.currentTarget
+                        ) {
+                          renameFocusRef.current = {
+                            key: workspace.key,
+                            input: event.currentTarget,
+                            row: event.currentTarget.closest<HTMLElement>(".project-item-row"),
+                          }
+                        }
+                        onWorkspaceRenameKeyDown(event, workspace)
+                      }}
                       value={workspaceNameValue}
                     />
                     <small>{workspace.path}</small>

@@ -104,7 +104,8 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(-1)
-  const listboxRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const panelId = `model-picker-${role.replace(/[^a-z0-9_-]/gi, "-")}`
   const selectedModel = models.find((model) => matchesSelector(model, value))
@@ -138,19 +139,27 @@ export function ModelPicker({
     onOpenChange(next)
   }
 
+  const closePicker = () => {
+    const trigger = triggerRef.current
+    if (
+      panelRef.current?.contains(document.activeElement) &&
+      trigger?.isConnected &&
+      !trigger.disabled &&
+      !trigger.closest("[hidden], [inert]")
+    ) {
+      trigger.focus({ preventScroll: true })
+    }
+    setOpen(false)
+  }
+
   useEffect(() => {
     if (!open) return
     const selectedIndex = filteredModels.findIndex((model) => matchesSelector(model, value))
     setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredModels.length > 0 ? 0 : -1)
   }, [filteredModels, open, value])
 
-  useEffect(() => {
-    if (open) {
-      window.requestAnimationFrame(() => listboxRef.current?.focus())
-    }
-  }, [open])
-
   const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (filteredModels.length === 0) return
     let nextIndex: number | null = null
     if (event.key === "ArrowDown") {
@@ -164,7 +173,7 @@ export function ModelPicker({
     } else if (event.key === "Enter" || event.key === " ") {
       if (activeIndex >= 0) {
         onChange(selectorForModel(filteredModels[activeIndex], value))
-        setOpen(false)
+        closePicker()
       }
       event.preventDefault()
       return
@@ -172,7 +181,7 @@ export function ModelPicker({
     if (nextIndex !== null) {
       event.preventDefault()
       setActiveIndex(nextIndex)
-      window.requestAnimationFrame(() => optionRefs.current[nextIndex]?.focus())
+      optionRefs.current[nextIndex]?.focus({ preventScroll: true })
     }
   }
 
@@ -183,9 +192,11 @@ export function ModelPicker({
     }
   }
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (event.key === "Escape" && open) {
       event.preventDefault()
-      setOpen(false)
+      event.stopPropagation()
+      closePicker()
     }
   }
 
@@ -207,6 +218,7 @@ export function ModelPicker({
             setOpen(true)
           }
         }}
+        ref={triggerRef}
         type="button"
       >
         <span className="model-picker-copy">
@@ -246,12 +258,22 @@ export function ModelPicker({
       )}
 
       {open && (
-        <div className="model-picker-panel" id={panelId}>
+        <div className="model-picker-panel" id={panelId} ref={panelRef}>
           <label className="model-picker-search">
             <Icon name="search" size={14} />
             <input
               aria-label={t(language, "searchModels")}
+              autoFocus
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
+                if (filteredModels.length === 0) return
+                event.preventDefault()
+                const nextIndex = event.key === "ArrowDown" ? 0 : filteredModels.length - 1
+                setActiveIndex(nextIndex)
+                optionRefs.current[nextIndex]?.focus({ preventScroll: true })
+              }}
               placeholder={t(language, "searchModelsPlaceholder")}
               spellCheck={false}
               value={query}
@@ -265,7 +287,6 @@ export function ModelPicker({
             aria-label={t(language, "chooseModel")}
             className="model-picker-options"
             onKeyDown={handleListboxKeyDown}
-            ref={listboxRef}
             role="listbox"
             tabIndex={0}
           >
@@ -279,8 +300,9 @@ export function ModelPicker({
                   key={model.selector}
                   onClick={() => {
                     onChange(selectorForModel(model, value))
-                    setOpen(false)
+                    closePicker()
                   }}
+                  onFocus={() => setActiveIndex(index)}
                   onMouseEnter={() => setActiveIndex(index)}
                   ref={(element) => {
                     optionRefs.current[index] = element
@@ -314,7 +336,7 @@ export function ModelPicker({
                 spellCheck={false}
                 value={value}
               />
-              <button className="button secondary" onClick={() => setOpen(false)} type="button">
+              <button className="button secondary" onClick={closePicker} type="button">
                 {t(language, "done")}
               </button>
             </div>

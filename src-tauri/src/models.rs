@@ -347,6 +347,14 @@ pub struct ResourceVolumeSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ResourceUnavailableVolume {
+    pub path: String,
+    pub purpose: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceProcessSnapshot {
     pub terminal_id: Option<String>,
     pub process_id: u32,
@@ -361,6 +369,7 @@ pub struct ResourceHealthSnapshot {
     pub severity: ResourceSeverity,
     pub memory: ResourceMemorySnapshot,
     pub volumes: Vec<ResourceVolumeSnapshot>,
+    pub unavailable_volumes: Vec<ResourceUnavailableVolume>,
     pub processes: Vec<ResourceProcessSnapshot>,
 }
 
