@@ -24049,7 +24049,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T12:53:48.251946Z"
+        "observed_at": "2026-09-21T12:53:48.251946Z",
+        "released_attempt_ref": "autonomous/attempt-43110a163ea60565926d46fb"
       },
       "research_result": {
         "summary": "Verified that runtime incidents reducer safely maintains state identity across redundant state updates and when resolving empty incident lists.",
