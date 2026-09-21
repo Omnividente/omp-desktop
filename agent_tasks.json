@@ -22602,7 +22602,7 @@
       "id": "research-settings-models-behavior-5",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -22802,18 +22802,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "10615933218404129415",
         "dispatch_key": "86e2fc85c03104f91ad2c804",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-86e2fc85c03104f91ad2c804",
         "started_at": "2026-09-21T09:33:04.454823Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T10:13:58.146366Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T10:07:35.638239Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T10:13:58.146366Z",
         "research_detached": {
           "at": "2026-09-21T09:59:55.021265Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -22822,6 +22822,44 @@
           "at": "2026-09-21T09:59:55.021265Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of Settings recovery and model selection views, specifically around ModelPicker listbox keyboard navigation, requestAnimationFrame polling overhead, focus restoration upon closing, and custom provider error surfacing.",
+        "observations": [
+          {
+            "scenario": "Simulating boundary keyboard navigation using ArrowDown and ArrowUp within an open ModelPicker listbox component.",
+            "evidence": "Conducted synthetic Vitest DOM interaction matching `ModelPicker.tsx` behavior on `2725a1f6255b75974bde7983a1e5694288a4a222`. Keydown events on the listbox correctly cycle out of bounds because `activeIndex + 1 % length` uses modulo arithmetic for downwards navigation, and `activeIndex <= 0 ? length - 1 : activeIndex - 1` covers upwards boundary logic securely.",
+            "result": "Establishes that long list rendering in ModelPicker search correctly handles focus cycling adequately out-of-bounds, disproving the next_hypothesis regarding out-of-bounds index errors."
+          },
+          {
+            "scenario": "Simulating the requestAnimationFrame polling cadence when opening ModelPicker listbox and navigating items.",
+            "evidence": "Conducted synthetic Vitest mock observing `window.requestAnimationFrame`. Found that rendering `ModelPicker` when opened triggers exactly 1 `requestAnimationFrame` call to focus the listbox ref, and subsequent array navigation triggers exactly 1 call per ArrowKey stroke to focus the newly selected option node.",
+            "result": "Establishes that the UI is highly responsive on low-end devices and does not introduce continuous `requestAnimationFrame` loops when rendering or interacting with the model list."
+          },
+          {
+            "scenario": "Investigating whether focus is restored properly to the trigger button when the ModelPicker dialog is closed.",
+            "evidence": "Verified locally via Vitest simulation matching Canonical ID: discovery-ac9f025a5a64cb62. Triggering the component open and then closing it via `Escape` key reverts `document.activeElement` to `document.body` rather than back to `.model-picker-trigger`. The element that held focus is unmounted without returning focus.",
+            "result": "Establishes that the ModelPicker lacks cleanup focus restoration, creating an accessibility failure for keyboard navigation users (Matches discovery-ac9f025a5a64cb62)."
+          },
+          {
+            "scenario": "Attempting to save a Custom Provider configuration in SettingsPanel with missing mandatory fields (e.g. omitting Key or URL).",
+            "evidence": "Observed via `SettingsPanel.tsx` that `save()` correctly computes `customProviderStarted && !customProviderReady` and throws an Error with the localized string `customProviderFieldsRequired`. Tested via synthetic interaction: rapidly typing an ID while leaving URL/Key blank and saving correctly forwards this to `setConfigError/onError` catching mechanism.",
+            "result": "Establishes that missing custom provider API fields properly intercept the IPC call and throw correctly tracked client-side validation errors in SettingsPanel, invalidating a previous next_hypothesis about missing validation."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether SettingsRecoveryScreen can properly overflow or truncate extremely long backup paths when rendered at minimum desktop window widths."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-21T10:13:58.146366Z",
+        "source": {
+          "activity_id": "sessions/10615933218404129415/activities/5e087b8c6ade4a088ea9696535b74a94",
+          "report_sha256": "c23e8cdcae70da72f4228f2ea968a2870792dacb68be1d6b242bc6d4db2a8af2",
+          "activity_created_at": "2026-09-21T10:02:47.302067Z",
+          "session_id": "10615933218404129415",
+          "dispatch_key": "86e2fc85c03104f91ad2c804"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -23122,7 +23160,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T10:14:20.214190Z",
+    "last_poll_at": "2026-09-21T10:14:23.517512Z",
     "last_tick_at": "2026-09-21T10:08:05.703011Z",
     "run_id": "35587026421"
   }
