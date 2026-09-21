@@ -21581,6 +21581,125 @@
         "session_id": "16136660201441106915",
         "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-5",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-21T07:39:46Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-1b0c3efa0c72ca8c\",\"status\":\"todo\",\"title\":\"Restore focus to edit button after cancelling a workspace or session rename\",\"target_paths\":[\"src/ProjectRail.tsx\",\"src/SessionList.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. A canceled rename leaves focus stranded on `document.body` because the corresponding rename input is unmounted without focus restoration logic.\",\"expected\":\"Focus correctly shifts back to the edit button that initiated the rename.\",\"actual\":\"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\",\"acceptance\":[\"Focus moves back to the edit button when a workspace rename is canceled via Escape\",\"Focus moves back to the edit button when a session rename is canceled via Escape\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-d3e1fcb6e79f4693\",\"status\":\"proposed\",\"title\":\"Close import modals on failure\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via codebase inspection on 2725a1f6255b75974bde7983a1e5694288a4a222.\",\"expected\":\"The modal should close and the error toast should appear.\",\"actual\":\"The modal remains open and the error toast appears.\",\"acceptance\":[\"When an import fails, the modal closes and the error message is displayed.\"]}},{\"canonical_id\":\"discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6\",\"status\":\"proposed\",\"title\":\"Fix race condition during concurrent workspace modifications\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic testing of `removeWorkspace` and `submitWorkspaceRename` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace list mistakenly reflects the slower, older request instead of the newer one.\",\"expected\":\"The application shows neither Workspace A nor Workspace B, reflecting both successful deletions or modifications.\",\"actual\":\"The application overwrites the UI state with the older snapshot, showing one of the removed workspaces or ignoring a rename because `applyPayload(await removeWorkspaceFromList(...))` applies the response without tracking if a newer modification has already superseded it.\",\"acceptance\":[\"Rapid successive or concurrent workspace modifications (e.g., remove, rename, imports) safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwr [excerpt]\"]}},{\"canonical_id\":\"discovery-7f98db57491c0c0d\",\"status\":\"done\",\"title\":\"Persist selected workspace across application restarts\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of src/App.tsx shows selectedWorkspaceKey is a React state initialized to null. There is no read or write to localStorage or any other persistent store. The refresh() effect triggers applyPayload without a preferred workspace, forcing a fallback to the first workspace on mount.\",\"expected\":\"The second workspace remains selected after the restart.\",\"actual\":\"The selected workspace reverts to the first workspace in the list.\",\"acceptance\":[\"The application restores the previously selected workspace upon restart\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-e0f2bce9ebc246e7\",\"status\":\"done\",\"title\":\"Virtualize the workspace list in ProjectRail\",\"target_paths\":[\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Measured rendering and update latencies of ProjectRail with varying synthetic input sizes (100, 1000, 5000 workspaces) using React Testing Library. No real user data or network calls were used.\",\"expected\":\"The rendering and update latencies remain relatively constant or grow sublinearly due to DOM virtualization.\",\"actual\":\"The rendering latency scales linearly O(N), taking over 7 seconds for initial render and nearly 2 seconds for a workspace switch with 5000 items.\",\"acceptance\":[\"The ProjectRail component utilizes virtualization to render the workspace list\",\"Rendering time and DOM size remain bounded regardless of the number of workspaces\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-741923afb429da5a\",\"status\":\"done\",\"title\":\"Restore focus after deleting a workspace\",\"target_paths\":[\"src/App.tsx\",\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard navigation observation in synthetic test suite against `<ProjectRail />`. A deleted workspace leaves focus stranded on `document.body` because its corresponding remove button is unmounted.\",\"expected\":\"Focus correctly shifts to another relevant interactive element in the rail.\",\"actual\":\"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\",\"acceptance\":[\"Focus moves to a reasonable fallback element, like the open folder button, when the currently focused workspace removal button is deleted.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"done\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-a6a63bbab9e7a7e3\",\"status\":\"done\",\"title\":\"Fix race condition during concurrent single-instance workspace switching\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic testing of `listen<SingleInstanceEvent>(\\\"single-instance\\\")` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace will mistakenly reflect the slower, older request instead of the newer one.\",\"expected\":\"The application should remain on workspace B, as it was the most recently requested workspace.\",\"actual\":\"The application overwrites the UI state and switches to workspace A because `applyPayload(next, A)` is called blindly without tracking if a newer request superseded it.\",\"acceptance\":[\"Rapid successive single-instance switch requests safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwrites by stale requests.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-d661d7760ddf497e\",\"status\":\"done\",\"title\":\"Purge stale toasts on visibility change after OS suspend\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Native desktop observation with multiple toasts enqueued. Simulated OS suspend pauses setTimeout, causing toasts to remain visible after resume.\",\"expected\":\"The toast is immediately cleared from the screen since 2 minutes exceeds its 5.5s TTL.\",\"actual\":\"The toast remains on screen for the rest of its 5.5s timer that was paused during suspend.\",\"acceptance\":[\"Resuming from OS suspend or tab backgrounding proactively expires toasts that have outlived their TTL\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "0979e3942166e1dcf1dff225b2ad219a9cb0267f016e1eb240a2d2ee509dad08",
+        "cycle": 5,
+        "previous_reports": [
+          {
+            "summary": "Verified frontend handling of focus and state when cancelling a workspace or session rename. The application correctly updates state but lacks focus restoration logic inside ProjectRail and SessionList upon cancelling a rename, leaving focus stranded on the document body instead of the edit button.",
+            "observations": [
+              {
+                "scenario": "Cancelling a workspace rename operation via the Escape key after clicking the edit button in ProjectRail.",
+                "evidence": "Wrote a synthetic React Testing Library suite (`src/test-rename-escape.test.tsx`) rendering a mocked `<ProjectRail />`. Triggered a rename via the edit button while it is focused. After rendering the autoFocus input field, fired an Escape keydown and rerendered without the renaming state. Verified via `document.activeElement` that focus dropped to `document.body` because the input unmounted and there is no equivalent to `removalFocusRef` for renaming operations in `ProjectRail.tsx`.",
+                "result": "Establishes that the frontend fails to trap and restore focus when a workspace rename is canceled in `ProjectRail`. A similar limitation applies to `SessionList`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+            ],
+            "proposed_task_ids": [
+              "discovery-1b0c3efa0c72ca8c"
+            ],
+            "completed_at": "2026-09-20T09:10:43.960254Z",
+            "source": {
+              "activity_id": "sessions/6357891920277397065/activities/4ef3dbb94b7c479a9ca2aa2ef3759e23",
+              "report_sha256": "64e4947dab3a7fdb9ac64a14ffcb6b5a02aff2b7e7c73d66dcd3d1b52311f5fb",
+              "activity_created_at": "2026-09-20T08:59:28.780945Z",
+              "session_id": "6357891920277397065",
+              "dispatch_key": "8d2f22c7e5a2103137f998a5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified frontend handling of modal states upon receiving failed session imports in both Codex and OMP imports.",
+            "observations": [
+              {
+                "scenario": "Importing a session via Codex or pending OMP file when the backend returns a 'failed' status for some or all items.",
+                "evidence": "Source inspection of `src/App.tsx`. In `importCodexSelected` and `importPendingOmp`, the code filters for failures (`status === \"failed\"`) and if found, calls `showError()` but intentionally bypasses the modal closing logic (`setCodexOpen(false)` or `setPendingOmpImportPath(null)` is in the `else` block).",
+                "result": "Establishes that the frontend correctly displays the error but intentionally leaves the modal open, which requires the user to manually dismiss the modal even though the import attempt has resolved."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T05:30:52.613305Z",
+            "source": {
+              "activity_id": "sessions/9125385252228891236/activities/7cb02d2689634779b0d9690f10748856",
+              "report_sha256": "eb9613b964e57afc655bc7df00077577297d19192273932d18814f33445f79b4",
+              "activity_created_at": "2026-09-21T05:26:08.726316Z",
+              "session_id": "9125385252228891236",
+              "dispatch_key": "bd54d2da339bd9ee653fd689"
+            },
+            "deferred_findings": [
+              {
+                "title": "Close import modals on failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-d3e1fcb6e79f4693; not established as a duplicate. {\"detail\": \"Observed via codebase inspection on 2725a1f6255b75974bde7983a1e5694288a4a222. See canonical task discovery-d3e1fcb6e79f4693 in existing context.\", \"reproduction\": {\"actual\": \"The modal remains open and the error toast appears.\", \"expected\": \"The modal should close and the error toast should appear.\", \"steps\": [\"Attempt to import a session (Codex or OMP) that results in a backend failure.\", \"Observe that the error toast is displayed.\", \"Observe that the modal remains open.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When an import fails, the modal closes and the error message is displayed."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified the race condition during concurrent workspace modifications in src/App.tsx.",
+            "observations": [
+              {
+                "scenario": "Concurrent workspace modifications (like remove, rename, imports) triggering state overwrites.",
+                "evidence": "Wrote a synthetic React Testing Library suite simulating `removeWorkspace` and `submitWorkspaceRename` using mocked out-of-order promise resolutions. Verified that the slower, older response will blindly overwrite the UI state upon resolution, hiding the effects of the faster, newer request, due to `applyPayload` being called without tracking if a newer modification has already superseded it.",
+                "result": "Establishes that the frontend application logic does not guard against out-of-order promise resolutions during concurrent operations that fetch full UI state via `BootstrapPayload`. A request sequence tracker or similar synchronization logic is required."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs.",
+              "Measure rendering latency and scale factors for the settings view or incident center to see if they suffer from unbounded list growth."
+            ],
+            "proposed_task_ids": [
+              "discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6"
+            ],
+            "completed_at": "2026-09-21T06:53:27.709335Z",
+            "source": {
+              "activity_id": "sessions/16136660201441106915/activities/09fcba07b7654744898bec4a1b62007c",
+              "report_sha256": "79e29888b812b4214e6d8bf989b63ab6fc0c213002fdd387c4513eb4933d457d",
+              "activity_created_at": "2026-09-21T06:41:28.791913Z",
+              "session_id": "16136660201441106915",
+              "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
