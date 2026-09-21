@@ -21342,7 +21342,7 @@
       "id": "research-workspace-navigation-reliability-5",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -21459,23 +21459,131 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16136660201441106915",
         "dispatch_key": "4b5e65d38b2a1e795b6ba12c",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-4b5e65d38b2a1e795b6ba12c",
         "started_at": "2026-09-21T06:27:07.679728Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T06:53:27.709335Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T06:35:02.609501Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T06:53:27.709335Z"
+      },
+      "research_result": {
+        "summary": "Verified the race condition during concurrent workspace modifications in src/App.tsx.",
+        "observations": [
+          {
+            "scenario": "Concurrent workspace modifications (like remove, rename, imports) triggering state overwrites.",
+            "evidence": "Wrote a synthetic React Testing Library suite simulating `removeWorkspace` and `submitWorkspaceRename` using mocked out-of-order promise resolutions. Verified that the slower, older response will blindly overwrite the UI state upon resolution, hiding the effects of the faster, newer request, due to `applyPayload` being called without tracking if a newer modification has already superseded it.",
+            "result": "Establishes that the frontend application logic does not guard against out-of-order promise resolutions during concurrent operations that fetch full UI state via `BootstrapPayload`. A request sequence tracker or similar synchronization logic is required."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs.",
+          "Measure rendering latency and scale factors for the settings view or incident center to see if they suffer from unbounded list growth."
+        ],
+        "proposed_task_ids": [
+          "discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6"
+        ],
+        "completed_at": "2026-09-21T06:53:27.709335Z",
+        "source": {
+          "activity_id": "sessions/16136660201441106915/activities/09fcba07b7654744898bec4a1b62007c",
+          "report_sha256": "79e29888b812b4214e6d8bf989b63ab6fc0c213002fdd387c4513eb4933d457d",
+          "activity_created_at": "2026-09-21T06:41:28.791913Z",
+          "session_id": "16136660201441106915",
+          "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16136660201441106915/activities/09fcba07b7654744898bec4a1b62007c",
+          "report_sha256": "79e29888b812b4214e6d8bf989b63ab6fc0c213002fdd387c4513eb4933d457d",
+          "activity_created_at": "2026-09-21T06:41:28.791913Z",
+          "session_id": "16136660201441106915",
+          "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-ffcb485646a8c364a87284571fd01b95b1c2d9f581354fd20b55d3cd6b0583f6",
+      "title": "Fix race condition during concurrent workspace modifications",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-21T06:53:27.709335Z",
+      "acceptance": [
+        "Rapid successive or concurrent workspace modifications (e.g., remove, rename, imports) safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwrites"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic testing of `removeWorkspace` and `submitWorkspaceRename` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace list mistakenly reflects the slower, older request instead of the newer one.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a synthetic test that initiates a removeWorkspace action, then a submitWorkspaceRename action.",
+            "Mock the api module so that the promise for the second action resolves first, yielding a state where the workspace is renamed.",
+            "Resolve the promise for the first action, yielding a state where the first workspace is removed but the second is NOT renamed.",
+            "Verify that the final UI state applies the older snapshot, dropping the rename."
+          ],
+          "expected": "The application shows neither Workspace A nor Workspace B, reflecting both successful deletions or modifications.",
+          "actual": "The application overwrites the UI state with the older snapshot, showing one of the removed workspaces or ignoring a rename because `applyPayload(await removeWorkspaceFromList(...))` applies the response without tracking if a newer modification has already superseded it."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-5b8c7bde2b0e0468",
+            "action": "resolve",
+            "decision_at": "2026-09-20T09:02:18Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-a6a63bbab9e7a7e3",
+            "action": "resolve",
+            "decision_at": "2026-09-19T05:40:33Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-5",
+        "activity_id": "sessions/16136660201441106915/activities/09fcba07b7654744898bec4a1b62007c",
+        "report_sha256": "79e29888b812b4214e6d8bf989b63ab6fc0c213002fdd387c4513eb4933d457d",
+        "activity_created_at": "2026-09-21T06:41:28.791913Z",
+        "session_id": "16136660201441106915",
+        "dispatch_key": "4b5e65d38b2a1e795b6ba12c"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T06:53:44.820843Z",
+    "last_poll_at": "2026-09-21T06:53:47.518350Z",
     "last_tick_at": "2026-09-21T06:47:41.418816Z",
     "run_id": "35569963251"
   }
