@@ -21041,7 +21041,7 @@
       "id": "research-transcript-links-behavior-4",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -21167,23 +21167,179 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11124711101405104282",
         "dispatch_key": "124aea626b998814cfc962b7",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-124aea626b998814cfc962b7",
         "started_at": "2026-09-21T06:01:12.178264Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T06:27:07.679728Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T06:09:00.739126Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T06:27:07.679728Z"
+      },
+      "research_result": {
+        "summary": "Verified focus restoration behaviors and screen reader accessibility during TranscriptModal state changes.",
+        "observations": [
+          {
+            "scenario": "Clicking the 'Clear search' button when a search yields no matches.",
+            "evidence": "Ran a synthetic React component test demonstrating that clicking the 'Clear search' secondary button triggers onClearSearch(), but when the button unmounts due to state change, focus drops to the document body and is caught by useModalFocus(), ending up on the wrapper. Matches canonical_id: discovery-1259f8a3d3fd8128",
+            "result": "Establishes a focus-restoration defect where the empty state 'Clear search' button does not explicitly return focus to the search input."
+          },
+          {
+            "scenario": "Entering an empty transcript state or a search returning no matches.",
+            "evidence": "Inspected TranscriptModal.tsx rendering logic. The empty states lack any ARIA live region declarations compared to loading and error states. Matches canonical_id: discovery-47b68bc64b47ba91",
+            "result": "Establishes an accessibility omission where completely empty or no-matches views are not automatically announced to screen readers."
+          },
+          {
+            "scenario": "Clicking the 'Retry' button to recover from a transcript loading error.",
+            "evidence": "Created a React hook test rendering an error state containing the 'Retry' button, clicking it, and simulating successful transcript resolution. When the transcript resolves, the Retry button disappears and focus escapes to the wrapper (.settings-panel) instead of being restored to an interactive element or the transcript list view.",
+            "result": "Establishes a newly discovered focus restoration defect on the TranscriptModal where successful recovery from an error state leaves the user without an actively focused element."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if opening and interacting with ContentActionMenu within the transcript incorrectly modifies or traps document focus across interactions."
+        ],
+        "proposed_task_ids": [
+          "discovery-f40cf2165c608c7e"
+        ],
+        "completed_at": "2026-09-21T06:27:07.679728Z",
+        "source": {
+          "activity_id": "sessions/11124711101405104282/activities/6359071d5f9d46fe8d5266b8ab42c5b7",
+          "report_sha256": "8598920d956c8c97288ea4f1f2553e4cd5d227e125d24a36267dd74c7c415158",
+          "activity_created_at": "2026-09-21T06:17:51.214005Z",
+          "session_id": "11124711101405104282",
+          "dispatch_key": "124aea626b998814cfc962b7"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus to search input on empty state clear search",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-1259f8a3d3fd8128; not established as a duplicate. {\"detail\": \"Synthetic React DOM testing observed focus dropping to the panel wrapper when the empty state button is clicked. Investigating discovery-1259f8a3d3fd8128.\", \"reproduction\": {\"actual\": \"Focus is lost from the interactive area and defaults to the modal wrapper\", \"expected\": \"The search input receives focus after the search is cleared\", \"steps\": [\"Open the Transcript modal with an existing session.\", \"Type a search query that yields no results.\", \"Tab to and activate the secondary 'Clear search' button in the empty state view using the keyboard.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TranscriptModal.tsx"
+            ],
+            "acceptance": [
+              "Clicking 'Clear search' in the 'No matches' state restores focus to the search input"
+            ]
+          },
+          {
+            "title": "Announce empty transcript states to screen readers",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-47b68bc64b47ba91; not established as a duplicate. {\"detail\": \"DOM inspection of the TranscriptModal rendering logic for empty and no-match conditions. Investigating discovery-47b68bc64b47ba91.\", \"reproduction\": {\"actual\": \"The container lacks role='status' and aria-live='polite' attributes\", \"expected\": \"The container uses ARIA live regions to announce the state change\", \"steps\": [\"Open an empty transcript.\", \"Inspect the rendered .transcript-state container.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TranscriptModal.tsx"
+            ],
+            "acceptance": [
+              "The 'No matches' empty state container has a role of 'status' or aria-live='polite'",
+              "The entirely empty transcript container has a role of 'status' or aria-live='polite'"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11124711101405104282/activities/6359071d5f9d46fe8d5266b8ab42c5b7",
+          "report_sha256": "8598920d956c8c97288ea4f1f2553e4cd5d227e125d24a36267dd74c7c415158",
+          "activity_created_at": "2026-09-21T06:17:51.214005Z",
+          "session_id": "11124711101405104282",
+          "dispatch_key": "124aea626b998814cfc962b7"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f40cf2165c608c7e"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-1259f8a3d3fd8128",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-1259f8a3d3fd8128"
+            },
+            {
+              "id": "discovery-47b68bc64b47ba91",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-47b68bc64b47ba91"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus to search input on empty state clear search",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-1259f8a3d3fd8128; not established as a duplicate. {\"detail\": \"Synthetic React DOM testing observed focus dropping to the panel wrapper when the empty state button is clicked. Investigating discovery-1259f8a3d3fd8128.\", \"reproduction\": {\"actual\": \"Focus is lost from the interactive area and defaults to the modal wrapper\", \"expected\": \"The search input receives focus after the search is cleared\", \"steps\": [\"Open the Transcript modal with an existing session.\", \"Type a search query that yields no results.\", \"Tab to and activate the secondary 'Clear search' button in the empty state view using the keyboard.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TranscriptModal.tsx"
+              ],
+              "acceptance": [
+                "Clicking 'Clear search' in the 'No matches' state restores focus to the search input"
+              ]
+            },
+            {
+              "title": "Announce empty transcript states to screen readers",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-47b68bc64b47ba91; not established as a duplicate. {\"detail\": \"DOM inspection of the TranscriptModal rendering logic for empty and no-match conditions. Investigating discovery-47b68bc64b47ba91.\", \"reproduction\": {\"actual\": \"The container lacks role='status' and aria-live='polite' attributes\", \"expected\": \"The container uses ARIA live regions to announce the state change\", \"steps\": [\"Open an empty transcript.\", \"Inspect the rendered .transcript-state container.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TranscriptModal.tsx"
+              ],
+              "acceptance": [
+                "The 'No matches' empty state container has a role of 'status' or aria-live='polite'",
+                "The entirely empty transcript container has a role of 'status' or aria-live='polite'"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f40cf2165c608c7e",
+      "title": "Restore focus after transcript error recovery",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-21T06:27:07.679728Z",
+      "acceptance": [
+        "When the Retry button successfully recovers a transcript from an error state, focus is placed in an interactive area or preserved within the modal."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Synthetic React DOM test simulated clicking Retry and transitioning to a populated state. Focus was dropped when the button unmounted.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a transcript load failure to display the error state.",
+            "Tab to and activate the Retry button using the keyboard.",
+            "Observe focus behavior when the transcript successfully loads and the button disappears."
+          ],
+          "expected": "Focus is restored to an appropriate interactive element or retained logically within the transcript list",
+          "actual": "Focus falls back to the .settings-panel wrapper element"
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-4",
+        "activity_id": "sessions/11124711101405104282/activities/6359071d5f9d46fe8d5266b8ab42c5b7",
+        "report_sha256": "8598920d956c8c97288ea4f1f2553e4cd5d227e125d24a36267dd74c7c415158",
+        "activity_created_at": "2026-09-21T06:17:51.214005Z",
+        "session_id": "11124711101405104282",
+        "dispatch_key": "124aea626b998814cfc962b7"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T06:27:25.444332Z",
+    "last_poll_at": "2026-09-21T06:27:28.135369Z",
     "last_tick_at": "2026-09-21T06:21:23.991133Z",
     "run_id": "35568078999"
   }
