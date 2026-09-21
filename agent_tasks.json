@@ -23156,7 +23156,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T10:26:40.872194Z"
+        "observed_at": "2026-09-21T10:26:40.872194Z",
+        "released_attempt_ref": "autonomous/attempt-0fd7d2ef71cc91546effe3d6"
       },
       "research_result": {
         "summary": "Confirmed that SettingsPanel discards uncommitted user drafts (like fallback chains, advisor toggle, operational changes) when a graceful save error is returned by the backend with the `settings_save_failed` error code, by executing a full UI configuration reload.",
