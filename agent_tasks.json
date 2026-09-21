@@ -23640,7 +23640,8 @@
           "at": "2026-09-21T11:20:26.340268Z",
           "result": "sent",
           "status": "resolved"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d23dbfe40549ced680423812"
       },
       "research_result": {
         "summary": "Verified focus restoration behaviors and screen reader accessibility during TranscriptModal state changes, specifically focusing on error recovery transitions.",
