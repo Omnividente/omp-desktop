@@ -25741,7 +25741,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T22:10:55.055341Z"
+        "observed_at": "2026-09-21T22:10:55.055341Z",
+        "released_attempt_ref": "autonomous/attempt-5b9fec71cedc1053da426bb1"
       },
       "research_result": {
         "summary": "Investigated if terminal shortcuts unmount during agent view replacement causing lingering keydown listeners.",
