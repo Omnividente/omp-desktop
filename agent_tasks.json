@@ -22821,7 +22821,8 @@
         "feedback_nudge": {
           "at": "2026-09-21T09:59:55.021265Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-86e2fc85c03104f91ad2c804"
       },
       "research_result": {
         "summary": "Investigated the behavior of Settings recovery and model selection views, specifically around ModelPicker listbox keyboard navigation, requestAnimationFrame polling overhead, focus restoration upon closing, and custom provider error surfacing.",
