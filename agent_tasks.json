@@ -18757,7 +18757,7 @@
       "id": "discovery-ac9f025a5a64cb62",
       "title": "Restore focus to trigger button when ModelPicker is closed",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -18796,10 +18796,10 @@
         "dispatch_key": "641f6e7c12f2a07601c0abd6"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T20:32:07Z",
-        "note": "Approved for a separate unmerged PR: explicit ModelPicker dismissal by Escape, model choice or Done should restore the trigger when it would otherwise lose focus. Blur/Tab/outside clicks must retain the users newly chosen focus. Escape must close only the picker, not the enclosing Settings modal. Do not change open-search behavior in this PR; preserve keyboard list navigation and thinking modifiers. Prove the real before/after scenario."
+        "at": "2026-09-21T22:02:55Z",
+        "note": "Implemented and verified in PR https://github.com/Omnividente/omp-desktop/pull/85; main commit 077ce508a08812574ddedbc9b7ea10056e518096 (tree identical to signed reviewed head 1d7480e6b3db0662b7e5b1d45355e93b7c4dd771). Finding: Restore focus to trigger button when ModelPicker is closed. Windows/Linux Quality Gate and Rust/TypeScript CodeQL passed. Isolated Windows Tauri/WebView2 native before/after and restart smoke passed; frontend 282 tests, Rust 211 passed/1 ignored. Next-release checklist: https://github.com/Omnividente/omp-desktop/issues/86 . Source preparation only, not a release or local install. Separate JSONL/artifacts proposal discovery-a1eefff4576aa5c1 is not included or changed."
       }
     },
     {
