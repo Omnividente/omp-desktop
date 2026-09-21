@@ -21178,7 +21178,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T06:27:07.679728Z"
+        "observed_at": "2026-09-21T06:27:07.679728Z",
+        "released_attempt_ref": "autonomous/attempt-124aea626b998814cfc962b7"
       },
       "research_result": {
         "summary": "Verified focus restoration behaviors and screen reader accessibility during TranscriptModal state changes.",
