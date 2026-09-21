@@ -24725,6 +24725,163 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-performance-5",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-21T16:31:29Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-bb5925f45c903d0e\",\"status\":\"todo\",\"title\":\"Fix transcript scroll position jump on window resize\",\"target_paths\":[\"src/useVirtualList.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest simulation of `useVirtualList`. Resizing container width clears all measurements immediately, temporarily shrinking `totalHeight` to the estimate and causing the browser to snap `scrollTop` to the new shortened bounds before items remeasure.\",\"expected\":\"The user stays at their approximate scroll position within the transcript.\",\"actual\":\"The scroll position randomly jumps upward due to temporary list height collapse.\",\"acceptance\":[\"Resizing the window horizontally preserves the apparent scroll position or anchors to the topmost visible element in the transcript\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-1259f8a3d3fd8128\",\"status\":\"proposed\",\"title\":\"Restore focus to search input on empty state clear search\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Synthetic React DOM testing observed focus dropping to the panel wrapper when the empty state button is clicked.\",\"expected\":\"The search input receives focus after the search is cleared\",\"actual\":\"Focus is lost from the interactive area and defaults to the modal wrapper\",\"acceptance\":[\"Clicking 'Clear search' in the 'No matches' state restores focus to the search input\"]}},{\"canonical_id\":\"discovery-47b68bc64b47ba91\",\"status\":\"proposed\",\"title\":\"Announce empty transcript states to screen readers\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"DOM inspection of the TranscriptModal rendering logic for empty and no-match conditions.\",\"expected\":\"The container uses ARIA live regions to announce the state change\",\"actual\":\"The container lacks role='status' and aria-live='polite' attributes\",\"acceptance\":[\"The 'No matches' empty state container has a role of 'status' or aria-live='polite'\",\"The entirely empty transcript container has a role of 'status' or aria-live='polite'\"]}},{\"canonical_id\":\"discovery-f40cf2165c608c7e\",\"status\":\"proposed\",\"title\":\"Restore focus after transcript error recovery\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Synthetic React DOM test simulated clicking Retry and transitioning to a populated state. Focus was dropped when the button unmounted.\",\"expected\":\"Focus is restored to an appropriate interactive element or retained logically within the transcript list\",\"actual\":\"Focus falls back to the .settings-panel wrapper element\",\"acceptance\":[\"When the Retry button successfully recovers a transcript from an error state, focus is placed in an interactive area or preserved within the modal.\"]}},{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9327b83174e38ad4\",\"status\":\"done\",\"title\":\"Make transcript scrolling area focusable for keyboard navigation\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of `src/TranscriptModal.tsx` and DOM focus behavior. Without `tabIndex={0}`, custom overflow areas cannot receive keyboard focus directly.\",\"expected\":\"The user can Tab into the scrollable area and scroll up/down using the keyboard.\",\"actual\":\"The scrollable area cannot receive focus, preventing keyboard scrolling.\",\"acceptance\":[\"The `.transcript-scroll` container has a `tabIndex={0}` attribute.\",\"A keyboard-only user can Tab into the empty transcript container to scroll it using Arrow keys.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-af2b979b73ceb228\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source analysis and synthetic testing that the TranscriptModal component lacks a cleanup phase to synchronously persist its active scroll position upon unmounting (matches canonical_id: discovery-f25052402356bf34).\",\"expected\":\"The modal restores its scroll position to the previously viewed message without needing further manual scrolling.\",\"actual\":\"The modal forces the scroll position to the top of the transcript view (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-6bb5d3d1bc1ae21dd0acc57d8c80c2329c7624cc238c2a5bfce6ed0ace1a4527\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/MarkdownContent.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest simulation. Keyboard-triggered contextmenu events often have clientX=0 and clientY=0. The current implementation passes these exactly as coordinates to the ContentActionMenu (matches canonical_id: discovery-ccd17b3cdd6d7d64).\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10) on a link inside the transcript, it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "cb1fa31eeeb2a755933e73fab5effadff560442d181b7e2638dbbced021753e9",
+        "cycle": 5,
+        "previous_reports": [
+          {
+            "summary": "Verified keyboard accessibility and screen reader reporting for transcript empty and error states.",
+            "observations": [
+              {
+                "scenario": "Simulated keyboard focus interaction clicking the 'Clear search' button within the 'No matches' empty state view.",
+                "evidence": "Created a synthetic vitest DOM test rendering TranscriptModal with a search term that yields no matches. Focusing the secondary 'Clear search' button inside the empty state container and triggering a click invoked `onClearSearch`. Since it does not manually refocus the search input, the button disappears and focus is thrown to the document body (and subsequently grabbed by `useModalFocus` back to the `.settings-panel` wrapper). This breaks the expected interaction flow.",
+                "result": "Establishes a focus-restoration defect where the secondary Clear search button fails to return focus to the search input, unlike the primary Clear search button in the toolbar."
+              },
+              {
+                "scenario": "Analyzed ARIA properties on transcript result states.",
+                "evidence": "Inspected the rendered elements in `TranscriptModal.tsx` for `transcriptEmpty` and `transcriptNoMatches`. Neither container applies `role=\"status\"` or `aria-live=\"polite\"`. In contrast, the `transcriptLoading` container correctly uses `aria-live=\"polite\"` and the `transcriptError` uses `role=\"alert\"`.",
+                "result": "Establishes an accessibility omission where a completely empty transcript or a filter returning no matches is not automatically announced to screen readers."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if focus is correctly restored to the original transcript entry when recovering from an error state using the 'Retry' button."
+            ],
+            "proposed_task_ids": [
+              "discovery-1259f8a3d3fd8128",
+              "discovery-47b68bc64b47ba91"
+            ],
+            "completed_at": "2026-09-20T21:21:58.416700Z",
+            "source": {
+              "activity_id": "sessions/4287502329410131960/activities/7316d985a2084ce9aff5d6c0488385f5",
+              "report_sha256": "7769610a1f6e9001acf95f6f4d8fb8f2a9e2620ada0451a1f923cd3f7afc5931",
+              "activity_created_at": "2026-09-20T21:12:04.755037Z",
+              "session_id": "4287502329410131960",
+              "dispatch_key": "e99e31748c31695a2bdbe323"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus restoration behaviors and screen reader accessibility during TranscriptModal state changes.",
+            "observations": [
+              {
+                "scenario": "Clicking the 'Clear search' button when a search yields no matches.",
+                "evidence": "Ran a synthetic React component test demonstrating that clicking the 'Clear search' secondary button triggers onClearSearch(), but when the button unmounts due to state change, focus drops to the document body and is caught by useModalFocus(), ending up on the wrapper. Matches canonical_id: discovery-1259f8a3d3fd8128",
+                "result": "Establishes a focus-restoration defect where the empty state 'Clear search' button does not explicitly return focus to the search input."
+              },
+              {
+                "scenario": "Entering an empty transcript state or a search returning no matches.",
+                "evidence": "Inspected TranscriptModal.tsx rendering logic. The empty states lack any ARIA live region declarations compared to loading and error states. Matches canonical_id: discovery-47b68bc64b47ba91",
+                "result": "Establishes an accessibility omission where completely empty or no-matches views are not automatically announced to screen readers."
+              },
+              {
+                "scenario": "Clicking the 'Retry' button to recover from a transcript loading error.",
+                "evidence": "Created a React hook test rendering an error state containing the 'Retry' button, clicking it, and simulating successful transcript resolution. When the transcript resolves, the Retry button disappears and focus escapes to the wrapper (.settings-panel) instead of being restored to an interactive element or the transcript list view.",
+                "result": "Establishes a newly discovered focus restoration defect on the TranscriptModal where successful recovery from an error state leaves the user without an actively focused element."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if opening and interacting with ContentActionMenu within the transcript incorrectly modifies or traps document focus across interactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-f40cf2165c608c7e"
+            ],
+            "completed_at": "2026-09-21T06:27:07.679728Z",
+            "source": {
+              "activity_id": "sessions/11124711101405104282/activities/6359071d5f9d46fe8d5266b8ab42c5b7",
+              "report_sha256": "8598920d956c8c97288ea4f1f2553e4cd5d227e125d24a36267dd74c7c415158",
+              "activity_created_at": "2026-09-21T06:17:51.214005Z",
+              "session_id": "11124711101405104282",
+              "dispatch_key": "124aea626b998814cfc962b7"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to search input on empty state clear search",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1259f8a3d3fd8128; not established as a duplicate. {\"detail\": \"Synthetic React DOM testing observed focus dropping to the panel wrapper when the empty state button is clicked. Investigating discovery-1259f8a3d3fd8128.\", \"reproduction\": {\"actual\": \"Focus is lost from the interactive area and defaults to the modal wrapper\", \"expected\": \"The search input receives focus after the search is cleared\", \"steps\": [\"Open the Transcript modal with an existing session.\", \"Type a search query that yields no results.\", \"Tab to and activate the secondary 'Clear search' button in the empty state view using the keyboard.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx"
+                ],
+                "acceptance": [
+                  "Clicking 'Clear search' in the 'No matches' state restores focus to the search input"
+                ]
+              },
+              {
+                "title": "Announce empty transcript states to screen readers",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-47b68bc64b47ba91; not established as a duplicate. {\"detail\": \"DOM inspection of the TranscriptModal rendering logic for empty and no-match conditions. Investigating discovery-47b68bc64b47ba91.\", \"reproduction\": {\"actual\": \"The container lacks role='status' and aria-live='polite' attributes\", \"expected\": \"The container uses ARIA live regions to announce the state change\", \"steps\": [\"Open an empty transcript.\", \"Inspect the rendered .transcript-state container.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx"
+                ],
+                "acceptance": [
+                  "The 'No matches' empty state container has a role of 'status' or aria-live='polite'",
+                  "The entirely empty transcript container has a role of 'status' or aria-live='polite'"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified focus restoration behaviors and screen reader accessibility during TranscriptModal state changes, specifically focusing on error recovery transitions.",
+            "observations": [
+              {
+                "scenario": "Clicking the 'Clear search' button when a search yields no matches.",
+                "evidence": "Ran a synthetic React component test demonstrating that clicking the 'Clear search' secondary button triggers onClearSearch(), but when the button unmounts due to state change, focus drops to the document body and is caught by useModalFocus(), ending up on the wrapper. Matches canonical_id: discovery-1259f8a3d3fd8128",
+                "result": "Establishes a focus-restoration defect where the empty state 'Clear search' button does not explicitly return focus to the search input."
+              },
+              {
+                "scenario": "Entering an empty transcript state or a search returning no matches.",
+                "evidence": "Inspected TranscriptModal.tsx rendering logic. The empty states lack any ARIA live region declarations compared to loading and error states. Matches canonical_id: discovery-47b68bc64b47ba91",
+                "result": "Establishes an accessibility omission where completely empty or no-matches views are not automatically announced to screen readers."
+              },
+              {
+                "scenario": "Clicking the 'Retry' button to recover from a transcript loading error.",
+                "evidence": "Created a React hook test rendering an error state containing the 'Retry' button, clicking it, and simulating successful transcript resolution. When the transcript resolves, the Retry button disappears and focus escapes to the wrapper (.settings-panel) instead of being restored to an interactive element or the transcript list view. Matches canonical_id: discovery-f40cf2165c608c7e",
+                "result": "Establishes a focus restoration defect on the TranscriptModal where successful recovery from an error state leaves the user without an actively focused element."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if opening and interacting with ContentActionMenu within the transcript incorrectly modifies or traps document focus across interactions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T11:32:33.374545Z",
+            "source": {
+              "activity_id": "sessions/8579770355807995193/activities/1a9887a8c2774c4ebe266be839fc0eae",
+              "report_sha256": "2b528d3f0212cf97f4f0ab5aa142e5e7a84e10e161a1ebf4808fdcda6e38aa87",
+              "activity_created_at": "2026-09-21T11:21:31.623782Z",
+              "session_id": "8579770355807995193",
+              "dispatch_key": "d23dbfe40549ced680423812"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
