@@ -21177,13 +21177,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T06:01:12.178264Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T06:09:00.739126Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T06:09:22.285750Z",
+    "last_poll_at": "2026-09-21T06:09:25.733644Z",
     "last_tick_at": "2026-09-21T06:03:08.260750Z",
     "run_id": "35566680162"
   }
