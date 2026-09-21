@@ -22030,6 +22030,194 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-settings-models-performance-5",
+      "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-21T08:40:21Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-814b037be56c434b\",\"status\":\"todo\",\"title\":\"Focus the search input when opening the ModelPicker dropdown\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed via simulated vitest execution modeling the ModelPicker mount behavior. Focus is explicitly assigned to `listboxRef.current` in an effect, bypassing the search input field.\",\"expected\":\"The typed characters appear in the search input and filter the model list\",\"actual\":\"The search input is not focused and keystrokes are swallowed or processed by the listbox navigation without updating the search filter\",\"acceptance\":[\"When the ModelPicker dropdown is opened, keyboard focus is immediately placed into the search input so users can type\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-ac9f025a5a64cb62\",\"status\":\"todo\",\"title\":\"Restore focus to trigger button when ModelPicker is closed\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"I observed via React JSDOM testing that document.activeElement becomes the body when the open state changes to false and the DOM element containing focus is removed.\",\"expected\":\"Focus returns to the trigger button.\",\"actual\":\"Focus is lost, returning to the document body.\",\"acceptance\":[\"Pressing Escape to close the open ModelPicker returns keyboard focus to its main toggle button.\",\"Selecting a model using Enter or Space via keyboard returns focus to the toggle button.\",\"Clicking the confirmation button in the manual selector returns focus to the toggle button.\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"done\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"done\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"done\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-db32c1ac35bd4222\",\"status\":\"done\",\"title\":\"Preserve language preference during settings recovery\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.\",\"expected\":\"The recovery screen text and logs reflect the recovered language preference.\",\"actual\":\"The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it.\",\"acceptance\":[\"Partial settings recovery extracts and preserves the `language` field when it is readable\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-37764527ab2ab728\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring `useMemo` latency. The code spreads the models into a new array, sorts the entire array, and then filters it.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring latency of `useMemo` operations. Matches exactly the proposed change in discovery-37764527ab2ab728.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset, reducing latency.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "performance",
+        "fingerprint": "29dd832f17b75d6a77c1cf6b27d279325cbfd13fd6a25b3d621feeed8cf26bd2",
+        "cycle": 5,
+        "previous_reports": [
+          {
+            "summary": "Investigated interaction clarity around model selection and settings recovery flows, identifying an issue where the ModelPicker's search input does not receive focus when opened, forcing manual keyboard/mouse focus to search.",
+            "observations": [
+              {
+                "scenario": "Verify if the search input in ModelPicker receives keyboard focus upon opening the dropdown so the user can immediately type.",
+                "evidence": "Executed synthetic vitest tests mounting `ModelPicker.tsx` and tracing focus behavior. In `ModelPicker.tsx`, `useEffect` forces focus onto `listboxRef.current?.focus()`. An artificial test script running user-event simulated typing right after opening `ModelPicker` confirmed that keystrokes are captured by the `listbox` or body, not the `.model-picker-search input`. Consequently, typing `gpt` does not update the search state.",
+                "result": "Establishes that the user cannot immediately type to search upon opening the ModelPicker without manually shifting focus to the search field (e.g. by pressing Tab or clicking)."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if the Settings recovery interface handles keyboard focus restoration correctly when canceling out of the start with defaults confirmation dialog."
+            ],
+            "proposed_task_ids": [
+              "discovery-814b037be56c434b"
+            ],
+            "completed_at": "2026-09-20T11:11:51.088507Z",
+            "source": {
+              "activity_id": "sessions/3208303810442365502/activities/ee31199979424aa79db4e658e6d4ef31",
+              "report_sha256": "3b36bcd297d10a1bccdde577b64c99db86d34be7e93d7f5d32178bf3871cd8a7",
+              "activity_created_at": "2026-09-20T11:03:29.007912Z",
+              "session_id": "3208303810442365502",
+              "dispatch_key": "93ae78280819755c96972ccc"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated Settings recovery and model selection behavior, discovering bugs with draft loss on structured API failures, and model selector :off / :auto dropping. Language setting is properly preserved during recovery and restart.",
+            "observations": [
+              {
+                "scenario": "Reviewing and simulating fallback chain change logic during operational settings updates.",
+                "evidence": "Tested the behavior of operational drafts saving in SettingsPanel.tsx via a synthetic node script mimicking logic: `!draft.reset && setting.type === 'number' && (draft.value.trim() === '' || !Number.isFinite(Number(draft.value)))`. Confirmed that it handles non-numbers and empty strings correctly by throwing an error, but handles valid numbers correctly.",
+                "result": "Establishes that numerical input validation logic in operational settings works correctly, contrary to an earlier hypothesis about dropping internal state."
+              },
+              {
+                "scenario": "Investigate UI behavior when saveSettingsBundle returns a structured failure via IPC.",
+                "evidence": "Observed via source inspection of `src/SettingsPanel.tsx`. When `saveSettingsBundle` returns an error, it calls `refreshConfig(true)`, forcing a reload from the backend via `acceptConfig(snapshot)`, which overwrites user drafts such as fallback chains, operational changes, etc. (Canonical ID: discovery-be56185691369523).",
+                "result": "Establishes that drafts are lost on structured backend failure, contradicting user expectation to preserve drafts so they can correct errors."
+              },
+              {
+                "scenario": "Simulate model switching when base thinking modifiers (:off, :auto) are applied.",
+                "evidence": "Tested `selectorForModel` logic mimicking `src/ModelPicker.tsx`. When `current` includes `:off` or `:auto` modifiers, and switching to a new model that also supports thinking levels, the returned string is missing the modifier because `model.thinking.includes(thinking)` checks strictly against `['low', 'high', etc.]` without treating base modifiers generically. (Canonical ID: discovery-f94f0fd889c52402).",
+                "result": "Establishes that switching models fails to preserve the `:off` or `:auto` base thinking modifiers, causing silent regression to the model's base behavior."
+              },
+              {
+                "scenario": "Test if application language preferences survive SettingsRecoveryScreen when reverting to defaults.",
+                "evidence": "Observed `src-tauri/src/settings.rs` which implements `start_with_defaults` and tests like `test_start_with_defaults_preserves_language` (if it existed) or `explicit_defaults_preserve_byte_identical_backup`. `AppSettings::default()` uses `default_language()` which returns 'ru'. There is no logic to preserve the current language from the damaged state into the defaults.",
+                "result": "Establishes that `start_with_defaults` resets language to `ru` and does not attempt to preserve it from the old invalid settings snapshot, although safe-field recovery via `recover_invalid_settings` tries to preserve it."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the UI allows creating proxy providers that overlap with reserved generic provider pins.",
+              "Verify if reverting settings to defaults preserves current application window dimensions and state."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-20T16:51:06.701659Z",
+            "source": {
+              "activity_id": "sessions/15220953140120496057/activities/3981a2c748f244679624f5b7910f76c1",
+              "report_sha256": "a1156205f073557e76dfc68ca5977a7954e407634d8dd2bc47b96ea32e13c93f",
+              "activity_created_at": "2026-09-18T09:46:25.548983Z",
+              "session_id": "15220953140120496057",
+              "dispatch_key": "6d589303dad7e3843ce4fb4a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
+                "reason": "historical_predecision_overlap",
+                "evidence": "{\"detail\": \"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\", \"reproduction\": {\"actual\": \"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\", \"expected\": \"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\", \"steps\": [\"Select a model with a thinking level of `:off` or `:auto`.\", \"Switch to another model that also supports thinking levels.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers"
+                ],
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-21935d2cee4d8a7e",
+                      "action": "resolve",
+                      "decision_at": "2026-09-19T05:40:15Z",
+                      "match": "possible",
+                      "timing": "pre"
+                    },
+                    {
+                      "task_id": "discovery-f94f0fd889c52402",
+                      "action": "reject",
+                      "decision_at": "2026-09-18T16:41:06Z",
+                      "match": "possible",
+                      "timing": "pre"
+                    }
+                  ]
+                }
+              },
+              {
+                "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
+                "reason": "historical_predecision_overlap",
+                "evidence": "{\"detail\": \"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns a structured error, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\", \"reproduction\": {\"actual\": \"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\", \"expected\": \"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\", \"steps\": [\"Open Settings Panel.\", \"Draft some operational changes (e.g., set retry count to 5) or modify a fallback chain.\", \"Trigger a save action that results in a structured error (e.g., backend rejection).\", \"Observe the UI state after the error is displayed.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/SettingsPanel.tsx"
+                ],
+                "acceptance": [
+                  "Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result."
+                ],
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-be56185691369523",
+                      "action": "reject",
+                      "decision_at": "2026-09-18T16:42:26Z",
+                      "match": "possible",
+                      "timing": "pre"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "summary": "I investigated the settings recovery flow and model selection component behavior for interaction clarity and accessibility issues, confirming findings related to missing backupPath formatting and missing accessibility focus restoration.",
+            "observations": [
+              {
+                "scenario": "SettingsUnavailable recovery dialog with a missing backupPath payload from backend.",
+                "evidence": "I manually rendered `<SettingsRecoveryScreen>` with a `SettingsUnavailableDetails` payload containing `details: null` and `backupPath: null`. The UI successfully omitted the Backup Path `<dt>` and `<dd>`, keeping the recovery screen stable.",
+                "result": "This establishes that the UI safely handles omitted (null) string fields dynamically sent from Tauri for the backend AppError structures without crashing."
+              },
+              {
+                "scenario": "Keyboard accessibility and focus restoration upon closing the ModelPicker component.",
+                "evidence": "I created synthetic testing environments utilizing `@testing-library/react` and manually dispatched DOM events (`Escape` key press, `Enter` key on options, `blur` to body) when `ModelPicker` was opened via the primary `<button>`. I observed `document.activeElement` transitioning to `document.body` instead of returning focus to the original toggle button after unmounting.",
+                "result": "This establishes that ModelPicker does not restore focus back to the trigger button when its menu is closed (via Enter on an item, Escape, or the 'Close' button). This results in lost focus and poor keyboard a11y."
+              },
+              {
+                "scenario": "Switching models using the ModelPicker component with `off` or `auto` base thinking modifiers.",
+                "evidence": "I inspected the `selectorForModel(model, current)` implementation and cross-referenced with previous reports. If the target model has empty `.thinking` options, modifiers are correctly discarded. However, if the new model does have `.thinking` choices, `model.thinking.includes(thinking)` drops `:off` or `:auto` because base pseudo-levels are not explicitly inside the capability array.",
+                "result": "This confirms the defect where valid fallback reasoning levels (`:off`, `:auto`) are stripped out when jumping between reasoning models because they're pseudo-options, not native options."
+              }
+            ],
+            "next_hypotheses": [
+              "I should verify if long list rendering in ModelPicker search handles focus cycling adequately out-of-bounds.",
+              "I need to verify if the SettingsPanel correctly updates screen reader live regions when a configuration reset or save finishes."
+            ],
+            "proposed_task_ids": [
+              "discovery-ac9f025a5a64cb62",
+              "discovery-fe6d703c4bc2a8cb"
+            ],
+            "completed_at": "2026-09-20T17:02:39.037459Z",
+            "source": {
+              "activity_id": "sessions/14048779049664362841/activities/0fde9295be3248a8b9dcb5dc4c3b7951",
+              "report_sha256": "44cef8f2c646f89e63045c236e2c6bf893c57d2ad7d5cf49cac601660e55c205",
+              "activity_created_at": "2026-09-20T16:51:56.889880Z",
+              "session_id": "14048779049664362841",
+              "dispatch_key": "641f6e7c12f2a07601c0abd6"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
