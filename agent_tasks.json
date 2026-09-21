@@ -18137,7 +18137,7 @@
       "id": "discovery-5f30b23ec899ed07",
       "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -18174,10 +18174,10 @@
         "dispatch_key": "ff981dab807c9ca1525a5fa5"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T20:31:36Z",
-        "note": "Approved for a separate unmerged PR after real reproduction on the pinned current base. An error without a snapshot must not present a healthy/check indicator. Preserve existing loading/initial and stale-snapshot semantics; show an error/warning accessible summary, not an invented successful snapshot. Keep unrelated resource backend unchanged; prove failure-first observable behavior."
+        "at": "2026-09-21T22:02:37Z",
+        "note": "Implemented and verified in PR https://github.com/Omnividente/omp-desktop/pull/85; main commit 077ce508a08812574ddedbc9b7ea10056e518096 (tree identical to signed reviewed head 1d7480e6b3db0662b7e5b1d45355e93b7c4dd771). Finding: Prevent ResourceHealthPanel from displaying a success icon in error states. Windows/Linux Quality Gate and Rust/TypeScript CodeQL passed. Isolated Windows Tauri/WebView2 native before/after and restart smoke passed; frontend 282 tests, Rust 211 passed/1 ignored. Next-release checklist: https://github.com/Omnividente/omp-desktop/issues/86 . Source preparation only, not a release or local install. Separate JSONL/artifacts proposal discovery-a1eefff4576aa5c1 is not included or changed."
       }
     },
     {
