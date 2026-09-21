@@ -20682,7 +20682,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T05:05:12.676376Z"
+        "observed_at": "2026-09-21T05:05:12.676376Z",
+        "released_attempt_ref": "autonomous/attempt-626021f0d0795ae65902038f"
       },
       "research_result": {
         "summary": "Investigated session and workspace persistence UX flaws, specifically error handling on session imports and focus restoration upon aborting session or workspace renames.",
