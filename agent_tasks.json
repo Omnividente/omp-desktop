@@ -26130,7 +26130,8 @@
         "feedback_nudge": {
           "at": "2026-09-21T22:52:16.908883Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-61d72fb10aee6129b8a8618d"
       },
       "research_result": {
         "summary": "Verified focus management behavior during empty-search state and ContentActionMenu dismissal.",
