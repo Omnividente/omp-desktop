@@ -21470,7 +21470,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T06:53:27.709335Z"
+        "observed_at": "2026-09-21T06:53:27.709335Z",
+        "released_attempt_ref": "autonomous/attempt-4b5e65d38b2a1e795b6ba12c"
       },
       "research_result": {
         "summary": "Verified the race condition during concurrent workspace modifications in src/App.tsx.",
