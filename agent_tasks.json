@@ -13031,7 +13031,7 @@
       "id": "discovery-bb5925f45c903d0e",
       "title": "Fix transcript scroll position jump on window resize",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 30,
       "risk": "medium",
       "focus": [
@@ -13067,10 +13067,10 @@
         "dispatch_key": "aa8b18708ab0b9014f5dae59"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-20T20:32:41Z",
-        "note": "Approved for a separate unmerged PR only after reproducing resize scroll loss in a real browser with variable-height transcript rows. Preserve the visible entry and intra-entry offset across horizontal resizing without stale measured heights, bottom jump, or synthetic debounce. Retain existing search-to-message and per-session restoration behavior. Do not optimize synthetic event storms; that separate debounce proposal is rejected. Record before/after visible anchor, not just hook internals."
+        "at": "2026-09-21T22:01:23Z",
+        "note": "Implemented and verified in PR https://github.com/Omnividente/omp-desktop/pull/85; main commit 077ce508a08812574ddedbc9b7ea10056e518096 (tree identical to signed reviewed head 1d7480e6b3db0662b7e5b1d45355e93b7c4dd771). Finding: Fix transcript scroll position jump on window resize. Windows/Linux Quality Gate and Rust/TypeScript CodeQL passed. Isolated Windows Tauri/WebView2 native before/after and restart smoke passed; frontend 282 tests, Rust 211 passed/1 ignored. Next-release checklist: https://github.com/Omnividente/omp-desktop/issues/86 . Source preparation only, not a release or local install. Separate JSONL/artifacts proposal discovery-a1eefff4576aa5c1 is not included or changed."
       }
     },
     {
