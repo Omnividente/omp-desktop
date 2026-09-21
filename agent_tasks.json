@@ -22987,7 +22987,7 @@
       "id": "discovery-06e81b5be84e72f861b7dd77098d7e187377cb3b914fe456229da350144da46e",
       "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "medium",
       "focus": [
@@ -23035,6 +23035,12 @@
         "activity_created_at": "2026-09-21T09:36:08.496977Z",
         "session_id": "13473588697396395195",
         "dispatch_key": "68c61f7e399c1000deba55c7"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:14:24Z",
+        "note": "Повтор discovery-be56185691369523 с неверной предпосылкой о безусловном refreshConfig после save error. В main 7fdbf311 SettingsPanel.tsx:613-615 устанавливает reloadConfigOnFailure только при loadingConfig && ompConfig===null; catch:725-731 перезагружает лишь в этом случае и при той же generation. Для уже загруженных редактируемых drafts этот путь не вызывается. Это не заявление об атомарном rollback backend; новое наблюдение должно показать реальную потерю загруженного draft через существующий API."
       }
     },
     {
