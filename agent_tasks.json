@@ -23372,7 +23372,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T10:46:48.175494Z"
+        "observed_at": "2026-09-21T10:46:48.175494Z",
+        "released_attempt_ref": "autonomous/attempt-c7946eec42bfd27fc616d32c"
       },
       "research_result": {
         "summary": "Investigated if screen readers correctly announce the terminal input selection status update (`aria-live=\"polite\"`) when dragging to select text within the terminal bounds. Found that the announcement is missing during drag-to-select.",
