@@ -23634,8 +23634,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: report_absent",
-        "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T11:20:03.895676Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T11:26:15.577591Z",
         "report_error": {
           "code": "report_absent",
           "detail": "completed discovery has no worker report",
@@ -23650,7 +23650,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T11:26:33.708683Z",
+    "last_poll_at": "2026-09-21T11:26:37.002713Z",
     "last_tick_at": "2026-09-21T11:20:34.464352Z",
     "run_id": "35593480179"
   }
