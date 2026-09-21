@@ -22231,7 +22231,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T09:06:40.064051Z"
+        "observed_at": "2026-09-21T09:06:40.064051Z",
+        "released_attempt_ref": "autonomous/attempt-7806fce405e1ab8e6e3e7459"
       },
       "research_result": {
         "summary": "Measured rendering latency and simulated focus retention scenarios in Settings recovery and model selection views.",
