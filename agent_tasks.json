@@ -25740,13 +25740,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T21:49:27.122092Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T21:57:26.522477Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T21:57:48.223862Z",
+    "last_poll_at": "2026-09-21T21:57:52.012056Z",
     "last_tick_at": "2026-09-21T21:51:21.876564Z",
     "run_id": "35659355993"
   }
