@@ -19478,7 +19478,7 @@
       "id": "discovery-1259f8a3d3fd8128",
       "title": "Restore focus to search input on empty state clear search",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -19514,6 +19514,12 @@
         "activity_created_at": "2026-09-20T21:12:04.755037Z",
         "session_id": "4287502329410131960",
         "dispatch_key": "e99e31748c31695a2bdbe323"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:10:55Z",
+        "note": "Принято как узкое улучшение клавиатурного UX, не как уже исправленный дефект. В main 7fdbf311 обе кнопки Clear search в TranscriptModal.tsx:462-470,617-621 вызывают только onClearSearch и исчезают после очистки; searchRef доступен. Вернуть фокус в существующее поле поиска при явной очистке, не меняя useModalFocus и навигацию Show latest. Требуется нативная проверка Enter/Space обеих кнопок, последующего ввода и отсутствия лишней прокрутки. Только backlog; реализацию и worker не запускать. Задание и критерии: https://github.com/Omnividente/omp-desktop/issues/84 ."
       }
     },
     {
