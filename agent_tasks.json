@@ -22501,7 +22501,8 @@
             "session_id": "13473588697396395195",
             "dispatch_key": "68c61f7e399c1000deba55c7"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-68c61f7e399c1000deba55c7"
       },
       "research_result": {
         "summary": "Investigated Settings recovery and model selection behavior for interaction clarity and accessibility. Confirmed that ModelPicker fails to restore focus to its trigger on close. Verified that switching models drops base thinking modifiers like :off and :auto. Confirmed that backend save errors in SettingsPanel incorrectly trigger a full reload, wiping out user drafts.",
