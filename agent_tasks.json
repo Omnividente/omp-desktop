@@ -19526,7 +19526,7 @@
       "id": "discovery-47b68bc64b47ba91",
       "title": "Announce empty transcript states to screen readers",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -19560,6 +19560,12 @@
         "activity_created_at": "2026-09-20T21:12:04.755037Z",
         "session_id": "4287502329410131960",
         "dispatch_key": "e99e31748c31695a2bdbe323"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:12:02Z",
+        "note": "Отклонено в текущей формулировке: проверяется наличие атрибутов DOM, а не доступность результата для пользователя. В main 7fdbf311 TranscriptModal.tsx:474-476 уже имеет live-region счётчика для непустой переписки; отсутствие role/status на другом контейнере само по себе не доказывает сбой. Это не утверждение, что empty-state полностью доступен: новый отчёт должен показать конкретное непрочитанное изменение с Narrator/NVDA в WebView2 и предложить ненавязчивое объявление состояния. Проверку экранным диктором сейчас не выполняли."
       }
     },
     {
