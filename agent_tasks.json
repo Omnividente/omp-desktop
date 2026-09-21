@@ -21945,13 +21945,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T08:12:09.759864Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T08:19:47.432087Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T08:20:07.544869Z",
+    "last_poll_at": "2026-09-21T08:20:10.647068Z",
     "last_tick_at": "2026-09-21T08:13:59.021253Z",
     "run_id": "35576638465"
   }
