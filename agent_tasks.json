@@ -20681,13 +20681,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T04:45:31.086654Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T04:52:58.956546Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T04:53:16.790787Z",
+    "last_poll_at": "2026-09-21T04:53:19.847504Z",
     "last_tick_at": "2026-09-21T04:47:14.252481Z",
     "run_id": "35562139318"
   }
