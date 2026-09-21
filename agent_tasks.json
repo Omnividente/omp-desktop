@@ -22915,7 +22915,7 @@
       "id": "discovery-d69c971982b2f6b127a9e116a36c6446ca4cd2ce37c003f1e58385b5e59e7425",
       "title": "Preserve base thinking modifiers (:off, :auto) when switching models",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -22975,6 +22975,12 @@
         "activity_created_at": "2026-09-21T09:36:08.496977Z",
         "session_id": "13473588697396395195",
         "dispatch_key": "68c61f7e399c1000deba55c7"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:14:09Z",
+        "note": "Уже исправлено merged PR #73; canonical discovery-21935d2cee4d8a7e закрыт как implemented, повтор discovery-fe6d703c4bc2a8cb уже отклонён. Текущий main 7fdbf311 в ModelPicker.tsx:79-84 проверяет thinkingOptionsForModel(model).includes(thinking), а не model.thinking.includes(thinking), указанное в отчёте. Предложение анализирует старую реализацию и не показывает новую регрессию off/auto."
       }
     },
     {
