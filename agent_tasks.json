@@ -25184,7 +25184,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T18:29:53.920719Z"
+        "observed_at": "2026-09-21T18:29:53.920719Z",
+        "released_attempt_ref": "autonomous/attempt-901b58f14c2cf85227b3a3da"
       },
       "research_result": {
         "summary": "Investigated batch session imports and identified a lack of cancelability during prolonged operations.",
