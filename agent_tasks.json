@@ -20312,7 +20312,7 @@
       "id": "research-terminal-input-performance-5",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -20459,7 +20459,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "13101168840947795288",
         "dispatch_key": "a737806cb88e941801ca1726",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
@@ -20467,15 +20467,39 @@
         "started_at": "2026-09-21T00:30:16.770387Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T00:30:16.770387Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T00:50:59.316588Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-21T00:50:59.316588Z",
+          "source": {
+            "activity_id": "sessions/13101168840947795288/activities/0a685596d0ae43c1b355c1b26b6d780a",
+            "report_sha256": "8d8d9fe8d85b3ade230825a0e09cb659efab1b3783fc265d49fc687ac2d24e91",
+            "activity_created_at": "2026-09-21T00:40:00.202362Z",
+            "session_id": "13101168840947795288",
+            "dispatch_key": "a737806cb88e941801ca1726"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-21T00:51:23.067247Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/13101168840947795288/activities/0a685596d0ae43c1b355c1b26b6d780a",
+            "report_sha256": "8d8d9fe8d85b3ade230825a0e09cb659efab1b3783fc265d49fc687ac2d24e91",
+            "activity_created_at": "2026-09-21T00:40:00.202362Z",
+            "session_id": "13101168840947795288",
+            "dispatch_key": "a737806cb88e941801ca1726"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T00:51:17.983221Z",
+    "last_poll_at": "2026-09-21T00:51:21.128139Z",
     "last_tick_at": "2026-09-21T00:45:14.628934Z",
     "run_id": "35548654414"
   }
