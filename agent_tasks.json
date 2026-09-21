@@ -24713,12 +24713,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T16:11:48.100789Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T16:12:07.473041Z",
+    "last_poll_at": "2026-09-21T16:13:44.254519Z",
     "last_tick_at": "2026-09-21T16:01:39.011315Z",
     "run_id": "35622843348"
   }
