@@ -20482,7 +20482,8 @@
             "session_id": "13101168840947795288",
             "dispatch_key": "a737806cb88e941801ca1726"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-a737806cb88e941801ca1726"
       },
       "research_result": {
         "summary": "Investigated terminal output batching and rendering limits for large output payloads.",
