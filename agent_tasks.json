@@ -24589,7 +24589,7 @@
       "id": "discovery-26c4a50fb11c2827",
       "title": "Restore focus correctly when IncidentCenter closes via 'Open terminal'",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -24622,6 +24622,12 @@
         "activity_created_at": "2026-09-21T14:07:38.651341Z",
         "session_id": "8825361110665540714",
         "dispatch_key": "78a83f12dda68f89ae2fd3c9"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:15:08Z",
+        "note": "Изолированный тест упускает назначение onFocusTerminal. IncidentCenter.tsx:129-133 намеренно отключает возврат к кнопке вызова панели; App.tsx:1168-1177,2304 выбирает нужную вкладку и увеличивает terminalFocusRequest для передачи фокуса терминалу. Возврат к старому trigger сломал бы смысл Open terminal. Mock callback без окружения App не доказывает ошибку сквозного перехода; новый report должен показать потерю фокуса в настоящем TerminalView. Нативную проверку сейчас не запускали."
       }
     },
     {
