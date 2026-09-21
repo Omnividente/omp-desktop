@@ -24400,7 +24400,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T14:27:18.952168Z"
+        "observed_at": "2026-09-21T14:27:18.952168Z",
+        "released_attempt_ref": "autonomous/attempt-78a83f12dda68f89ae2fd3c9"
       },
       "research_result": {
         "summary": "Verified vulnerabilities in ResourceHealthPanel presentation and sample_volumes fragility",
