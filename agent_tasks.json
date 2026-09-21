@@ -21331,7 +21331,7 @@
       "id": "discovery-f40cf2165c608c7e",
       "title": "Restore focus after transcript error recovery",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -21366,6 +21366,12 @@
         "activity_created_at": "2026-09-21T06:17:51.214005Z",
         "session_id": "11124711101405104282",
         "dispatch_key": "124aea626b998814cfc962b7"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-21T20:13:21Z",
+        "note": "Заявленный actual — фокус на .settings-panel после исчезновения Retry — соответствует сохранению фокуса внутри диалога. useModalFocus.ts:34-46 переводит фокус на panelRef при исчезновении/блокировке активного контрола; Tab затем обрабатывается тем же хуком. Собственный acceptance предложения допускает preserved within the modal, то есть уже соблюдается этим fallback. Без конкретного недоступного действия не добавлять принудительный фокус/прокрутку виртуальной переписки."
       }
     },
     {
