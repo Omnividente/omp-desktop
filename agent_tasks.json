@@ -25773,7 +25773,7 @@
       "id": "research-workspace-navigation-behavior-6",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -25903,18 +25903,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12004610115811608616",
         "dispatch_key": "2074796a53b3ca23c5d35b1f",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-2074796a53b3ca23c5d35b1f",
         "started_at": "2026-09-21T22:10:55.055341Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T22:45:47.449400Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-21T22:37:37.365603Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T22:45:47.449400Z",
         "research_detached": {
           "at": "2026-09-21T22:37:37.365603Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -25922,6 +25922,57 @@
         "feedback_nudge": {
           "at": "2026-09-21T22:37:37.365603Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Verified focus restoration defects when cancelling a rename operation in `<ProjectRail />` and `<SessionList />`.",
+        "observations": [
+          {
+            "scenario": "Canceling a workspace rename action using the Escape key in `<ProjectRail />` within a JS test environment.",
+            "evidence": "Wrote a synthetic React Testing Library suite simulating `userEvent.keyboard('{Escape}')` without ensuring `document.activeElement` matched the exact input node before pressing Escape (simulating an edge case test script or JS-only interaction where focus drops unexpectedly before the key event is handled). Verified that the condition `document.activeElement === event.currentTarget` fails, which bypasses `renameFocusRef` creation and orphans focus onto `document.body`.",
+            "result": "Establishes that the `ProjectRail` rename cancellation focus logic contains a strict `activeElement` check that can fail, leading to `document.body` getting stranded focus. Removing this strict check allows the `renameFocusRef` to reliably track focus restoration upon cancellation."
+          },
+          {
+            "scenario": "Canceling a session rename action using the Escape key in `<SessionList />`.",
+            "evidence": "Wrote a synthetic React Testing Library suite to check where focus is placed when `Escape` is pressed in the `<SessionList />` rename input. The current implementation deliberately assigns `target: e.currentTarget.closest('.session-select')` inside the `Escape` keydown handler, and thus focuses the `session-select` outer div instead of the original 'Edit' button that initiated the rename flow.",
+            "result": "Establishes that `<SessionList />` reliably avoids focus stranding on `document.body`, but incorrectly restores focus to the row (`.session-select`) rather than the edit button (which represents the original trigger point), creating a mismatch with expected focus behavior."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether focusing an out-of-view workspace or session after a list update correctly scrolls it into view using React Virtual virtualization offsets."
+        ],
+        "proposed_task_ids": [
+          "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb"
+        ],
+        "completed_at": "2026-09-21T22:45:47.449400Z",
+        "source": {
+          "activity_id": "sessions/12004610115811608616/activities/6e3bf9f9c6fb46e6b5bdc0512bc1c635",
+          "report_sha256": "1dd4a27ce145d3475d003c7b0031b615e6c657f40a8811c93162a04783983f25",
+          "activity_created_at": "2026-09-21T22:39:37.400181Z",
+          "session_id": "12004610115811608616",
+          "dispatch_key": "2074796a53b3ca23c5d35b1f"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12004610115811608616/activities/6e3bf9f9c6fb46e6b5bdc0512bc1c635",
+          "report_sha256": "1dd4a27ce145d3475d003c7b0031b615e6c657f40a8811c93162a04783983f25",
+          "activity_created_at": "2026-09-21T22:39:37.400181Z",
+          "session_id": "12004610115811608616",
+          "dispatch_key": "2074796a53b3ca23c5d35b1f"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -26072,10 +26123,75 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-21T22:37:37.365603Z"
       }
+    },
+    {
+      "id": "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb",
+      "title": "Restore focus to edit button after cancelling a workspace or session rename",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-21T22:45:47.449400Z",
+      "acceptance": [
+        "Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if active element checks drift slightly.",
+        "Focus moves back to the edit button when a session rename is canceled via Escape instead of the session row."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. In `ProjectRail`, the strict `document.activeElement === event.currentTarget` check within the `onKeyDown` handler can fail under some test or async unmount conditions, stranding focus on `document.body`. In `SessionList`, focus is deliberately restored to the `.session-select` row div rather than the edit button, which violates the expected focus restoration behavior.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `<ProjectRail />` or `<SessionList />` using a testing tool.",
+            "Focus and click the 'Rename project' or 'Rename session' button.",
+            "Wait for the rename input field to appear.",
+            "Press the Escape key to cancel rename mode.",
+            "Check the `document.activeElement`."
+          ],
+          "expected": "Focus correctly shifts back to the specific edit button that initiated the rename.",
+          "actual": "In `ProjectRail`, focus shifts to `document.body` if the active element condition fails. In `SessionList`, focus shifts to the `.session-select` div container."
+        }
+      },
+      "target_paths": [
+        "src/ProjectRail.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/SessionRow.test.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-1b0c3efa0c72ca8c",
+            "action": "resolve",
+            "decision_at": "2026-09-21T22:01:05Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-093977724114020f",
+            "action": "resolve",
+            "decision_at": "2026-09-20T09:02:35Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-6",
+        "activity_id": "sessions/12004610115811608616/activities/6e3bf9f9c6fb46e6b5bdc0512bc1c635",
+        "report_sha256": "1dd4a27ce145d3475d003c7b0031b615e6c657f40a8811c93162a04783983f25",
+        "activity_created_at": "2026-09-21T22:39:37.400181Z",
+        "session_id": "12004610115811608616",
+        "dispatch_key": "2074796a53b3ca23c5d35b1f"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T22:46:04.132654Z",
+    "last_poll_at": "2026-09-21T22:46:07.011287Z",
     "last_tick_at": "2026-09-21T22:39:52.602419Z",
     "run_id": "35663629436"
   }
