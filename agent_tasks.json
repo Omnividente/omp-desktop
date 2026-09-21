@@ -25534,7 +25534,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T21:49:27.122092Z"
+        "observed_at": "2026-09-21T21:49:27.122092Z",
+        "released_attempt_ref": "autonomous/attempt-dd050966ceb3511159757caf"
       },
       "research_result": {
         "summary": "Confirmed focus dropping bug on ContentActionMenu dismissal via Tab key.",
