@@ -23800,13 +23800,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T11:51:37.325551Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T11:59:04.746098Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T11:59:26.736185Z",
+    "last_poll_at": "2026-09-21T11:59:29.809305Z",
     "last_tick_at": "2026-09-21T11:53:17.635249Z",
     "run_id": "35596280323"
   }
