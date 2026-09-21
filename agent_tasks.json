@@ -20961,7 +20961,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-21T05:30:52.613305Z"
+        "observed_at": "2026-09-21T05:30:52.613305Z",
+        "released_attempt_ref": "autonomous/attempt-bd54d2da339bd9ee653fd689"
       },
       "research_result": {
         "summary": "Verified frontend handling of modal states upon receiving failed session imports in both Codex and OMP imports.",
