@@ -25918,6 +25918,10 @@
         "research_detached": {
           "at": "2026-09-21T22:37:37.365603Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-21T22:37:37.365603Z",
+          "result": "pending"
         }
       }
     }
