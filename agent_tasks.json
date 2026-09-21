@@ -23681,7 +23681,7 @@
       "id": "research-diagnostics-resources-behavior-5",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -23790,34 +23790,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "3407958143082242044",
         "dispatch_key": "c991d06a48e78254419f713b",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
         "starting_branch": "autonomous/attempt-c991d06a48e78254419f713b",
         "started_at": "2026-09-21T11:51:37.325551Z",
-        "finished_at": "",
+        "finished_at": "2026-09-21T12:39:50.942947Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-21T12:33:14.867094Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-21T12:25:26.616564Z",
-          "source": {
-            "activity_id": "sessions/3407958143082242044/activities/c6ef920d7a714db1b4df1266797c6de1",
-            "report_sha256": "aa1e3f900ba00a16b213845637154a4094711d2444d06ba6e1d829da7b605702",
-            "activity_created_at": "2026-09-21T12:17:37.723417Z",
-            "session_id": "3407958143082242044",
-            "dispatch_key": "c991d06a48e78254419f713b"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-21T12:39:50.942947Z",
         "report_repair": {
           "at": "2026-09-21T12:25:56.284819Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/3407958143082242044/activities/c6ef920d7a714db1b4df1266797c6de1",
             "report_sha256": "aa1e3f900ba00a16b213845637154a4094711d2444d06ba6e1d829da7b605702",
@@ -23825,6 +23813,114 @@
             "session_id": "3407958143082242044",
             "dispatch_key": "c991d06a48e78254419f713b"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified vulnerabilities in ResourceHealthPanel presentation and sample_volumes fragility",
+        "observations": [
+          {
+            "scenario": "Review the UI behavior of `ResourceHealthPanel` when an error state occurs without a valid snapshot.",
+            "evidence": "Observed in `src/ResourceHealthPanel.tsx` that the `severity` falls back directly to `'ok'` when a snapshot is missing, ignoring the presence of an `error` prop (`const severity = snapshot?.severity ?? \"ok\"`). This results in rendering a checkmark icon with `is-ok` styling for error conditions.",
+            "result": "Establishes that the UI incorrectly styles an error state as a success, providing contradictory visual indicators to the user (canonical_id: discovery-5f30b23ec899ed07)."
+          },
+          {
+            "scenario": "Simulate a race condition where a workspace is concurrently unmounted during resource volume sampling in `src-tauri/src/resource_health.rs`.",
+            "evidence": "Running an isolated rust script mimicking `sample_volume` and `existing_resource_path` confirmed that when `fs::remove_dir_all` occurs right after path resolution but before `fs::metadata`, an `Os { code: 2, kind: NotFound }` error is produced. This error propagates up via the `?` operator in the `sample_volumes` loop, failing the entire snapshot.",
+            "result": "Establishes that the resource sampling thread is fragile to concurrent unmounts. A transient error on a single volume leads to the total loss of all resource health metrics (canonical_id: discovery-145f7f8b08d0c398)."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether large application logs generated concurrently block the resource sampling thread from executing efficiently.",
+          "Investigate if high-frequency workspace filesystem changes cause lock contention when taking resource snapshots.",
+          "Examine if extremely rapid sequential resizing of the main window triggers layout thrashing in the VirtualList component when a large workspace is selected."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-21T12:39:50.942947Z",
+        "source": {
+          "activity_id": "sessions/3407958143082242044/activities/f774c781f46d4090b133c99d11fae67a",
+          "report_sha256": "de0fe38c08b4606150334799d530fdfcce3df3c77e82e1ef06567b5ceb9ad4e5",
+          "activity_created_at": "2026-09-21T12:29:59.197325Z",
+          "session_id": "3407958143082242044",
+          "dispatch_key": "c991d06a48e78254419f713b"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-5f30b23ec899ed07; not established as a duplicate. {\"detail\": \"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used. Canonical ID: discovery-5f30b23ec899ed07\", \"reproduction\": {\"actual\": \"The component falls back to the 'is-ok' class and displays a 'check' success icon alongside the error message.\", \"expected\": \"The component assigns a warning/critical severity and renders an alert icon for the error.\", \"steps\": [\"Render the `ResourceHealthPanel` component in a test environment with `snapshot={null}` and a valid `error` string.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'."
+            ]
+          },
+          {
+            "title": "Prevent resource sampling failure from concurrent workspace unmounts",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-145f7f8b08d0c398; not established as a duplicate. {\"detail\": \"Native backend observation using a synthetic test harness mimicking `sample_volume` and `existing_resource_path`; no live user data or GUI exercised. Canonical ID: discovery-145f7f8b08d0c398\", \"reproduction\": {\"actual\": \"The entire resource sampling operation fails with an IO error (No such file or directory) propagating upwards, returning no metrics at all.\", \"expected\": \"The error from `sample_volume` is ignored or handled gracefully by `sample_volumes`, allowing other volumes to still be sampled and returned.\", \"steps\": [\"Create a temporary directory simulating a workspace volume.\", \"Spawn a concurrent thread that deletes the directory immediately after `existing_resource_path` resolves it but before `fs::metadata` is invoked in `sample_volume`.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/resource_health.rs"
+            ],
+            "acceptance": [
+              "The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.",
+              "Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3407958143082242044/activities/f774c781f46d4090b133c99d11fae67a",
+          "report_sha256": "de0fe38c08b4606150334799d530fdfcce3df3c77e82e1ef06567b5ceb9ad4e5",
+          "activity_created_at": "2026-09-21T12:29:59.197325Z",
+          "session_id": "3407958143082242044",
+          "dispatch_key": "c991d06a48e78254419f713b"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-5f30b23ec899ed07",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-5f30b23ec899ed07"
+            },
+            {
+              "id": "discovery-145f7f8b08d0c398",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-145f7f8b08d0c398"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-5f30b23ec899ed07; not established as a duplicate. {\"detail\": \"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used. Canonical ID: discovery-5f30b23ec899ed07\", \"reproduction\": {\"actual\": \"The component falls back to the 'is-ok' class and displays a 'check' success icon alongside the error message.\", \"expected\": \"The component assigns a warning/critical severity and renders an alert icon for the error.\", \"steps\": [\"Render the `ResourceHealthPanel` component in a test environment with `snapshot={null}` and a valid `error` string.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'."
+              ]
+            },
+            {
+              "title": "Prevent resource sampling failure from concurrent workspace unmounts",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-145f7f8b08d0c398; not established as a duplicate. {\"detail\": \"Native backend observation using a synthetic test harness mimicking `sample_volume` and `existing_resource_path`; no live user data or GUI exercised. Canonical ID: discovery-145f7f8b08d0c398\", \"reproduction\": {\"actual\": \"The entire resource sampling operation fails with an IO error (No such file or directory) propagating upwards, returning no metrics at all.\", \"expected\": \"The error from `sample_volume` is ignored or handled gracefully by `sample_volumes`, allowing other volumes to still be sampled and returned.\", \"steps\": [\"Create a temporary directory simulating a workspace volume.\", \"Spawn a concurrent thread that deletes the directory immediately after `existing_resource_path` resolves it but before `fs::metadata` is invoked in `sample_volume`.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/resource_health.rs"
+              ],
+              "acceptance": [
+                "The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.",
+                "Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -23957,7 +24053,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T12:40:12.337800Z",
+    "last_poll_at": "2026-09-21T12:40:15.086391Z",
     "last_tick_at": "2026-09-21T12:33:44.480168Z",
     "run_id": "35600186089"
   }
