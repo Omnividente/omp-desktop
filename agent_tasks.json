@@ -23634,13 +23634,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-21T11:00:25.015590Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-21T11:07:47.753889Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-21T11:08:08.158234Z",
+    "last_poll_at": "2026-09-21T11:08:11.230010Z",
     "last_tick_at": "2026-09-21T11:01:52.150980Z",
     "run_id": "35591707905"
   }
