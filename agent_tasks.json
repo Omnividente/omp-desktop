@@ -28663,7 +28663,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T10:21:36.389909Z"
+        "observed_at": "2026-09-22T10:21:36.389909Z",
+        "released_attempt_ref": "autonomous/attempt-ff96e06d3249ad7c4dce4e55"
       },
       "research_result": {
         "summary": "Confirmed that custom provider validation in SettingsPanel stops invalid input gracefully and displays a localized error. Confirmed that long localized text overflows .button because of hardcoded height. Confirmed that extremely long strings overflow .settings-recovery-details code elements without wrapping.",
