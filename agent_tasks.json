@@ -30690,7 +30690,7 @@
       "id": "research-transcript-links-ux-6",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -30807,7 +30807,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "8013998322907730933",
         "dispatch_key": "85977b754878b039e45607d1",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
@@ -30815,15 +30815,39 @@
         "started_at": "2026-09-22T17:55:58.097942Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T18:03:49.897759Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T18:16:31.996245Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-22T18:16:31.996245Z",
+          "source": {
+            "activity_id": "sessions/8013998322907730933/activities/1e19d5b8ed8e43f391f83e59a0ed7e64",
+            "report_sha256": "55f806a304ece9d9b1648066176ecc7c1c7fbbea364b3cf96bd7f7b2291c07e2",
+            "activity_created_at": "2026-09-22T18:08:07.552936Z",
+            "session_id": "8013998322907730933",
+            "dispatch_key": "85977b754878b039e45607d1"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-22T18:17:00.816593Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/8013998322907730933/activities/1e19d5b8ed8e43f391f83e59a0ed7e64",
+            "report_sha256": "55f806a304ece9d9b1648066176ecc7c1c7fbbea364b3cf96bd7f7b2291c07e2",
+            "activity_created_at": "2026-09-22T18:08:07.552936Z",
+            "session_id": "8013998322907730933",
+            "dispatch_key": "85977b754878b039e45607d1"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T18:16:55.120812Z",
+    "last_poll_at": "2026-09-22T18:16:59.189479Z",
     "last_tick_at": "2026-09-22T18:10:41.712621Z",
     "run_id": "35765376805"
   }
