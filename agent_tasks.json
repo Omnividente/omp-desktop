@@ -28884,7 +28884,7 @@
       "id": "research-transcript-links-reliability-6",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -29015,23 +29015,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2093123348901435481",
         "dispatch_key": "bcb9efd6e9824f67579e14c2",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-bcb9efd6e9824f67579e14c2",
         "started_at": "2026-09-22T10:27:22.855230Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T10:47:35.719191Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T10:35:08.856358Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T10:47:35.719191Z"
+      },
+      "research_result": {
+        "summary": "Verified transcript state persistence and focus management across operations. Identified a defect in `useTranscript` where concurrent or subsequent reloads of the same transcript path drop the active search and filter mode.",
+        "observations": [
+          {
+            "scenario": "Simulated a reload of an active transcript path using `loadTranscriptPath` while the user had a search query and a non-default filter mode active.",
+            "evidence": "Inspected `useTranscript.ts` and executed synthetic Vitest tests simulating the `load` callback. If `loadTranscriptPath` is called, `session` is passed as `undefined`. The condition `if (!session || sessionPathRef.current !== path)` evaluates to true because `!session` is true, immediately clearing `transcriptSearch` to `\"\"` and resetting `transcriptMode` back to `\"dialogue\"`, even though `sessionPathRef.current === path`.",
+            "result": "Establishes a state loss defect where explicitly reloading or polling an active transcript view unconditionally resets the user's active search query and filtering if the session object is absent, preventing seamless state persistence across identical path loads."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if long-running or large output terminal sessions leak detached DOM nodes or Xterm references when closed abruptly or switched rapidly.",
+          "Investigate if virtual list boundaries misalign during extreme horizontal window resizes where line wrapping dramatically alters the total height of rendered transcript cells in one layout pass."
+        ],
+        "proposed_task_ids": [
+          "discovery-b157732b0a1a8ecb"
+        ],
+        "completed_at": "2026-09-22T10:47:35.719191Z",
+        "source": {
+          "activity_id": "sessions/2093123348901435481/activities/a24963df9fb546ac87a8e9515bd8320b",
+          "report_sha256": "995973ffb61027b5004892f9bb29da4eaaf680bb59a4110aec09803e8987d2b2",
+          "activity_created_at": "2026-09-22T10:38:01.246176Z",
+          "session_id": "2093123348901435481",
+          "dispatch_key": "bcb9efd6e9824f67579e14c2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2093123348901435481/activities/a24963df9fb546ac87a8e9515bd8320b",
+          "report_sha256": "995973ffb61027b5004892f9bb29da4eaaf680bb59a4110aec09803e8987d2b2",
+          "activity_created_at": "2026-09-22T10:38:01.246176Z",
+          "session_id": "2093123348901435481",
+          "dispatch_key": "bcb9efd6e9824f67579e14c2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b157732b0a1a8ecb"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b157732b0a1a8ecb",
+      "title": "Preserve transcript UI state across identical path reloads",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-22T10:47:35.719191Z",
+      "acceptance": [
+        "Reloading the transcript data for the currently active path does not clear the active search term or filter mode"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React hook tests using JSDOM that simulating `loadTranscriptPath` immediately drops search and mode states. Evaluated on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a transcript via the UI to populate `useTranscript` with a session path.",
+            "Set a search query (e.g., 'hello') and toggle the transcript mode to 'all'.",
+            "Trigger a reload of the same transcript using `loadTranscriptPath` (which provides no `session` summary)."
+          ],
+          "expected": "The active transcript search query 'hello' and mode 'all' are retained during the reload of the same path.",
+          "actual": "The state is abruptly cleared, defaulting the search to empty and mode to 'dialogue', because the absent session object triggers an unconditional reset."
+        }
+      },
+      "target_paths": [
+        "src/useTranscript.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-reliability-6",
+        "activity_id": "sessions/2093123348901435481/activities/a24963df9fb546ac87a8e9515bd8320b",
+        "report_sha256": "995973ffb61027b5004892f9bb29da4eaaf680bb59a4110aec09803e8987d2b2",
+        "activity_created_at": "2026-09-22T10:38:01.246176Z",
+        "session_id": "2093123348901435481",
+        "dispatch_key": "bcb9efd6e9824f67579e14c2"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T10:48:00.048865Z",
+    "last_poll_at": "2026-09-22T10:48:03.238856Z",
     "last_tick_at": "2026-09-22T10:41:42.662629Z",
     "run_id": "35717338842"
   }
