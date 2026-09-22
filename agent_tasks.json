@@ -30506,12 +30506,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T16:33:07.640905Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T16:33:30.703928Z",
+    "last_poll_at": "2026-09-22T16:35:06.155389Z",
     "last_tick_at": "2026-09-22T16:27:05.489690Z",
     "run_id": "35754114310"
   }
