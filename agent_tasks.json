@@ -29906,7 +29906,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T13:23:03.480340Z"
+        "observed_at": "2026-09-22T13:23:03.480340Z",
+        "released_attempt_ref": "autonomous/attempt-40d5d8cfac5e3a3ccc93574b"
       },
       "research_result": {
         "summary": "Verified focus behavior when opening a terminal from an incident, investigated focus trap loop in IncidentCenter, and evaluated fallback chain transitions in runtimeEvents.",
