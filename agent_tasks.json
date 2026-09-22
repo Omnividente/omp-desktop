@@ -30354,12 +30354,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T16:12:42.071561Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T16:13:03.271331Z",
+    "last_poll_at": "2026-09-22T16:14:12.838022Z",
     "last_tick_at": "2026-09-22T16:06:09.640382Z",
     "run_id": "35751757899"
   }
