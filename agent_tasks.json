@@ -27802,7 +27802,7 @@
       "id": "research-settings-models-performance-6",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -27958,7 +27958,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "5484821217634296393",
         "dispatch_key": "ea436effc2e3d5c92cb1e5e3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
@@ -27966,15 +27966,39 @@
         "started_at": "2026-09-22T08:41:12.789997Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T08:48:48.678283Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T08:55:11.036076Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-22T08:55:11.036076Z",
+          "source": {
+            "activity_id": "sessions/5484821217634296393/activities/242ef3045b0f45fca493b1f2a4638582",
+            "report_sha256": "28f685e820cb8238a8d10ca0ab88c7775835488d61911ab6f7962b980fdc2f73",
+            "activity_created_at": "2026-09-22T08:46:40.946856Z",
+            "session_id": "5484821217634296393",
+            "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-22T08:55:30.629359Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/5484821217634296393/activities/242ef3045b0f45fca493b1f2a4638582",
+            "report_sha256": "28f685e820cb8238a8d10ca0ab88c7775835488d61911ab6f7962b980fdc2f73",
+            "activity_created_at": "2026-09-22T08:46:40.946856Z",
+            "session_id": "5484821217634296393",
+            "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T08:55:26.521694Z",
+    "last_poll_at": "2026-09-22T08:55:29.240572Z",
     "last_tick_at": "2026-09-22T08:49:25.320829Z",
     "run_id": "35706828380"
   }
