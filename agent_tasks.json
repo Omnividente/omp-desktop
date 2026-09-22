@@ -30927,7 +30927,7 @@
       "id": "research-sessions-persistence-reliability-7",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "todo",
+      "status": "in_progress",
       "focus": [
         "quality",
         "bugfix",
@@ -31073,6 +31073,19 @@
             ]
           }
         ]
+      },
+      "execution": {
+        "attempts": 1,
+        "state": "dispatching",
+        "session_id": "",
+        "dispatch_key": "422b0ef96963cd5b2168e4f2",
+        "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
+        "starting_branch": "autonomous/attempt-422b0ef96963cd5b2168e4f2",
+        "started_at": "2026-09-22T21:23:35.878671Z",
+        "finished_at": "",
+        "pull_request": 0,
+        "outcome": "",
+        "note": ""
       }
     }
   ],
