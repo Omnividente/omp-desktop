@@ -30922,6 +30922,158 @@
         "session_id": "8013998322907730933",
         "dispatch_key": "85977b754878b039e45607d1"
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-7",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-22T21:23:35Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-a1eefff4576aa5c1\",\"status\":\"in_progress\",\"title\":\"Prevent session JSONL and artifacts desynchronization on interrupted import\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"Observed via codebase inspection and synthetic Rust testing on 2725a1f6255b75974bde7983a1e5694288a4a222.\",\"expected\":\"The session should retain its original JSONL and its original artifacts.\",\"actual\":\"The session retains its original JSONL but is permanently associated with the new artifacts.\",\"acceptance\":[\"If a crash occurs during session import update, the session state and its artifacts remain synchronized\"]},\"decision\":\"approve\"},{\"canonical_id\":\"discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb\",\"status\":\"proposed\",\"title\":\"Restore focus to edit button after cancelling a workspace or session rename\",\"target_paths\":[\"src/ProjectRail.tsx\",\"src/SessionList.tsx\",\"src/SessionRow.tsx\",\"src/SessionRow.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. In `ProjectRail`, the strict `document.activeElement === event.currentTarget` check within the `onKeyDown` handler can fail under some test or async unmount conditions, stranding focus on `do [excerpt]\",\"expected\":\"Focus correctly shifts back to the specific edit button that initiated the rename.\",\"actual\":\"In `ProjectRail`, focus shifts to `document.body` if the active element condition fails. In `SessionList`, focus shifts to the `.session-select` div container.\",\"acceptance\":[\"Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if active element checks drift slightly.\",\"Focus moves back to the edit button when a session rename is canceled via Escape instead of the session row.\"]}},{\"canonical_id\":\"discovery-c991788ddc60b7c5\",\"status\":\"proposed\",\"title\":\"Implement cancelability for batch session imports\",\"target_paths\":[\"src-tauri/src/lib.rs\",\"src-tauri/src/sessions.rs\",\"src/App.tsx\",\"src/CodexImportModal.tsx\",\"src/api.ts\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that importing thousands of sessions takes several seconds and executes within a single blocking `import_sessions` backend call. Investigated `CodexImportModal.tsx` and `App.tsx` which wait indefinitely on a single Promise for all sessions without cancellation suppor [excerpt]\",\"expected\":\"The import process halts, skips remaining files, and closes the modal.\",\"actual\":\"The Cancel button and Escape key are disabled or ignored, and the UI waits indefinitely until the entire batch finishes.\",\"acceptance\":[\"During a batch session import, the user can press the Cancel button or Escape key to abort the remaining items\",\"The UI remains responsive and provides feedback during a prolonged import\"]}},{\"canonical_id\":\"discovery-e938ec8d92054623\",\"status\":\"done\",\"title\":\"Clean up orphaned backup and staging artifact directories during session scan\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"If a crash happens during session import, staging and backup sidecar directories are left forever in the sessions directory, consuming storage.\",\"expected\":\"Orphaned backup directories from the interrupted import are detected and garbage collected.\",\"actual\":\"Orphaned backup directories remain permanently in the session directory.\",\"acceptance\":[\"Orphaned `.session.import.artifacts-backup...` and `.session.import.artifacts-stage...` directories are identified and removed when scanning for sessions\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-2e80f2798c364331\",\"status\":\"done\",\"title\":\"Add Escape key support to close import modals\",\"target_paths\":[\"src/CodexImportModal.tsx\",\"src/ImportSessionModal.tsx\"],\"observed_contract\":{\"detail\":\"Investigation using source code inspection and synthetic React testing. The Escape key behavior was exercised.\",\"expected\":\"The open modal should close.\",\"actual\":\"The modal remains open and ignores the key press.\",\"acceptance\":[\"Pressing the Escape key while the Codex or OMP import modal is open triggers the onClose handler.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"done\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-efae45ef6cb2274b\",\"status\":\"done\",\"title\":\"Implement focus trap for session import modals\",\"target_paths\":[\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating focus handling in a jsdom environment. Elements behind the modal remain focusable via Tab.\",\"expected\":\"Focus stays inside the modal and cycles through the modal's interactive elements.\",\"actual\":\"Focus escapes the modal and moves to background elements (e.g., search bar or session list).\",\"acceptance\":[\"When the import modal is open, pressing Tab repeatedly cycles focus within the modal only.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9881e0c7ffe77346\",\"status\":\"done\",\"title\":\"Implement caching for list_codex_sessions\",\"target_paths\":[\"src-tauri/src/sessions.rs\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that `list_codex_sessions` took ~440ms for both cold and warm scans on 10,000 synthetic files, missing the caching logic used by `scan_sessions`.\",\"expected\":\"The second call is significantly faster (a fraction of the first call's time) due to caching.\",\"actual\":\"The second call takes roughly the same amount of time as the first call, parsing every file again.\",\"acceptance\":[\"list_codex_sessions avoids re-parsing unchanged files across subsequent calls\",\"Repeated calls to list_codex_sessions run significantly faster than the first call for the same file state\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "84ec25bb8b0e4905abcb622f477706e97a281a7314f7f2a29a87127ec53b6f89",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Investigated the performance and cancellation of batch session imports.",
+            "observations": [
+              {
+                "scenario": "Simulated importing 5000 synthetic codex session files to measure latency and resource use during a long-running import batch without interruption.",
+                "evidence": "Created a synthetic benchmark (`src-tauri/src/bin/import_bench.rs`) that writes 5000 synthetic JSONL codex sessions to disk and calls `sessions::import_sessions`. The benchmark successfully imports all 5000 sessions but takes ~7.45 seconds to complete sequentially.",
+                "result": "Establishes that importing a large batch of sessions scales linearly but takes a substantial amount of time on disk operations. The backend `import_sessions` execution in `src-tauri/src/lib.rs` executes this batch in a single `run_blocking` task without any opportunity for cancellation or progress updates, confirming the hypothesis from previous cycles that batch imports can lock up the import task indefinitely without cancelability."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+            ],
+            "proposed_task_ids": [
+              "discovery-c991788ddc60b7c5"
+            ],
+            "completed_at": "2026-09-22T05:28:39.811083Z",
+            "source": {
+              "activity_id": "sessions/2748131540766880800/activities/039134091dcf4ed29f5796826106eca6",
+              "report_sha256": "9c29a3a8ea9e60588acf21ba2a1f2224d93ad0807034735634c82f82b8a1bab7",
+              "activity_created_at": "2026-09-22T05:09:34.469449Z",
+              "session_id": "2748131540766880800",
+              "dispatch_key": "6967ba4e366f3ffe7191e0b3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated UI focus drift on rename cancellations and modal lock-ins during failed or long-running session imports.",
+            "observations": [
+              {
+                "scenario": "Review focus restoration when a workspace rename in `ProjectRail` is cancelled via the Escape key, specifically under conditions where the active element drifts.",
+                "evidence": "Simulated an active element drift (e.g., blurring just prior to the event) using a jsdom React Testing Library fixture (`ProjectRailFocus2.test.tsx`). The strict `document.activeElement === event.currentTarget` check in `onKeyDown` failed to record the `renameFocusRef`, causing the UI to drop focus to `document.body` instead of restoring it to the Edit button.",
+                "result": "Establishes that the focus restoration logic is brittle and drops to the document body when timing or focus-loss events alter the exact active element during a keyboard cancellation. Reproduces task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb."
+              },
+              {
+                "scenario": "Review focus restoration when a session rename in `SessionList` is cancelled via the Escape key, specifically under conditions where the active element drifts.",
+                "evidence": "Simulated an active element drift using a jsdom fixture (`SessionListRenameFocus.test.tsx`). The strict `document.activeElement === e.currentTarget` check in `SessionList` failed, causing focus to drop to the `.session-select` wrapper instead of the originating Edit button.",
+                "result": "Establishes that `SessionList` shares the same brittle focus restoration logic as `ProjectRail`. Reproduces task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb."
+              },
+              {
+                "scenario": "Review error handling in `importCodexSelected` and `importPendingOmp` in `src/App.tsx`.",
+                "evidence": "Source code inspection of `importCodexSelected` and `importPendingOmp` reveals that errors caught from `importSessions` trigger `showError` but completely skip the state mutations `setCodexOpen(false)` and `setPendingOmpImportPath(null)`. Tested in a simulated component tree (`AppImportError.test.tsx`) against a mocked failing backend API.",
+                "result": "Establishes that failed session imports leave the application stuck in an open modal state with no automated dismissal, trapping the user."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+              "Investigate if rapid successive invocations of batch import functions cause race conditions in the UI state or backend."
+            ],
+            "proposed_task_ids": [
+              "discovery-94bf5b1fa52c9f90"
+            ],
+            "completed_at": "2026-09-22T06:15:45.838739Z",
+            "source": {
+              "activity_id": "sessions/12985027106532144361/activities/aea91439be214202aef0d4b3711ed419",
+              "report_sha256": "78b553377220cf60cfe25c46b087939947dcfa7497b6509617c406e62576420e",
+              "activity_created_at": "2026-09-22T06:11:05.803912Z",
+              "session_id": "12985027106532144361",
+              "dispatch_key": "acb192574377f264c8b6d3c6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to edit button after cancelling a workspace or session rename",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing using jsdom. In `ProjectRail` and `SessionList`, the strict `document.activeElement === event.currentTarget` check within the `onKeyDown` handler fails under test or async unmount conditions.\", \"reproduction\": {\"actual\": \"Focus shifts to `document.body` or the `.session-select` div container, depending on the component.\", \"expected\": \"Focus correctly shifts back to the specific edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Simulate focus drifting away from the input (e.g. `input.blur()`) in a vitest environment.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/ProjectRail.tsx",
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if the input lost strict activeElement status.",
+                  "Focus moves back to the edit button when a session rename is canceled via Escape, avoiding falling back to the session row container."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated UI focus drift on rename cancellations for workspace and session components.",
+            "observations": [
+              {
+                "scenario": "Simulated an active element drift via `vitest` during a workspace and session rename cancellation via Escape.",
+                "evidence": "Locally modified `ProjectRail.tsx` and `SessionList.tsx` to relax the strict activeElement condition `document.activeElement === e.currentTarget` during `Escape` key presses, but it broke existing vitest suites which test that explicit navigation post-Escape (like clicking an outside button) takes priority over restoring focus.",
+                "result": "Establishes that the focus restoration logic is brittle and drops to the document body when timing or focus-loss events alter the exact active element during a keyboard cancellation. Modifying this logic is complicated by the need to not steal focus if the active element has explicitly shifted to another part of the UI. Reproduces discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+              "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T16:40:57.547366Z",
+            "source": {
+              "activity_id": "sessions/15925733167113446125/activities/1a25f8b132c2455f8c13214116780ea6",
+              "report_sha256": "35fa3c4e60ff796137dfb9b6d153342b16e9cefbb80e03f2b8d7ca27eccd3a35",
+              "activity_created_at": "2026-09-22T16:34:02.053894Z",
+              "session_id": "15925733167113446125",
+              "dispatch_key": "edd2de07c6878d5384d87d9b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to edit button after cancelling a workspace or session rename",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing using jsdom. In ProjectRail and SessionList, the strict document.activeElement === event.currentTarget check within the onKeyDown handler fails under test or async unmount conditions.\", \"reproduction\": {\"actual\": \"Focus shifts to document.body or the .session-select div container, depending on the component.\", \"expected\": \"Focus correctly shifts back to the specific edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Simulate focus drifting away from the input (e.g. input.blur()) in a vitest environment.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/ProjectRail.tsx",
+                  "src/SessionList.tsx",
+                  "src/SessionRow.tsx",
+                  "src/SessionRow.test.tsx",
+                  "src/ProjectRail.test.tsx"
+                ],
+                "acceptance": [
+                  "Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if the input lost strict activeElement status.",
+                  "Focus moves back to the edit button when a session rename is canceled via Escape, avoiding falling back to the session row container."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
