@@ -31295,13 +31295,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-22T22:11:38.992378Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T22:19:31.517947Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T22:19:49.541819Z",
+    "last_poll_at": "2026-09-22T22:19:52.494139Z",
     "last_tick_at": "2026-09-22T22:13:44.535587Z",
     "run_id": "35791002224"
   }
