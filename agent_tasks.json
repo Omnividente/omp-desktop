@@ -28533,7 +28533,7 @@
       "id": "research-settings-models-reliability-6",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -28652,18 +28652,68 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1648608779480684360",
         "dispatch_key": "ff96e06d3249ad7c4dce4e55",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-ff96e06d3249ad7c4dce4e55",
         "started_at": "2026-09-22T10:01:06.086225Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T10:21:36.389909Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T10:01:06.086225Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T10:21:36.389909Z"
+      },
+      "research_result": {
+        "summary": "Confirmed that custom provider validation in SettingsPanel stops invalid input gracefully and displays a localized error. Confirmed that long localized text overflows .button because of hardcoded height. Confirmed that extremely long strings overflow .settings-recovery-details code elements without wrapping.",
+        "observations": [
+          {
+            "scenario": "Simulating UI validation on Custom Providers input.",
+            "evidence": "Executed synthetic vitest DOM tests to input incomplete configuration (e.g. only setting the Custom Provider ID) and clicking Save. The save API is correctly skipped, and an error is set using setSaveError.",
+            "result": "Establishes that the UI successfully checks constraints and reports errors before hitting the backend."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if ModelPicker search input placeholder can be truncated incorrectly when a custom long model name is selected."
+        ],
+        "proposed_task_ids": [
+          "discovery-87291cefda2ea74a",
+          "discovery-2450daef7b11aaa9",
+          "discovery-6126922b5115ca89"
+        ],
+        "completed_at": "2026-09-22T10:21:36.389909Z",
+        "source": {
+          "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+          "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+          "activity_created_at": "2026-09-22T10:12:49.765816Z",
+          "session_id": "1648608779480684360",
+          "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+          "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+          "activity_created_at": "2026-09-22T10:12:49.765816Z",
+          "session_id": "1648608779480684360",
+          "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-87291cefda2ea74a",
+            "discovery-2450daef7b11aaa9",
+            "discovery-6126922b5115ca89"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
       }
     },
     {
@@ -28705,10 +28755,133 @@
         "session_id": "685378285279011776",
         "dispatch_key": "96351a9fd21baeb21cee0394"
       }
+    },
+    {
+      "id": "discovery-87291cefda2ea74a",
+      "title": "Use min-height for UI buttons to prevent text overflow",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-09-22T10:21:36.389909Z",
+      "acceptance": [
+        "Localized buttons with long wrapping text adjust vertically without overflow or truncation"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic DOM and CSS inspection. The `.button` class sets a hardcoded `height: 34px`. On narrow viewports or with long localized strings, the text wraps and overlaps vertically.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a component with a `.button` class",
+            "Inject a long text string that forces wrapping at a 280px viewport",
+            "Inspect the rendered button bounding box"
+          ],
+          "expected": "The button height scales dynamically with the wrapped text",
+          "actual": "The button height is fixed at 34px, and the wrapped text overflows its bounds"
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-6",
+        "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+        "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+        "activity_created_at": "2026-09-22T10:12:49.765816Z",
+        "session_id": "1648608779480684360",
+        "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+      }
+    },
+    {
+      "id": "discovery-2450daef7b11aaa9",
+      "title": "Allow word-break on code blocks within recovery details to prevent overflow",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-09-22T10:21:36.389909Z",
+      "acceptance": [
+        "Long filepaths inside SettingsRecoveryScreen wrap inside the bounds of the details modal"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic DOM layout measurements. The `.settings-recovery-details code` elements lack a wrapping rule for long unbroken strings like deeply nested paths, resulting in horizontal layout overflow.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a synthetic layout mirroring `.settings-recovery-details code`",
+            "Inject a continuous unbroken string of 120+ characters",
+            "Render at a 300px viewport and measure offsets"
+          ],
+          "expected": "The unbroken text wraps naturally using word-break properties, remaining within the viewport bounds",
+          "actual": "The code element stretches to 855px wide on a 300px viewport, overflowing its container horizontally"
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-6",
+        "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+        "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+        "activity_created_at": "2026-09-22T10:12:49.765816Z",
+        "session_id": "1648608779480684360",
+        "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+      }
+    },
+    {
+      "id": "discovery-6126922b5115ca89",
+      "title": "Show localized validation error when Custom Provider settings are incomplete",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-22T10:21:36.389909Z",
+      "acceptance": [
+        "Entering incomplete Custom Provider settings correctly triggers a UI validation error on save"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified via synthetic vitest test simulating user input. An incomplete Custom Provider configuration (e.g. only setting the ID) correctly halts the save process and displays an error via `setSaveError`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open SettingsPanel and switch to Providers tab",
+            "Type only a Custom Provider ID without URL and key",
+            "Click Save"
+          ],
+          "expected": "The save operation stops, does not call the backend API, and a localized validation error banner appears.",
+          "actual": "The save operation correctly stops, does not call the backend API, and the error banner appears as intended."
+        }
+      },
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsPanel.test.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-6",
+        "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+        "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+        "activity_created_at": "2026-09-22T10:12:49.765816Z",
+        "session_id": "1648608779480684360",
+        "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T10:21:56.470868Z",
+    "last_poll_at": "2026-09-22T10:21:59.895064Z",
     "last_tick_at": "2026-09-22T10:15:42.843744Z",
     "run_id": "35714931564"
   }
