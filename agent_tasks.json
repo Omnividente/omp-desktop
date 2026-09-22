@@ -28075,7 +28075,7 @@
       "id": "research-settings-models-ux-6",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -28206,34 +28206,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "4948861275060787546",
         "dispatch_key": "a081fc3a6f1cb4e8d98d1239",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-a081fc3a6f1cb4e8d98d1239",
         "started_at": "2026-09-22T09:07:32.712726Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T09:48:15.748714Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T09:41:50.707568Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-22T09:34:05.052676Z",
-          "source": {
-            "activity_id": "sessions/4948861275060787546/activities/441b4da7e09f423887aa3ac6e8ab095d",
-            "report_sha256": "87310b7eb6991099a33c4aa85f9ab4cce92392bd5a8b65d3cce4da37d33ded03",
-            "activity_created_at": "2026-09-22T09:25:24.392399Z",
-            "session_id": "4948861275060787546",
-            "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T09:48:15.748714Z",
         "report_repair": {
           "at": "2026-09-22T09:34:28.160899Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/4948861275060787546/activities/441b4da7e09f423887aa3ac6e8ab095d",
             "report_sha256": "87310b7eb6991099a33c4aa85f9ab4cce92392bd5a8b65d3cce4da37d33ded03",
@@ -28241,6 +28229,53 @@
             "session_id": "4948861275060787546",
             "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated if extremely long localized string translations inside SettingsRecoveryScreen action buttons cause overlapping or text truncation on narrow screens. Confirmed via synthetic DOM/CSS tests that long wrapping text overflows the button's fixed 34px height.",
+        "observations": [
+          {
+            "scenario": "Rendering the `SettingsRecoveryScreen` layout with an extremely long localized string in the action buttons in a narrow viewport.",
+            "evidence": "Created a synthetic HTML fixture capturing `.settings-recovery-card`, `.settings-recovery-actions`, and `.button` CSS exactly as defined in `src/App.css`. Scripted a Puppeteer measurement at a 280px viewport width: the injected long string wrapped into multiple lines, producing a `<span>` offsetHeight of 48px against a button offsetHeight of 34px.",
+            "result": "Establishes that localized action buttons with wrapping text overflow vertically and overlap or truncate because `.button` has a hardcoded `height: 34px` instead of `min-height: 34px` with `height: auto`."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if dropdowns or input labels in SettingsPanel clip deeply nested translation strings on minimum widths.",
+          "Verify if ModelPicker search input placeholder can be truncated incorrectly when a custom long model name is selected."
+        ],
+        "proposed_task_ids": [
+          "discovery-4a7e10279971ba47"
+        ],
+        "completed_at": "2026-09-22T09:48:15.748714Z",
+        "source": {
+          "activity_id": "sessions/4948861275060787546/activities/0c0fd3050a834bd9846a50e2b5545659",
+          "report_sha256": "06f9a5a8f18a5ddff4af2adb0a97eee60622bf210604db8d53adc5c36f264f4e",
+          "activity_created_at": "2026-09-22T09:35:31.649420Z",
+          "session_id": "4948861275060787546",
+          "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4948861275060787546/activities/0c0fd3050a834bd9846a50e2b5545659",
+          "report_sha256": "06f9a5a8f18a5ddff4af2adb0a97eee60622bf210604db8d53adc5c36f264f4e",
+          "activity_created_at": "2026-09-22T09:35:31.649420Z",
+          "session_id": "4948861275060787546",
+          "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4a7e10279971ba47"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -28392,10 +28427,51 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-22T09:41:50.707568Z"
       }
+    },
+    {
+      "id": "discovery-4a7e10279971ba47",
+      "title": "Fix action button text overflow for multi-line localized strings",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 55,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "i18n",
+        "bugfix"
+      ],
+      "created_at": "2026-09-22T09:48:15.748714Z",
+      "acceptance": [
+        "Buttons with wrapping multi-line text expand their height dynamically without clipping or overlapping"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Synthetic CSS/DOM evaluation simulating `SettingsRecoveryScreen` layout at 280px minimum desktop viewport with an artificially long button label.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Load the application on a narrow viewport or scale the window to ~280px.",
+            "Trigger a fallback or settings recovery screen with extremely long, multi-line localized strings on an action button."
+          ],
+          "expected": "The button's height expands to accommodate the wrapping text without clipping.",
+          "actual": "The button stays at a fixed 34px height, causing the wrapped text to overflow and overlap visually."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-6",
+        "activity_id": "sessions/4948861275060787546/activities/0c0fd3050a834bd9846a50e2b5545659",
+        "report_sha256": "06f9a5a8f18a5ddff4af2adb0a97eee60622bf210604db8d53adc5c36f264f4e",
+        "activity_created_at": "2026-09-22T09:35:31.649420Z",
+        "session_id": "4948861275060787546",
+        "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T09:48:34.980478Z",
+    "last_poll_at": "2026-09-22T09:48:38.448434Z",
     "last_tick_at": "2026-09-22T09:42:19.251055Z",
     "run_id": "35711827043"
   }
