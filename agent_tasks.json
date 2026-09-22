@@ -26768,7 +26768,7 @@
       "id": "research-terminal-input-performance-6",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -26875,23 +26875,111 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5538214514765845956",
         "dispatch_key": "f5e914d1dbeed4d78c75ad1e",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-f5e914d1dbeed4d78c75ad1e",
         "started_at": "2026-09-22T05:28:39.811083Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T05:48:56.254168Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T05:36:40.181662Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T05:48:56.254168Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal output batching performance for mixed chunk sizes. Found excessive memory allocation and copying latency when an output chunk causes the pending batch to exceed the byte limit.",
+        "observations": [
+          {
+            "scenario": "A synthetic workload simulating terminal output with interleaving large chunks (e.g., 200KB chunks) that exceed the MAX_TERMINAL_WRITE_BATCH (256KB) limit.",
+            "evidence": "Executed a reproducible benchmark on `terminalOutputBatcher.ts`. When `length + output.length >= maxBytes`, the batcher adds the incoming chunk to the `chunks` array and then immediately allocates a new `Uint8Array` to copy all accumulated chunks. For 10,000 iterations of two 200KB chunks, this took ~2560ms due to continuously allocating and copying 400KB arrays.",
+            "result": "Establishes a measurable performance defect. If an incoming chunk overflows the batch limit, it is merged via expensive `.set()` operations. Flushing the pending chunks *before* enqueueing the large chunk reduces the same workload latency from ~2560ms to ~8ms and significantly reduces memory churn."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal shortcuts processing (`src/terminalShortcuts.ts`) creates a latency bottleneck when receiving massive amounts of simultaneous keystrokes during a UI blocking operation."
+        ],
+        "proposed_task_ids": [
+          "discovery-a691c680cc7eb8da"
+        ],
+        "completed_at": "2026-09-22T05:48:56.254168Z",
+        "source": {
+          "activity_id": "sessions/5538214514765845956/activities/0f2d0513cd554df590f7738ada148e2b",
+          "report_sha256": "004e3b008cf7cb377f47b85fe79445ed7ebbe97578d28dc0527b01e46841dbd2",
+          "activity_created_at": "2026-09-22T05:38:57.876837Z",
+          "session_id": "5538214514765845956",
+          "dispatch_key": "f5e914d1dbeed4d78c75ad1e"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5538214514765845956/activities/0f2d0513cd554df590f7738ada148e2b",
+          "report_sha256": "004e3b008cf7cb377f47b85fe79445ed7ebbe97578d28dc0527b01e46841dbd2",
+          "activity_created_at": "2026-09-22T05:38:57.876837Z",
+          "session_id": "5538214514765845956",
+          "dispatch_key": "f5e914d1dbeed4d78c75ad1e"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-a691c680cc7eb8da"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-a691c680cc7eb8da",
+      "title": "Optimize terminal output batcher to prevent expensive array merging on overflow",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 80,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-09-22T05:48:56.254168Z",
+      "acceptance": [
+        "When a new output chunk causes the batcher to reach or exceed `maxBytes`, the batcher flushes the currently pending chunks before processing the new chunk.",
+        "Memory allocations and `.set()` copy operations are avoided for large chunks that overflow an existing batch."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured latency and memory allocations of `createTerminalOutputBatcher` with large synthetic data chunks running on Node V8 engine in the exact 90626eb0032fbb366f5af9f57d5fc7b3a67b7703 environment.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a `TerminalOutputBatcher` with a `maxBytes` of 256KB.",
+            "Enqueue a 200KB chunk, followed by another 200KB chunk.",
+            "Repeat the above enqueue pattern 10,000 times and measure execution time and memory usage."
+          ],
+          "expected": "The batcher flushes the first 200KB chunk independently, avoiding merging the two chunks into a 400KB array. Execution time should be minimal (e.g., under 15ms).",
+          "actual": "The batcher appends the second 200KB chunk, reaches 400KB (> 256KB), allocates a new 400KB `Uint8Array`, and copies both chunks into it. Execution time takes over 2500ms due to excessive memory churn."
+        }
+      },
+      "target_paths": [
+        "src/terminalOutputBatcher.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-performance-6",
+        "activity_id": "sessions/5538214514765845956/activities/0f2d0513cd554df590f7738ada148e2b",
+        "report_sha256": "004e3b008cf7cb377f47b85fe79445ed7ebbe97578d28dc0527b01e46841dbd2",
+        "activity_created_at": "2026-09-22T05:38:57.876837Z",
+        "session_id": "5538214514765845956",
+        "dispatch_key": "f5e914d1dbeed4d78c75ad1e"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T05:49:12.410356Z",
+    "last_poll_at": "2026-09-22T05:49:14.872297Z",
     "last_tick_at": "2026-09-22T05:43:18.472045Z",
     "run_id": "35691779514"
   }
