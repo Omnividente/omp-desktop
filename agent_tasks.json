@@ -28215,12 +28215,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T09:07:32.712726Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T09:07:57.579187Z",
+    "last_poll_at": "2026-09-22T09:09:25.437396Z",
     "last_tick_at": "2026-09-22T09:02:02.553293Z",
     "run_id": "35708011666"
   }
