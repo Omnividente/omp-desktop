@@ -29958,7 +29958,7 @@
       "id": "research-diagnostics-resources-ux-6",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -30102,23 +30102,114 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12862731787932834569",
         "dispatch_key": "64890cd6db2dcbbe88ec8848",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-64890cd6db2dcbbe88ec8848",
         "started_at": "2026-09-22T13:39:19.968817Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T14:00:13.771560Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T13:47:15.088647Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T14:00:13.771560Z"
+      },
+      "research_result": {
+        "summary": "Investigated the deduplication behavior of PtySessionTitleEvent and verified terminal continuity baseline expectations.",
+        "observations": [
+          {
+            "scenario": "Rapid-fire testing of `PtySessionTitleEvent` with the same title string to evaluate state deduplication.",
+            "evidence": "Observed via source inspection of `src/App.tsx` and a synthetic React rendering test. The `pty-session-title` listener calls `setTabs` which unconditionally maps over the `tabs` array. Even when `tab.label === title`, it returns `{ ...tab, label: title }`. This allocates a new object reference and a new array reference every time the event fires, bypassing React's built-in bailout mechanism and forcing unnecessary re-renders of the terminal tab list.",
+            "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+          },
+          {
+            "scenario": "Review terminal continuity baseline bounds tracking when discarding or resetting attachments.",
+            "evidence": "Observed via `src/terminalContinuity.ts`. The logic tracks `generation` and `lastSeq`. When an attachment is received with `baselineReset` or a new `generation`, the previous state is abandoned and `expectedSeq` is firmly reset to `1`. Subsequent output events correctly validate bounds by comparing `event.generation` to `previous.generation` and computing `gap: event.seq !== expectedSeq`.",
+            "result": "Establishes that terminal continuity baselines accurately defend against unexpected generation jumps or sequence gaps without unbounded growth of recovery states."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the bounds checking and eviction logic for `switchInputRecovery` states in `App.tsx` during heavy terminal churn.",
+          "Verify the accuracy of the empty/missing volumes status rendering in `ResourceHealthPanel.tsx` when no volumes are returned."
+        ],
+        "proposed_task_ids": [
+          "discovery-545847f2043c71c0"
+        ],
+        "completed_at": "2026-09-22T14:00:13.771560Z",
+        "source": {
+          "activity_id": "sessions/12862731787932834569/activities/72c21f89f32a4262ad9ec153428ec056",
+          "report_sha256": "588698d846395a7b6539e2f318469a03d505f9f3880a21b8e36c955c888c11be",
+          "activity_created_at": "2026-09-22T13:52:12.531606Z",
+          "session_id": "12862731787932834569",
+          "dispatch_key": "64890cd6db2dcbbe88ec8848"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12862731787932834569/activities/72c21f89f32a4262ad9ec153428ec056",
+          "report_sha256": "588698d846395a7b6539e2f318469a03d505f9f3880a21b8e36c955c888c11be",
+          "activity_created_at": "2026-09-22T13:52:12.531606Z",
+          "session_id": "12862731787932834569",
+          "dispatch_key": "64890cd6db2dcbbe88ec8848"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-545847f2043c71c0"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-545847f2043c71c0",
+      "title": "Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-22T14:00:13.771560Z",
+      "acceptance": [
+        "State updates are bypassed when `PtySessionTitleEvent` receives a title that is exactly equal to the terminal's current label."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated synthetic test and source inspection of the `pty-session-title` Tauri event listener on the exact pinned base.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a `pty-session-title` event with a new title for an active terminal.",
+            "Trigger the exact same `pty-session-title` event again without changing the title."
+          ],
+          "expected": "The second event is deduplicated, causing no new array allocations or React state updates.",
+          "actual": "The second event maps over the `tabs` state, allocating a new object reference `{ ...tab, label: title }` and a new array reference, triggering a React re-render."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-ux-6",
+        "activity_id": "sessions/12862731787932834569/activities/72c21f89f32a4262ad9ec153428ec056",
+        "report_sha256": "588698d846395a7b6539e2f318469a03d505f9f3880a21b8e36c955c888c11be",
+        "activity_created_at": "2026-09-22T13:52:12.531606Z",
+        "session_id": "12862731787932834569",
+        "dispatch_key": "64890cd6db2dcbbe88ec8848"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T14:00:32.048674Z",
+    "last_poll_at": "2026-09-22T14:00:35.304644Z",
     "last_tick_at": "2026-09-22T13:54:24.916214Z",
     "run_id": "35736492250"
   }
