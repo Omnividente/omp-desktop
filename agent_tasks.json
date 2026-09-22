@@ -26654,12 +26654,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T04:46:24.329603Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T04:46:42.088907Z",
+    "last_poll_at": "2026-09-22T04:48:11.042770Z",
     "last_tick_at": "2026-09-22T04:35:46.896886Z",
     "run_id": "35687439777"
   }
