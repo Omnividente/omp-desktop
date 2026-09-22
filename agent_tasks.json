@@ -27981,7 +27981,8 @@
             "session_id": "5484821217634296393",
             "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-ea436effc2e3d5c92cb1e5e3"
       },
       "research_result": {
         "summary": "Investigated if extremely long backup paths overflow `SettingsRecoveryScreen` at minimum desktop window widths. Confirmed via synthetic DOM/CSS tests that long unbroken strings inside the details block's `<code>` elements lack wrapping rules, causing horizontal layout overflow.",
