@@ -27802,7 +27802,7 @@
       "id": "research-settings-models-performance-6",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -27958,34 +27958,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "5484821217634296393",
         "dispatch_key": "ea436effc2e3d5c92cb1e5e3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-ea436effc2e3d5c92cb1e5e3",
         "started_at": "2026-09-22T08:41:12.789997Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T09:07:32.712726Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T09:01:34.741924Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-22T08:55:11.036076Z",
-          "source": {
-            "activity_id": "sessions/5484821217634296393/activities/242ef3045b0f45fca493b1f2a4638582",
-            "report_sha256": "28f685e820cb8238a8d10ca0ab88c7775835488d61911ab6f7962b980fdc2f73",
-            "activity_created_at": "2026-09-22T08:46:40.946856Z",
-            "session_id": "5484821217634296393",
-            "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T09:07:32.712726Z",
         "report_repair": {
           "at": "2026-09-22T08:55:30.629359Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/5484821217634296393/activities/242ef3045b0f45fca493b1f2a4638582",
             "report_sha256": "28f685e820cb8238a8d10ca0ab88c7775835488d61911ab6f7962b980fdc2f73",
@@ -27994,11 +27982,97 @@
             "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated if extremely long backup paths overflow `SettingsRecoveryScreen` at minimum desktop window widths. Confirmed via synthetic DOM/CSS tests that long unbroken strings inside the details block's `<code>` elements lack wrapping rules, causing horizontal layout overflow.",
+        "observations": [
+          {
+            "scenario": "Rendering the `SettingsRecoveryScreen` layout with an extremely long, unbroken filepath in a narrow viewport.",
+            "evidence": "Created a synthetic HTML fixture capturing `.settings-recovery-card` and `.settings-recovery-details code` CSS exactly as defined in `src/App.css`. Scripted a Puppeteer measurement at a 300px viewport width: the injected unbroken path produced a `<code>` element offsetWidth of 855px against a card offsetWidth of 302px.",
+            "result": "Establishes that extremely long filepaths (e.g., deeply nested directories or extended backup suffixes) in the recovery details fail to wrap and instead overflow horizontally, breaking out of the modal boundaries at minimum window widths."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether extremely long localized string translations inside `SettingsRecoveryScreen` action buttons (e.g. \"Start with defaults\") could cause overlapping or text truncation on narrow screens."
+        ],
+        "proposed_task_ids": [
+          "discovery-1c2ef3e497408198"
+        ],
+        "completed_at": "2026-09-22T09:07:32.712726Z",
+        "source": {
+          "activity_id": "sessions/5484821217634296393/activities/5d8d3b6a22454e2ea591a677e54ed20f",
+          "report_sha256": "c0527acf7ed3b0c459d1337f08a01d8b271fe8f81cdac6999abc18bf98293770",
+          "activity_created_at": "2026-09-22T08:56:17.113823Z",
+          "session_id": "5484821217634296393",
+          "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5484821217634296393/activities/5d8d3b6a22454e2ea591a677e54ed20f",
+          "report_sha256": "c0527acf7ed3b0c459d1337f08a01d8b271fe8f81cdac6999abc18bf98293770",
+          "activity_created_at": "2026-09-22T08:56:17.113823Z",
+          "session_id": "5484821217634296393",
+          "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-1c2ef3e497408198"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-1c2ef3e497408198",
+      "title": "Prevent text overflow of long filepaths in Settings Recovery screen",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-22T09:07:32.712726Z",
+      "acceptance": [
+        "Extremely long settings or backup file paths in the recovery screen wrap cleanly to a new line instead of overflowing horizontally on narrow windows"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Measured via Puppeteer using a synthetic fixture of `src/App.css`. Verified that adding a word break policy resolves the layout break without altering other UI components.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger the Settings Recovery screen (`SettingsRecoveryScreen.tsx`) containing a very long unbroken filepath (e.g., a path with a long username and backup suffix)",
+            "Resize the window to a narrow width (e.g., < 620px)",
+            "Observe the filepath text inside the Settings Path or Backup Path section"
+          ],
+          "expected": "The long unbroken text wraps within the bounds of the card container",
+          "actual": "The long unbroken text overflows horizontally outside the card bounds"
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-6",
+        "activity_id": "sessions/5484821217634296393/activities/5d8d3b6a22454e2ea591a677e54ed20f",
+        "report_sha256": "c0527acf7ed3b0c459d1337f08a01d8b271fe8f81cdac6999abc18bf98293770",
+        "activity_created_at": "2026-09-22T08:56:17.113823Z",
+        "session_id": "5484821217634296393",
+        "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T09:07:53.957521Z",
+    "last_poll_at": "2026-09-22T09:07:57.579187Z",
     "last_tick_at": "2026-09-22T09:02:02.553293Z",
     "run_id": "35708011666"
   }
