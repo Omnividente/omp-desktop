@@ -26656,7 +26656,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T05:28:39.811083Z"
+        "observed_at": "2026-09-22T05:28:39.811083Z",
+        "released_attempt_ref": "autonomous/attempt-6967ba4e366f3ffe7191e0b3"
       },
       "research_result": {
         "summary": "Investigated the performance and cancellation of batch session imports.",
