@@ -29524,7 +29524,7 @@
       "id": "research-diagnostics-resources-reliability-6",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -29672,34 +29672,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "9574404346370735207",
         "dispatch_key": "79912fe166e091a9dfdb0868",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-79912fe166e091a9dfdb0868",
         "started_at": "2026-09-22T12:26:20.777980Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T12:56:25.046516Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T12:53:21.073282Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-22T12:46:59.895770Z",
-          "source": {
-            "activity_id": "sessions/9574404346370735207/activities/582ce1e2b69a4b608945727d1a7108fc",
-            "report_sha256": "5f9d2f93f9b054455e430ed91dbf390e052bee53804f33bc3abbf241693861ac",
-            "activity_created_at": "2026-09-22T12:35:34.487906Z",
-            "session_id": "9574404346370735207",
-            "dispatch_key": "79912fe166e091a9dfdb0868"
-          }
-        },
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T12:56:25.046516Z",
         "report_repair": {
           "at": "2026-09-22T12:47:22.014999Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/9574404346370735207/activities/582ce1e2b69a4b608945727d1a7108fc",
             "report_sha256": "5f9d2f93f9b054455e430ed91dbf390e052bee53804f33bc3abbf241693861ac",
@@ -29708,11 +29696,45 @@
             "dispatch_key": "79912fe166e091a9dfdb0868"
           }
         }
+      },
+      "research_result": {
+        "summary": "Verified error recovery and cancellation transition correctly resolves incidents.",
+        "observations": [
+          {
+            "scenario": "Simulated a terminal error followed by an 'idle' activity event using a synthetic test harness of the `runtimeIncidents` state machine.",
+            "evidence": "Invoked `applyRuntimeIncidentEvent` with `kind: 'activity', activity: 'error'`, then transitioned to `activity: 'idle'`. The status successfully updated to `'resolved'` with `resolutionReason: 'recovered'`.",
+            "result": "Establishes that terminal operations which emit a generic error but subsequently return to idle (e.g. via cancellation or successful recovery) correctly clear the incident, leaving the UI state accurately reflecting recovery."
+          },
+          {
+            "scenario": "Simulated an error recovery through fallback transition.",
+            "evidence": "Invoked `applyRuntimeIncidentEvent` with `activity: 'error'`, followed by `kind: 'retryFallbackApplied'`. The original error was successfully resolved with `resolutionReason: 'recoveredThroughFallback'`, and a new fallback incident correctly appeared.",
+            "result": "Establishes that error states gracefully transition to active fallback states when the system recovers via fallback."
+          },
+          {
+            "scenario": "Simulated a chain of fallback transitions resolved by a manual primary model override.",
+            "evidence": "Invoked `applyRuntimeIncidentEvent` with multiple consecutive `retryFallbackApplied` events, resulting in two active fallback incidents. Invoked a `modelChange` with `resolvedModelIsFallback: false` and the matching `modelRole`. Both fallback incidents correctly updated to `'resolved'`.",
+            "result": "Establishes that all active fallbacks for a given terminal and role are successfully resolved simultaneously when a user intervenes to switch back to a primary model."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the `retryFallbackApplied` flow correctly tracks a chain of fallbacks.",
+          "Verify what happens to an active fallback state if a manual user model selection overrides it while active."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T12:56:25.046516Z",
+        "source": {
+          "activity_id": "sessions/9574404346370735207/activities/060fb781a31c485f9245f13535e3af35",
+          "report_sha256": "1742aa42f4cef37e250167557d38648f04da769101fae9df56cca7b9e66968f5",
+          "activity_created_at": "2026-09-22T12:48:04.537969Z",
+          "session_id": "9574404346370735207",
+          "dispatch_key": "79912fe166e091a9dfdb0868"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T12:56:46.303181Z",
+    "last_poll_at": "2026-09-22T12:56:49.960040Z",
     "last_tick_at": "2026-09-22T12:53:49.896447Z",
     "run_id": "35729901070"
   }
