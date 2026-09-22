@@ -29237,12 +29237,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-22T11:01:16.706180Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T11:01:34.814402Z",
+    "last_poll_at": "2026-09-22T11:03:09.454435Z",
     "last_tick_at": "2026-09-22T10:48:14.005179Z",
     "run_id": "35717900941"
   }
