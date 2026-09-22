@@ -28229,7 +28229,8 @@
             "session_id": "4948861275060787546",
             "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-a081fc3a6f1cb4e8d98d1239"
       },
       "research_result": {
         "summary": "Investigated if extremely long localized string translations inside SettingsRecoveryScreen action buttons cause overlapping or text truncation on narrow screens. Confirmed via synthetic DOM/CSS tests that long wrapping text overflows the button's fixed 34px height.",
