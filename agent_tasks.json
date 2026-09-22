@@ -30690,7 +30690,7 @@
       "id": "research-transcript-links-ux-6",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -30807,34 +30807,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "8013998322907730933",
         "dispatch_key": "85977b754878b039e45607d1",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-85977b754878b039e45607d1",
         "started_at": "2026-09-22T17:55:58.097942Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T18:29:24.271171Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T18:23:05.316360Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-22T18:16:31.996245Z",
-          "source": {
-            "activity_id": "sessions/8013998322907730933/activities/1e19d5b8ed8e43f391f83e59a0ed7e64",
-            "report_sha256": "55f806a304ece9d9b1648066176ecc7c1c7fbbea364b3cf96bd7f7b2291c07e2",
-            "activity_created_at": "2026-09-22T18:08:07.552936Z",
-            "session_id": "8013998322907730933",
-            "dispatch_key": "85977b754878b039e45607d1"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T18:29:24.271171Z",
         "report_repair": {
           "at": "2026-09-22T18:17:00.816593Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/8013998322907730933/activities/1e19d5b8ed8e43f391f83e59a0ed7e64",
             "report_sha256": "55f806a304ece9d9b1648066176ecc7c1c7fbbea364b3cf96bd7f7b2291c07e2",
@@ -30843,11 +30831,100 @@
             "dispatch_key": "85977b754878b039e45607d1"
           }
         }
+      },
+      "research_result": {
+        "summary": "Verified focus management behavior during error-state Retry and top-bar Refresh interactions.",
+        "observations": [
+          {
+            "scenario": "Simulating keyboard interaction to activate the 'Retry' button in the TranscriptModal error state, and the top-bar 'Refresh' button.",
+            "evidence": "Inspected `src/TranscriptModal.tsx` and simulated the state transitions using synthetic Vitest testing (`transcriptError` -> `transcriptLoading`). The `refresh` function in `TranscriptModal` executes `preservePosition()` and `onRefresh()`, the latter of which causes `useTranscript` to synchronously update `transcriptLoading` to `true`. This change immediately unmounts the 'Retry' button (and disables the top-bar Refresh button) before the browser's default focus handling can occur. Because `refresh` lacks explicit focus management (unlike `clearSearch`), focus drops unconditionally to `document.body`.",
+            "result": "Establishes a focus management defect where attempting to reload a failed or active transcript abruptly drops keyboard focus to the document root, forcing keyboard-only users to restart their navigation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether rapid repeated toggles of the transcript Appearance modes (Rendered vs Source) can strand React layout requests or race the ResizeObserver cache invalidation.",
+          "Investigate if opening external content links from a transcript modal correctly restores focus to the clicked link rather than dropping focus when returning to the app."
+        ],
+        "proposed_task_ids": [
+          "discovery-7156c20f6c4addb9"
+        ],
+        "completed_at": "2026-09-22T18:29:24.271171Z",
+        "source": {
+          "activity_id": "sessions/8013998322907730933/activities/90c456681f1f4df88d7d777cddfae59d",
+          "report_sha256": "fbdad4fe0ff32c0f4db6ec5d2d6cb0d50f23c68bde70621b6af57a211422c399",
+          "activity_created_at": "2026-09-22T18:17:47.653490Z",
+          "session_id": "8013998322907730933",
+          "dispatch_key": "85977b754878b039e45607d1"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8013998322907730933/activities/90c456681f1f4df88d7d777cddfae59d",
+          "report_sha256": "fbdad4fe0ff32c0f4db6ec5d2d6cb0d50f23c68bde70621b6af57a211422c399",
+          "activity_created_at": "2026-09-22T18:17:47.653490Z",
+          "session_id": "8013998322907730933",
+          "dispatch_key": "85977b754878b039e45607d1"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7156c20f6c4addb9"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-7156c20f6c4addb9",
+      "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-22T18:29:24.271171Z",
+      "acceptance": [
+        "Clicking or pressing Enter on the 'Retry' button in the transcript error state safely shifts focus to a stable element (e.g., the transcript container) instead of dropping to document.body",
+        "Activating the top-bar 'Refresh' button does not drop focus to the document body when disabled"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via synthetic React hook and DOM tests simulating the error and loading states of TranscriptModal on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a TranscriptModal that fails to load and enters the error state",
+            "Tab to focus the 'Retry' button and press Enter (or click it) to trigger a reload"
+          ],
+          "expected": "Focus is gracefully managed (e.g. shifted to the scrollable container or modal panel) to preserve the user's keyboard navigation context.",
+          "actual": "The 'Retry' button unmounts instantly and the browser resets focus to the document body."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-6",
+        "activity_id": "sessions/8013998322907730933/activities/90c456681f1f4df88d7d777cddfae59d",
+        "report_sha256": "fbdad4fe0ff32c0f4db6ec5d2d6cb0d50f23c68bde70621b6af57a211422c399",
+        "activity_created_at": "2026-09-22T18:17:47.653490Z",
+        "session_id": "8013998322907730933",
+        "dispatch_key": "85977b754878b039e45607d1"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T18:29:46.537380Z",
+    "last_poll_at": "2026-09-22T18:29:50.162916Z",
     "last_tick_at": "2026-09-22T18:23:28.960073Z",
     "run_id": "35766764963"
   }
