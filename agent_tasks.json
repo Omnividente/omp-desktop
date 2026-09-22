@@ -27268,7 +27268,7 @@
       "id": "research-workspace-navigation-reliability-6",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -27402,23 +27402,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1998316116456111755",
         "dispatch_key": "d81a556dfa66a28803a1993a",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-d81a556dfa66a28803a1993a",
         "started_at": "2026-09-22T06:27:46.986210Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T06:53:57.109830Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T06:35:02.084602Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T06:53:57.109830Z"
+      },
+      "research_result": {
+        "summary": "Verified focus preservation and application restart persistence during concurrent workspace navigation events. No new failure recovery defects were observed in the tested paths.",
+        "observations": [
+          {
+            "scenario": "Remounting the App component (application restart) to verify if `lastWorkspace` correctly persists the selected workspace.",
+            "evidence": "Wrote a synthetic Vitest test suite (`src/App.experiment.test.tsx`) mounting `<App />`, switching to workspace C, simulating unmount, and remounting. Verified that `applyPayload` correctly reads `next.settings.lastWorkspace` to restore workspace C. This confirms that the earlier task `discovery-7f98db57491c0c0d` was successfully resolved in this codebase snapshot.",
+            "result": "Establishes that workspace selection persists correctly across application restarts without reverting to the first workspace."
+          },
+          {
+            "scenario": "Opening a new folder using the file picker dialog while a workspace rename input is active.",
+            "evidence": "Wrote a synthetic React Testing Library test simulating `onOpenFolder` returning a new workspace while a rename operation is active for a different workspace. Verified that `applyPayload` updates the workspace list (inserting the new workspace at the top) but preserves the `renamingWorkspaceKey` state. Focus remains intact on the active `<input>` due to React's stable `key` preserving the DOM node despite its index shift.",
+            "result": "Establishes that concurrent workspace list updates from file picker operations do not interrupt or drop focus from an ongoing rename operation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the robustness of terminal layout resizing events (`terminal::resize_terminal`) during high-frequency window resizes or splits.",
+          "Verify the fallback behavior of `deleteSessionTarget` if the backend filesystem encounters permissions errors when attempting to delete the session file."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T06:53:57.109830Z",
+        "source": {
+          "activity_id": "sessions/1998316116456111755/activities/331499705486424b83ffcaf6628065a4",
+          "report_sha256": "b470cdd3ba00292672beb6d9baa5a12d9458aad279072ec88ed223c74e1c1648",
+          "activity_created_at": "2026-09-22T06:43:43.929535Z",
+          "session_id": "1998316116456111755",
+          "dispatch_key": "d81a556dfa66a28803a1993a"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T06:54:16.010579Z",
+    "last_poll_at": "2026-09-22T06:54:19.404131Z",
     "last_tick_at": "2026-09-22T06:48:05.475915Z",
     "run_id": "35696430653"
   }
