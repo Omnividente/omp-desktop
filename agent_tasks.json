@@ -28284,7 +28284,7 @@
       "id": "research-settings-models-behavior-6",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -28415,34 +28415,22 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "685378285279011776",
         "dispatch_key": "96351a9fd21baeb21cee0394",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-96351a9fd21baeb21cee0394",
         "started_at": "2026-09-22T09:34:05.052676Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T10:15:11.477527Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T10:08:49.003716Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-22T10:01:06.086225Z",
-          "source": {
-            "activity_id": "sessions/685378285279011776/activities/334ce66598464c07a1dfa7cf8764631a",
-            "report_sha256": "b51ae5a4a89ead6ee77db2eaee9fd0d3afe9c5f23765220568de8a9b3a67654e",
-            "activity_created_at": "2026-09-22T09:48:27.148619Z",
-            "session_id": "685378285279011776",
-            "dispatch_key": "96351a9fd21baeb21cee0394"
-          }
-        },
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T10:15:11.477527Z",
         "report_repair": {
           "at": "2026-09-22T10:01:26.399528Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/685378285279011776/activities/334ce66598464c07a1dfa7cf8764631a",
             "report_sha256": "b51ae5a4a89ead6ee77db2eaee9fd0d3afe9c5f23765220568de8a9b3a67654e",
@@ -28450,6 +28438,52 @@
             "session_id": "685378285279011776",
             "dispatch_key": "96351a9fd21baeb21cee0394"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Confirmed that extremely long localized string translations inside SettingsRecoveryScreen action buttons cause horizontal overflow and text truncation on narrow screens.",
+        "observations": [
+          {
+            "scenario": "Rendering the SettingsRecoveryScreen layout with an extremely long string inside the action buttons in a narrow viewport.",
+            "evidence": "Created a synthetic HTML fixture capturing the CSS context of `.settings-recovery-actions .button` on a 300px viewport. Scripted a Puppeteer test injecting an excessively long localized string (simulating an extreme translation). Measurements showed the button's `scrollWidth` (the actual width of its content) significantly exceeded its `offsetWidth` (the container width) due to the inherited `white-space: nowrap` and `height: 34px` constraints on `.button`.",
+            "result": "Establishes that long button labels in the recovery screen fail to wrap properly on narrow screens, causing the text to overflow and become truncated or unreadable."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the `.settings-recovery-description` can properly handle strings with unbroken, unusually long word sequences without overflowing the card."
+        ],
+        "proposed_task_ids": [
+          "discovery-08ed104590df0edb"
+        ],
+        "completed_at": "2026-09-22T10:15:11.477527Z",
+        "source": {
+          "activity_id": "sessions/685378285279011776/activities/5aeab462916446608853bdb5d8ef1e43",
+          "report_sha256": "b5867391cad3c855f822ac2426f5952e827315a1da4f8b66a5df0938900d5699",
+          "activity_created_at": "2026-09-22T10:02:30.137017Z",
+          "session_id": "685378285279011776",
+          "dispatch_key": "96351a9fd21baeb21cee0394"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/685378285279011776/activities/5aeab462916446608853bdb5d8ef1e43",
+          "report_sha256": "b5867391cad3c855f822ac2426f5952e827315a1da4f8b66a5df0938900d5699",
+          "activity_created_at": "2026-09-22T10:02:30.137017Z",
+          "session_id": "685378285279011776",
+          "dispatch_key": "96351a9fd21baeb21cee0394"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-08ed104590df0edb"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -28630,10 +28664,50 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-22T10:01:06.086225Z"
       }
+    },
+    {
+      "id": "discovery-08ed104590df0edb",
+      "title": "Enable text wrapping for SettingsRecoveryScreen action buttons on narrow screens",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-22T10:15:11.477527Z",
+      "acceptance": [
+        "Long localized strings inside SettingsRecoveryScreen action buttons wrap onto multiple lines instead of overflowing horizontally"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic HTML/CSS testing with Puppeteer matching the `.settings-recovery-actions .button` container at a 300px viewport width. Long text forces `scrollWidth` to overflow `offsetWidth` because of `white-space: nowrap` and fixed `height: 34px`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the SettingsRecoveryScreen at a narrow viewport (e.g. 300px wide).",
+            "Inject an extremely long string into one of the action buttons.",
+            "Observe the rendered button text."
+          ],
+          "expected": "The button's text wraps onto multiple lines without overflowing, and its height adjusts automatically.",
+          "actual": "The button's text overflows the button container horizontally because text wrapping is disabled."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-6",
+        "activity_id": "sessions/685378285279011776/activities/5aeab462916446608853bdb5d8ef1e43",
+        "report_sha256": "b5867391cad3c855f822ac2426f5952e827315a1da4f8b66a5df0938900d5699",
+        "activity_created_at": "2026-09-22T10:02:30.137017Z",
+        "session_id": "685378285279011776",
+        "dispatch_key": "96351a9fd21baeb21cee0394"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T10:15:29.212723Z",
+    "last_poll_at": "2026-09-22T10:15:31.926255Z",
     "last_tick_at": "2026-09-22T10:09:19.269260Z",
     "run_id": "35714345493"
   }
