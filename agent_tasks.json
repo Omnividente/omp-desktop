@@ -31333,7 +31333,7 @@
       "id": "research-workspace-navigation-behavior-7",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -31450,18 +31450,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4347612192344880149",
         "dispatch_key": "01f45f67efddea6206ea4141",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-01f45f67efddea6206ea4141",
         "started_at": "2026-09-22T22:46:41.291408Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T23:24:47.010420Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-22T23:06:49.255603Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T23:24:47.010420Z",
         "research_detached": {
           "at": "2026-09-22T23:06:49.255603Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -31470,11 +31470,84 @@
           "at": "2026-09-22T23:06:49.255603Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified focus behavior and component response when the last session in a workspace is deleted. Focus management drops focus to the document body when an active session's DOM node is removed by deletion.",
+        "observations": [
+          {
+            "scenario": "Deleting the last session inside the `SessionList` component and verifying active element restoration.",
+            "evidence": "Wrote and executed a synthetic Vitest test suite (`src/SessionList.experiment.test.tsx`) that mounts a wrapper around `<SessionList />` with a single synthetic session. Triggered the session deletion sequence and simulated the backend returning an updated empty state. Verified that `document.activeElement` becomes `document.body` because `SessionList` fails to compute a valid fallback element when `pending.target?.isConnected` evaluates to false and no remaining list items are present.",
+            "result": "Establishes that deleting the last session drops keyboard focus, requiring the user to re-navigate from the top of the document. A proper fallback such as the 'New Session' button or search bar is not utilized."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate focus behavior when deleting a session that is NOT the last session (does focus shift cleanly to the adjacent session row?).",
+          "Verify focus management when a modal (like ImportSessionModal) opens over a currently renaming input."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T23:24:47.010420Z",
+        "source": {
+          "activity_id": "sessions/4347612192344880149/activities/42e92c4938f441cf91b299cf93fb3b86",
+          "report_sha256": "59d38c3bc82324fd5fc9842a04138f303f1b4abda2559528399721305e8df727",
+          "activity_created_at": "2026-09-22T23:07:53.560788Z",
+          "session_id": "4347612192344880149",
+          "dispatch_key": "01f45f67efddea6206ea4141"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus to a reasonable fallback element after deleting the last session in a workspace",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing of `<SessionList />` using jsdom. Deleting the single remaining session causes the element holding focus (the delete button) to unmount. The current fallback logic inside the `useLayoutEffect` in `SessionList.tsx` leaves focus stranded on `document.body` because `listRef.current` without interactive children is not naturally focusable.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body`.\", \"expected\": \"Focus correctly shifts to another relevant interactive element in the list container or header, such as the search bar or an import button.\", \"steps\": [\"Launch the application and select a workspace with exactly one session.\", \"Use the keyboard to navigate to the session's delete button.\", \"Trigger the deletion using the keyboard.\", \"Observe the active element after the session row disappears.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx"
+            ],
+            "acceptance": [
+              "Focus correctly moves to a relevant element in the workspace UI (e.g., search input or workspace tools) when the last session is deleted and its row unmounts."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4347612192344880149/activities/42e92c4938f441cf91b299cf93fb3b86",
+          "report_sha256": "59d38c3bc82324fd5fc9842a04138f303f1b4abda2559528399721305e8df727",
+          "activity_created_at": "2026-09-22T23:07:53.560788Z",
+          "session_id": "4347612192344880149",
+          "dispatch_key": "01f45f67efddea6206ea4141"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-9fce9c41b108053f",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus to a reasonable fallback element after deleting the last session in a workspace",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing of `<SessionList />` using jsdom. Deleting the single remaining session causes the element holding focus (the delete button) to unmount. The current fallback logic inside the `useLayoutEffect` in `SessionList.tsx` leaves focus stranded on `document.body` because `listRef.current` without interactive children is not naturally focusable.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body`.\", \"expected\": \"Focus correctly shifts to another relevant interactive element in the list container or header, such as the search bar or an import button.\", \"steps\": [\"Launch the application and select a workspace with exactly one session.\", \"Use the keyboard to navigate to the session's delete button.\", \"Trigger the deletion using the keyboard.\", \"Observe the active element after the session row disappears.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx"
+              ],
+              "acceptance": [
+                "Focus correctly moves to a relevant element in the workspace UI (e.g., search input or workspace tools) when the last session is deleted and its row unmounts."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T23:25:08.033121Z",
+    "last_poll_at": "2026-09-22T23:25:11.513111Z",
     "last_tick_at": "2026-09-22T23:07:24.191964Z",
     "run_id": "35795789398"
   }
