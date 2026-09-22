@@ -21,8 +21,9 @@ from jules_dispatch import (
     session_is_active, session_state, session_resource, request_with_keys, urllib_transport,
 )
 from jules_provenance import bind_proposal, session_pull_request, trusted_pull_request
-from research_cycle import plan_research, scope_fingerprints
+from research_cycle import plan_research, request_context, scope_fingerprints
 from research_disposition import append_recovery_event, disposition_state, research_incident
+from research_request import saved_request, snapshot
 from select_task import pending_rejection, pending_report_repair, select, valid_research_detachment
 from state_store import load_state, save_state
 from proposal_backlog import authorize
@@ -155,6 +156,10 @@ def _git(repo: Path, *args: str, check=True):
 
 def _request(task: dict, repository: str, templates: Path, *, focus: str, risk: str) -> dict:
     execution = task.get("execution") or {}
+    if task.get("task_type") == "project_discovery":
+        saved = saved_request(task)
+        if saved is not None:
+            return saved
     name = "JULES_PROJECT_DISCOVERY_PROMPT.md" if task.get("task_type") == "project_discovery" else "JULES_TASK_PROMPT.md"
     return build(task, template=(templates / name).read_text(encoding="utf-8"), repo=repository,
                  branch=LAB_BRANCH, base_sha=execution.get("base_sha", ""),
@@ -622,10 +627,18 @@ def tick(
         result["reason"] = "dispatch_conditions_changed"
         return finish()
     github.ensure_attempt(starting_branch, lab_sha)
-    request = build(task, template=(templates / ("JULES_PROJECT_DISCOVERY_PROMPT.md" if task.get("task_type") == "project_discovery" else "JULES_TASK_PROMPT.md")).read_text(encoding="utf-8"),
+    research = task.get("task_type") == "project_discovery"
+    context, proposal_context = request_context(manifest["tasks"], task.get("target_paths", [])) if research else ([], "")
+    template_name = "JULES_PROJECT_DISCOVERY_PROMPT.md" if research else "JULES_TASK_PROMPT.md"
+    request = build(task, template=(templates / template_name).read_text(encoding="utf-8"),
                     repo=repository, branch=LAB_BRANCH, base_sha=lab_sha, starting_branch=starting_branch,
-                    focus=focus, risk_ceiling=risk)
-    reserve(manifest, task["id"], key, base_sha=lab_sha, starting_branch=starting_branch, now=now)
+                    focus=focus, risk_ceiling=risk, decision_context=context, proposal_context=proposal_context)
+    intent = None
+    if research:
+        control_sha = _git(Path(__file__).resolve().parents[2], "rev-parse", "HEAD").stdout.decode().strip()
+        intent = snapshot(request, context, control_sha)
+    reserve(manifest, task["id"], key, base_sha=lab_sha, starting_branch=starting_branch,
+            research_request=intent, now=now)
     checkpoint()  # No external session exists before the reservation is durable.
     if not github.enabled():
         quarantine(manifest, task["id"], reason="loop_disabled_before_create", now=now)
@@ -724,7 +737,7 @@ def main(argv=None) -> int:
                           templates=args.config.parent / "docs" / "autonomous",
                           github=GitHub(config["repository"]), persist=persist,
                           api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
-                          recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics.json"),
+                          recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics"),
                           automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor)
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",

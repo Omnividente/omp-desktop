@@ -7,11 +7,19 @@ on:
       action:
         description: Review proposals or acknowledge an unaccepted settled research incident
         type: choice
-        options: [list, approve, reject, resolve, close_research_unaccepted]
+        options: [list, approve, reject, resolve, close_research_unaccepted, materialize_deferred]
         default: list
         required: true
       task_id:
-        description: Exact proposal or research task id (required except for list)
+        description: Exact proposal or research task id (for approve, reject, resolve or close_research_unaccepted)
+        type: string
+        default: ""
+      source_task_id:
+        description: Exact accepted research source id (required for materialize_deferred)
+        type: string
+        default: ""
+      deferred_id:
+        description: Exact deferred finding id from backlog (required for materialize_deferred)
         type: string
         default: ""
       note:
@@ -38,6 +46,8 @@ jobs:
       BACKLOG_ACTION: ${{ inputs.action }}
       BACKLOG_ACTOR: ${{ github.actor }}
       BACKLOG_TASK_ID: ${{ inputs.task_id }}
+      BACKLOG_SOURCE_TASK_ID: ${{ inputs.source_task_id }}
+      BACKLOG_DEFERRED_ID: ${{ inputs.deferred_id }}
       BACKLOG_NOTE: ${{ inputs.note }}
     steps:
       - name: Check out the trusted control plane
@@ -62,6 +72,7 @@ jobs:
             --action "${BACKLOG_ACTION}" --repo lab --config control/autonomous-project.json \
             --manifest queue.json --revision-file queue-revision.json \
             --actor "${BACKLOG_ACTOR}" --task-id "${BACKLOG_TASK_ID}" --note "${BACKLOG_NOTE}" \
+            --source-task-id "${BACKLOG_SOURCE_TASK_ID}" --deferred-id "${BACKLOG_DEFERRED_ID}" \
             --json-out backlog.json --summary-out "${GITHUB_STEP_SUMMARY}"
 
       - name: Preserve the full uncapped review snapshot

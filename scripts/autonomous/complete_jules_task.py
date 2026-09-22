@@ -178,6 +178,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
     parks the bound attempt; recovery normally accepts only a newer, valid report.
     Explicit ``reparse_report`` with ``retry_report`` also accepts the exact saved
     immutable source after a parser upgrade, without another worker request.
+    ``diagnostics`` is a directory retaining each distinct redacted diagnostic.
     """
     if reparse_report and not retry_report:
         raise ValueError("report reparse requires explicit report retry")
@@ -317,6 +318,8 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
             staged_task["research_result"] = report
             imported = import_tasks(staged, text, config=config, max_new=max_new, now=iso(moment),
                                     origin={"task_id": task_id, **source})
+            staged_task = find_task(staged, task_id)
+            report = staged_task["research_result"]
             diagnostic["findings_parser"] = {key: imported[key] for key in ("status", "detail")}
             if imported["status"] not in (STATUS_OK, STATUS_ABSENT):
                 reasons = sorted({item["reason"] for item in imported["skipped"]})
@@ -373,7 +376,18 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
         sanitized = redact(text, secrets)
         diagnostic["worker_report"] = sanitized[:MAX_REPORT_CHARS]
         diagnostic["report_truncated"] = len(sanitized) > MAX_REPORT_CHARS
-        atomic_write(Path(diagnostics), json.dumps(diagnostic, ensure_ascii=False, indent=2) + "\n")
+        for key in ("task_id", "session_id", "session_resource", "dispatch_key"):
+            diagnostic[key] = redact(diagnostic[key], secrets)
+        if "source" in diagnostic:
+            diagnostic["source"] = {key: redact(value, secrets) for key, value in diagnostic["source"].items()}
+        content = json.dumps(diagnostic, ensure_ascii=False, indent=2) + "\n"
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        task_hash = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+        attempt = int(execution["attempts"])
+        source_hash = source["report_sha256"] if source else "no-source"
+        directory = Path(diagnostics)
+        directory.mkdir(parents=True, exist_ok=True)
+        atomic_write(directory / f"{task_hash}-{attempt}-{source_hash}-{digest}.json", content)
     manifest.clear()
     manifest.update(staged)
     result["imported_count"] = len(imported["added"])
@@ -385,7 +399,7 @@ def harvest(manifest: dict, config: Mapping[str, Any], task_id: str, snapshot: M
 def atomic_write(path: Path, content: str) -> None:
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent,
                                          prefix=path.name + ".", suffix=".tmp", delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(content)
@@ -404,7 +418,8 @@ def main(argv=None) -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--session-file", required=True, type=Path)
-    parser.add_argument("--diagnostics", type=Path)
+    parser.add_argument("--diagnostics", type=Path, metavar="DIRECTORY",
+                        help="directory for content-addressed, redacted report diagnostics")
     parser.add_argument("--retry-report", action="store_true")
     parser.add_argument("--reparse-report", action="store_true",
                         help="with --retry-report, reparse the exact saved immutable report")
@@ -413,10 +428,13 @@ def main(argv=None) -> int:
     parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
     args = parser.parse_args(argv)
     try:
-        if args.diagnostics and args.diagnostics.resolve() in {
-            args.manifest.resolve(), args.config.resolve(), args.session_file.resolve()
-        }:
-            raise ValueError("diagnostics must not overwrite an input file")
+        if args.diagnostics:
+            directory = args.diagnostics.resolve()
+            if any(path.resolve().is_relative_to(directory)
+                   for path in (args.manifest, args.config, args.session_file)):
+                raise ValueError("diagnostics directory must not contain input files")
+            if directory.exists() and not directory.is_dir():
+                raise ValueError("diagnostics must be a directory")
         original = args.manifest.read_bytes()
         manifest = json.loads(original)
         config = json.loads(args.config.read_text(encoding="utf-8"))
