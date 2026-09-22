@@ -30927,7 +30927,7 @@
       "id": "research-sessions-persistence-reliability-7",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -31076,18 +31076,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5412649558082491698",
         "dispatch_key": "422b0ef96963cd5b2168e4f2",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-422b0ef96963cd5b2168e4f2",
         "started_at": "2026-09-22T21:23:35.878671Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T22:11:38.992378Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-22T21:43:42.757195Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T22:11:38.992378Z",
         "research_detached": {
           "at": "2026-09-22T21:43:42.757195Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -31096,11 +31096,84 @@
           "at": "2026-09-22T21:43:42.757195Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the session import process for vulnerability to desynchronization on failure.",
+        "observations": [
+          {
+            "scenario": "Simulated an interrupted session import where the process is killed after artifacts are staged and swapped but before the updated session JSONL is written.",
+            "evidence": "Locally prototyped the backend behavior described in `src-tauri/src/sessions.rs`. The code swaps the new imported artifacts into place via `rename(&staging, &target_artifacts)`, backing up the original. Only after this succeeds does it write the updated JSONL via `write_session(destination, body)`. If a crash occurs exactly between these two operations, the session JSONL retains its original metadata while pointing to the newly imported artifact files on disk, resulting in a desynchronization mismatch.",
+            "result": "Establishes that the transaction boundaries in `import_session` allow for permanent desynchronization between the JSONL state and the artifact directory if an unexpected termination or power loss occurs mid-transaction. Reproduces canonical finding `discovery-a1eefff4576aa5c1`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+          "Investigate if rapid successive invocations of batch import functions cause race conditions in the UI state or backend."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T22:11:38.992378Z",
+        "source": {
+          "activity_id": "sessions/5412649558082491698/activities/c743e13ff4564b0aa712fe25de529852",
+          "report_sha256": "836a7f07bf5072ef26496468b3dd61c2d97ffb4c84f39ac51a7142e39062e6c6",
+          "activity_created_at": "2026-09-22T21:47:40.565310Z",
+          "session_id": "5412649558082491698",
+          "dispatch_key": "422b0ef96963cd5b2168e4f2"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-a1eefff4576aa5c1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and synthetic Rust testing on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. See canonical finding discovery-a1eefff4576aa5c1.\", \"reproduction\": {\"actual\": \"The session retains its original JSONL but is permanently associated with the new artifacts.\", \"expected\": \"The session should retain its original JSONL and its original artifacts, avoiding partial state application.\", \"steps\": [\"Examine the transaction logic in `import_session` inside `src-tauri/src/sessions.rs`.\", \"Identify that `rename(&staging, &target_artifacts)` happens before `write_session(destination, body)`.\", \"Simulate a hard process crash or kill the application immediately between these two steps.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/sessions.rs"
+            ],
+            "acceptance": [
+              "If a crash occurs during session import update, the session state and its artifacts remain synchronized"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5412649558082491698/activities/c743e13ff4564b0aa712fe25de529852",
+          "report_sha256": "836a7f07bf5072ef26496468b3dd61c2d97ffb4c84f39ac51a7142e39062e6c6",
+          "activity_created_at": "2026-09-22T21:47:40.565310Z",
+          "session_id": "5412649558082491698",
+          "dispatch_key": "422b0ef96963cd5b2168e4f2"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-a1eefff4576aa5c1",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-a1eefff4576aa5c1"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-a1eefff4576aa5c1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and synthetic Rust testing on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. See canonical finding discovery-a1eefff4576aa5c1.\", \"reproduction\": {\"actual\": \"The session retains its original JSONL but is permanently associated with the new artifacts.\", \"expected\": \"The session should retain its original JSONL and its original artifacts, avoiding partial state application.\", \"steps\": [\"Examine the transaction logic in `import_session` inside `src-tauri/src/sessions.rs`.\", \"Identify that `rename(&staging, &target_artifacts)` happens before `write_session(destination, body)`.\", \"Simulate a hard process crash or kill the application immediately between these two steps.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/sessions.rs"
+              ],
+              "acceptance": [
+                "If a crash occurs during session import update, the session state and its artifacts remain synchronized"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T22:11:54.495495Z",
+    "last_poll_at": "2026-09-22T22:11:57.534482Z",
     "last_tick_at": "2026-09-22T21:44:11.524191Z",
     "run_id": "35788334690"
   }
