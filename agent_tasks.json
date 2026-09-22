@@ -31086,13 +31086,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T21:31:06.068468Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-22T21:43:42.757195Z",
+        "research_detached": {
+          "at": "2026-09-22T21:43:42.757195Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T21:43:58.386113Z",
+    "last_poll_at": "2026-09-22T21:44:01.361398Z",
     "last_tick_at": "2026-09-22T21:37:53.228334Z",
     "run_id": "35787719607"
   }
