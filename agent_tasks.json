@@ -30817,13 +30817,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-22T17:55:58.097942Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T18:03:49.897759Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T18:04:06.585148Z",
+    "last_poll_at": "2026-09-22T18:04:09.617636Z",
     "last_tick_at": "2026-09-22T17:57:55.182206Z",
     "run_id": "35763831017"
   }
