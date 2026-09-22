@@ -31459,12 +31459,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T22:46:41.291408Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T22:46:59.379050Z",
+    "last_poll_at": "2026-09-22T22:48:27.797571Z",
     "last_tick_at": "2026-09-22T22:33:14.529024Z",
     "run_id": "35792930639"
   }
