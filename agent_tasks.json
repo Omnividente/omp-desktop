@@ -28216,8 +28216,8 @@
         "pull_request": 0,
         "outcome": "report_invalid",
         "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T09:34:05.052676Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T09:41:50.707568Z",
         "report_error": {
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
@@ -28395,7 +28395,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T09:42:10.873959Z",
+    "last_poll_at": "2026-09-22T09:42:13.869203Z",
     "last_tick_at": "2026-09-22T09:36:01.797131Z",
     "run_id": "35711093218"
   }
