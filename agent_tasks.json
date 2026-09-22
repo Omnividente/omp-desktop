@@ -29481,12 +29481,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-22T11:52:26.853548Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T11:52:45.431985Z",
+    "last_poll_at": "2026-09-22T11:54:10.861155Z",
     "last_tick_at": "2026-09-22T11:22:02.241410Z",
     "run_id": "35720960167"
   }
