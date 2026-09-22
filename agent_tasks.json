@@ -29334,7 +29334,7 @@
       "id": "research-diagnostics-resources-behavior-6",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -29472,23 +29472,56 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11645969565930426819",
         "dispatch_key": "db8404fa37f0626b1cd88c8f",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-db8404fa37f0626b1cd88c8f",
         "started_at": "2026-09-22T11:52:26.853548Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T12:13:24.886368Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T12:00:06.722651Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T12:13:24.886368Z"
+      },
+      "research_result": {
+        "summary": "Verified keyboard navigation trap handles dynamic rendering gracefully in IncidentCenter, and investigated previous findings regarding volume sampling fragility and severity error icon state in ResourceHealthPanel.",
+        "observations": [
+          {
+            "scenario": "Execute keyboard focus trap testing in IncidentCenter.tsx via a synthetic jsdom test, providing an incident with a long reason to trigger the `<details>`/`<summary>` expander.",
+            "evidence": "A vitest synthetic jsdom environment was constructed (`src/test_incident_focus.test.tsx`). The test rendered `IncidentCenter` with an incident containing a 200-character string to enforce the rendering of the `details` element. We observed the list of focusable elements gathered by the internal query selector indeed includes the dynamically rendered `summary` element. Focusing the last element and pressing 'Tab' accurately trapped focus, wrapping back to the first active element.",
+            "result": "Establishes that the focus trap inside IncidentCenter correctly identifies dynamically rendered `<summary>` interactive elements based on content length without regressions, preventing keyboard users from escaping the modal unexpectedly."
+          },
+          {
+            "scenario": "Test ResourceHealthPanel.tsx rendering behavior on missing snapshot data due to an error to confirm styling regressions (Canonical ID: discovery-5f30b23ec899ed07).",
+            "evidence": "Observed via `src/test_focus.test.tsx` and source code inspection: The `severity` falls back directly to `'warning'` or `'ok'` using `const severity = snapshot?.severity ?? (error ? \"warning\" : \"ok\")`. The `Icon` component strictly looks for `severity === \"ok\" ? \"check\" : \"alert\"`. The vitest output confirmed that the element `<div aria-live=\"polite\" className=\"resource-summary is-warning\">` actually correctly contains the `alert` icon instead of the checkmark.",
+            "result": "Establishes that the previous bug report (discovery-5f30b23ec899ed07) regarding the success icon in error states is a false positive. The UI does correctly display an alert icon for error conditions because it falls back to 'warning', which triggers the 'alert' icon render logic."
+          },
+          {
+            "scenario": "Simulate a race condition where a workspace is concurrently unmounted during resource volume sampling in `src-tauri/src/resource_health.rs` using a synthetic rust script (Canonical ID: discovery-145f7f8b08d0c398).",
+            "evidence": "Constructed an isolated script `test_sample.rs` that called `fs::canonicalize` on a directory, then started a concurrent thread to delete that directory, and finally called `fs::metadata` on the resolved path. The thread reliably surfaced a `NotFound` `os error 2` during metadata access. Source inspection of `src-tauri/src/resource_health.rs` reveals that `sample_volumes` loops over targets and calls `sample_volume`. If `sample_volume` returns `Err(error)`, the error is caught and pushed into `unavailable_volumes` (`unavailable_volumes.push(ResourceUnavailableVolume { error, ... })`), and the loop continues. The error does NOT propagate via `?` up from `sample_volumes` to abort the entire system resource check.",
+            "result": "Establishes that the previous bug report (discovery-145f7f8b08d0c398) claiming an IO error propagates upwards and aborts the entire resource snapshot is factually incorrect. The application handles individual volume errors gracefully, returning them as unavailable volumes without affecting other metrics."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the fallback severity for a partially unavailable memory snapshot."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T12:13:24.886368Z",
+        "source": {
+          "activity_id": "sessions/11645969565930426819/activities/c166f8b82e5645ffb21749bd851abe4f",
+          "report_sha256": "985386f95d9776749f0036736c2d603a7491dabfa793a0e9f7b03ca294882672",
+          "activity_created_at": "2026-09-22T12:02:59.125294Z",
+          "session_id": "11645969565930426819",
+          "dispatch_key": "db8404fa37f0626b1cd88c8f"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T12:13:47.579515Z",
+    "last_poll_at": "2026-09-22T12:13:50.976751Z",
     "last_tick_at": "2026-09-22T12:06:51.515702Z",
     "run_id": "35725204579"
   }
