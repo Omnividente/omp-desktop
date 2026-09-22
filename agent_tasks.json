@@ -28438,7 +28438,8 @@
             "session_id": "685378285279011776",
             "dispatch_key": "96351a9fd21baeb21cee0394"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-96351a9fd21baeb21cee0394"
       },
       "research_result": {
         "summary": "Confirmed that extremely long localized string translations inside SettingsRecoveryScreen action buttons cause horizontal overflow and text truncation on narrow screens.",
