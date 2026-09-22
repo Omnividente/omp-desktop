@@ -31095,7 +31095,8 @@
         "feedback_nudge": {
           "at": "2026-09-22T21:43:42.757195Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-422b0ef96963cd5b2168e4f2"
       },
       "research_result": {
         "summary": "Investigated the session import process for vulnerability to desynchronization on failure.",
