@@ -27592,7 +27592,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T07:54:34.359925Z"
+        "observed_at": "2026-09-22T07:54:34.359925Z",
+        "released_attempt_ref": "autonomous/attempt-740bc04564cd596c345bf66b"
       },
       "research_result": {
         "summary": "Measured rendering and switching times for components receiving large session lists.",
