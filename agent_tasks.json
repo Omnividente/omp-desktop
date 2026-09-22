@@ -26886,7 +26886,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T05:48:56.254168Z"
+        "observed_at": "2026-09-22T05:48:56.254168Z",
+        "released_attempt_ref": "autonomous/attempt-f5e914d1dbeed4d78c75ad1e"
       },
       "research_result": {
         "summary": "Investigated terminal output batching performance for mixed chunk sizes. Found excessive memory allocation and copying latency when an output chunk causes the pending batch to exceed the byte limit.",
