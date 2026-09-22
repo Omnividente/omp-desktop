@@ -29239,7 +29239,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T11:21:26.506441Z"
+        "observed_at": "2026-09-22T11:21:26.506441Z",
+        "released_attempt_ref": "autonomous/attempt-6371b6375532953d5932caf0"
       },
       "research_result": {
         "summary": "Investigated the behavior of terminal focus restoration during right-click context menu interactions. Found a defect where `TerminalView`'s focus tracking is cleared by the `mouseup` event before the `contextmenu` event triggers on Windows/Linux.",
