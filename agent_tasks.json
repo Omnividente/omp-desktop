@@ -29737,7 +29737,7 @@
       "id": "research-diagnostics-resources-performance-6",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -29895,23 +29895,67 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16331050547642540978",
         "dispatch_key": "40d5d8cfac5e3a3ccc93574b",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-40d5d8cfac5e3a3ccc93574b",
         "started_at": "2026-09-22T12:56:25.046516Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T13:23:03.480340Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T12:56:25.046516Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T13:23:03.480340Z"
+      },
+      "research_result": {
+        "summary": "Verified focus behavior when opening a terminal from an incident, investigated focus trap loop in IncidentCenter, and evaluated fallback chain transitions in runtimeEvents.",
+        "observations": [
+          {
+            "scenario": "Review the UI behavior of `IncidentCenter` focus restoration when closing via 'Open terminal' (Canonical ID: discovery-26c4a50fb11c2827).",
+            "evidence": "Observed via synthetic jsdom tests that `IncidentCenter.tsx` explicitly sets `restoreTriggerFocusRef.current = false` inside `focusTerminal`. This intentionally bypasses returning focus to the original triggering button, in order to pass the focus flow logically to the newly opened terminal workspace.",
+            "result": "Establishes that the failure to restore focus to the originating button when opening a terminal is a deliberate product decision, not a regression or bug."
+          },
+          {
+            "scenario": "Execute keyboard focus trap testing in IncidentCenter.tsx via a synthetic jsdom test, providing an incident with a long reason to trigger the `<details>`/`<summary>` expander.",
+            "evidence": "A vitest synthetic jsdom environment was constructed (`src/test_incident_focus_trap.test.tsx`). The test rendered `IncidentCenter` with an incident containing a 200-character string to enforce the rendering of the `details` element. We observed the list of focusable elements gathered by the internal query selector indeed includes the dynamically rendered `summary` element. Focusing the last element and pressing 'Tab' accurately trapped focus, wrapping back to the first active element.",
+            "result": "Establishes that the focus trap inside IncidentCenter correctly identifies dynamically rendered `<summary>` interactive elements based on content length without regressions, preventing keyboard users from escaping the modal unexpectedly."
+          },
+          {
+            "scenario": "Test runtimeIncidents behavior for chaining multiple consecutive fallback events in `src/runtimeIncidents.ts`.",
+            "evidence": "Invoked `applyRuntimeIncidentEvent` with `kind: 'retryFallbackApplied'` transitioning from `provider/A` to `provider/B`, followed by a second transition from `provider/B` to `provider/C`. The state correctly tracks both active fallback incidents independently based on the `groupingKey` logic which includes `fallbackFrom` and `fallbackTo`.",
+            "result": "Establishes that the incident state correctly records distinct chained fallback transitions rather than incorrectly deduplicating or merging them, providing a full history."
+          },
+          {
+            "scenario": "Test manual user override resolving multiple active fallbacks in `src/runtimeIncidents.ts`.",
+            "evidence": "Created multiple active fallbacks using `kind: 'retryFallbackApplied'`. Then invoked a `kind: 'modelChange'` event with `resolvedModelIsFallback: false`, signaling the user manually selected a primary model. Verified that all active fallback incidents were marked as 'resolved' with `resolutionReason: 'primaryRestored'`.",
+            "result": "Establishes that manual overrides correctly clean up all relevant fallback states across chained transitions."
+          },
+          {
+            "scenario": "Test severity rendering logic in ResourceHealthPanel for partial memory warnings.",
+            "evidence": "Executed a jsdom test where `snapshot.memory.availableSeverity` and `swapSeverity` were `'ok'`, but the overall `memory.severity` was `'warning'`. The `ResourceHealthPanel` correctly uses `snapshot.memory.severity` to apply the `is-warning` class to the memory card container and the main summary.",
+            "result": "Establishes that the UI correctly respects the overall memory severity aggregate even if individual sub-components (swap, available) might conflict or appear OK."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the bounds checking and eviction logic for `switchInputRecovery` states in `terminalContinuity` during heavy churn.",
+          "Verify whether `PtySessionTitleEvent` updates are correctly deduplicated when the title sequence rapid-fires the same label."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T13:23:03.480340Z",
+        "source": {
+          "activity_id": "sessions/16331050547642540978/activities/336bf59e2f064eb3aac633b5cd487d3d",
+          "report_sha256": "c68237397d6de077ce966469e8a6b73c07a2d461cc9e8a2e0c7ff1dae3da0df6",
+          "activity_created_at": "2026-09-22T13:12:43.096320Z",
+          "session_id": "16331050547642540978",
+          "dispatch_key": "40d5d8cfac5e3a3ccc93574b"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T13:23:22.723131Z",
+    "last_poll_at": "2026-09-22T13:23:25.796671Z",
     "last_tick_at": "2026-09-22T13:17:15.007145Z",
     "run_id": "35732424093"
   }
