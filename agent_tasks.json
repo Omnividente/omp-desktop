@@ -29116,6 +29116,116 @@
         "session_id": "2093123348901435481",
         "dispatch_key": "bcb9efd6e9824f67579e14c2"
       }
+    },
+    {
+      "id": "research-terminal-input-ux-6",
+      "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-22T11:01:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d\",\"status\":\"proposed\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch_recovery state is cleared (set to None) upon receiving new input.\",\"actual\":\"The switch_recovery state remains present and pending, allowing it to be sent after the new input.\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A Rust unit test confirms that `write_bytes` sets `switch_recovery` to `None` when new input is successfully queued.\"]}},{\"canonical_id\":\"discovery-a691c680cc7eb8da\",\"status\":\"proposed\",\"title\":\"Optimize terminal output batcher to prevent expensive array merging on overflow\",\"target_paths\":[\"src/terminalOutputBatcher.ts\"],\"observed_contract\":{\"detail\":\"Measured latency and memory allocations of `createTerminalOutputBatcher` with large synthetic data chunks running on Node V8 engine in the exact 90626eb0032fbb366f5af9f57d5fc7b3a67b7703 environment.\",\"expected\":\"The batcher flushes the first 200KB chunk independently, avoiding merging the two chunks into a 400KB array. Execution time should be minimal (e.g., under 15ms).\",\"actual\":\"The batcher appends the second 200KB chunk, reaches 400KB (> 256KB), allocates a new 400KB `Uint8Array`, and copies both chunks into it. Execution time takes over 2500ms due to excessive memory churn.\",\"acceptance\":[\"When a new output chunk causes the batcher to reach or exceed `maxBytes`, the batcher flushes the currently pending chunks before processing the new chunk.\",\"Memory allocations and `.set()` copy operations are avoided for large chunks that overflow an existing batch.\"]}},{\"canonical_id\":\"discovery-5640a0d5b2031811\",\"status\":\"done\",\"title\":\"Fix terminal continuity generation changes during failure recovery\",\"target_paths\":[\"src/terminalContinuity.ts\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is  [excerpt]\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTermina [excerpt]\"]}},{\"canonical_id\":\"discovery-d47c6c8c6e6f2995\",\"status\":\"done\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\",\"src/terminalInput.ts\"],\"observed_contract\":{\"detail\":\"Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order.\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-87e9827baf673422\",\"status\":\"done\",\"title\":\"Clear pending terminal input recovery when new input is typed\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch input recovery should fail because typing new input invalidates the pending recovery.\",\"actual\":\"The switch input recovery succeeds and writes the stale input after the new input.\",\"acceptance\":[\"Typing new input clears any pending switch_recovery state so that stale input cannot be retried later.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-fba4bf1ceccfc72b\",\"status\":\"done\",\"title\":\"Clear pending switch input recovery automatically upon receiving new user input\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native backend evaluation using source code tracing matched against `xterm.js` buffer characteristics. The `process.switch_recovery` state in `write_bytes` persists during regular terminal inputs.\",\"expected\":\"The new manual characters are accepted and sent to the PTY. The old recovery buffer is abandoned and clicking Retry safely fails because it's stale, maintaining correct chronological order.\",\"actual\":\"The new manual characters are accepted and sent to the PTY immediately. Clicking Retry then sends the OLD recovery buffer AFTER the new input.\",\"acceptance\":[\"Any pending or failedSend switch recovery buffer is silently discarded if new bytes are manually written to the terminal\",\"The UI subsequently processes the resulting stale recovery attempt cleanly without echoing the discarded bytes out of order\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-e1a64022fb094a98\",\"status\":\"done\",\"title\":\"Link terminal help button to its content via aria-controls\",\"target_paths\":[\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Static inspection of src/TerminalView.tsx during a11y interaction research. The button declares aria-expanded but lacks aria-controls.\",\"expected\":\"The button has an aria-controls attribute pointing to the ID of the help text container\",\"actual\":\"The button has aria-expanded but no aria-controls attribute, and the container has no ID\",\"acceptance\":[\"The terminal help trigger button includes an aria-controls attribute\",\"The terminal help content container has a unique id matching the button's aria-controls\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "ux",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 6,
+        "previous_reports": [
+          {
+            "summary": "Investigated if terminal shortcuts unmount during agent view replacement causing lingering keydown listeners.",
+            "observations": [
+              {
+                "scenario": "A mock scenario evaluating TerminalView's attachCustomKeyEventHandler unmount behavior and garbage collection.",
+                "evidence": "Wrote a test script evaluating the custom event handler logic for xterm.js via Vitest. When TerminalView is replaced or its tab.kind changes (triggering a re-render and cleanup), terminal.dispose() is executed. Verified that xterm.js completely drops its internal _customKeyEventHandler references upon disposal. No global or window-level keydown listeners are retained.",
+                "result": "Establishes that the keyboard shortcuts bound via attachCustomKeyEventHandler in TerminalView are successfully removed when the view is unmounted. There are no lingering references or memory leaks regarding terminal key events during view replacement."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the precise rendering constraints inside XTerm.js to check if the 256kb write limit inside MAX_TERMINAL_WRITE_BATCH delays screen updates for very fast omp sub-commands.",
+              "Investigate if lingering references exist for `terminalFontFamily` or `terminalFontSize` contexts that might prevent garbage collection of `TerminalView` closures during tab switching."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T22:10:55.055341Z",
+            "source": {
+              "activity_id": "sessions/3395971278657471822/activities/378ee546308545cbb8e7d3a492a3bb87",
+              "report_sha256": "9ca8383f267dc16cec9755d0f7e97cacd9e8781da9f536b0bef4e124939f2cfa",
+              "activity_created_at": "2026-09-21T22:01:28.496217Z",
+              "session_id": "3395971278657471822",
+              "dispatch_key": "5b9fec71cedc1053da426bb1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of terminal input continuity and recovery mechanics, verifying the known defect where pending switch recovery state persists when new input arrives.",
+            "observations": [
+              {
+                "scenario": "A mock scenario evaluating the terminal's `write_bytes` function inside `src-tauri/src/terminal.rs` when there is a pending `switch_recovery`.",
+                "evidence": "Wrote and executed a Rust unit test mimicking new terminal input (via `write_bytes`) arriving while the terminal process has an existing pending switch recovery state. The test confirms that `process.switch_recovery` is NOT set to `None` upon successful acceptance of the new input, meaning the stale recovery buffer is kept.",
+                "result": "Establishes that new manual input does not discard an older failed/pending switch recovery buffer. This matches the canonical finding discovery-d47c6c8c6e6f2995 and reproduces the lack of chronological continuity."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal shortcuts for select-all and copy are correctly bound across different OS environments when the terminal is in a focused but disconnected state.",
+              "Examine if lingering references exist for `TerminalView` closures preventing garbage collection when terminals are quickly destroyed and recreated."
+            ],
+            "proposed_task_ids": [
+              "discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d"
+            ],
+            "completed_at": "2026-09-22T00:57:43.351927Z",
+            "source": {
+              "activity_id": "sessions/12725884021710490559/activities/711b7487ebd946128aa95a95126b4775",
+              "report_sha256": "88a32da80a1547585fb6106e51d4967225446740f0ef5e6f82afbf9c723def22",
+              "activity_created_at": "2026-09-22T00:44:56.767231Z",
+              "session_id": "12725884021710490559",
+              "dispatch_key": "cd3014eddcfc5ad4b30e3228"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal output batching performance for mixed chunk sizes. Found excessive memory allocation and copying latency when an output chunk causes the pending batch to exceed the byte limit.",
+            "observations": [
+              {
+                "scenario": "A synthetic workload simulating terminal output with interleaving large chunks (e.g., 200KB chunks) that exceed the MAX_TERMINAL_WRITE_BATCH (256KB) limit.",
+                "evidence": "Executed a reproducible benchmark on `terminalOutputBatcher.ts`. When `length + output.length >= maxBytes`, the batcher adds the incoming chunk to the `chunks` array and then immediately allocates a new `Uint8Array` to copy all accumulated chunks. For 10,000 iterations of two 200KB chunks, this took ~2560ms due to continuously allocating and copying 400KB arrays.",
+                "result": "Establishes a measurable performance defect. If an incoming chunk overflows the batch limit, it is merged via expensive `.set()` operations. Flushing the pending chunks *before* enqueueing the large chunk reduces the same workload latency from ~2560ms to ~8ms and significantly reduces memory churn."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal shortcuts processing (`src/terminalShortcuts.ts`) creates a latency bottleneck when receiving massive amounts of simultaneous keystrokes during a UI blocking operation."
+            ],
+            "proposed_task_ids": [
+              "discovery-a691c680cc7eb8da"
+            ],
+            "completed_at": "2026-09-22T05:48:56.254168Z",
+            "source": {
+              "activity_id": "sessions/5538214514765845956/activities/0f2d0513cd554df590f7738ada148e2b",
+              "report_sha256": "004e3b008cf7cb377f47b85fe79445ed7ebbe97578d28dc0527b01e46841dbd2",
+              "activity_created_at": "2026-09-22T05:38:57.876837Z",
+              "session_id": "5538214514765845956",
+              "dispatch_key": "f5e914d1dbeed4d78c75ad1e"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
