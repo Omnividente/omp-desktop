@@ -31670,7 +31670,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T23:44:49.274025Z"
+        "observed_at": "2026-09-22T23:44:49.274025Z",
+        "released_attempt_ref": "autonomous/attempt-903312a801ee9de02a012fcf"
       },
       "research_result": {
         "summary": "Verified focus management behavior when opening external content links from a transcript modal.",
