@@ -27765,7 +27765,8 @@
         "feedback_nudge": {
           "at": "2026-09-22T08:33:37.541890Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b5c9b5613d8572e01a47df09"
       },
       "research_result": {
         "summary": "Confirmed focus restoration defect when cancelling rename operations via Escape in ProjectRail and SessionList.",
