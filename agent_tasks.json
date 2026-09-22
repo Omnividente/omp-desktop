@@ -26359,7 +26359,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T00:57:43.351927Z"
+        "observed_at": "2026-09-22T00:57:43.351927Z",
+        "released_attempt_ref": "autonomous/attempt-cd3014eddcfc5ad4b30e3228"
       },
       "research_result": {
         "summary": "Investigated the behavior of terminal input continuity and recovery mechanics, verifying the known defect where pending switch recovery state persists when new input arrives.",
