@@ -29483,7 +29483,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T12:13:24.886368Z"
+        "observed_at": "2026-09-22T12:13:24.886368Z",
+        "released_attempt_ref": "autonomous/attempt-db8404fa37f0626b1cd88c8f"
       },
       "research_result": {
         "summary": "Verified keyboard navigation trap handles dynamic rendering gracefully in IncidentCenter, and investigated previous findings regarding volume sampling fragility and severity error icon state in ResourceHealthPanel.",
