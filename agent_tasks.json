@@ -29695,7 +29695,8 @@
             "session_id": "9574404346370735207",
             "dispatch_key": "79912fe166e091a9dfdb0868"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-79912fe166e091a9dfdb0868"
       },
       "research_result": {
         "summary": "Verified error recovery and cancellation transition correctly resolves incidents.",
