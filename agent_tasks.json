@@ -27413,7 +27413,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T06:53:57.109830Z"
+        "observed_at": "2026-09-22T06:53:57.109830Z",
+        "released_attempt_ref": "autonomous/attempt-d81a556dfa66a28803a1993a"
       },
       "research_result": {
         "summary": "Verified focus preservation and application restart persistence during concurrent workspace navigation events. No new failure recovery defects were observed in the tested paths.",
