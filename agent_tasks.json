@@ -27450,7 +27450,7 @@
       "id": "research-workspace-navigation-performance-6",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -27581,23 +27581,51 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16687664012668634073",
         "dispatch_key": "740bc04564cd596c345bf66b",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-740bc04564cd596c345bf66b",
         "started_at": "2026-09-22T07:40:34.169709Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T07:54:34.359925Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T07:48:25.633157Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T07:54:34.359925Z"
+      },
+      "research_result": {
+        "summary": "Measured rendering and switching times for components receiving large session lists.",
+        "observations": [
+          {
+            "scenario": "Rendering and updating `ProjectRail` and `SessionList` with 5,000 synthetic sessions using React Testing Library.",
+            "evidence": "Tested using Vitest with `@testing-library/react`. `ProjectRail` rendering took ~296ms and switching workspaces (replacing 5,000 sessions with another 5,000) took ~166ms. `SessionList` directly took ~597ms for 20,000 sessions.",
+            "result": "Establishes that rendering time stays relatively small thanks to `useVirtualList` rendering DOM, avoiding full O(N) DOM latency. However, components still do significant main thread work to map, iterate and build session trees (`buildSessionTree` inside `SessionList.tsx`), causing noticeable blocking UI time when iterating tens of thousands of objects."
+          },
+          {
+            "scenario": "Rendering and updating `TerminalWorkspace` with 20,000 synthetic sessions using React Testing Library.",
+            "evidence": "Tested using Vitest with `@testing-library/react`. Rendering `TerminalWorkspace` with 20,000 sessions took ~147ms.",
+            "result": "Establishes that `TerminalWorkspace` does less main-thread processing per-session than `SessionList`, but still blocks UI to build trees (`buildSessionTree` inside `TerminalWorkspace.tsx`), resulting in noticeable latency on large session arrays."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate optimizing `buildSessionTree` execution time or lazily computing the tree nodes to reduce main thread blocking during workspace changes."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T07:54:34.359925Z",
+        "source": {
+          "activity_id": "sessions/16687664012668634073/activities/ad8fc2b088c441c38644e2ebee9cc43a",
+          "report_sha256": "85b548750bb92b95ac9f3719f655b88aa9d13bfcd3006ecbbee10d90cad31deb",
+          "activity_created_at": "2026-09-22T07:54:19.812500Z",
+          "session_id": "16687664012668634073",
+          "dispatch_key": "740bc04564cd596c345bf66b"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T07:54:54.378820Z",
+    "last_poll_at": "2026-09-22T07:54:57.552158Z",
     "last_tick_at": "2026-09-22T07:48:51.924318Z",
     "run_id": "35701392097"
   }
