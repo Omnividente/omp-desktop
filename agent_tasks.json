@@ -31086,13 +31086,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-22T21:23:35.878671Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T21:31:06.068468Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T21:31:21.032206Z",
+    "last_poll_at": "2026-09-22T21:31:23.844176Z",
     "last_tick_at": "2026-09-22T21:25:18.354048Z",
     "run_id": "35786339692"
   }
