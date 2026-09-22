@@ -27127,7 +27127,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T06:15:45.838739Z"
+        "observed_at": "2026-09-22T06:15:45.838739Z",
+        "released_attempt_ref": "autonomous/attempt-acb192574377f264c8b6d3c6"
       },
       "research_result": {
         "summary": "Investigated UI focus drift on rename cancellations and modal lock-ins during failed or long-running session imports.",
