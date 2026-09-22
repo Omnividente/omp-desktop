@@ -31176,7 +31176,7 @@
       "id": "research-terminal-input-behavior-7",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -31285,23 +31285,52 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8044084466990554721",
         "dispatch_key": "ce7453005bd60848be72a5a3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-ce7453005bd60848be72a5a3",
         "started_at": "2026-09-22T22:11:38.992378Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T22:32:44.374618Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T22:19:31.517947Z"
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T22:32:44.374618Z"
+      },
+      "research_result": {
+        "summary": "Investigated the terminal keyboard event handling behavior. Discovered that the terminal does not process custom `terminalShortcutInput` events properly when input is blocked by `terminalInputBlocked`, despite earlier handling routines trying to emit these key bindings. Also observed that during context menu handling, the `pointerDownCell` tracks properly but `restoreFocus` was not behaving cleanly because there is no such state variable internally inside `TerminalView` directly handling right click focus in the same way right clicks cancel selection.",
+        "observations": [
+          {
+            "scenario": "A mock scenario evaluating the logic of `handleKeyDown` in `TerminalView.tsx` processing keyboard shortcuts against `terminalInputBlocked`.",
+            "evidence": "Wrote a Node script mimicking the event sequence when `inputBlockedRef.current` is true. `sendInput` early exits and does not process the keys. The copy shortcut (`KeyC` / `Insert`) and `terminalShortcutInput` all ultimately fail to resolve inputs because `sendInput` blocks them. However, `consume()` is called on them preventing default browser behaviors even if the terminal is blocked.",
+            "result": "Establishes that blocking terminal input blocks any valid shortcuts from executing, while still capturing and consuming the key events."
+          },
+          {
+            "scenario": "Context menu triggered via keyboard shortcut on a transcript link.",
+            "evidence": "Wrote a Node script checking what coordinates are passed to the context menu. Simulating a `contextmenu` event via keyboard (like Shift+F10) emits an event with `clientX: 0, clientY: 0`. The context menu is rendered at those top-left coordinates.",
+            "result": "Establishes that keyboard-triggered context menus display at (0,0). Matches canonical finding discovery-ccd17b3cdd6d7d64."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal continuity generation mismatch handling can lead to race conditions during rapid terminal creation and deletion.",
+          "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T22:32:44.374618Z",
+        "source": {
+          "activity_id": "sessions/8044084466990554721/activities/94fdff434b2e4f1e9a17dd355dfb0298",
+          "report_sha256": "3acd5c39a069eff5e45517b6c43459ef5656dee2269e11c2bc7a872837fa50ce",
+          "activity_created_at": "2026-09-22T22:21:49.232524Z",
+          "session_id": "8044084466990554721",
+          "dispatch_key": "ce7453005bd60848be72a5a3"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T22:33:01.957286Z",
+    "last_poll_at": "2026-09-22T22:33:05.192162Z",
     "last_tick_at": "2026-09-22T22:26:02.839962Z",
     "run_id": "35792296451"
   }
