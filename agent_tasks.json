@@ -30364,7 +30364,8 @@
         "feedback_nudge": {
           "at": "2026-09-22T16:33:07.640905Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-edd2de07c6878d5384d87d9b"
       },
       "research_result": {
         "summary": "Investigated UI focus drift on rename cancellations for workspace and session components.",
