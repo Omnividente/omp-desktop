@@ -30355,13 +30355,17 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T16:12:42.071561Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-22T16:33:07.640905Z",
+        "research_detached": {
+          "at": "2026-09-22T16:33:07.640905Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T16:33:27.290683Z",
+    "last_poll_at": "2026-09-22T16:33:30.703928Z",
     "last_tick_at": "2026-09-22T16:27:05.489690Z",
     "run_id": "35754114310"
   }
