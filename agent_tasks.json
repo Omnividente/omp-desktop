@@ -29121,7 +29121,7 @@
       "id": "research-terminal-input-ux-6",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -29228,23 +29228,110 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7118727866427794195",
         "dispatch_key": "6371b6375532953d5932caf0",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-6371b6375532953d5932caf0",
         "started_at": "2026-09-22T11:01:16.706180Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T11:21:26.506441Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T11:09:00.216178Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T11:21:26.506441Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of terminal focus restoration during right-click context menu interactions. Found a defect where `TerminalView`'s focus tracking is cleared by the `mouseup` event before the `contextmenu` event triggers on Windows/Linux.",
+        "observations": [
+          {
+            "scenario": "A mock scenario evaluating the event sequence for a right-click interaction inside `TerminalView` across OS environments.",
+            "evidence": "Wrote a JSDOM Node.js script mirroring the event listener sequence in `TerminalView.tsx` (`mousedown`, `mouseup`, `contextmenu`). On Windows and Linux, the event sequence is `mousedown` (button: 2) -> `mouseup` -> `contextmenu`. `TerminalView` currently sets `restoreFocus` to true on `mousedown`, false on `mouseup`, and checks `restoreFocus` inside the `contextmenu` handler. Since `mouseup` runs before `contextmenu`, `restoreFocus` evaluates to `false`, preventing `terminalRef.current?.focus()` from running.",
+            "result": "Establishes that the context menu right-click interaction on Windows and Linux fails to restore focus to the terminal due to premature tracking clearance by `handleMouseUp`. This observation explains broken focus restoration for right clicks in non-macOS environments."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal shortcuts for clipboard copy-pasting handle focus transitions correctly when `restoreFocus` evaluates to false.",
+          "Examine if `TranscriptModal` properly restores focus to the previously active element when returning from an active search."
+        ],
+        "proposed_task_ids": [
+          "discovery-71ebc265fed99164"
+        ],
+        "completed_at": "2026-09-22T11:21:26.506441Z",
+        "source": {
+          "activity_id": "sessions/7118727866427794195/activities/fddb1f8e86f54b699b616e58e5ef99fb",
+          "report_sha256": "cff90a6b92e1f97c67ebf188e20a96586ea9d19d019fcb673fb2270bf02cd6a4",
+          "activity_created_at": "2026-09-22T11:12:40.581309Z",
+          "session_id": "7118727866427794195",
+          "dispatch_key": "6371b6375532953d5932caf0"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7118727866427794195/activities/fddb1f8e86f54b699b616e58e5ef99fb",
+          "report_sha256": "cff90a6b92e1f97c67ebf188e20a96586ea9d19d019fcb673fb2270bf02cd6a4",
+          "activity_created_at": "2026-09-22T11:12:40.581309Z",
+          "session_id": "7118727866427794195",
+          "dispatch_key": "6371b6375532953d5932caf0"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-71ebc265fed99164"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-71ebc265fed99164",
+      "title": "Fix terminal focus restoration failure for context menu right-click on Windows/Linux",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-22T11:21:26.506441Z",
+      "acceptance": [
+        "Right-clicking on the terminal properly restores focus to the terminal on Windows and Linux."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via static analysis of event listeners and verified with a JSDOM node script simulating the right-click event order (mousedown -> mouseup -> contextmenu) on Windows/Linux.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Right-click inside the terminal container on a non-macOS environment.",
+            "Trigger the 'open context menu' action."
+          ],
+          "expected": "The terminal regains focus if it was previously focused before the context menu action.",
+          "actual": "The `handleMouseUp` listener sets `restoreFocus` to false before `handleContextMenu` runs, leaving the terminal unfocused."
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-ux-6",
+        "activity_id": "sessions/7118727866427794195/activities/fddb1f8e86f54b699b616e58e5ef99fb",
+        "report_sha256": "cff90a6b92e1f97c67ebf188e20a96586ea9d19d019fcb673fb2270bf02cd6a4",
+        "activity_created_at": "2026-09-22T11:12:40.581309Z",
+        "session_id": "7118727866427794195",
+        "dispatch_key": "6371b6375532953d5932caf0"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T11:21:48.184775Z",
+    "last_poll_at": "2026-09-22T11:21:51.401203Z",
     "last_tick_at": "2026-09-22T11:15:35.673883Z",
     "run_id": "35720385547"
   }
