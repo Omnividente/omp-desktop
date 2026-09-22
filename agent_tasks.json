@@ -31550,7 +31550,7 @@
       "id": "research-transcript-links-behavior-6",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -31659,23 +31659,113 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7045117393096977396",
         "dispatch_key": "903312a801ee9de02a012fcf",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-903312a801ee9de02a012fcf",
         "started_at": "2026-09-22T23:24:47.010420Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T23:44:49.274025Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T23:32:29.537485Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T23:44:49.274025Z"
+      },
+      "research_result": {
+        "summary": "Verified focus management behavior when opening external content links from a transcript modal.",
+        "observations": [
+          {
+            "scenario": "Simulating a user natively left-clicking an external content link inside a transcript message.",
+            "evidence": "Inspected `src/MarkdownContent.tsx` and `src/TranscriptModal.tsx` and verified with a synthetic React test in `jsdom`. `MarkdownContent` handles direct link clicks by calling `event.preventDefault()` and `onOpen(uri)`, which `TranscriptModal` routes to the Tauri API `openContentLink`. Unlike the context menu's `dismissMenu(true)` which explicitly calls `focus()` on the origin element, direct clicks have no explicit focus management. Natively, some webviews (like macOS WebKit) do not shift focus to anchor tags on click. Because the default navigation is prevented and no programmatic focus is applied to compensate, focus remains on the previously active element (e.g., the document body or scroll container) instead of the clicked link when the user returns to the app from their external browser.",
+            "result": "Establishes a focus management defect where directly clicking external links fails to consistently restore or move focus to the clicked link across all supported webviews, unlike context menu activations which correctly restore focus."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether rapid repeated toggles of the transcript Appearance modes (Rendered vs Source) can strand React layout requests or race the ResizeObserver cache invalidation.",
+          "Investigate if long-running or large output terminal sessions leak detached DOM nodes or Xterm references when closed abruptly or switched rapidly."
+        ],
+        "proposed_task_ids": [
+          "discovery-86ee5072b42c9535"
+        ],
+        "completed_at": "2026-09-22T23:44:49.274025Z",
+        "source": {
+          "activity_id": "sessions/7045117393096977396/activities/f07902a3bf9144df9f9b367b3415fc70",
+          "report_sha256": "dd20e1f1bae936e270d812eb906cfbd07197615dbba6e96ac4ce9a3b79526f97",
+          "activity_created_at": "2026-09-22T23:35:24.625293Z",
+          "session_id": "7045117393096977396",
+          "dispatch_key": "903312a801ee9de02a012fcf"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7045117393096977396/activities/f07902a3bf9144df9f9b367b3415fc70",
+          "report_sha256": "dd20e1f1bae936e270d812eb906cfbd07197615dbba6e96ac4ce9a3b79526f97",
+          "activity_created_at": "2026-09-22T23:35:24.625293Z",
+          "session_id": "7045117393096977396",
+          "dispatch_key": "903312a801ee9de02a012fcf"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-86ee5072b42c9535"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-86ee5072b42c9535",
+      "title": "Fix focus drop when directly opening external content links from transcript",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-22T23:44:49.274025Z",
+      "acceptance": [
+        "Directly left-clicking an external link in the transcript explicitly focuses the link, ensuring consistent focus restoration when returning to the app."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via static analysis of `src/MarkdownContent.tsx` and synthetic React tests on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. Natively, left-clicking an anchor in macOS WebKit does not shift focus, and the React `onClick` handler prevents default without programmatically focusing the event target.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render a synthetic transcript containing an external link.",
+            "Programmatically simulate a direct mouse click on the link (bypassing native mousedown focus behaviors) to invoke the onClick handler.",
+            "Observe the active element after the click is processed."
+          ],
+          "expected": "Focus is explicitly moved to the clicked link.",
+          "actual": "Focus remains on the previously active element (e.g., document body or scroll container)."
+        }
+      },
+      "target_paths": [
+        "src/MarkdownContent.tsx",
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-6",
+        "activity_id": "sessions/7045117393096977396/activities/f07902a3bf9144df9f9b367b3415fc70",
+        "report_sha256": "dd20e1f1bae936e270d812eb906cfbd07197615dbba6e96ac4ce9a3b79526f97",
+        "activity_created_at": "2026-09-22T23:35:24.625293Z",
+        "session_id": "7045117393096977396",
+        "dispatch_key": "903312a801ee9de02a012fcf"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T23:45:04.355901Z",
+    "last_poll_at": "2026-09-22T23:45:07.305171Z",
     "last_tick_at": "2026-09-22T23:39:03.624257Z",
     "run_id": "35798373521"
   }
