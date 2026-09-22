@@ -28388,12 +28388,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-22T09:34:05.052676Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T09:34:26.914890Z",
+    "last_poll_at": "2026-09-22T09:35:59.448942Z",
     "last_tick_at": "2026-09-22T09:28:17.511883Z",
     "run_id": "35710505654"
   }
