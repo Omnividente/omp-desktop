@@ -30455,7 +30455,7 @@
       "id": "research-transcript-links-performance-6",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -30581,23 +30581,113 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15878214732097590752",
         "dispatch_key": "38ff4444e7736735a1f97438",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-38ff4444e7736735a1f97438",
         "started_at": "2026-09-22T16:33:07.640905Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T16:53:50.043794Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T16:33:07.640905Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T16:53:50.043794Z"
+      },
+      "research_result": {
+        "summary": "Verified performance regression in TranscriptModal: toggling source/formatted modes discards all previous layout measurements.",
+        "observations": [
+          {
+            "scenario": "Simulated toggling between 'source' and 'formatted' transcript modes in useVirtualList.",
+            "evidence": "Inspected `src/useVirtualList.ts` and verified with synthetic React hook tests. `measurementCachesRef` retains only one measurement key at a time because `useEffect` iteratively deletes any cache whose key does not strictly match (`Object.is`) the current `measurementKey`. Toggling the mode allocates a new `virtualLayoutKey` reference, causing the virtual list to drop the previous mode's cache and revert all offscreen row heights back to `estimatedRowHeight` (50).",
+            "result": "Establishes a layout collapse and measurement overhead defect. Every time the user toggles back to a previously viewed mode, the virtual list container abruptly shrinks to the estimated size and forces the browser to expensively remeasure all items as they are scrolled back into view."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtual item layout regeneration blocks the main thread excessively when thousands of extremely tall or highly formatted log entries are suddenly uncollapsed by a mode switch."
+        ],
+        "proposed_task_ids": [
+          "discovery-fe5159f693ee72fe"
+        ],
+        "completed_at": "2026-09-22T16:53:50.043794Z",
+        "source": {
+          "activity_id": "sessions/15878214732097590752/activities/0305cc1fe62342f2b2433232d9bad130",
+          "report_sha256": "e97c930d255cab4c0923baa1d2fde88bbe4e331c7e889e1a632380bb8c19898b",
+          "activity_created_at": "2026-09-22T16:46:48.892146Z",
+          "session_id": "15878214732097590752",
+          "dispatch_key": "38ff4444e7736735a1f97438"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15878214732097590752/activities/0305cc1fe62342f2b2433232d9bad130",
+          "report_sha256": "e97c930d255cab4c0923baa1d2fde88bbe4e331c7e889e1a632380bb8c19898b",
+          "activity_created_at": "2026-09-22T16:46:48.892146Z",
+          "session_id": "15878214732097590752",
+          "dispatch_key": "38ff4444e7736735a1f97438"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-fe5159f693ee72fe"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-fe5159f693ee72fe",
+      "title": "Retain virtual layout measurement cache across mode toggles",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-22T16:53:50.043794Z",
+      "acceptance": [
+        "Toggling modes (e.g. source/formatted view) in the transcript does not discard layout measurements for the previously viewed mode",
+        "Memory is bounded by an LRU cache or fixed number of retained modes, preventing unbounded growth from continuous key generation"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React hook simulation of `useVirtualList` on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a long transcript with hundreds of entries",
+            "Scroll to the bottom of the transcript to populate the virtual list layout cache",
+            "Toggle to the 'Source' mode",
+            "Toggle back to the default 'Dialogue' mode",
+            "Observe the scroll position and the container's apparent scroll height (totalHeight)"
+          ],
+          "expected": "The total scroll height is preserved upon returning to the default mode, and the layout doesn't collapse back to the default `estimatedRowHeight`.",
+          "actual": "The `measurementCachesRef` is cleared when the mode changes, causing the layout to shrink to `estimatedRowHeight` for unmounted elements when toggling back."
+        }
+      },
+      "target_paths": [
+        "src/useVirtualList.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-6",
+        "activity_id": "sessions/15878214732097590752/activities/0305cc1fe62342f2b2433232d9bad130",
+        "report_sha256": "e97c930d255cab4c0923baa1d2fde88bbe4e331c7e889e1a632380bb8c19898b",
+        "activity_created_at": "2026-09-22T16:46:48.892146Z",
+        "session_id": "15878214732097590752",
+        "dispatch_key": "38ff4444e7736735a1f97438"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T16:54:08.953162Z",
+    "last_poll_at": "2026-09-22T16:54:11.867724Z",
     "last_tick_at": "2026-09-22T16:47:55.015021Z",
     "run_id": "35756403535"
   }
