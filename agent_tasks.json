@@ -26504,7 +26504,7 @@
       "id": "research-sessions-persistence-performance-6",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -26645,23 +26645,127 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2748131540766880800",
         "dispatch_key": "6967ba4e366f3ffe7191e0b3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-6967ba4e366f3ffe7191e0b3",
         "started_at": "2026-09-22T04:46:24.329603Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T05:28:39.811083Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T04:46:24.329603Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T05:28:39.811083Z"
+      },
+      "research_result": {
+        "summary": "Investigated the performance and cancellation of batch session imports.",
+        "observations": [
+          {
+            "scenario": "Simulated importing 5000 synthetic codex session files to measure latency and resource use during a long-running import batch without interruption.",
+            "evidence": "Created a synthetic benchmark (`src-tauri/src/bin/import_bench.rs`) that writes 5000 synthetic JSONL codex sessions to disk and calls `sessions::import_sessions`. The benchmark successfully imports all 5000 sessions but takes ~7.45 seconds to complete sequentially.",
+            "result": "Establishes that importing a large batch of sessions scales linearly but takes a substantial amount of time on disk operations. The backend `import_sessions` execution in `src-tauri/src/lib.rs` executes this batch in a single `run_blocking` task without any opportunity for cancellation or progress updates, confirming the hypothesis from previous cycles that batch imports can lock up the import task indefinitely without cancelability."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+        ],
+        "proposed_task_ids": [
+          "discovery-c991788ddc60b7c5"
+        ],
+        "completed_at": "2026-09-22T05:28:39.811083Z",
+        "source": {
+          "activity_id": "sessions/2748131540766880800/activities/039134091dcf4ed29f5796826106eca6",
+          "report_sha256": "9c29a3a8ea9e60588acf21ba2a1f2224d93ad0807034735634c82f82b8a1bab7",
+          "activity_created_at": "2026-09-22T05:09:34.469449Z",
+          "session_id": "2748131540766880800",
+          "dispatch_key": "6967ba4e366f3ffe7191e0b3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2748131540766880800/activities/039134091dcf4ed29f5796826106eca6",
+          "report_sha256": "9c29a3a8ea9e60588acf21ba2a1f2224d93ad0807034735634c82f82b8a1bab7",
+          "activity_created_at": "2026-09-22T05:09:34.469449Z",
+          "session_id": "2748131540766880800",
+          "dispatch_key": "6967ba4e366f3ffe7191e0b3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-c991788ddc60b7c5"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-c991788ddc60b7c5",
+      "title": "Implement cancelability for batch session imports",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "refactor"
+      ],
+      "created_at": "2026-09-22T05:28:39.811083Z",
+      "acceptance": [
+        "During a batch session import, the user can press the Cancel button or Escape key to abort the remaining items",
+        "The UI remains responsive and provides feedback during a prolonged import"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic benchmark that importing thousands of sessions takes several seconds and executes within a single blocking `import_sessions` backend call. Investigated `CodexImportModal.tsx` and `App.tsx` which wait indefinitely on a single Promise for all sessions without cancellation support.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Codex import modal and select hundreds or thousands of files.",
+            "Click 'Import Selected'.",
+            "Attempt to press the Cancel button or Escape key while importing."
+          ],
+          "expected": "The import process halts, skips remaining files, and closes the modal.",
+          "actual": "The Cancel button and Escape key are disabled or ignored, and the UI waits indefinitely until the entire batch finishes."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/sessions.rs",
+        "src/App.tsx",
+        "src/CodexImportModal.tsx",
+        "src/api.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-fd3c422f31a73d43",
+            "action": "reject",
+            "decision_at": "2026-09-21T20:15:41Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-6",
+        "activity_id": "sessions/2748131540766880800/activities/039134091dcf4ed29f5796826106eca6",
+        "report_sha256": "9c29a3a8ea9e60588acf21ba2a1f2224d93ad0807034735634c82f82b8a1bab7",
+        "activity_created_at": "2026-09-22T05:09:34.469449Z",
+        "session_id": "2748131540766880800",
+        "dispatch_key": "6967ba4e366f3ffe7191e0b3"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T05:28:56.082014Z",
+    "last_poll_at": "2026-09-22T05:28:58.868660Z",
     "last_tick_at": "2026-09-22T05:12:56.245181Z",
     "run_id": "35689799323"
   }
