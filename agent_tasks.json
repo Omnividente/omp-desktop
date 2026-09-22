@@ -29238,13 +29238,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-22T11:01:16.706180Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-22T11:09:00.216178Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T11:09:17.094314Z",
+    "last_poll_at": "2026-09-22T11:09:20.291162Z",
     "last_tick_at": "2026-09-22T11:03:11.678677Z",
     "run_id": "35719113246"
   }
