@@ -27628,7 +27628,7 @@
       "id": "research-workspace-navigation-ux-6",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -27746,18 +27746,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2306375059828148036",
         "dispatch_key": "b5c9b5613d8572e01a47df09",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-b5c9b5613d8572e01a47df09",
         "started_at": "2026-09-22T08:13:06.380327Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T08:48:48.678283Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T08:41:12.789997Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T08:48:48.678283Z",
         "research_detached": {
           "at": "2026-09-22T08:33:37.541890Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -27766,6 +27766,35 @@
           "at": "2026-09-22T08:33:37.541890Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Confirmed focus restoration defect when cancelling rename operations via Escape in ProjectRail and SessionList.",
+        "observations": [
+          {
+            "scenario": "Canceling workspace rename via Escape key when input is not strictly the active element",
+            "evidence": "Source code inspection and local patching of src/ProjectRail.tsx. The condition `document.activeElement === event.currentTarget` causes `renameFocusRef` to be bypassed, stranding focus on the body if JS-based navigation or tests drop focus briefly.",
+            "result": "Corroborates existing proposed task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb. Removing the active element check fixes focus restoration for ProjectRail."
+          },
+          {
+            "scenario": "Canceling session rename via Escape key restoring focus to the specific Edit button",
+            "evidence": "Source code inspection, test execution, and local patching of src/SessionList.tsx and src/SessionRow.test.tsx. Cancelling currently drops focus to `.session-select` row wrapper. Tracking `canceled` state in `actionFocusRef` and querying for `.session-play:not(.session-delete):not(.session-transcript):not(:first-child)` ensures focus restores precisely to the initiating Edit button.",
+            "result": "Corroborates existing proposed task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb. Corrects mismatch where session cancel restored focus to the wrong element."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify focus behavior when deleting the last session in a workspace.",
+          "Verify focus management when a modal (like ImportSessionModal) opens over a currently renaming input."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-22T08:48:48.678283Z",
+        "source": {
+          "activity_id": "sessions/2306375059828148036/activities/09373c20ba93456195ffd17914f5de35",
+          "report_sha256": "b7637757335d8b9482b7afa2dc58887e10696a7b9f7bf87816aee22f6ef0732a",
+          "activity_created_at": "2026-09-22T08:37:20.055228Z",
+          "session_id": "2306375059828148036",
+          "dispatch_key": "b5c9b5613d8572e01a47df09"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -27944,7 +27973,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T08:49:08.736557Z",
+    "last_poll_at": "2026-09-22T08:49:12.161411Z",
     "last_tick_at": "2026-09-22T08:42:57.448058Z",
     "run_id": "35706135795"
   }
