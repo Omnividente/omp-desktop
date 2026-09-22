@@ -31296,7 +31296,8 @@
         "outcome": "no_change",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T22:32:44.374618Z"
+        "observed_at": "2026-09-22T22:32:44.374618Z",
+        "released_attempt_ref": "autonomous/attempt-ce7453005bd60848be72a5a3"
       },
       "research_result": {
         "summary": "Investigated the terminal keyboard event handling behavior. Discovered that the terminal does not process custom `terminalShortcutInput` events properly when input is blocked by `terminalInputBlocked`, despite earlier handling routines trying to emit these key bindings. Also observed that during context menu handling, the `pointerDownCell` tracks properly but `restoreFocus` was not behaving cleanly because there is no such state variable internally inside `TerminalView` directly handling right click focus in the same way right clicks cancel selection.",
