@@ -27263,6 +27263,143 @@
         "session_id": "12985027106532144361",
         "dispatch_key": "acb192574377f264c8b6d3c6"
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-6",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-22T06:27:46Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb\",\"status\":\"proposed\",\"title\":\"Restore focus to edit button after cancelling a workspace or session rename\",\"target_paths\":[\"src/ProjectRail.tsx\",\"src/SessionList.tsx\",\"src/SessionRow.tsx\",\"src/SessionRow.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. In `ProjectRail`, the strict `document.activeElement === event.currentTarget` check within the `onKeyDown` handler can fail under some test or async unmount conditions, stranding focus on `do [excerpt]\",\"expected\":\"Focus correctly shifts back to the specific edit button that initiated the rename.\",\"actual\":\"In `ProjectRail`, focus shifts to `document.body` if the active element condition fails. In `SessionList`, focus shifts to the `.session-select` div container.\",\"acceptance\":[\"Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if active element checks drift slightly.\",\"Focus moves back to the edit button when a session rename is canceled via Escape instead of the session row.\"]}},{\"canonical_id\":\"discovery-c991788ddc60b7c5\",\"status\":\"proposed\",\"title\":\"Implement cancelability for batch session imports\",\"target_paths\":[\"src-tauri/src/lib.rs\",\"src-tauri/src/sessions.rs\",\"src/App.tsx\",\"src/CodexImportModal.tsx\",\"src/api.ts\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that importing thousands of sessions takes several seconds and executes within a single blocking `import_sessions` backend call. Investigated `CodexImportModal.tsx` and `App.tsx` which wait indefinitely on a single Promise for all sessions without cancellation suppor [excerpt]\",\"expected\":\"The import process halts, skips remaining files, and closes the modal.\",\"actual\":\"The Cancel button and Escape key are disabled or ignored, and the UI waits indefinitely until the entire batch finishes.\",\"acceptance\":[\"During a batch session import, the user can press the Cancel button or Escape key to abort the remaining items\",\"The UI remains responsive and provides feedback during a prolonged import\"]}},{\"canonical_id\":\"discovery-94bf5b1fa52c9f90\",\"status\":\"proposed\",\"title\":\"Prevent import modals from remaining stuck open on backend import failure\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source code inspection of `src/App.tsx` on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703 reveals the catch block bypasses state clearing.\",\"expected\":\"The error toast is shown, and the modal state (`codexOpen` or `pendingOmpImportPath`) is reset, dismissing the modal.\",\"actual\":\"The error toast is shown, but the modal remains permanently open.\",\"acceptance\":[\"When `importSessions` throws an error inside `importCodexSelected` or `importPendingOmp`, the modal state is cleared.\"]}},{\"canonical_id\":\"discovery-7f98db57491c0c0d\",\"status\":\"done\",\"title\":\"Persist selected workspace across application restarts\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of src/App.tsx shows selectedWorkspaceKey is a React state initialized to null. There is no read or write to localStorage or any other persistent store. The refresh() effect triggers applyPayload without a preferred workspace, forcing a fallback to the first workspace on mount.\",\"expected\":\"The second workspace remains selected after the restart.\",\"actual\":\"The selected workspace reverts to the first workspace in the list.\",\"acceptance\":[\"The application restores the previously selected workspace upon restart\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-e0f2bce9ebc246e7\",\"status\":\"done\",\"title\":\"Virtualize the workspace list in ProjectRail\",\"target_paths\":[\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Measured rendering and update latencies of ProjectRail with varying synthetic input sizes (100, 1000, 5000 workspaces) using React Testing Library. No real user data or network calls were used.\",\"expected\":\"The rendering and update latencies remain relatively constant or grow sublinearly due to DOM virtualization.\",\"actual\":\"The rendering latency scales linearly O(N), taking over 7 seconds for initial render and nearly 2 seconds for a workspace switch with 5000 items.\",\"acceptance\":[\"The ProjectRail component utilizes virtualization to render the workspace list\",\"Rendering time and DOM size remain bounded regardless of the number of workspaces\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-741923afb429da5a\",\"status\":\"done\",\"title\":\"Restore focus after deleting a workspace\",\"target_paths\":[\"src/App.tsx\",\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard navigation observation in synthetic test suite against `<ProjectRail />`. A deleted workspace leaves focus stranded on `document.body` because its corresponding remove button is unmounted.\",\"expected\":\"Focus correctly shifts to another relevant interactive element in the rail.\",\"actual\":\"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\",\"acceptance\":[\"Focus moves to a reasonable fallback element, like the open folder button, when the currently focused workspace removal button is deleted.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"done\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-a6a63bbab9e7a7e3\",\"status\":\"done\",\"title\":\"Fix race condition during concurrent single-instance workspace switching\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic testing of `listen<SingleInstanceEvent>(\\\"single-instance\\\")` inside `App.tsx` using jsdom and mocked out-of-order promise resolutions. The active workspace will mistakenly reflect the slower, older request instead of the newer one.\",\"expected\":\"The application should remain on workspace B, as it was the most recently requested workspace.\",\"actual\":\"The application overwrites the UI state and switches to workspace A because `applyPayload(next, A)` is called blindly without tracking if a newer request superseded it.\",\"acceptance\":[\"Rapid successive single-instance switch requests safely ignore earlier responses if a later request has already resolved or is pending, preventing UI state overwrites by stale requests.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-d661d7760ddf497e\",\"status\":\"done\",\"title\":\"Purge stale toasts on visibility change after OS suspend\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Native desktop observation with multiple toasts enqueued. Simulated OS suspend pauses setTimeout, causing toasts to remain visible after resume.\",\"expected\":\"The toast is immediately cleared from the screen since 2 minutes exceeds its 5.5s TTL.\",\"actual\":\"The toast remains on screen for the rest of its 5.5s timer that was paused during suspend.\",\"acceptance\":[\"Resuming from OS suspend or tab backgrounding proactively expires toasts that have outlived their TTL\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 6,
+        "previous_reports": [
+          {
+            "summary": "Measured rendering and update latencies for TerminalWorkspace and ProjectRail with varying synthetic load scales using React Testing Library.",
+            "observations": [
+              {
+                "scenario": "Rendering `<TerminalWorkspace />` containing 150 background terminal tabs.",
+                "evidence": "Wrote a synthetic React Testing Library suite (`src/TerminalWorkspace.perf.test.tsx`) mounting the component with 150 inactive tabs. The initial render block took nearly ~8-10 seconds to execute. This is largely due to the underlying xterm.js instantiations or overhead of rendering many terminal panes even when they are hidden.",
+                "result": "Establishes that terminal tab rendering has a significant overhead per tab (O(N)), leading to substantial lag and unresponsiveness when closing or restoring large numbers of tabs."
+              },
+              {
+                "scenario": "Rendering `<ProjectRail />` with 5,000 workspaces and updating the selected workspace.",
+                "evidence": "Wrote a synthetic React Testing Library suite (`src/ProjectRail.perf5.test.tsx`) mounting the component with 5,000 workspaces and 0 sessions. Initial render took ~5.2 seconds, and updating the active workspace (re-render) took ~2.3 seconds.",
+                "result": "Establishes that the `<ProjectRail />` component struggles with very large lists of workspaces, causing latency. However, 5,000 workspaces is an extreme edge case compared to sessions. Earlier rejected task `discovery-e0f2bce9ebc246e7` already proposed virtualization for this component."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate xterm.js memory retention footprint or memory leaks when closing large numbers of background terminal tabs.",
+              "Measure rendering latency and scale factors for the settings view or incident center to see if they suffer from unbounded list growth."
+            ],
+            "proposed_task_ids": [
+              "discovery-e62dc44ca5890fbd"
+            ],
+            "completed_at": "2026-09-21T08:12:09.759864Z",
+            "source": {
+              "activity_id": "sessions/16083861346300584843/activities/6ffd23a06d904aa2abf4a1ce2010f5fb",
+              "report_sha256": "350dd863d3f5348d9ffef4af7b8cbff78dcbf50970e6a8ce8e116490e1f529d7",
+              "activity_created_at": "2026-09-21T08:00:06.132613Z",
+              "session_id": "16083861346300584843",
+              "dispatch_key": "1a7133c9715ec1e803798a6d"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the lack of focus restoration when canceling rename modes in `<ProjectRail />` and `<SessionList />`.",
+            "observations": [
+              {
+                "scenario": "Canceling a workspace rename action using the Escape key in `<ProjectRail />`.",
+                "evidence": "Wrote a synthetic Vitest + testing-library suite using jsdom. Verified that `document.activeElement` becomes `document.body` instead of reverting to the \"Rename project\" edit button that originally opened the input.",
+                "result": "Establishes that canceling a workspace rename orphans focus, causing a keyboard navigation disconnect (confirming `discovery-1b0c3efa0c72ca8c`)."
+              },
+              {
+                "scenario": "Canceling a session rename action using the Escape key in `<SessionList />`.",
+                "evidence": "Wrote a synthetic Vitest + testing-library suite using jsdom. Verified that `document.activeElement` becomes `document.body` instead of reverting to the \"Rename session\" edit button that originally opened the input.",
+                "result": "Establishes that canceling a session rename orphans focus, causing a keyboard navigation disconnect (confirming `discovery-1b0c3efa0c72ca8c`)."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether focusing an out-of-view workspace or session after a list update correctly scrolls it into view using React Virtual virtualization offsets."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T08:32:12.061363Z",
+            "source": {
+              "activity_id": "sessions/122566259750316405/activities/5391dc406bb34f86953ac484029e44b5",
+              "report_sha256": "0f610bab5568d7895f7b559608233e046349455806d153f93173d14540689cf5",
+              "activity_created_at": "2026-09-21T08:22:30.650502Z",
+              "session_id": "122566259750316405",
+              "dispatch_key": "eba073b9853d191a3357e2d7"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to edit button after cancelling a workspace or session rename",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1b0c3efa0c72ca8c; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. A canceled rename leaves focus stranded on `document.body` because the corresponding rename input is unmounted without focus restoration logic. (Canonical ID: discovery-1b0c3efa0c72ca8c)\", \"reproduction\": {\"actual\": \"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\", \"expected\": \"Focus correctly shifts back to the edit button that initiated the rename.\", \"steps\": [\"Render `<ProjectRail />` or `<SessionList />`.\", \"Focus the 'Rename project' or 'Rename session' button.\", \"Click the button to enter rename mode (the input field receives focus).\", \"Press the Escape key to cancel rename mode.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/ProjectRail.tsx",
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "Focus moves back to the edit button when a workspace rename is canceled via Escape",
+                  "Focus moves back to the edit button when a session rename is canceled via Escape"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified focus restoration defects when cancelling a rename operation in `<ProjectRail />` and `<SessionList />`.",
+            "observations": [
+              {
+                "scenario": "Canceling a workspace rename action using the Escape key in `<ProjectRail />` within a JS test environment.",
+                "evidence": "Wrote a synthetic React Testing Library suite simulating `userEvent.keyboard('{Escape}')` without ensuring `document.activeElement` matched the exact input node before pressing Escape (simulating an edge case test script or JS-only interaction where focus drops unexpectedly before the key event is handled). Verified that the condition `document.activeElement === event.currentTarget` fails, which bypasses `renameFocusRef` creation and orphans focus onto `document.body`.",
+                "result": "Establishes that the `ProjectRail` rename cancellation focus logic contains a strict `activeElement` check that can fail, leading to `document.body` getting stranded focus. Removing this strict check allows the `renameFocusRef` to reliably track focus restoration upon cancellation."
+              },
+              {
+                "scenario": "Canceling a session rename action using the Escape key in `<SessionList />`.",
+                "evidence": "Wrote a synthetic React Testing Library suite to check where focus is placed when `Escape` is pressed in the `<SessionList />` rename input. The current implementation deliberately assigns `target: e.currentTarget.closest('.session-select')` inside the `Escape` keydown handler, and thus focuses the `session-select` outer div instead of the original 'Edit' button that initiated the rename flow.",
+                "result": "Establishes that `<SessionList />` reliably avoids focus stranding on `document.body`, but incorrectly restores focus to the row (`.session-select`) rather than the edit button (which represents the original trigger point), creating a mismatch with expected focus behavior."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether focusing an out-of-view workspace or session after a list update correctly scrolls it into view using React Virtual virtualization offsets."
+            ],
+            "proposed_task_ids": [
+              "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb"
+            ],
+            "completed_at": "2026-09-21T22:45:47.449400Z",
+            "source": {
+              "activity_id": "sessions/12004610115811608616/activities/6e3bf9f9c6fb46e6b5bdc0512bc1c635",
+              "report_sha256": "1dd4a27ce145d3475d003c7b0031b615e6c657f40a8811c93162a04783983f25",
+              "activity_created_at": "2026-09-21T22:39:37.400181Z",
+              "session_id": "12004610115811608616",
+              "dispatch_key": "2074796a53b3ca23c5d35b1f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
