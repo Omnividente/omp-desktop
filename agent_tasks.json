@@ -26237,7 +26237,7 @@
       "id": "research-terminal-input-reliability-6",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -26348,23 +26348,160 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12725884021710490559",
         "dispatch_key": "cd3014eddcfc5ad4b30e3228",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-cd3014eddcfc5ad4b30e3228",
         "started_at": "2026-09-22T00:31:10.031794Z",
-        "finished_at": "",
+        "finished_at": "2026-09-22T00:57:43.351927Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T00:31:10.031794Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T00:57:43.351927Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of terminal input continuity and recovery mechanics, verifying the known defect where pending switch recovery state persists when new input arrives.",
+        "observations": [
+          {
+            "scenario": "A mock scenario evaluating the terminal's `write_bytes` function inside `src-tauri/src/terminal.rs` when there is a pending `switch_recovery`.",
+            "evidence": "Wrote and executed a Rust unit test mimicking new terminal input (via `write_bytes`) arriving while the terminal process has an existing pending switch recovery state. The test confirms that `process.switch_recovery` is NOT set to `None` upon successful acceptance of the new input, meaning the stale recovery buffer is kept.",
+            "result": "Establishes that new manual input does not discard an older failed/pending switch recovery buffer. This matches the canonical finding discovery-d47c6c8c6e6f2995 and reproduces the lack of chronological continuity."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal shortcuts for select-all and copy are correctly bound across different OS environments when the terminal is in a focused but disconnected state.",
+          "Examine if lingering references exist for `TerminalView` closures preventing garbage collection when terminals are quickly destroyed and recreated."
+        ],
+        "proposed_task_ids": [
+          "discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d"
+        ],
+        "completed_at": "2026-09-22T00:57:43.351927Z",
+        "source": {
+          "activity_id": "sessions/12725884021710490559/activities/711b7487ebd946128aa95a95126b4775",
+          "report_sha256": "88a32da80a1547585fb6106e51d4967225446740f0ef5e6f82afbf9c723def22",
+          "activity_created_at": "2026-09-22T00:44:56.767231Z",
+          "session_id": "12725884021710490559",
+          "dispatch_key": "cd3014eddcfc5ad4b30e3228"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12725884021710490559/activities/711b7487ebd946128aa95a95126b4775",
+          "report_sha256": "88a32da80a1547585fb6106e51d4967225446740f0ef5e6f82afbf9c723def22",
+          "activity_created_at": "2026-09-22T00:44:56.767231Z",
+          "session_id": "12725884021710490559",
+          "dispatch_key": "cd3014eddcfc5ad4b30e3228"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d",
+      "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix",
+        "reliability"
+      ],
+      "created_at": "2026-09-22T00:57:43.351927Z",
+      "acceptance": [
+        "When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.",
+        "A Rust unit test confirms that `write_bytes` sets `switch_recovery` to `None` when new input is successfully queued."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a pending SwitchInputRecovery state for a terminal process by simulating a failed switch input.",
+            "Call `write_bytes` on that terminal to write new user input.",
+            "Check the `switch_recovery` state of the terminal process."
+          ],
+          "expected": "The switch_recovery state is cleared (set to None) upon receiving new input.",
+          "actual": "The switch_recovery state remains present and pending, allowing it to be sent after the new input."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/terminal.rs"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-006f3c08b902b31c3e70c21732b3003d5ec332198fe972f5aad416d03dc6a546",
+            "action": "reject",
+            "decision_at": "2026-09-21T20:12:46Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-91c421b7b33a4fcc4f466eefa3d26972453e867ce57abf14a65da950f8529b14",
+            "action": "reject",
+            "decision_at": "2026-09-20T20:26:15Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-80e17f038036e2b7de8d8da9951c7c8c68f2b61f7014786f5901ed10717bfee0",
+            "action": "reject",
+            "decision_at": "2026-09-20T07:49:04Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-d47c6c8c6e6f2995",
+            "action": "reject",
+            "decision_at": "2026-09-19T15:58:37Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-87e9827baf673422",
+            "action": "reject",
+            "decision_at": "2026-09-18T16:41:35Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-fba4bf1ceccfc72b",
+            "action": "reject",
+            "decision_at": "2026-09-18T16:41:20Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-terminal-input-reliability-6",
+        "activity_id": "sessions/12725884021710490559/activities/711b7487ebd946128aa95a95126b4775",
+        "report_sha256": "88a32da80a1547585fb6106e51d4967225446740f0ef5e6f82afbf9c723def22",
+        "activity_created_at": "2026-09-22T00:44:56.767231Z",
+        "session_id": "12725884021710490559",
+        "dispatch_key": "cd3014eddcfc5ad4b30e3228"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T00:58:02.945518Z",
+    "last_poll_at": "2026-09-22T00:58:06.077819Z",
     "last_tick_at": "2026-09-22T00:51:43.291864Z",
     "run_id": "35673619667"
   }
