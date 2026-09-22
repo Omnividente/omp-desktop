@@ -29519,6 +29519,157 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-6",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-22T12:26:20Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-145f7f8b08d0c398\",\"status\":\"done\",\"title\":\"Prevent resource sampling failure from concurrent workspace unmounts\",\"target_paths\":[\"src-tauri/src/resource_health.rs\"],\"observed_contract\":{\"detail\":\"Native backend observation using a synthetic test harness mimicking sample_volume and existing_resource_path; no live user data or GUI exercised.\",\"expected\":\"The resource health snapshot successfully completes for memory and remaining stable volumes (like the sessions directory).\",\"actual\":\"The entire resource sampling operation fails with an IO error (No such file or directory) propagating from sample_volume, returning no metrics.\",\"acceptance\":[\"The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.\",\"Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-5f30b23ec899ed07\",\"status\":\"done\",\"title\":\"Prevent ResourceHealthPanel from displaying a success icon in error states\",\"target_paths\":[\"src/ResourceHealthPanel.tsx\"],\"observed_contract\":{\"detail\":\"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used.\",\"expected\":\"The summary container has an 'is-warning' or 'is-critical' class and displays an 'alert' icon for the unavailable metrics.\",\"actual\":\"The summary container falls back to the 'is-ok' class and displays a 'check' success icon alongside the 'Resource metrics are unavailable' text.\",\"acceptance\":[\"When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-26c4a50fb11c2827\",\"status\":\"done\",\"title\":\"Restore focus correctly when IncidentCenter closes via 'Open terminal'\",\"target_paths\":[\"src/IncidentCenter.tsx\"],\"observed_contract\":{\"detail\":\"Synthetic test observation in jsdom. Clicking 'Open terminal' triggers `onFocusTerminal` and unmounts the component without restoring focus correctly.\",\"expected\":\"Focus should return to the `returnFocusRef` target after the component unmounts, restoring keyboard flow.\",\"actual\":\"The return focus logic is bypassed, leaving `document.activeElement` unchanged or pointing to the `body`.\",\"acceptance\":[\"Focus correctly returns to the trigger or a logical target when closing the incident panel via the 'Open terminal' action.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 6,
+        "previous_reports": [
+          {
+            "summary": "Measured the scalability and latency of resource process sampling.",
+            "observations": [
+              {
+                "scenario": "Execute sysinfo::System::refresh_processes_specifics with a varying number of queried PIDs to simulate extreme resource snapshots containing large numbers of processes.",
+                "evidence": "Executed an isolated rust script (`src-tauri/src/bin/benchmark_resource_health.rs`) to invoke `sysinfo::System::refresh_processes_specifics` directly. Found that polling 1 simulated PID takes ~157µs, while polling 10,000 PIDs takes ~116ms.",
+                "result": "Establishes that the latency for process memory sampling scales linearly and predictably, completing well within a reasonable timeframe (fraction of a second) even for 10,000 concurrent processes, so there is no immediate performance regression or bottleneck here for large workloads."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether large continuous stdout logs being piped to the frontend significantly impacts memory growth on the backend before the RingBuffer prunes the overflow."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T13:20:09.938055Z",
+            "source": {
+              "activity_id": "sessions/13224512092593204960/activities/22f4c43db33349bf8ef173b56b2732ce",
+              "report_sha256": "fe3fd4b7b6eb18a43a487f0b22f85a9a305f36a96057e23154ca050d44fd14c8",
+              "activity_created_at": "2026-09-21T13:11:44.542308Z",
+              "session_id": "13224512092593204960",
+              "dispatch_key": "6275e1a037c9b1b0ca107ae5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified vulnerabilities in ResourceHealthPanel presentation and sample_volumes fragility",
+            "observations": [
+              {
+                "scenario": "Review the UI behavior of `ResourceHealthPanel` when an error state occurs without a valid snapshot.",
+                "evidence": "Observed in `src/ResourceHealthPanel.tsx` that the `severity` falls back directly to `'ok'` when a snapshot is missing, ignoring the presence of an `error` prop (`const severity = snapshot?.severity ?? \"ok\"`). This results in rendering a checkmark icon with `is-ok` styling for error conditions.",
+                "result": "Establishes that the UI incorrectly styles an error state as a success, providing contradictory visual indicators to the user (canonical_id: discovery-5f30b23ec899ed07)."
+              },
+              {
+                "scenario": "Simulate a race condition where a workspace is concurrently unmounted during resource volume sampling in `src-tauri/src/resource_health.rs`.",
+                "evidence": "Running an isolated rust script mimicking `sample_volume` and `existing_resource_path` confirmed that when `fs::remove_dir_all` occurs right after path resolution but before `fs::metadata`, an `Os { code: 2, kind: NotFound }` error is produced. This error propagates up via the `?` operator in the `sample_volumes` loop, failing the entire snapshot.",
+                "result": "Establishes that the resource sampling thread is fragile to concurrent unmounts. A transient error on a single volume leads to the total loss of all resource health metrics (canonical_id: discovery-145f7f8b08d0c398)."
+              },
+              {
+                "scenario": "Check keyboard focus restoration and trapping behavior in `IncidentCenter` when navigating through components.",
+                "evidence": "Executed an isolated test harness for `IncidentCenter.tsx`. Navigating using Tab/Shift+Tab loops correctly inside the dialog, and standard unmounting restores focus. However, if the panel is closed implicitly (such as by clicking 'Open terminal' which triggers `onFocusTerminal`), the component attempts to access undefined properties during rerender and does not restore focus properly if unmounted abruptly.",
+                "result": "Establishes that the tab focus loop trap works effectively within the incident center modal, but unmounting the component during an action (like opening a terminal) bypasses the focus restoration logic, leaving keyboard users stranded."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the `ResourceHealthPanel` focus trap includes dynamically rendered summary details correctly across all environments and handles focus loop edge cases properly."
+            ],
+            "proposed_task_ids": [
+              "discovery-26c4a50fb11c2827"
+            ],
+            "completed_at": "2026-09-21T14:27:18.952168Z",
+            "source": {
+              "activity_id": "sessions/8825361110665540714/activities/a7b94871bf474ab897b4d8e817abb6ce",
+              "report_sha256": "841a7f7b559f8b746fb399ee0c2ac2b64b7e0c0267546ece8ed7bded17cb2ca2",
+              "activity_created_at": "2026-09-21T14:07:38.651341Z",
+              "session_id": "8825361110665540714",
+              "dispatch_key": "78a83f12dda68f89ae2fd3c9"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent ResourceHealthPanel from displaying a success icon in error states",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-5f30b23ec899ed07; not established as a duplicate. {\"detail\": \"Isolated synthetic test observation rendering the `ResourceHealthPanel` directly with an error and null snapshot. No live backend connection or real user session was used. (Canonical ID: discovery-5f30b23ec899ed07)\", \"reproduction\": {\"actual\": \"The component falls back to the 'is-ok' class and displays a 'check' success icon alongside the error message.\", \"expected\": \"The component assigns a warning/critical severity and renders an alert icon for the error.\", \"steps\": [\"Render the `ResourceHealthPanel` component in a test environment with `snapshot={null}` and a valid `error` string.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "When ResourceHealthPanel receives an error but no snapshot, the summary indicator displays an alert icon and uses an appropriate severity class (e.g. 'warning') instead of 'ok'."
+                ]
+              },
+              {
+                "title": "Prevent resource sampling failure from concurrent workspace unmounts",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-145f7f8b08d0c398; not established as a duplicate. {\"detail\": \"Native backend observation using a synthetic test harness mimicking `sample_volume` and `existing_resource_path`; no live user data or GUI exercised. (Canonical ID: discovery-145f7f8b08d0c398)\", \"reproduction\": {\"actual\": \"The entire resource sampling operation fails with an IO error (No such file or directory) propagating upwards, returning no metrics at all.\", \"expected\": \"The error from `sample_volume` is ignored or handled gracefully by `sample_volumes`, allowing other volumes to still be sampled and returned.\", \"steps\": [\"Create a temporary directory simulating a workspace volume.\", \"Spawn a concurrent thread that deletes the directory immediately after `existing_resource_path` resolves it but before `fs::metadata` is invoked in `sample_volume`.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src-tauri/src/resource_health.rs"
+                ],
+                "acceptance": [
+                  "The resource snapshot succeeds and reports on available volumes even if a workspace directory is concurrently unmounted or deleted during sampling.",
+                  "Missing or unreadable volumes gracefully fall back or are omitted without aborting the entire system resource check."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified keyboard navigation trap handles dynamic rendering gracefully in IncidentCenter, and investigated previous findings regarding volume sampling fragility and severity error icon state in ResourceHealthPanel.",
+            "observations": [
+              {
+                "scenario": "Execute keyboard focus trap testing in IncidentCenter.tsx via a synthetic jsdom test, providing an incident with a long reason to trigger the `<details>`/`<summary>` expander.",
+                "evidence": "A vitest synthetic jsdom environment was constructed (`src/test_incident_focus.test.tsx`). The test rendered `IncidentCenter` with an incident containing a 200-character string to enforce the rendering of the `details` element. We observed the list of focusable elements gathered by the internal query selector indeed includes the dynamically rendered `summary` element. Focusing the last element and pressing 'Tab' accurately trapped focus, wrapping back to the first active element.",
+                "result": "Establishes that the focus trap inside IncidentCenter correctly identifies dynamically rendered `<summary>` interactive elements based on content length without regressions, preventing keyboard users from escaping the modal unexpectedly."
+              },
+              {
+                "scenario": "Test ResourceHealthPanel.tsx rendering behavior on missing snapshot data due to an error to confirm styling regressions (Canonical ID: discovery-5f30b23ec899ed07).",
+                "evidence": "Observed via `src/test_focus.test.tsx` and source code inspection: The `severity` falls back directly to `'warning'` or `'ok'` using `const severity = snapshot?.severity ?? (error ? \"warning\" : \"ok\")`. The `Icon` component strictly looks for `severity === \"ok\" ? \"check\" : \"alert\"`. The vitest output confirmed that the element `<div aria-live=\"polite\" className=\"resource-summary is-warning\">` actually correctly contains the `alert` icon instead of the checkmark.",
+                "result": "Establishes that the previous bug report (discovery-5f30b23ec899ed07) regarding the success icon in error states is a false positive. The UI does correctly display an alert icon for error conditions because it falls back to 'warning', which triggers the 'alert' icon render logic."
+              },
+              {
+                "scenario": "Simulate a race condition where a workspace is concurrently unmounted during resource volume sampling in `src-tauri/src/resource_health.rs` using a synthetic rust script (Canonical ID: discovery-145f7f8b08d0c398).",
+                "evidence": "Constructed an isolated script `test_sample.rs` that called `fs::canonicalize` on a directory, then started a concurrent thread to delete that directory, and finally called `fs::metadata` on the resolved path. The thread reliably surfaced a `NotFound` `os error 2` during metadata access. Source inspection of `src-tauri/src/resource_health.rs` reveals that `sample_volumes` loops over targets and calls `sample_volume`. If `sample_volume` returns `Err(error)`, the error is caught and pushed into `unavailable_volumes` (`unavailable_volumes.push(ResourceUnavailableVolume { error, ... })`), and the loop continues. The error does NOT propagate via `?` up from `sample_volumes` to abort the entire system resource check.",
+                "result": "Establishes that the previous bug report (discovery-145f7f8b08d0c398) claiming an IO error propagates upwards and aborts the entire resource snapshot is factually incorrect. The application handles individual volume errors gracefully, returning them as unavailable volumes without affecting other metrics."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the fallback severity for a partially unavailable memory snapshot."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T12:13:24.886368Z",
+            "source": {
+              "activity_id": "sessions/11645969565930426819/activities/c166f8b82e5645ffb21749bd851abe4f",
+              "report_sha256": "985386f95d9776749f0036736c2d603a7491dabfa793a0e9f7b03ca294882672",
+              "activity_created_at": "2026-09-22T12:02:59.125294Z",
+              "session_id": "11645969565930426819",
+              "dispatch_key": "db8404fa37f0626b1cd88c8f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
