@@ -28284,7 +28284,7 @@
       "id": "research-settings-models-behavior-6",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -28415,7 +28415,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "685378285279011776",
         "dispatch_key": "96351a9fd21baeb21cee0394",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
@@ -28423,10 +28423,34 @@
         "started_at": "2026-09-22T09:34:05.052676Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-22T09:41:50.707568Z"
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-22T10:01:06.086225Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-22T10:01:06.086225Z",
+          "source": {
+            "activity_id": "sessions/685378285279011776/activities/334ce66598464c07a1dfa7cf8764631a",
+            "report_sha256": "b51ae5a4a89ead6ee77db2eaee9fd0d3afe9c5f23765220568de8a9b3a67654e",
+            "activity_created_at": "2026-09-22T09:48:27.148619Z",
+            "session_id": "685378285279011776",
+            "dispatch_key": "96351a9fd21baeb21cee0394"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-22T10:01:26.399528Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/685378285279011776/activities/334ce66598464c07a1dfa7cf8764631a",
+            "report_sha256": "b51ae5a4a89ead6ee77db2eaee9fd0d3afe9c5f23765220568de8a9b3a67654e",
+            "activity_created_at": "2026-09-22T09:48:27.148619Z",
+            "session_id": "685378285279011776",
+            "dispatch_key": "96351a9fd21baeb21cee0394"
+          }
+        }
       }
     },
     {
@@ -28472,7 +28496,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-22T10:01:22.475170Z",
+    "last_poll_at": "2026-09-22T10:01:25.170683Z",
     "last_tick_at": "2026-09-22T09:55:13.985074Z",
     "run_id": "35713036392"
   }
