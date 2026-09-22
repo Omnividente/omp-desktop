@@ -31469,7 +31469,8 @@
         "feedback_nudge": {
           "at": "2026-09-22T23:06:49.255603Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-01f45f67efddea6206ea4141"
       },
       "research_result": {
         "summary": "Verified focus behavior and component response when the last session in a workspace is deleted. Focus management drops focus to the document body when an active session's DOM node is removed by deletion.",
