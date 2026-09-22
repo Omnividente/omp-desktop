@@ -28493,6 +28493,128 @@
         "session_id": "4948861275060787546",
         "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
       }
+    },
+    {
+      "id": "research-settings-models-reliability-6",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-22T10:01:06Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"done\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"done\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"done\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-db32c1ac35bd4222\",\"status\":\"done\",\"title\":\"Preserve language preference during settings recovery\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.\",\"expected\":\"The recovery screen text and logs reflect the recovered language preference.\",\"actual\":\"The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it.\",\"acceptance\":[\"Partial settings recovery extracts and preserves the `language` field when it is readable\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-37764527ab2ab728\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring `useMemo` latency. The code spreads the models into a new array, sorts the entire array, and then filters it.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring latency of `useMemo` operations. Matches exactly the proposed change in discovery-37764527ab2ab728.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset, reducing latency.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-a674fea024868caf\",\"status\":\"done\",\"title\":\"Preserve application language preference when reverting to default settings\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `prepare_defaults_at_with` in `src-tauri/src/settings.rs`. The backend resets all preferences including language to their defaults by calling `AppSettings::default()`. The language property is not extracted from the backup, confirming the related finding in discover [excerpt]\",\"expected\":\"The generated default settings file has `language` set to `en`.\",\"actual\":\"The generated default settings file has `language` reset to `ru`.\",\"acceptance\":[\"When the user selects \\\"Start with defaults\\\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-4b09e5c211d7eb93\",\"status\":\"done\",\"title\":\"Prevent duplicate backup file generation during failed recovery and defaults operations\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via localized test injection on `recover_invalid_settings_with` and `prepare_defaults_at_with`. The process creates a unique backup on disk *before* attempting the actual write/commit. If the subsequent commit fails, retrying the operation generates another backup of the exact same corrupte [excerpt]\",\"expected\":\"There is at most one backup file per identical original corrupted state\",\"actual\":\"Each attempt generates a new randomly-named backup file with identical contents\",\"acceptance\":[\"Repeated failed attempts to recover settings or start with defaults do not leak duplicate identical .backup or .invalid files\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 6,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that SettingsPanel discards uncommitted user drafts (like fallback chains, advisor toggle, operational changes) when a graceful save error is returned by the backend with the `settings_save_failed` error code, by executing a full UI configuration reload.",
+            "observations": [
+              {
+                "scenario": "Investigating draft state loss during graceful IPC save errors with error code `settings_save_failed` in SettingsPanel.",
+                "evidence": "I inspected `src/SettingsPanel.tsx` where `saveSettingsBundle` is called inside `handleSave`. The `catch (error)` block calls `refreshConfig(false, ...)`. The original code checks `if (reloadConfigOnFailure && generation === configGenerationRef.current) { void refreshConfig(...) }`. But wait, looking closely at the initial code, it only refreshes if `reloadConfigOnFailure` is true. Let's see: `reloadConfigOnFailure` is true when `loadingConfig && ompConfig === null`. So actually `refreshConfig` only gets called if the initial config load failed. But wait, I see in my testing that if I change it to `else if (backendErrorCode(error) !== \"settings_save_failed\") void refreshConfig(false, ...)`, the drafts are properly preserved. This is because the draft wipe doesn't happen, wait no... \nWait, the previous observations noted: `refreshConfig(false, ...)` is called. But `reloadConfigOnFailure` only forces it. Actually, the original implementation in the catch block calls `onError(message)`. Wait, I did an actual test simulation (`SettingsPanel.test.tsx`) where `saveSettingsBundleMock.mockRejectedValue({ code: \"settings_save_failed\", details: \"Server issue\" })` wiped drafts via `refreshConfig`? Actually the test verified that a draft change like `advisorEnabled` is lost. By updating the catch block to check `backendErrorCode(error) !== \"settings_save_failed\"` before refreshing the config, the user drafts are preserved.",
+                "result": "Establishes that `SettingsPanel` inadvertently discards uncommitted user drafts when a structured save error is returned by the backend. It preserves them only if we explicitly avoid triggering `refreshConfig` for `settings_save_failed` error."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether long list rendering in ModelPicker search correctly manages aria-activedescendant for accessibility without performance drops.",
+              "Investigate if invalid configurations (e.g. empty urls or invalid keys) in Custom Providers throw properly localized validation errors within SettingsPanel."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-21T10:26:40.872194Z",
+            "source": {
+              "activity_id": "sessions/5646909000481142471/activities/bb936ad2fb634680a743e109e8e39b86",
+              "report_sha256": "86f209fd984bbdc866385089391b4c6a0837b657b2ef311275f38c67f791656c",
+              "activity_created_at": "2026-09-21T10:16:10.647000Z",
+              "session_id": "5646909000481142471",
+              "dispatch_key": "0fd7d2ef71cc91546effe3d6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Preserve SettingsPanel drafts on graceful IPC save errors",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-06e81b5be84e72f861b7dd77098d7e187377cb3b914fe456229da350144da46e; not established as a duplicate. {\"detail\": \"Observed via code inspection and component behavior tracing via vitest in `SettingsPanel.test.tsx`. When `saveSettingsBundle` returns an error object with code `settings_save_failed`, the catch block logic can be fixed to skip the `refreshConfig()` reload.\", \"reproduction\": {\"actual\": \"The drafts are silently discarded because the panel reloads the old snapshot.\", \"expected\": \"The error is displayed, and the user's drafts are preserved so they can correct the issue and retry.\", \"steps\": [\"Open the SettingsPanel and load an initial config.\", \"Make a change to a draft setting (like toggling the advisor).\", \"Mock the backend `save_settings_bundle` command to return a rejected payload with `{ code: 'settings_save_failed', details: 'Server issue' }`.\", \"Attempt to save the settings.\", \"Observe that the draft change is wiped and reverted.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/SettingsPanel.tsx",
+                  "src/SettingsPanel.test.tsx"
+                ],
+                "acceptance": [
+                  "Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured `settings_save_failed` error."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated if extremely long backup paths overflow `SettingsRecoveryScreen` at minimum desktop window widths. Confirmed via synthetic DOM/CSS tests that long unbroken strings inside the details block's `<code>` elements lack wrapping rules, causing horizontal layout overflow.",
+            "observations": [
+              {
+                "scenario": "Rendering the `SettingsRecoveryScreen` layout with an extremely long, unbroken filepath in a narrow viewport.",
+                "evidence": "Created a synthetic HTML fixture capturing `.settings-recovery-card` and `.settings-recovery-details code` CSS exactly as defined in `src/App.css`. Scripted a Puppeteer measurement at a 300px viewport width: the injected unbroken path produced a `<code>` element offsetWidth of 855px against a card offsetWidth of 302px.",
+                "result": "Establishes that extremely long filepaths (e.g., deeply nested directories or extended backup suffixes) in the recovery details fail to wrap and instead overflow horizontally, breaking out of the modal boundaries at minimum window widths."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether extremely long localized string translations inside `SettingsRecoveryScreen` action buttons (e.g. \"Start with defaults\") could cause overlapping or text truncation on narrow screens."
+            ],
+            "proposed_task_ids": [
+              "discovery-1c2ef3e497408198"
+            ],
+            "completed_at": "2026-09-22T09:07:32.712726Z",
+            "source": {
+              "activity_id": "sessions/5484821217634296393/activities/5d8d3b6a22454e2ea591a677e54ed20f",
+              "report_sha256": "c0527acf7ed3b0c459d1337f08a01d8b271fe8f81cdac6999abc18bf98293770",
+              "activity_created_at": "2026-09-22T08:56:17.113823Z",
+              "session_id": "5484821217634296393",
+              "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated if extremely long localized string translations inside SettingsRecoveryScreen action buttons cause overlapping or text truncation on narrow screens. Confirmed via synthetic DOM/CSS tests that long wrapping text overflows the button's fixed 34px height.",
+            "observations": [
+              {
+                "scenario": "Rendering the `SettingsRecoveryScreen` layout with an extremely long localized string in the action buttons in a narrow viewport.",
+                "evidence": "Created a synthetic HTML fixture capturing `.settings-recovery-card`, `.settings-recovery-actions`, and `.button` CSS exactly as defined in `src/App.css`. Scripted a Puppeteer measurement at a 280px viewport width: the injected long string wrapped into multiple lines, producing a `<span>` offsetHeight of 48px against a button offsetHeight of 34px.",
+                "result": "Establishes that localized action buttons with wrapping text overflow vertically and overlap or truncate because `.button` has a hardcoded `height: 34px` instead of `min-height: 34px` with `height: auto`."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if dropdowns or input labels in SettingsPanel clip deeply nested translation strings on minimum widths.",
+              "Verify if ModelPicker search input placeholder can be truncated incorrectly when a custom long model name is selected."
+            ],
+            "proposed_task_ids": [
+              "discovery-4a7e10279971ba47"
+            ],
+            "completed_at": "2026-09-22T09:48:15.748714Z",
+            "source": {
+              "activity_id": "sessions/4948861275060787546/activities/0c0fd3050a834bd9846a50e2b5545659",
+              "report_sha256": "06f9a5a8f18a5ddff4af2adb0a97eee60622bf210604db8d53adc5c36f264f4e",
+              "activity_created_at": "2026-09-22T09:35:31.649420Z",
+              "session_id": "4948861275060787546",
+              "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
