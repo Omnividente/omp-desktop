@@ -29026,7 +29026,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T10:47:35.719191Z"
+        "observed_at": "2026-09-22T10:47:35.719191Z",
+        "released_attempt_ref": "autonomous/attempt-bcb9efd6e9824f67579e14c2"
       },
       "research_result": {
         "summary": "Verified transcript state persistence and focus management across operations. Identified a defect in `useTranscript` where concurrent or subsequent reloads of the same transcript path drop the active search and filter mode.",
