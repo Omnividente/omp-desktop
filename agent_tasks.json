@@ -30830,7 +30830,8 @@
             "session_id": "8013998322907730933",
             "dispatch_key": "85977b754878b039e45607d1"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-85977b754878b039e45607d1"
       },
       "research_result": {
         "summary": "Verified focus management behavior during error-state Retry and top-bar Refresh interactions.",
