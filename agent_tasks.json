@@ -30113,7 +30113,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-22T14:00:13.771560Z"
+        "observed_at": "2026-09-22T14:00:13.771560Z",
+        "released_attempt_ref": "autonomous/attempt-64890cd6db2dcbbe88ec8848"
       },
       "research_result": {
         "summary": "Investigated the deduplication behavior of PtySessionTitleEvent and verified terminal continuity baseline expectations.",
