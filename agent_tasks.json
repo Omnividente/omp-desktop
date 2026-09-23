@@ -24843,6 +24843,59 @@
           "contract_version": "legacy-pr82",
           "context_provenance": "not_recorded"
         }
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-09-23T12:46:15Z",
+            "note": "Format-only repair remained invalid: no ordered research report block or accepted findings. Acknowledge this exact settled attempt as unaccepted; preserve its source and repair receipt for audit.",
+            "attempt": {
+              "session_id": "12537997338845253491",
+              "dispatch_key": "473d548f2f662d532ee91b88",
+              "attempts": 1
+            },
+            "basis": {
+              "state": "awaiting_report",
+              "outcome": "report_invalid",
+              "session_state": "COMPLETED",
+              "event_at": "2026-09-21T16:58:20.789782Z",
+              "source": {
+                "activity_id": "sessions/12537997338845253491/activities/57f9e12036d949878c9077083ba61cc6",
+                "report_sha256": "4186baf7f58c10e69ec9820c2774312ec64ac078f5d4055078db9efa1acb30e4",
+                "activity_created_at": "2026-09-21T16:59:22.856993Z",
+                "session_id": "12537997338845253491",
+                "dispatch_key": "473d548f2f662d532ee91b88"
+              },
+              "report_error": {
+                "code": "research_invalid",
+                "detail": "expected exactly one ordered research report block",
+                "reported_at": "2026-09-21T16:58:20.789782Z",
+                "source": {
+                  "activity_id": "sessions/12537997338845253491/activities/947d893c22eb4669b8094defaff7607b",
+                  "report_sha256": "9169c51203e3cc56e103481a76097a7cfa6564d92bd9200abc9da24e48e11832",
+                  "activity_created_at": "2026-09-21T16:48:15.661867Z",
+                  "session_id": "12537997338845253491",
+                  "dispatch_key": "473d548f2f662d532ee91b88"
+                }
+              },
+              "report_repair": {
+                "at": "2026-09-21T16:58:47.196453Z",
+                "result": "sent",
+                "status": "invalid",
+                "source": {
+                  "activity_id": "sessions/12537997338845253491/activities/57f9e12036d949878c9077083ba61cc6",
+                  "report_sha256": "4186baf7f58c10e69ec9820c2774312ec64ac078f5d4055078db9efa1acb30e4",
+                  "activity_created_at": "2026-09-21T16:59:22.856993Z",
+                  "session_id": "12537997338845253491",
+                  "dispatch_key": "473d548f2f662d532ee91b88"
+                },
+                "detail": "expected exactly one ordered research report block"
+              }
+            }
+          }
+        ]
       }
     },
     {
