@@ -31890,13 +31890,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-23T00:58:38.689436Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-23T01:06:24.273415Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T01:06:38.872309Z",
+    "last_poll_at": "2026-09-23T01:06:41.624437Z",
     "last_tick_at": "2026-09-23T01:00:38.457567Z",
     "run_id": "35804337529"
   }
