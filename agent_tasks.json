@@ -39011,7 +39011,8 @@
             "session_id": "5186752007426495389",
             "dispatch_key": "635e90b6b7a750411960c8d3"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-635e90b6b7a750411960c8d3"
       },
       "research_result": {
         "summary": "Investigated terminal rendering failures during rapid tab switching.",
