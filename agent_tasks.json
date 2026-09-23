@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": "post-revisit-v1",
   "autonomous_loop_policy": {
     "integration_branch": "autonomous/lab",
     "release_automation": "disabled",
@@ -14,7 +14,8 @@
       "stale_in_progress_hours": 6,
       "notes": "task_lifecycle.py owns every transition. The AI worker never edits this file. A task that burns through max_attempts becomes blocked instead of being retried forever."
     },
-    "discovery_policy": "Discovery is the fallback for an empty queue, not the default activity. select_task.py always prefers a concrete evidence-backed task, whatever the priority numbers say, which is why this entry deliberately carries a low priority."
+    "discovery_policy": "Discovery is the fallback for an empty queue, not the default activity. select_task.py always prefers a concrete evidence-backed task, whatever the priority numbers say, which is why this entry deliberately carries a low priority.",
+    "research_contract": "post-revisit-v1"
   },
   "tasks": [
     {
@@ -48,7 +49,11 @@
         "finished_at": "2026-09-12T20:27:30Z",
         "pull_request": 0,
         "outcome": "no_change",
-        "note": "the worker session for this task had already finished"
+        "note": "the worker session for this task had already finished",
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
+        }
       }
     },
     {
@@ -5974,6 +5979,10 @@
             "dispatch_key": "a71c893f97a937506694a354"
           },
           "detail": "expected exactly one ordered research report block"
+        },
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
         }
       },
       "research_disposition": {
@@ -6932,7 +6941,11 @@
         "note": "Jules reported a terminal failure",
         "observed_at": "2026-09-18T10:25:38.466091Z",
         "released_attempt_ref": "autonomous/attempt-b63fc851a32b0fca0905948d",
-        "session_state": "FAILED"
+        "session_state": "FAILED",
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
+        }
       },
       "research_disposition": {
         "events": [
@@ -13222,6 +13235,10 @@
             "dispatch_key": "09d50282daf3785a75c022e1"
           },
           "detail": "expected exactly one ordered research report block"
+        },
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
         }
       },
       "research_disposition": {
@@ -24821,6 +24838,10 @@
             "dispatch_key": "473d548f2f662d532ee91b88"
           },
           "detail": "expected exactly one ordered research report block"
+        },
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
         }
       }
     },
@@ -35277,7 +35298,11 @@
         "note": "owner_disabled_loop",
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-23T12:18:47.268008Z",
-        "quarantined_at": "2026-09-23T12:26:16.146575Z"
+        "quarantined_at": "2026-09-23T12:26:16.146575Z",
+        "research_request": {
+          "contract_version": "legacy-pr82",
+          "context_provenance": "not_recorded"
+        }
       }
     }
   ],
