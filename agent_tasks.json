@@ -38684,6 +38684,126 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-behavior-8",
+      "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-23T22:33:41Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "behavior",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Investigated the performance of terminal output batching, terminal focus restoration during right-click interactions, and backend terminal recovery state during new inputs. Reproduced and verified existing defects in these areas.",
+            "observations": [
+              {
+                "scenario": "A workload simulating terminal output interleaving chunks that exceed the maxBytes limit (256KB) in `terminalOutputBatcher.ts`.",
+                "evidence": "Executed a synthetic Node script pushing 10,000 pairs of 200KB chunks. Observed ~4700ms execution time due to the batcher merging chunks on overflow via `.set()`, copying data repeatedly instead of flushing before the overflow occurs. Matches canonical finding discovery-a691c680cc7eb8da.",
+                "result": "Confirms the performance bottleneck and unnecessary memory copying during chunk batch overflows."
+              },
+              {
+                "scenario": "Right-click context menu interaction on Windows/Linux environments triggering `mousedown`, `mouseup`, and `contextmenu` events in `TerminalView.tsx`.",
+                "evidence": "Ran a JSDOM script simulating the event sequence where right-click (button 2) triggers `mouseup` before `contextmenu`. Because `TerminalView.tsx` clears `restoreFocus` (or analogous tracking) upon `mouseup`, the subsequent `contextmenu` event does not properly restore focus to the terminal. Matches canonical finding discovery-71ebc265fed99164.",
+                "result": "Confirms the root cause of the context menu focus restoration failure on non-macOS platforms."
+              },
+              {
+                "scenario": "Writing new manual terminal input while an old `switch_recovery` is pending in the Tauri backend.",
+                "evidence": "Reviewed and executed logic against `terminal.rs`. The `write_bytes` command directly queues new manual input into the PTY but fails to set `process.switch_recovery = None;`, leaving the stale recovery state active. Matches canonical finding discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d.",
+                "result": "Establishes that chronological continuity is broken because stale input can still be sent out-of-order after new user input."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing without causing an infinite resize loop.",
+              "Investigate if the PTY exit event mechanism (`pty-exit`) can race with a new terminal attachment generation, causing the UI to show an exited state for a newly restarted session."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T01:57:51.150113Z",
+            "source": {
+              "activity_id": "sessions/6390890978565987807/activities/59bd7769f4df4e9a8099221af91835bc",
+              "report_sha256": "96f30d48368820c08c075012d17797c8a669e20e6b09835421ea97e19bece321",
+              "activity_created_at": "2026-09-23T01:27:27.746042Z",
+              "session_id": "6390890978565987807",
+              "dispatch_key": "fefae0d8dcf4e113759c9d40"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the PTY exit event mechanism and discovered a race condition that can cause the UI to display a newly restarted terminal session as exited.",
+            "observations": [
+              {
+                "scenario": "A race condition during terminal restart where a delayed `pty-exit` event from a previous generation arrives while the frontend is awaiting `attachTerminal`.",
+                "evidence": "Executed a synthetic Node.js script mirroring the `connect()` logic in `TerminalView.tsx`. The script simulated a stale `pty-exit` event arriving while a new `attachTerminal` promise was pending. The event was stored in `deferredExit`. Once `attachTerminal` resolved successfully for the new running session (generation 2, exited: false), the UI incorrectly processed `deferredExit` and marked the terminal as exited. `PtyExitEvent` currently lacks a `generation` field, making it impossible to discard stale exit events.",
+                "result": "Establishes that the terminal UI can incorrectly show an exited state for a newly restarted running session due to processing stale `pty-exit` events."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing without causing an infinite resize loop.",
+              "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+            ],
+            "proposed_task_ids": [
+              "discovery-76525501421788fc"
+            ],
+            "completed_at": "2026-09-23T06:16:52.740203Z",
+            "source": {
+              "activity_id": "sessions/12441871823396169091/activities/2cdf964cf4c24dc5a9a0c5eee1c31751",
+              "report_sha256": "4bfb49edde14703344e120a5db0d3199136478ddae274217460c83209f0eb684",
+              "activity_created_at": "2026-09-23T06:06:49.925988Z",
+              "session_id": "12441871823396169091",
+              "dispatch_key": "b9367ba2081634d8facd34fb"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the terminal font resizing behavior in `TerminalView.tsx`.",
+            "observations": [
+              {
+                "scenario": "Changing the terminal font size via settings panel which updates `terminalFontFamily` and `terminalFontSize` props in `TerminalView.tsx`.",
+                "evidence": "Observed via synthetic React component test simulating font size changes. When the font size props change, a `useEffect` calls `fitAddon.fit()` in a `requestAnimationFrame`. This recalculates the `cols` and `rows` of the xterm canvas. However, it does not call the local `fit()` closure or `resizeTerminal()`. Because the `.terminal-host` container size itself typically does not change (it's constrained by its flex parent), the `ResizeObserver` does not trigger, meaning the backend PTY is never notified of the new `cols` and `rows` until the user manually resizes the application window.",
+                "result": "Establishes that terminal font resizing fails to update the backend PTY dimensions, leading to garbled text layout."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+            ],
+            "proposed_task_ids": [
+              "discovery-04eb5c9fb6e41d82"
+            ],
+            "completed_at": "2026-09-23T12:18:47.268008Z",
+            "source": {
+              "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+              "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+              "activity_created_at": "2026-09-23T12:08:08.803368Z",
+              "session_id": "4837637215068643094",
+              "dispatch_key": "8b845b7e45b4e50237ea597d"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
