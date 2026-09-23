@@ -34397,14 +34397,18 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "observed_at": "2026-09-23T11:03:37.766453Z",
+        "observed_at": "2026-09-23T11:31:00.136770Z",
         "released_attempt_ref": "autonomous/attempt-30b0759a34f6638401aca539",
-        "session_state": "IN_PROGRESS"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "research_detached": {
+          "at": "2026-09-23T11:31:00.136770Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T11:31:21.888870Z",
+    "last_poll_at": "2026-09-23T11:31:25.311077Z",
     "last_tick_at": "2026-09-23T11:25:05.853166Z",
     "run_id": "35854349826"
   }
