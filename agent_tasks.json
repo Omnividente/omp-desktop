@@ -34210,7 +34210,8 @@
             "session_id": "4035460820517764448",
             "dispatch_key": "651b5bed05b5211f17b33c7b"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-651b5bed05b5211f17b33c7b"
       },
       "research_result": {
         "summary": "Confirmed that the ModelPicker correctly filters model matches in a case-insensitive manner regardless of whether the input is uppercase or lowercase.",
