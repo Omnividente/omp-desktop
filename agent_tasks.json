@@ -32319,7 +32319,7 @@
       "id": "discovery-70ce486d68ca18b9",
       "title": "Dismiss import modals automatically when a batch import fails completely",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 20,
       "risk": "low",
       "focus": [
@@ -32355,6 +32355,12 @@
         "activity_created_at": "2026-09-23T05:43:58.787704Z",
         "session_id": "8759316691189917428",
         "dispatch_key": "597c776f9a790c14222d81ca"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-23T12:49:07Z",
+        "note": "Repeats automatic import-modal closure on failure already rejected in discovery-d3e1fcb6e79f4693; preserving the dialog and selection permits correction/retry. No new distinct observed behavior or native UI proof in this report. Do not implement this repeat."
       }
     },
     {
