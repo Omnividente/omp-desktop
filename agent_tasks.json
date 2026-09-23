@@ -36873,7 +36873,7 @@
       "id": "research-transcript-links-performance-7",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -37044,16 +37044,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16447204185385971062",
         "dispatch_key": "dd074163cbc7f94f306607b8",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-dd074163cbc7f94f306607b8",
         "started_at": "2026-09-23T16:56:07.005668Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T17:23:17.883187Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -37231,13 +37231,196 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T17:04:13.068013Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T17:23:17.883187Z"
+      },
+      "research_result": {
+        "summary": "Investigated transcript virtual list, search performance, cache retention, external links, and focus transitions.",
+        "observations": [
+          {
+            "scenario": "Simulated loading transcript state when loadTranscriptPath is called with the same path as the active session.",
+            "evidence": "Observed via static analysis and synthetic testing on `da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb`. `src/useTranscript.ts` clears `transcriptSearch` and `transcriptMode` unconditionally if `session` is undefined, even if `sessionPathRef.current === path`. Tested via `vitest` with `useTranscript` hook.",
+            "result": "Confirmed defect: Reloading a transcript via path clears user interaction state. Evaluated canonical_id: discovery-b157732b0a1a8ecb."
+          },
+          {
+            "scenario": "Simulated toggling transcript Appearance modes in useVirtualList.",
+            "evidence": "Inspected `src/useVirtualList.ts` on `da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb`. A `useEffect` iterates over `measurementCachesRef.current.keys()` and deletes any key that is not exactly `measurementKey`. Toggling mode passes a new object instance, destroying the cache. Tested via synthetic test.",
+            "result": "Confirmed defect: Virtual layout measurement cache is discarded unconditionally on mode switch, forcing full layout recalculation. Evaluated canonical_id: discovery-fe5159f693ee72fe."
+          },
+          {
+            "scenario": "Triggering 'Retry' or 'Refresh' in TranscriptModal.",
+            "evidence": "Observed via synthetic React testing on `da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb`. When `refresh()` is called, `onRefresh()` is triggered which sets `transcriptLoading = true`. The 'Retry'/'Refresh' buttons become unmounted or disabled. `TranscriptModal` does not explicitly manage focus. `useModalFocus` attempts fallback but the target is disabled, leading to a focus drop. Evaluated canonical_id: discovery-7156c20f6c4addb9.",
+            "result": "Confirmed defect: Activating 'Retry' or 'Refresh' drops focus."
+          },
+          {
+            "scenario": "Directly clicking external links in MarkdownContent.",
+            "evidence": "Observed via synthetic React testing on `da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb`. Direct clicks in `src/MarkdownContent.tsx` call `event.preventDefault()` and `onOpen(uri)`. Focus is not managed explicitly, and `document.activeElement` remains on the element that was focused prior to the click (or drops). Evaluated canonical_id: discovery-86ee5072b42c9535.",
+            "result": "Confirmed defect: Direct clicks on external links do not explicitly focus the link."
+          },
+          {
+            "scenario": "Measured virtual list layout recalculation during rapid mode toggling.",
+            "evidence": "Created a synthetic vitest test rendering 1000 items and rapidly toggled `transcriptMode` 20 times. `src/TranscriptModal.tsx` handles this via `changeAppearance` and `useVirtualList`. Latency per toggle was minimal and no crashes or unhandled promises were observed.",
+            "result": "Establishes that rapid toggling of transcript appearance modes does not crash or strand layout requests, though it does trigger full layout recalculation due to the cache drop."
+          },
+          {
+            "scenario": "Measured transcript search update latency with a large number of occurrences.",
+            "evidence": "Created a synthetic vitest test rendering 20000 entries where each entry has multiple search matches (total ~60k occurrences). Updating the search string in `TranscriptModal` completes in ~90ms locally, establishing acceptable bounded search calculation latency.",
+            "result": "Establishes that search occurrences calculation is bounded and performs well enough even with massive occurrence counts."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtual list scrolling performance drops significantly during rapid resize events when the window contains many variable-height rows.",
+          "Investigate if search highlighting within MarkdownContent creates excessive DOM nodes for large entries with dense keyword matches."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T17:23:17.883187Z",
+        "source": {
+          "activity_id": "sessions/16447204185385971062/activities/43b75e5314a843ee8a93d9fba92030bd",
+          "report_sha256": "25f0a1f813ba719fab2f0d9712344e87b6ab8367d199dd9ffe1364ecc3d4883e",
+          "activity_created_at": "2026-09-23T17:12:00.920601Z",
+          "session_id": "16447204185385971062",
+          "dispatch_key": "dd074163cbc7f94f306607b8"
+        },
+        "deferred_findings": [
+          {
+            "title": "Preserve transcript UI state across identical path reloads",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-b157732b0a1a8ecb; not established as a duplicate. {\"detail\": \"Observed via static analysis and synthetic testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. When `loadTranscriptPath` is called, `session` is undefined, forcing an unconditional reset of UI state. Evaluated canonical_id: discovery-b157732b0a1a8ecb.\", \"reproduction\": {\"actual\": \"The state is cleared to empty search and 'dialogue' mode.\", \"expected\": \"The search term and mode remain intact.\", \"steps\": [\"Load a transcript session in the hook.\", \"Set a search term and mode.\", \"Call `loadTranscriptPath` with the same path as the active session.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/useTranscript.ts"
+            ],
+            "acceptance": [
+              "Reloading the transcript data for the currently active path does not clear the active search term or filter mode"
+            ]
+          },
+          {
+            "title": "Retain virtual layout measurement cache across mode toggles",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-fe5159f693ee72fe; not established as a duplicate. {\"detail\": \"Observed via static analysis on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. Evaluated canonical_id: discovery-fe5159f693ee72fe.\", \"reproduction\": {\"actual\": \"The previous cache is unconditionally deleted in a useEffect.\", \"expected\": \"The previous cache is retained (up to a limit) for fast layout recovery when toggling back.\", \"steps\": [\"Provide an object as the measurementKey in useVirtualList.\", \"Render elements to populate the measurement cache.\", \"Change the measurementKey to a new object instance.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/useVirtualList.ts"
+            ],
+            "acceptance": [
+              "Toggling modes (e.g. source/formatted view) in the transcript does not discard layout measurements for the previously viewed mode",
+              "Memory is bounded by an LRU cache or fixed number of retained modes, preventing unbounded growth from continuous key generation"
+            ]
+          },
+          {
+            "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7156c20f6c4addb9; not established as a duplicate. {\"detail\": \"Observed via synthetic testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. When refresh triggers `transcriptLoading = true`, the triggering button is disabled or unmounted before programmatic focus management occurs. Evaluated canonical_id: discovery-7156c20f6c4addb9.\", \"reproduction\": {\"actual\": \"The initiating element is unmounted or disabled, and focus is not explicitly managed, leading to a focus drop.\", \"expected\": \"Focus shifts to a stable nearby element.\", \"steps\": [\"Trigger a transcript refresh or retry.\", \"Observe the active element immediately after the interaction.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TranscriptModal.tsx"
+            ],
+            "acceptance": [
+              "Clicking or pressing Enter on the 'Retry' button in the transcript error state safely shifts focus to a stable element (e.g., the transcript panel or container) instead of dropping",
+              "Activating the top-bar 'Refresh' button does not drop focus to the document body when disabled"
+            ]
+          },
+          {
+            "title": "Fix focus drop when directly opening external content links from transcript",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-86ee5072b42c9535; not established as a duplicate. {\"detail\": \"Observed via synthetic React testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. Evaluated canonical_id: discovery-86ee5072b42c9535.\", \"reproduction\": {\"actual\": \"Focus remains on the previously active element due to preventDefault without explicit focus assignment.\", \"expected\": \"Focus is explicitly moved to the clicked link.\", \"steps\": [\"Render an external link in MarkdownContent.\", \"Left-click the anchor element.\", \"Observe the active element.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/MarkdownContent.tsx"
+            ],
+            "acceptance": [
+              "Directly left-clicking an external link in the transcript explicitly focuses the link, ensuring consistent focus restoration when returning to the app."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16447204185385971062/activities/43b75e5314a843ee8a93d9fba92030bd",
+          "report_sha256": "25f0a1f813ba719fab2f0d9712344e87b6ab8367d199dd9ffe1364ecc3d4883e",
+          "activity_created_at": "2026-09-23T17:12:00.920601Z",
+          "session_id": "16447204185385971062",
+          "dispatch_key": "dd074163cbc7f94f306607b8"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b157732b0a1a8ecb",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-b157732b0a1a8ecb"
+            },
+            {
+              "id": "discovery-fe5159f693ee72fe",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-fe5159f693ee72fe"
+            },
+            {
+              "id": "discovery-7156c20f6c4addb9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7156c20f6c4addb9"
+            },
+            {
+              "id": "discovery-86ee5072b42c9535",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-86ee5072b42c9535"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Preserve transcript UI state across identical path reloads",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-b157732b0a1a8ecb; not established as a duplicate. {\"detail\": \"Observed via static analysis and synthetic testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. When `loadTranscriptPath` is called, `session` is undefined, forcing an unconditional reset of UI state. Evaluated canonical_id: discovery-b157732b0a1a8ecb.\", \"reproduction\": {\"actual\": \"The state is cleared to empty search and 'dialogue' mode.\", \"expected\": \"The search term and mode remain intact.\", \"steps\": [\"Load a transcript session in the hook.\", \"Set a search term and mode.\", \"Call `loadTranscriptPath` with the same path as the active session.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/useTranscript.ts"
+              ],
+              "acceptance": [
+                "Reloading the transcript data for the currently active path does not clear the active search term or filter mode"
+              ]
+            },
+            {
+              "title": "Retain virtual layout measurement cache across mode toggles",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-fe5159f693ee72fe; not established as a duplicate. {\"detail\": \"Observed via static analysis on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. Evaluated canonical_id: discovery-fe5159f693ee72fe.\", \"reproduction\": {\"actual\": \"The previous cache is unconditionally deleted in a useEffect.\", \"expected\": \"The previous cache is retained (up to a limit) for fast layout recovery when toggling back.\", \"steps\": [\"Provide an object as the measurementKey in useVirtualList.\", \"Render elements to populate the measurement cache.\", \"Change the measurementKey to a new object instance.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/useVirtualList.ts"
+              ],
+              "acceptance": [
+                "Toggling modes (e.g. source/formatted view) in the transcript does not discard layout measurements for the previously viewed mode",
+                "Memory is bounded by an LRU cache or fixed number of retained modes, preventing unbounded growth from continuous key generation"
+              ]
+            },
+            {
+              "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7156c20f6c4addb9; not established as a duplicate. {\"detail\": \"Observed via synthetic testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. When refresh triggers `transcriptLoading = true`, the triggering button is disabled or unmounted before programmatic focus management occurs. Evaluated canonical_id: discovery-7156c20f6c4addb9.\", \"reproduction\": {\"actual\": \"The initiating element is unmounted or disabled, and focus is not explicitly managed, leading to a focus drop.\", \"expected\": \"Focus shifts to a stable nearby element.\", \"steps\": [\"Trigger a transcript refresh or retry.\", \"Observe the active element immediately after the interaction.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TranscriptModal.tsx"
+              ],
+              "acceptance": [
+                "Clicking or pressing Enter on the 'Retry' button in the transcript error state safely shifts focus to a stable element (e.g., the transcript panel or container) instead of dropping",
+                "Activating the top-bar 'Refresh' button does not drop focus to the document body when disabled"
+              ]
+            },
+            {
+              "title": "Fix focus drop when directly opening external content links from transcript",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-86ee5072b42c9535; not established as a duplicate. {\"detail\": \"Observed via synthetic React testing on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. Evaluated canonical_id: discovery-86ee5072b42c9535.\", \"reproduction\": {\"actual\": \"Focus remains on the previously active element due to preventDefault without explicit focus assignment.\", \"expected\": \"Focus is explicitly moved to the clicked link.\", \"steps\": [\"Render an external link in MarkdownContent.\", \"Left-click the anchor element.\", \"Observe the active element.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/MarkdownContent.tsx"
+              ],
+              "acceptance": [
+                "Directly left-clicking an external link in the transcript explicitly focuses the link, ensuring consistent focus restoration when returning to the app."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "4 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T17:17:19.809857Z",
+    "last_poll_at": "2026-09-23T17:23:35.303403Z",
     "last_tick_at": "2026-09-23T17:17:22.699709Z",
     "run_id": "35894497744"
   }
