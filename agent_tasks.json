@@ -32809,6 +32809,133 @@
         "session_id": "16611867596431400329",
         "dispatch_key": "18bb3ef1d7365b5d7e278803"
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-7",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-23T06:54:49Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb\",\"status\":\"proposed\",\"title\":\"Restore focus to edit button after cancelling a workspace or session rename\",\"target_paths\":[\"src/ProjectRail.tsx\",\"src/SessionList.tsx\",\"src/SessionRow.tsx\",\"src/SessionRow.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React Testing Library testing of `<ProjectRail />` and `<SessionList />` using jsdom. In `ProjectRail`, the strict `document.activeElement === event.currentTarget` check within the `onKeyDown` handler can fail under some test or async unmount conditions, stranding focus on `do [excerpt]\",\"expected\":\"Focus correctly shifts back to the specific edit button that initiated the rename.\",\"actual\":\"In `ProjectRail`, focus shifts to `document.body` if the active element condition fails. In `SessionList`, focus shifts to the `.session-select` div container.\",\"acceptance\":[\"Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if active element checks drift slightly.\",\"Focus moves back to the edit button when a session rename is canceled via Escape instead of the session row.\"]}},{\"canonical_id\":\"discovery-c991788ddc60b7c5\",\"status\":\"proposed\",\"title\":\"Implement cancelability for batch session imports\",\"target_paths\":[\"src-tauri/src/lib.rs\",\"src-tauri/src/sessions.rs\",\"src/App.tsx\",\"src/CodexImportModal.tsx\",\"src/api.ts\"],\"observed_contract\":{\"detail\":\"Observed via synthetic benchmark that importing thousands of sessions takes several seconds and executes within a single blocking `import_sessions` backend call. Investigated `CodexImportModal.tsx` and `App.tsx` which wait indefinitely on a single Promise for all sessions without cancellation suppor [excerpt]\",\"expected\":\"The import process halts, skips remaining files, and closes the modal.\",\"actual\":\"The Cancel button and Escape key are disabled or ignored, and the UI waits indefinitely until the entire batch finishes.\",\"acceptance\":[\"During a batch session import, the user can press the Cancel button or Escape key to abort the remaining items\",\"The UI remains responsive and provides feedback during a prolonged import\"]}},{\"canonical_id\":\"discovery-94bf5b1fa52c9f90\",\"status\":\"proposed\",\"title\":\"Prevent import modals from remaining stuck open on backend import failure\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source code inspection of `src/App.tsx` on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703 reveals the catch block bypasses state clearing.\",\"expected\":\"The error toast is shown, and the modal state (`codexOpen` or `pendingOmpImportPath`) is reset, dismissing the modal.\",\"actual\":\"The error toast is shown, but the modal remains permanently open.\",\"acceptance\":[\"When `importSessions` throws an error inside `importCodexSelected` or `importPendingOmp`, the modal state is cleared.\"]}},{\"canonical_id\":\"discovery-545847f2043c71c0\",\"status\":\"proposed\",\"title\":\"Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Isolated synthetic test and source inspection of the `pty-session-title` Tauri event listener on the exact pinned base.\",\"expected\":\"The second event is deduplicated, causing no new array allocations or React state updates.\",\"actual\":\"The second event maps over the `tabs` state, allocating a new object reference `{ ...tab, label: title }` and a new array reference, triggering a React re-render.\",\"acceptance\":[\"State updates are bypassed when `PtySessionTitleEvent` receives a title that is exactly equal to the terminal's current label.\"]}},{\"canonical_id\":\"discovery-70ce486d68ca18b9\",\"status\":\"proposed\",\"title\":\"Dismiss import modals automatically when a batch import fails completely\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection of App.tsx try-catch blocks for importCodexSelected and importPendingOmp.\",\"expected\":\"The error is shown and the modal is dismissed (setCodexOpen(false) or setPendingOmpImportPath(null)).\",\"actual\":\"The error is shown but the modal remains open indefinitely, requiring manual cancellation.\",\"acceptance\":[\"When importSessions throws an error, the codex import modal is closed automatically.\",\"When importSessions throws an error, the pending OMP import modal is closed automatically.\"]}},{\"canonical_id\":\"discovery-7f98db57491c0c0d\",\"status\":\"done\",\"title\":\"Persist selected workspace across application restarts\",\"target_paths\":[\"src/App.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of src/App.tsx shows selectedWorkspaceKey is a React state initialized to null. There is no read or write to localStorage or any other persistent store. The refresh() effect triggers applyPayload without a preferred workspace, forcing a fallback to the first workspace on mount.\",\"expected\":\"The second workspace remains selected after the restart.\",\"actual\":\"The selected workspace reverts to the first workspace in the list.\",\"acceptance\":[\"The application restores the previously selected workspace upon restart\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-e0f2bce9ebc246e7\",\"status\":\"done\",\"title\":\"Virtualize the workspace list in ProjectRail\",\"target_paths\":[\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Measured rendering and update latencies of ProjectRail with varying synthetic input sizes (100, 1000, 5000 workspaces) using React Testing Library. No real user data or network calls were used.\",\"expected\":\"The rendering and update latencies remain relatively constant or grow sublinearly due to DOM virtualization.\",\"actual\":\"The rendering latency scales linearly O(N), taking over 7 seconds for initial render and nearly 2 seconds for a workspace switch with 5000 items.\",\"acceptance\":[\"The ProjectRail component utilizes virtualization to render the workspace list\",\"Rendering time and DOM size remain bounded regardless of the number of workspaces\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-741923afb429da5a\",\"status\":\"done\",\"title\":\"Restore focus after deleting a workspace\",\"target_paths\":[\"src/App.tsx\",\"src/ProjectRail.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard navigation observation in synthetic test suite against `<ProjectRail />`. A deleted workspace leaves focus stranded on `document.body` because its corresponding remove button is unmounted.\",\"expected\":\"Focus correctly shifts to another relevant interactive element in the rail.\",\"actual\":\"Focus shifts to the `document.body` because the active element was unmounted, requiring the user to start keyboard navigation from the top of the document.\",\"acceptance\":[\"Focus moves to a reasonable fallback element, like the open folder button, when the currently focused workspace removal button is deleted.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-aea9a8e6e1603271\",\"status\":\"done\",\"title\":\"Restore focus to the triggering element after closing session import modals\",\"target_paths\":[\"src/App.tsx\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic Vitest tests simulating modal closure in a jsdom environment. Document's active element drops to the body instead of the triggering element.\",\"expected\":\"Focus is returned to the button that opened the modal.\",\"actual\":\"Focus drops to the document body.\",\"acceptance\":[\"Closing the import modal returns focus to the button that opened it.\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Measured rendering and switching times for components receiving large session lists.",
+            "observations": [
+              {
+                "scenario": "Rendering and updating `ProjectRail` and `SessionList` with 5,000 synthetic sessions using React Testing Library.",
+                "evidence": "Tested using Vitest with `@testing-library/react`. `ProjectRail` rendering took ~296ms and switching workspaces (replacing 5,000 sessions with another 5,000) took ~166ms. `SessionList` directly took ~597ms for 20,000 sessions.",
+                "result": "Establishes that rendering time stays relatively small thanks to `useVirtualList` rendering DOM, avoiding full O(N) DOM latency. However, components still do significant main thread work to map, iterate and build session trees (`buildSessionTree` inside `SessionList.tsx`), causing noticeable blocking UI time when iterating tens of thousands of objects."
+              },
+              {
+                "scenario": "Rendering and updating `TerminalWorkspace` with 20,000 synthetic sessions using React Testing Library.",
+                "evidence": "Tested using Vitest with `@testing-library/react`. Rendering `TerminalWorkspace` with 20,000 sessions took ~147ms.",
+                "result": "Establishes that `TerminalWorkspace` does less main-thread processing per-session than `SessionList`, but still blocks UI to build trees (`buildSessionTree` inside `TerminalWorkspace.tsx`), resulting in noticeable latency on large session arrays."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate optimizing `buildSessionTree` execution time or lazily computing the tree nodes to reduce main thread blocking during workspace changes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T07:54:34.359925Z",
+            "source": {
+              "activity_id": "sessions/16687664012668634073/activities/ad8fc2b088c441c38644e2ebee9cc43a",
+              "report_sha256": "85b548750bb92b95ac9f3719f655b88aa9d13bfcd3006ecbbee10d90cad31deb",
+              "activity_created_at": "2026-09-22T07:54:19.812500Z",
+              "session_id": "16687664012668634073",
+              "dispatch_key": "740bc04564cd596c345bf66b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Confirmed focus restoration defect when cancelling rename operations via Escape in ProjectRail and SessionList.",
+            "observations": [
+              {
+                "scenario": "Canceling workspace rename via Escape key when input is not strictly the active element",
+                "evidence": "Source code inspection and local patching of src/ProjectRail.tsx. The condition `document.activeElement === event.currentTarget` causes `renameFocusRef` to be bypassed, stranding focus on the body if JS-based navigation or tests drop focus briefly.",
+                "result": "Corroborates existing proposed task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb. Removing the active element check fixes focus restoration for ProjectRail."
+              },
+              {
+                "scenario": "Canceling session rename via Escape key restoring focus to the specific Edit button",
+                "evidence": "Source code inspection, test execution, and local patching of src/SessionList.tsx and src/SessionRow.test.tsx. Cancelling currently drops focus to `.session-select` row wrapper. Tracking `canceled` state in `actionFocusRef` and querying for `.session-play:not(.session-delete):not(.session-transcript):not(:first-child)` ensures focus restores precisely to the initiating Edit button.",
+                "result": "Corroborates existing proposed task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb. Corrects mismatch where session cancel restored focus to the wrong element."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify focus behavior when deleting the last session in a workspace.",
+              "Verify focus management when a modal (like ImportSessionModal) opens over a currently renaming input."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T08:48:48.678283Z",
+            "source": {
+              "activity_id": "sessions/2306375059828148036/activities/09373c20ba93456195ffd17914f5de35",
+              "report_sha256": "b7637757335d8b9482b7afa2dc58887e10696a7b9f7bf87816aee22f6ef0732a",
+              "activity_created_at": "2026-09-22T08:37:20.055228Z",
+              "session_id": "2306375059828148036",
+              "dispatch_key": "b5c9b5613d8572e01a47df09"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus behavior and component response when the last session in a workspace is deleted. Focus management drops focus to the document body when an active session's DOM node is removed by deletion.",
+            "observations": [
+              {
+                "scenario": "Deleting the last session inside the `SessionList` component and verifying active element restoration.",
+                "evidence": "Wrote and executed a synthetic Vitest test suite (`src/SessionList.experiment.test.tsx`) that mounts a wrapper around `<SessionList />` with a single synthetic session. Triggered the session deletion sequence and simulated the backend returning an updated empty state. Verified that `document.activeElement` becomes `document.body` because `SessionList` fails to compute a valid fallback element when `pending.target?.isConnected` evaluates to false and no remaining list items are present.",
+                "result": "Establishes that deleting the last session drops keyboard focus, requiring the user to re-navigate from the top of the document. A proper fallback such as the 'New Session' button or search bar is not utilized."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus behavior when deleting a session that is NOT the last session (does focus shift cleanly to the adjacent session row?).",
+              "Verify focus management when a modal (like ImportSessionModal) opens over a currently renaming input."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T23:24:47.010420Z",
+            "source": {
+              "activity_id": "sessions/4347612192344880149/activities/42e92c4938f441cf91b299cf93fb3b86",
+              "report_sha256": "59d38c3bc82324fd5fc9842a04138f303f1b4abda2559528399721305e8df727",
+              "activity_created_at": "2026-09-22T23:07:53.560788Z",
+              "session_id": "4347612192344880149",
+              "dispatch_key": "01f45f67efddea6206ea4141"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to a reasonable fallback element after deleting the last session in a workspace",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library testing of `<SessionList />` using jsdom. Deleting the single remaining session causes the element holding focus (the delete button) to unmount. The current fallback logic inside the `useLayoutEffect` in `SessionList.tsx` leaves focus stranded on `document.body` because `listRef.current` without interactive children is not naturally focusable.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body`.\", \"expected\": \"Focus correctly shifts to another relevant interactive element in the list container or header, such as the search bar or an import button.\", \"steps\": [\"Launch the application and select a workspace with exactly one session.\", \"Use the keyboard to navigate to the session's delete button.\", \"Trigger the deletion using the keyboard.\", \"Observe the active element after the session row disappears.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "Focus correctly moves to a relevant element in the workspace UI (e.g., search input or workspace tools) when the last session is deleted and its row unmounts."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
