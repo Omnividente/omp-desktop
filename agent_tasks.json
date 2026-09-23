@@ -32286,7 +32286,7 @@
       "id": "research-terminal-input-performance-7",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -32406,23 +32406,113 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12441871823396169091",
         "dispatch_key": "b9367ba2081634d8facd34fb",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-b9367ba2081634d8facd34fb",
         "started_at": "2026-09-23T05:56:22.965546Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T06:16:52.740203Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T05:56:22.965546Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T06:16:52.740203Z"
+      },
+      "research_result": {
+        "summary": "Investigated the PTY exit event mechanism and discovered a race condition that can cause the UI to display a newly restarted terminal session as exited.",
+        "observations": [
+          {
+            "scenario": "A race condition during terminal restart where a delayed `pty-exit` event from a previous generation arrives while the frontend is awaiting `attachTerminal`.",
+            "evidence": "Executed a synthetic Node.js script mirroring the `connect()` logic in `TerminalView.tsx`. The script simulated a stale `pty-exit` event arriving while a new `attachTerminal` promise was pending. The event was stored in `deferredExit`. Once `attachTerminal` resolved successfully for the new running session (generation 2, exited: false), the UI incorrectly processed `deferredExit` and marked the terminal as exited. `PtyExitEvent` currently lacks a `generation` field, making it impossible to discard stale exit events.",
+            "result": "Establishes that the terminal UI can incorrectly show an exited state for a newly restarted running session due to processing stale `pty-exit` events."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing without causing an infinite resize loop.",
+          "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+        ],
+        "proposed_task_ids": [
+          "discovery-76525501421788fc"
+        ],
+        "completed_at": "2026-09-23T06:16:52.740203Z",
+        "source": {
+          "activity_id": "sessions/12441871823396169091/activities/2cdf964cf4c24dc5a9a0c5eee1c31751",
+          "report_sha256": "4bfb49edde14703344e120a5db0d3199136478ddae274217460c83209f0eb684",
+          "activity_created_at": "2026-09-23T06:06:49.925988Z",
+          "session_id": "12441871823396169091",
+          "dispatch_key": "b9367ba2081634d8facd34fb"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12441871823396169091/activities/2cdf964cf4c24dc5a9a0c5eee1c31751",
+          "report_sha256": "4bfb49edde14703344e120a5db0d3199136478ddae274217460c83209f0eb684",
+          "activity_created_at": "2026-09-23T06:06:49.925988Z",
+          "session_id": "12441871823396169091",
+          "dispatch_key": "b9367ba2081634d8facd34fb"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-76525501421788fc"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-76525501421788fc",
+      "title": "Fix terminal UI incorrectly marking newly restarted sessions as exited due to stale pty-exit events",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-23T06:16:52.740203Z",
+      "acceptance": [
+        "The PtyExitEvent includes a generation field to associate the exit event with a specific process lifecycle.",
+        "The TerminalView ignores pty-exit events if their generation does not match the generation of the currently attached terminal."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via a synthetic Node.js event lifecycle simulation against the connection logic in `TerminalView.tsx`. Stale exit events arrive before the new attachment resolves.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Simulate a terminal restart where the `attachTerminal` promise is pending on the frontend.",
+            "Emit a `pty-exit` event corresponding to the previous terminal generation.",
+            "Resolve the `attachTerminal` promise for the new, running generation."
+          ],
+          "expected": "The terminal UI remains in a running state, ignoring the stale exit event from the previous generation.",
+          "actual": "The terminal UI processes the `deferredExit` event and incorrectly transitions to an exited state."
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/types.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-performance-7",
+        "activity_id": "sessions/12441871823396169091/activities/2cdf964cf4c24dc5a9a0c5eee1c31751",
+        "report_sha256": "4bfb49edde14703344e120a5db0d3199136478ddae274217460c83209f0eb684",
+        "activity_created_at": "2026-09-23T06:06:49.925988Z",
+        "session_id": "12441871823396169091",
+        "dispatch_key": "b9367ba2081634d8facd34fb"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T06:17:09.340968Z",
+    "last_poll_at": "2026-09-23T06:17:12.352121Z",
     "last_tick_at": "2026-09-23T06:10:56.965791Z",
     "run_id": "35825527353"
   }
