@@ -32281,6 +32281,129 @@
         "session_id": "8759316691189917428",
         "dispatch_key": "597c776f9a790c14222d81ca"
       }
+    },
+    {
+      "id": "research-terminal-input-performance-7",
+      "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-23T05:56:22Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d\",\"status\":\"proposed\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. Matches canonical finding discovery-d47c6c8c6e6f2995. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch_recovery state is cleared (set to None) upon receiving new input.\",\"actual\":\"The switch_recovery state remains present and pending, allowing it to be sent after the new input.\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A Rust unit test confirms that `write_bytes` sets `switch_recovery` to `None` when new input is successfully queued.\"]}},{\"canonical_id\":\"discovery-a691c680cc7eb8da\",\"status\":\"proposed\",\"title\":\"Optimize terminal output batcher to prevent expensive array merging on overflow\",\"target_paths\":[\"src/terminalOutputBatcher.ts\"],\"observed_contract\":{\"detail\":\"Measured latency and memory allocations of `createTerminalOutputBatcher` with large synthetic data chunks running on Node V8 engine in the exact 90626eb0032fbb366f5af9f57d5fc7b3a67b7703 environment.\",\"expected\":\"The batcher flushes the first 200KB chunk independently, avoiding merging the two chunks into a 400KB array. Execution time should be minimal (e.g., under 15ms).\",\"actual\":\"The batcher appends the second 200KB chunk, reaches 400KB (> 256KB), allocates a new 400KB `Uint8Array`, and copies both chunks into it. Execution time takes over 2500ms due to excessive memory churn.\",\"acceptance\":[\"When a new output chunk causes the batcher to reach or exceed `maxBytes`, the batcher flushes the currently pending chunks before processing the new chunk.\",\"Memory allocations and `.set()` copy operations are avoided for large chunks that overflow an existing batch.\"]}},{\"canonical_id\":\"discovery-71ebc265fed99164\",\"status\":\"proposed\",\"title\":\"Fix terminal focus restoration failure for context menu right-click on Windows/Linux\",\"target_paths\":[\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of event listeners and verified with a JSDOM node script simulating the right-click event order (mousedown -> mouseup -> contextmenu) on Windows/Linux.\",\"expected\":\"The terminal regains focus if it was previously focused before the context menu action.\",\"actual\":\"The `handleMouseUp` listener sets `restoreFocus` to false before `handleContextMenu` runs, leaving the terminal unfocused.\",\"acceptance\":[\"Right-clicking on the terminal properly restores focus to the terminal on Windows and Linux.\"]}},{\"canonical_id\":\"discovery-5640a0d5b2031811\",\"status\":\"done\",\"title\":\"Fix terminal continuity generation changes during failure recovery\",\"target_paths\":[\"src/terminalContinuity.ts\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Observed that `TerminalView.tsx` throws fatal errors when `applyTerminalOutputEvent` detects a generation change, which can happen if a deferred `pty-output` arrives before re-attachment completes. Also, `applyTerminalAttachment` does not correctly set `lastSeq` when `reset = true` and `lastSeq` is  [excerpt]\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"Process restarts (generation changes) gracefully recover continuity without throwing fatal `terminalOutputGenerationChanged` errors in `TerminalView`. The `lastSeq` computes correctly in `applyTermina [excerpt]\"]}},{\"canonical_id\":\"discovery-d47c6c8c6e6f2995\",\"status\":\"done\",\"title\":\"Clear pending switch recovery on new terminal input to preserve chronological continuity\",\"target_paths\":[\"src-tauri/src/terminal.rs\",\"src/terminalInput.ts\"],\"observed_contract\":{\"detail\":\"Frontend intentionally unblocks input during recovery, but the backend leaves the recovery state intact when new input arrives, allowing the user to send the older recovery buffer after the newer input, breaking chronological order.\",\"expected\":\"\",\"actual\":\"\",\"acceptance\":[\"When a terminal process is in a SwitchInputRecovery state, typing new input automatically clears the pending recovery state so that out-of-order execution is prevented.\",\"A test confirms that write_bytes removes switch_recovery if new input is sent.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-87e9827baf673422\",\"status\":\"done\",\"title\":\"Clear pending terminal input recovery when new input is typed\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native rust unit test observation. The test verified that calling `write_bytes` when a `switch_recovery` is pending does not clear it, allowing subsequent retry of stale input out of order.\",\"expected\":\"The switch input recovery should fail because typing new input invalidates the pending recovery.\",\"actual\":\"The switch input recovery succeeds and writes the stale input after the new input.\",\"acceptance\":[\"Typing new input clears any pending switch_recovery state so that stale input cannot be retried later.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-fba4bf1ceccfc72b\",\"status\":\"done\",\"title\":\"Clear pending switch input recovery automatically upon receiving new user input\",\"target_paths\":[\"src-tauri/src/terminal.rs\"],\"observed_contract\":{\"detail\":\"Native backend evaluation using source code tracing matched against `xterm.js` buffer characteristics. The `process.switch_recovery` state in `write_bytes` persists during regular terminal inputs.\",\"expected\":\"The new manual characters are accepted and sent to the PTY. The old recovery buffer is abandoned and clicking Retry safely fails because it's stale, maintaining correct chronological order.\",\"actual\":\"The new manual characters are accepted and sent to the PTY immediately. Clicking Retry then sends the OLD recovery buffer AFTER the new input.\",\"acceptance\":[\"Any pending or failedSend switch recovery buffer is silently discarded if new bytes are manually written to the terminal\",\"The UI subsequently processes the resulting stale recovery attempt cleanly without echoing the discarded bytes out of order\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "performance",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Investigated the behavior of terminal focus restoration during right-click context menu interactions. Found a defect where `TerminalView`'s focus tracking is cleared by the `mouseup` event before the `contextmenu` event triggers on Windows/Linux.",
+            "observations": [
+              {
+                "scenario": "A mock scenario evaluating the event sequence for a right-click interaction inside `TerminalView` across OS environments.",
+                "evidence": "Wrote a JSDOM Node.js script mirroring the event listener sequence in `TerminalView.tsx` (`mousedown`, `mouseup`, `contextmenu`). On Windows and Linux, the event sequence is `mousedown` (button: 2) -> `mouseup` -> `contextmenu`. `TerminalView` currently sets `restoreFocus` to true on `mousedown`, false on `mouseup`, and checks `restoreFocus` inside the `contextmenu` handler. Since `mouseup` runs before `contextmenu`, `restoreFocus` evaluates to `false`, preventing `terminalRef.current?.focus()` from running.",
+                "result": "Establishes that the context menu right-click interaction on Windows and Linux fails to restore focus to the terminal due to premature tracking clearance by `handleMouseUp`. This observation explains broken focus restoration for right clicks in non-macOS environments."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal shortcuts for clipboard copy-pasting handle focus transitions correctly when `restoreFocus` evaluates to false.",
+              "Examine if `TranscriptModal` properly restores focus to the previously active element when returning from an active search."
+            ],
+            "proposed_task_ids": [
+              "discovery-71ebc265fed99164"
+            ],
+            "completed_at": "2026-09-22T11:21:26.506441Z",
+            "source": {
+              "activity_id": "sessions/7118727866427794195/activities/fddb1f8e86f54b699b616e58e5ef99fb",
+              "report_sha256": "cff90a6b92e1f97c67ebf188e20a96586ea9d19d019fcb673fb2270bf02cd6a4",
+              "activity_created_at": "2026-09-22T11:12:40.581309Z",
+              "session_id": "7118727866427794195",
+              "dispatch_key": "6371b6375532953d5932caf0"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the terminal keyboard event handling behavior. Discovered that the terminal does not process custom `terminalShortcutInput` events properly when input is blocked by `terminalInputBlocked`, despite earlier handling routines trying to emit these key bindings. Also observed that during context menu handling, the `pointerDownCell` tracks properly but `restoreFocus` was not behaving cleanly because there is no such state variable internally inside `TerminalView` directly handling right click focus in the same way right clicks cancel selection.",
+            "observations": [
+              {
+                "scenario": "A mock scenario evaluating the logic of `handleKeyDown` in `TerminalView.tsx` processing keyboard shortcuts against `terminalInputBlocked`.",
+                "evidence": "Wrote a Node script mimicking the event sequence when `inputBlockedRef.current` is true. `sendInput` early exits and does not process the keys. The copy shortcut (`KeyC` / `Insert`) and `terminalShortcutInput` all ultimately fail to resolve inputs because `sendInput` blocks them. However, `consume()` is called on them preventing default browser behaviors even if the terminal is blocked.",
+                "result": "Establishes that blocking terminal input blocks any valid shortcuts from executing, while still capturing and consuming the key events."
+              },
+              {
+                "scenario": "Context menu triggered via keyboard shortcut on a transcript link.",
+                "evidence": "Wrote a Node script checking what coordinates are passed to the context menu. Simulating a `contextmenu` event via keyboard (like Shift+F10) emits an event with `clientX: 0, clientY: 0`. The context menu is rendered at those top-left coordinates.",
+                "result": "Establishes that keyboard-triggered context menus display at (0,0). Matches canonical finding discovery-ccd17b3cdd6d7d64."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity generation mismatch handling can lead to race conditions during rapid terminal creation and deletion.",
+              "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T22:32:44.374618Z",
+            "source": {
+              "activity_id": "sessions/8044084466990554721/activities/94fdff434b2e4f1e9a17dd355dfb0298",
+              "report_sha256": "3acd5c39a069eff5e45517b6c43459ef5656dee2269e11c2bc7a872837fa50ce",
+              "activity_created_at": "2026-09-22T22:21:49.232524Z",
+              "session_id": "8044084466990554721",
+              "dispatch_key": "ce7453005bd60848be72a5a3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the performance of terminal output batching, terminal focus restoration during right-click interactions, and backend terminal recovery state during new inputs. Reproduced and verified existing defects in these areas.",
+            "observations": [
+              {
+                "scenario": "A workload simulating terminal output interleaving chunks that exceed the maxBytes limit (256KB) in `terminalOutputBatcher.ts`.",
+                "evidence": "Executed a synthetic Node script pushing 10,000 pairs of 200KB chunks. Observed ~4700ms execution time due to the batcher merging chunks on overflow via `.set()`, copying data repeatedly instead of flushing before the overflow occurs. Matches canonical finding discovery-a691c680cc7eb8da.",
+                "result": "Confirms the performance bottleneck and unnecessary memory copying during chunk batch overflows."
+              },
+              {
+                "scenario": "Right-click context menu interaction on Windows/Linux environments triggering `mousedown`, `mouseup`, and `contextmenu` events in `TerminalView.tsx`.",
+                "evidence": "Ran a JSDOM script simulating the event sequence where right-click (button 2) triggers `mouseup` before `contextmenu`. Because `TerminalView.tsx` clears `restoreFocus` (or analogous tracking) upon `mouseup`, the subsequent `contextmenu` event does not properly restore focus to the terminal. Matches canonical finding discovery-71ebc265fed99164.",
+                "result": "Confirms the root cause of the context menu focus restoration failure on non-macOS platforms."
+              },
+              {
+                "scenario": "Writing new manual terminal input while an old `switch_recovery` is pending in the Tauri backend.",
+                "evidence": "Reviewed and executed logic against `terminal.rs`. The `write_bytes` command directly queues new manual input into the PTY but fails to set `process.switch_recovery = None;`, leaving the stale recovery state active. Matches canonical finding discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d.",
+                "result": "Establishes that chronological continuity is broken because stale input can still be sent out-of-order after new user input."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing without causing an infinite resize loop.",
+              "Investigate if the PTY exit event mechanism (`pty-exit`) can race with a new terminal attachment generation, causing the UI to show an exited state for a newly restarted session."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T01:57:51.150113Z",
+            "source": {
+              "activity_id": "sessions/6390890978565987807/activities/59bd7769f4df4e9a8099221af91835bc",
+              "report_sha256": "96f30d48368820c08c075012d17797c8a669e20e6b09835421ea97e19bece321",
+              "activity_created_at": "2026-09-23T01:27:27.746042Z",
+              "session_id": "6390890978565987807",
+              "dispatch_key": "fefae0d8dcf4e113759c9d40"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
