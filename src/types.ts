@@ -70,6 +70,12 @@ export interface ResourceVolumeSnapshot {
   severity: ResourceSeverity
 }
 
+export interface ResourceUnavailableVolume {
+  path: string
+  purpose: string
+  error: string
+}
+
 export interface ResourceProcessSnapshot {
   terminalId: string | null
   processId: number
@@ -82,6 +88,7 @@ export interface ResourceHealthSnapshot {
   severity: ResourceSeverity
   memory: ResourceMemorySnapshot
   volumes: ResourceVolumeSnapshot[]
+  unavailableVolumes: ResourceUnavailableVolume[]
   processes: ResourceProcessSnapshot[]
 }
 

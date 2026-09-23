@@ -1,6 +1,6 @@
 use crate::models::{
     ResourceHealthSnapshot, ResourceMemorySnapshot, ResourceProcessSnapshot, ResourceSeverity,
-    ResourceVolumeSnapshot,
+    ResourceUnavailableVolume, ResourceVolumeSnapshot,
 };
 use std::{
     collections::BTreeMap,
@@ -71,12 +71,17 @@ pub fn sample_resource_health(
         severity: available_severity.max(swap_severity),
     };
 
-    let volumes = sample_volumes(paths)?;
+    let (volumes, unavailable_volumes) = sample_volumes(paths);
     let processes = sample_processes(&mut system, terminal_processes)?;
     let severity = volumes
         .iter()
         .map(|volume| volume.severity)
         .chain(std::iter::once(memory.severity))
+        .chain(std::iter::once(if unavailable_volumes.is_empty() {
+            ResourceSeverity::Ok
+        } else {
+            ResourceSeverity::Warning
+        }))
         .max()
         .unwrap_or(ResourceSeverity::Ok);
 
@@ -88,15 +93,29 @@ pub fn sample_resource_health(
         severity,
         memory,
         volumes,
+        unavailable_volumes,
         processes,
     })
 }
 
-fn sample_volumes(paths: Vec<ResourcePath>) -> Result<Vec<ResourceVolumeSnapshot>, String> {
+fn sample_volumes(
+    paths: Vec<ResourcePath>,
+) -> (Vec<ResourceVolumeSnapshot>, Vec<ResourceUnavailableVolume>) {
     let mut volumes = BTreeMap::<String, VolumeAccumulator>::new();
+    let mut unavailable_volumes = Vec::new();
 
     for target in paths {
-        let sample = sample_volume(&target.path)?;
+        let sample = match sample_volume(&target.path) {
+            Ok(sample) => sample,
+            Err(error) => {
+                unavailable_volumes.push(ResourceUnavailableVolume {
+                    path: target.path.to_string_lossy().into_owned(),
+                    purpose: target.purpose.to_owned(),
+                    error,
+                });
+                continue;
+            }
+        };
         let entry = volumes
             .entry(sample.identity)
             .or_insert_with(|| VolumeAccumulator {
@@ -114,7 +133,7 @@ fn sample_volumes(paths: Vec<ResourcePath>) -> Result<Vec<ResourceVolumeSnapshot
         }
     }
 
-    Ok(volumes
+    let volumes = volumes
         .into_values()
         .map(|volume| ResourceVolumeSnapshot {
             severity: disk_severity(volume.available_bytes, volume.total_bytes),
@@ -123,28 +142,19 @@ fn sample_volumes(paths: Vec<ResourcePath>) -> Result<Vec<ResourceVolumeSnapshot
             total_bytes: volume.total_bytes,
             purposes: volume.purposes,
         })
-        .collect())
+        .collect();
+    (volumes, unavailable_volumes)
 }
 
 fn existing_resource_path(path: &Path) -> Result<PathBuf, String> {
-    let original_error = match fs::canonicalize(path) {
-        Ok(resolved) => return Ok(resolved),
-        Err(error) => error,
-    };
-    let mut candidate = path;
-    while let Some(parent) = candidate.parent() {
-        if parent == candidate || parent.as_os_str().is_empty() {
-            break;
-        }
-        candidate = parent;
-        if let Ok(resolved) = fs::canonicalize(candidate) {
-            return Ok(resolved);
-        }
-    }
-    Err(format!(
-        "Не удалось определить путь для проверки ресурсов {}: {original_error}",
-        path.display()
-    ))
+    // Even a not-yet-created sessions directory is unavailable: an ancestor may
+    // belong to a different filesystem after an unmount. Never sample it instead.
+    fs::canonicalize(path).map_err(|error| {
+        format!(
+            "Не удалось определить путь для проверки ресурсов {}: {error}",
+            path.display()
+        )
+    })
 }
 
 #[cfg(unix)]
@@ -244,7 +254,7 @@ fn sample_volume(path: &Path) -> Result<VolumeSample, String> {
     let mut total_free_bytes = 0_u64;
     if unsafe {
         GetDiskFreeSpaceExW(
-            volume_path.as_ptr(),
+            path_wide.as_ptr(),
             &mut available_bytes,
             &mut total_bytes,
             &mut total_free_bytes,
@@ -380,8 +390,8 @@ pub fn default_resource_paths(
 #[cfg(test)]
 mod tests {
     use super::{
-        default_resource_paths, disk_severity, existing_resource_path, memory_severity,
-        sample_resource_health, sample_volumes, swap_severity, ResourcePath, GIB, MIB,
+        default_resource_paths, disk_severity, memory_severity, sample_resource_health,
+        swap_severity, ResourcePath, GIB, MIB,
     };
     use crate::models::ResourceSeverity;
 
@@ -427,29 +437,61 @@ mod tests {
     }
 
     #[test]
-    fn missing_leaf_uses_nearest_existing_ancestor_volume() {
+    fn unavailable_workspace_preserves_other_resources_and_recovers() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock should be after Unix epoch")
             .as_nanos();
         let parent = std::env::temp_dir().join(format!(
-            "omp-resource-parent-{}-{nonce}",
+            "omp-resource-partial-{}-{nonce}",
             std::process::id()
         ));
-        std::fs::create_dir_all(&parent).expect("resource parent should be writable");
-        let missing = parent.join("sessions").join("future-session");
+        let sessions = parent.join("sessions");
+        let workspace = parent.join("workspace");
+        std::fs::create_dir_all(&sessions).expect("sessions fixture should be writable");
+        std::fs::create_dir(&workspace).expect("workspace fixture should be writable");
+        let paths = vec![
+            ResourcePath {
+                purpose: "workspace",
+                path: workspace.clone(),
+            },
+            ResourcePath {
+                purpose: "sessions",
+                path: sessions,
+            },
+        ];
+        std::fs::remove_dir(&workspace).expect("workspace fixture should be removable");
 
+        let partial = sample_resource_health(paths.clone(), Vec::new())
+            .expect("a missing workspace must not discard the rest of the sample");
+        assert!(partial.memory.total_bytes > 0);
+        assert!(partial
+            .processes
+            .iter()
+            .any(|process| { process.source == "desktop" && process.resident_bytes > 0 }));
+        assert_eq!(partial.volumes.len(), 1);
+        assert!(partial.volumes[0].total_bytes > 0);
+        assert!(partial.volumes[0].available_bytes <= partial.volumes[0].total_bytes);
+        assert_eq!(partial.volumes[0].purposes, vec!["sessions"]);
+        assert_eq!(partial.unavailable_volumes.len(), 1);
         assert_eq!(
-            existing_resource_path(&missing).expect("existing ancestor should be resolved"),
-            std::fs::canonicalize(&parent).expect("resource parent should be resolvable")
+            partial.unavailable_volumes[0].path,
+            workspace.to_string_lossy()
         );
-        let volumes = sample_volumes(vec![ResourcePath {
-            purpose: "workspace",
-            path: missing,
-        }])
-        .expect("missing leaf should sample its existing ancestor volume");
-        assert_eq!(volumes.len(), 1);
-        assert_eq!(volumes[0].purposes, vec!["workspace"]);
+        assert_eq!(partial.unavailable_volumes[0].purpose, "workspace");
+        assert!(!partial.unavailable_volumes[0].error.is_empty());
+        assert!(partial.severity >= ResourceSeverity::Warning);
+
+        std::fs::create_dir(&workspace).expect("workspace fixture should be recoverable");
+        let recovered = sample_resource_health(paths, Vec::new())
+            .expect("recovered workspace should be sampled again");
+        assert!(recovered.unavailable_volumes.is_empty());
+        assert_eq!(recovered.volumes.len(), 1);
+        assert_eq!(recovered.volumes[0].purposes, vec!["workspace", "sessions"]);
+        assert_eq!(
+            recovered.severity,
+            recovered.memory.severity.max(recovered.volumes[0].severity)
+        );
 
         std::fs::remove_dir_all(parent).expect("resource fixture should be removable");
     }
@@ -465,7 +507,7 @@ mod tests {
             return;
         };
         let missing = missing_root.join("omp-resource-missing");
-        let error = existing_resource_path(&missing)
+        let error = super::existing_resource_path(&missing)
             .expect_err("an unavailable volume must not fall back to another drive");
         assert!(error.contains(missing.to_string_lossy().as_ref()));
     }
@@ -488,7 +530,7 @@ mod tests {
             return;
         }
 
-        let volumes = sample_volumes(vec![
+        let (volumes, unavailable_volumes) = super::sample_volumes(vec![
             ResourcePath {
                 purpose: "root",
                 path: root,
@@ -497,8 +539,8 @@ mod tests {
                 purpose: "temporary",
                 path: tmpfs,
             },
-        ])
-        .expect("both filesystems should be sampled directly");
+        ]);
+        assert!(unavailable_volumes.is_empty());
         assert_eq!(volumes.len(), 2);
         let temporary = volumes
             .iter()

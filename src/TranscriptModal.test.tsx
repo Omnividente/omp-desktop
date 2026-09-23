@@ -41,8 +41,10 @@ let frames: Map<number, FrameRequestCallback>
 let nextFrame: number
 let sessionNumber = 0
 let rowHeights: Map<number, number>
+let viewportWidth: number
+let resizeObservers: Set<() => void>
 
-function Harness() {
+function Harness({ hideSearchedEntries = false }: { hideSearchedEntries?: boolean }) {
   const state = useTranscript("en")
   const { loadTranscript } = state
   useEffect(() => {
@@ -69,6 +71,7 @@ function Harness() {
           transcriptSession={state.transcriptSession}
           launching={null}
           runtimeAvailable
+          visibleEntries={hideSearchedEntries && state.transcriptSearch ? [] : state.visibleEntries}
           onClose={state.closeTranscript}
           onRefresh={() => void state.loadTranscript(session)}
           onReread={() => undefined}
@@ -131,10 +134,47 @@ function readingRow() {
   )!
 }
 
+async function resizeTo(width: number, containerFirst = false) {
+  await act(async () => {
+    viewportWidth = width
+    const callbacks = Array.from(resizeObservers)
+    if (containerFirst) callbacks.reverse()
+    for (const callback of callbacks) callback()
+  })
+  await flushFrames()
+}
+
 beforeEach(async () => {
   vi.clearAllMocks()
   session.filePath = `/tmp/synthetic-${++sessionNumber}.jsonl`
   rowHeights = new Map([[120, 1200]])
+  viewportWidth = 800
+  resizeObservers = new Set()
+  vi.stubGlobal(
+    "ResizeObserver",
+    class implements ResizeObserver {
+      private targets = new Set<Element>()
+      private notify: () => void
+      constructor(callback: ResizeObserverCallback) {
+        this.notify = () =>
+          callback(
+            Array.from(this.targets, (target) => ({ target }) as ResizeObserverEntry),
+            this,
+          )
+        resizeObservers.add(this.notify)
+      }
+      observe(target: Element) {
+        this.targets.add(target)
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target)
+      }
+      disconnect() {
+        this.targets.clear()
+        resizeObservers.delete(this.notify)
+      }
+    },
+  )
   frames = new Map()
   nextFrame = 0
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
@@ -167,6 +207,7 @@ beforeEach(async () => {
     }
   })
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480)
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => viewportWidth)
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
     this: HTMLElement,
   ) {
@@ -549,4 +590,127 @@ it("keeps the reading message through source toggles and a refresh with appended
   expect(readingRow().dataset.virtualIndex).toBe("60")
   await click("Latest message")
   expect(container.textContent).toContain("Latest appended")
+})
+
+it("preserves a tall visible row through width invalidation, clamps shrinking content, and yields to navigation", async () => {
+  // Seed a measured row that will be offscreen when width changes.
+  rowHeights.set(20, 400)
+  await scrollTo(20 * 102)
+  await scrollTo(120 * 102 + 308 + 850)
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-850)
+
+  rowHeights.set(20, 200)
+  rowHeights.set(110, 300)
+  rowHeights.set(120, 1000)
+  await resizeTo(600)
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-850)
+  // The unmounted row 20 must no longer contribute its stale 400px height.
+  expect(Number.parseFloat(readingRow().style.top)).toBe(120 * 102 + 208)
+
+  rowHeights.set(120, 400)
+  await resizeTo(1000, true)
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-399)
+  rowHeights.set(120, 1200)
+  await resizeTo(600)
+  expect(readingRow().getBoundingClientRect().top).toBe(-399)
+  await click("Close")
+  await click("Open transcript")
+  expect(readingRow().dataset.virtualIndex).toBe("120")
+  expect(readingRow().getBoundingClientRect().top).toBe(-399)
+
+  await searchFor("needle")
+  await click("Next match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("1")
+  expect(currentOccurrence()!.getBoundingClientRect().top).toBeGreaterThanOrEqual(0)
+  expect(currentOccurrence()!.getBoundingClientRect().bottom).toBeLessThanOrEqual(480)
+  await scrollTo(40 * 102 + 25)
+  await resizeTo(900)
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(readingRow().getBoundingClientRect().top).toBe(-25)
+  await click("Latest message")
+  expect(container.querySelector('article[data-virtual-index="179"]')).not.toBeNull()
+})
+
+it("returns both explicit Clear search actions to the search input without stealing Latest focus", async () => {
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  await searchFor("needle")
+  const inline = container.querySelector<HTMLButtonElement>(".transcript-search-field button")!
+  act(() => inline.focus())
+  await act(async () => inline.click())
+  await flushFrames()
+  expect(input.value).toBe("")
+  expect(document.activeElement).toBe(input)
+
+  await act(async () => root.render(<Harness hideSearchedEntries />))
+  await searchFor("missing")
+  const empty = container.querySelector<HTMLButtonElement>(".transcript-state button")!
+  act(() => empty.focus())
+  await act(async () => empty.click())
+  await flushFrames()
+  expect(input.value).toBe("")
+  expect(document.activeElement).toBe(input)
+
+  await act(async () => root.render(<Harness />))
+  await searchFor("needle")
+  const latest = container.querySelector<HTMLButtonElement>('[aria-label="Latest message"]')!
+  act(() => latest.focus())
+  await click("Latest message")
+  expect(document.activeElement).toBe(latest)
+})
+
+it("consumes menu-item Tab in both directions but leaves outside Tab navigation alone", async () => {
+  await searchFor("needle")
+  await click("Next match")
+  await click("Next match")
+  const link = container.querySelector<HTMLAnchorElement>('a[href="local://needle.txt"]')!
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  const downstream = vi.fn()
+  document.addEventListener("keydown", downstream)
+  try {
+    for (const shiftKey of [false, true]) {
+      act(() => {
+        link.focus()
+        link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))
+      })
+      act(() =>
+        link.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+      )
+      expect(document.activeElement?.getAttribute("role")).toBe("menuitem")
+      const tab = new KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => document.activeElement!.dispatchEvent(tab))
+      expect(tab.defaultPrevented).toBe(true)
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(link)
+      expect(downstream).not.toHaveBeenCalled()
+    }
+
+    act(() =>
+      link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+    )
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+    act(() => {
+      input.focus()
+      input.dispatchEvent(tab)
+    })
+    expect(tab.defaultPrevented).toBe(false)
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(downstream).toHaveBeenCalledTimes(1)
+  } finally {
+    document.removeEventListener("keydown", downstream)
+  }
 })
