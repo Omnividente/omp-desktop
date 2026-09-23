@@ -35706,6 +35706,132 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-performance-7",
+      "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-23T13:24:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "performance",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Investigated the deduplication behavior of PtySessionTitleEvent and verified terminal continuity baseline expectations.",
+            "observations": [
+              {
+                "scenario": "Rapid-fire testing of `PtySessionTitleEvent` with the same title string to evaluate state deduplication.",
+                "evidence": "Observed via source inspection of `src/App.tsx` and a synthetic React rendering test. The `pty-session-title` listener calls `setTabs` which unconditionally maps over the `tabs` array. Even when `tab.label === title`, it returns `{ ...tab, label: title }`. This allocates a new object reference and a new array reference every time the event fires, bypassing React's built-in bailout mechanism and forcing unnecessary re-renders of the terminal tab list.",
+                "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+              },
+              {
+                "scenario": "Review terminal continuity baseline bounds tracking when discarding or resetting attachments.",
+                "evidence": "Observed via `src/terminalContinuity.ts`. The logic tracks `generation` and `lastSeq`. When an attachment is received with `baselineReset` or a new `generation`, the previous state is abandoned and `expectedSeq` is firmly reset to `1`. Subsequent output events correctly validate bounds by comparing `event.generation` to `previous.generation` and computing `gap: event.seq !== expectedSeq`.",
+                "result": "Establishes that terminal continuity baselines accurately defend against unexpected generation jumps or sequence gaps without unbounded growth of recovery states."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the bounds checking and eviction logic for `switchInputRecovery` states in `App.tsx` during heavy terminal churn.",
+              "Verify the accuracy of the empty/missing volumes status rendering in `ResourceHealthPanel.tsx` when no volumes are returned."
+            ],
+            "proposed_task_ids": [
+              "discovery-545847f2043c71c0"
+            ],
+            "completed_at": "2026-09-22T14:00:13.771560Z",
+            "source": {
+              "activity_id": "sessions/12862731787932834569/activities/72c21f89f32a4262ad9ec153428ec056",
+              "report_sha256": "588698d846395a7b6539e2f318469a03d505f9f3880a21b8e36c955c888c11be",
+              "activity_created_at": "2026-09-22T13:52:12.531606Z",
+              "session_id": "12862731787932834569",
+              "dispatch_key": "64890cd6db2dcbbe88ec8848"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified empty disk space rendering in ResourceHealthPanel and lack of deduplication for PtySessionTitleEvent in App.tsx.",
+            "observations": [
+              {
+                "scenario": "Review the empty/missing volumes status rendering in ResourceHealthPanel.tsx when no volumes are returned.",
+                "evidence": "Observed via synthetic jsdom tests and source inspection that when `snapshot.volumes` and `snapshot.unavailableVolumes` are both empty arrays, the `ResourceHealthPanel` renders the 'Disk space' (`<section>...<h3>`) header container with no child content or error message placeholder. It correctly falls back to showing only the title, but does not render any distinct missing status.",
+                "result": "Establishes that the UI safely handles an empty volumes list without crashing, resulting in a blank section under the 'Disk space' heading."
+              },
+              {
+                "scenario": "Review PtySessionTitleEvent deduplication in App.tsx.",
+                "evidence": "Observed via source inspection that `setTabs` is called in response to `pty-session-title` and unconditionally maps over the `tabs` array returning `{ ...tab, label: title }` for the matched terminal, even if the label has not changed. This creates a new object reference every time the event fires.",
+                "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether terminal continuity eviction properly manages stale baselines during long-running sessions with heavy background churn.",
+              "Verify what happens when multiple consecutive `switchInputRecoveryDetails` exceptions are caught for the same terminal in heavy network failure conditions."
+            ],
+            "proposed_task_ids": [
+              "discovery-e1d7448e8a1d4446"
+            ],
+            "completed_at": "2026-09-23T13:03:30.883107Z",
+            "source": {
+              "activity_id": "sessions/4177348324449373254/activities/89795600a9b647839794993a2a8e6655",
+              "report_sha256": "c893ae012cd2617561998617f5bb2856330f3c5b97fdd9199c23e19667acf475",
+              "activity_created_at": "2026-09-23T12:27:41.295932Z",
+              "session_id": "4177348324449373254",
+              "dispatch_key": "7b6515a5cc361426c3966ed3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of multiple consecutive switchInputRecovery errors in App.tsx and the eviction bounds logic in runtimeIncidents.",
+            "observations": [
+              {
+                "scenario": "Verify what happens when multiple consecutive switchInputRecoveryDetails exceptions are caught for the same terminal in heavy network failure conditions.",
+                "evidence": "Observed via synthetic React rendering tests that simulate App.tsx's error catch blocks for sendSwitchInputRecovery and discardSwitchInputRecovery. When multiple consecutive errors occur for the same terminal, if a subsequent error does not contain recovery details (e.g. a generic network error returning null from switchInputRecoveryDetails), the catch blocks in App.tsx use 'currentRecovery ?? candidate.switchRecovery' or 'if (currentRecovery)' guards. This intentionally retains the previous valid recovery state rather than wiping it out.",
+                "result": "Establishes that consecutive exceptions without recovery payloads safely preserve the existing switch input recovery state, preventing accidental loss of recovery tokens during transient network failures."
+              },
+              {
+                "scenario": "Verify the bounds checking and eviction logic for switchInputRecovery states and runtime incidents during heavy terminal churn.",
+                "evidence": "Observed via synthetic React state testing of applyRuntimeIncidentEvent and createRuntimeIncidentState from src/runtimeIncidents.ts. Created a loop that generates active incidents for distinct terminals beyond MAX_RUNTIME_INCIDENTS. The enforceIncidentBound logic correctly enforced the length of the incidents array to not exceed the defined limit (100) by evicting the oldest candidates. Also observed that terminalContinuity baseline states are properly evicted only upon explicit UI tab closures via forgetTerminalContinuity.",
+                "result": "Establishes that incident arrays are safely bounded against unbounded growth during heavy error churn, and terminal continuity baselines accurately follow explicit tab lifecycles."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the logic that selects which active incident to evict prioritizes terminals with multiple active incidents correctly over single-incident terminals.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T13:24:16.887632Z",
+            "source": {
+              "activity_id": "sessions/7315406604621776548/activities/c8691fc7dc0d465c88b3cd712c9f61c1",
+              "report_sha256": "95833d1f90667e8563465f336d981e10a8b57b0179db9e97a7091f334ddf32cb",
+              "activity_created_at": "2026-09-23T13:14:05.513182Z",
+              "session_id": "7315406604621776548",
+              "dispatch_key": "841c2f7f957ce8fb5ff1775e"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
