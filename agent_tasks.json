@@ -32515,7 +32515,7 @@
       "id": "research-sessions-persistence-ux-7",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -32692,18 +32692,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16611867596431400329",
         "dispatch_key": "18bb3ef1d7365b5d7e278803",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-18bb3ef1d7365b5d7e278803",
         "started_at": "2026-09-23T06:16:52.740203Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T06:54:49.506783Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-23T06:43:36.187017Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T06:54:49.506783Z",
         "research_detached": {
           "at": "2026-09-23T06:43:36.187017Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -32712,11 +32712,106 @@
           "at": "2026-09-23T06:43:36.187017Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated focus restoration on search clear and batch import modal error states.",
+        "observations": [
+          {
+            "scenario": "Review keyboard focus behavior when clearing the session search filter in SessionList.",
+            "evidence": "Source inspection of `src/SessionList.tsx` reveals that the clear search button unmounts immediately when `search` becomes empty. There is no `ref` on the search input or logic in `onClearSearch` to reclaim focus.",
+            "result": "Establishes that keyboard users lose their focus position in the document when they clear a search query."
+          },
+          {
+            "scenario": "Review the batch import UI state after partial or total failure in `importCodexSelected` and `importPendingOmp`.",
+            "evidence": "Code inspection of `src/App.tsx` shows that if `result.items.filter(item => item.status === 'failed')` is not empty, `showError` is called but `setCodexOpen(false)` or `setPendingOmpImportPath(null)` is bypassed. The selected items remain checked.",
+            "result": "Establishes that the UI leaves users in the modal with their previous selection intact after partial import failures. Retrying without manual deselection re-runs the entire batch."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing.",
+          "Investigate the React render performance of synchronous session filtering in App.tsx on workspaces with >10,000 sessions."
+        ],
+        "proposed_task_ids": [
+          "discovery-2121d4b2b9e7bcd1"
+        ],
+        "completed_at": "2026-09-23T06:54:49.506783Z",
+        "source": {
+          "activity_id": "sessions/16611867596431400329/activities/55bf85255b4f449ca0a5c58a72d35571",
+          "report_sha256": "5a32d4e3802043a649ccf0a3ca8a12395246ca5704ba5f372f8849261da875db",
+          "activity_created_at": "2026-09-23T06:44:53.136729Z",
+          "session_id": "16611867596431400329",
+          "dispatch_key": "18bb3ef1d7365b5d7e278803"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16611867596431400329/activities/55bf85255b4f449ca0a5c58a72d35571",
+          "report_sha256": "5a32d4e3802043a649ccf0a3ca8a12395246ca5704ba5f372f8849261da875db",
+          "activity_created_at": "2026-09-23T06:44:53.136729Z",
+          "session_id": "16611867596431400329",
+          "dispatch_key": "18bb3ef1d7365b5d7e278803"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-2121d4b2b9e7bcd1"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-2121d4b2b9e7bcd1",
+      "title": "Restore focus to the search input after clearing the search query in SessionList",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-23T06:54:49.506783Z",
+      "acceptance": [
+        "When the clear search button is clicked or activated via keyboard, focus returns to the search input"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via code inspection and standard React behavior on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. When the clear button is activated, it unmounts and focus drops to the document body.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Focus the 'Search sessions' input and type a query to reveal the clear button.",
+            "Press Tab to move focus to the clear button.",
+            "Press Enter or Space to activate the clear button.",
+            "Check the document.activeElement."
+          ],
+          "expected": "Focus is moved back to the search input.",
+          "actual": "Focus drops to the document body because the button element is removed from the DOM."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-7",
+        "activity_id": "sessions/16611867596431400329/activities/55bf85255b4f449ca0a5c58a72d35571",
+        "report_sha256": "5a32d4e3802043a649ccf0a3ca8a12395246ca5704ba5f372f8849261da875db",
+        "activity_created_at": "2026-09-23T06:44:53.136729Z",
+        "session_id": "16611867596431400329",
+        "dispatch_key": "18bb3ef1d7365b5d7e278803"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T06:55:08.830991Z",
+    "last_poll_at": "2026-09-23T06:55:12.170916Z",
     "last_tick_at": "2026-09-23T06:44:07.702274Z",
     "run_id": "35828092446"
   }
