@@ -35203,7 +35203,7 @@
       "id": "research-diagnostics-resources-behavior-7",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -35345,28 +35345,119 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "quarantined",
+        "state": "completed",
         "session_id": "4177348324449373254",
         "dispatch_key": "7b6515a5cc361426c3966ed3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-7b6515a5cc361426c3966ed3",
         "started_at": "2026-09-23T12:18:47.268008Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T13:03:30.883107Z",
         "pull_request": 0,
-        "outcome": "stale",
-        "note": "owner_disabled_loop",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T12:18:47.268008Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T13:03:30.883107Z",
         "quarantined_at": "2026-09-23T12:26:16.146575Z",
         "research_request": {
           "contract_version": "legacy-pr82",
           "context_provenance": "not_recorded"
         }
+      },
+      "research_result": {
+        "summary": "Verified empty disk space rendering in ResourceHealthPanel and lack of deduplication for PtySessionTitleEvent in App.tsx.",
+        "observations": [
+          {
+            "scenario": "Review the empty/missing volumes status rendering in ResourceHealthPanel.tsx when no volumes are returned.",
+            "evidence": "Observed via synthetic jsdom tests and source inspection that when `snapshot.volumes` and `snapshot.unavailableVolumes` are both empty arrays, the `ResourceHealthPanel` renders the 'Disk space' (`<section>...<h3>`) header container with no child content or error message placeholder. It correctly falls back to showing only the title, but does not render any distinct missing status.",
+            "result": "Establishes that the UI safely handles an empty volumes list without crashing, resulting in a blank section under the 'Disk space' heading."
+          },
+          {
+            "scenario": "Review PtySessionTitleEvent deduplication in App.tsx.",
+            "evidence": "Observed via source inspection that `setTabs` is called in response to `pty-session-title` and unconditionally maps over the `tabs` array returning `{ ...tab, label: title }` for the matched terminal, even if the label has not changed. This creates a new object reference every time the event fires.",
+            "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether terminal continuity eviction properly manages stale baselines during long-running sessions with heavy background churn.",
+          "Verify what happens when multiple consecutive `switchInputRecoveryDetails` exceptions are caught for the same terminal in heavy network failure conditions."
+        ],
+        "proposed_task_ids": [
+          "discovery-e1d7448e8a1d4446"
+        ],
+        "completed_at": "2026-09-23T13:03:30.883107Z",
+        "source": {
+          "activity_id": "sessions/4177348324449373254/activities/89795600a9b647839794993a2a8e6655",
+          "report_sha256": "c893ae012cd2617561998617f5bb2856330f3c5b97fdd9199c23e19667acf475",
+          "activity_created_at": "2026-09-23T12:27:41.295932Z",
+          "session_id": "4177348324449373254",
+          "dispatch_key": "7b6515a5cc361426c3966ed3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4177348324449373254/activities/89795600a9b647839794993a2a8e6655",
+          "report_sha256": "c893ae012cd2617561998617f5bb2856330f3c5b97fdd9199c23e19667acf475",
+          "activity_created_at": "2026-09-23T12:27:41.295932Z",
+          "session_id": "4177348324449373254",
+          "dispatch_key": "7b6515a5cc361426c3966ed3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-e1d7448e8a1d4446"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-e1d7448e8a1d4446",
+      "title": "Deduplicate PtySessionTitleEvent updates in App.tsx to prevent unnecessary re-renders",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "perf"
+      ],
+      "created_at": "2026-09-23T13:03:30.883107Z",
+      "acceptance": [
+        "PtySessionTitleEvent updates only create a new tab object reference if the title actually changed"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Source inspection on the pinned base. The `pty-session-title` listener in `src/App.tsx` updates `tabs` state unconditionally.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Inspect the `pty-session-title` listener in `src/App.tsx`"
+          ],
+          "expected": "The listener should check if `tab.label === title` before returning a new object reference.",
+          "actual": "The listener always maps over the tab array and returns `{ ...tab, label: title }` for the target terminal ID, allocating a new object reference and forcing a re-render regardless of whether the title actually changed."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-7",
+        "activity_id": "sessions/4177348324449373254/activities/89795600a9b647839794993a2a8e6655",
+        "report_sha256": "c893ae012cd2617561998617f5bb2856330f3c5b97fdd9199c23e19667acf475",
+        "activity_created_at": "2026-09-23T12:27:41.295932Z",
+        "session_id": "4177348324449373254",
+        "dispatch_key": "7b6515a5cc361426c3966ed3"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T13:03:51.189229Z",
+    "last_poll_at": "2026-09-23T13:03:54.402676Z",
     "last_tick_at": "2026-09-23T12:21:03.349547Z",
     "run_id": "35859661492"
   }
