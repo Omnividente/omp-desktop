@@ -33040,7 +33040,7 @@
       "id": "research-workspace-navigation-performance-7",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -33181,23 +33181,135 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "203764782581588905",
         "dispatch_key": "590dc1be81fe859c509fbb56",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-590dc1be81fe859c509fbb56",
         "started_at": "2026-09-23T07:55:26.669858Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T08:15:25.370078Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T08:02:58.729439Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T08:15:25.370078Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace switching, project rendering scaling, and import error handling.",
+        "observations": [
+          {
+            "scenario": "Rendering ProjectRail with 5000 workspaces and switching between them",
+            "evidence": "Wrote and executed a synthetic Vitest test (`src/ProjectRail.experiment.test.tsx`) that renders `<ProjectRail />` containing 5000 workspaces. It took ~7.8 seconds to initially render. Simulating a workspace switch via `rerender` took ~2.2 seconds. No DOM virtualization is used for the workspace list in ProjectRail.",
+            "result": "Confirms the previously rejected task 'discovery-e0f2bce9ebc246e7' is still an accurate observation of reality (O(N) rendering for workspace list). Not re-proposing as it was previously rejected."
+          },
+          {
+            "scenario": "Rendering WorkspaceHome with 5000 sessions",
+            "evidence": "Wrote and executed a synthetic Vitest test (`src/WorkspaceHome.experiment.test.tsx`) that renders `<WorkspaceHome />` containing 5000 sessions. It took ~1.1 seconds to initially render. The array is truncated to the first 4 elements.",
+            "result": "Establishes that the session list in WorkspaceHome does not suffer from virtualization issues because it bounds the rendering to the first 4 elements."
+          },
+          {
+            "scenario": "Handling of import failure in App.tsx (discovery-70ce486d68ca18b9 / discovery-94bf5b1fa52c9f90)",
+            "evidence": "Inspected source code of `importCodexSelected` and `importPendingOmp` in `src/App.tsx`. The `catch (error)` block displays the error via `showError` but does not clear `codexOpen` or `pendingOmpImportPath` state, leaving the modal stuck open indefinitely.",
+            "result": "Corroborates the proposed task discovery-94bf5b1fa52c9f90 that import modals get stuck open if the backend import call fails."
+          },
+          {
+            "scenario": "Deduplicating PtySessionTitleEvent updates (discovery-545847f2043c71c0)",
+            "evidence": "Inspected source code of `pty-session-title` listener in `src/App.tsx`. The code maps over the current tabs state to allocate a new object/array, triggering a re-render regardless of whether the incoming title actually differs from the terminal's current `label`.",
+            "result": "Corroborates the proposed task discovery-545847f2043c71c0 that `PtySessionTitleEvent` triggers unnecessary React allocations when the title is identical."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T08:15:25.370078Z",
+        "source": {
+          "activity_id": "sessions/203764782581588905/activities/5ce359f5a1b14082bb3e64d69421e29b",
+          "report_sha256": "541aeebdfe851a575dcb4e916dba64705d741e87af526cf6dfdb58d26a696d62",
+          "activity_created_at": "2026-09-23T08:05:59.661100Z",
+          "session_id": "203764782581588905",
+          "dispatch_key": "590dc1be81fe859c509fbb56"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent import modals from remaining stuck open on backend import failure",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-94bf5b1fa52c9f90; not established as a duplicate. {\"detail\": \"Observed via source code inspection of `src/App.tsx` on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. The catch block bypasses state clearing. Canonical ID: discovery-94bf5b1fa52c9f90.\", \"reproduction\": {\"actual\": \"The error toast is shown, but the modal remains permanently open.\", \"expected\": \"The error toast is shown, and the modal state (`codexOpen` or `pendingOmpImportPath`) is reset, dismissing the modal.\", \"steps\": [\"Trigger an import session operation (via codex or pending omp).\", \"Simulate a backend rejection (throw error).\", \"Observe the modal state.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "When `importSessions` throws an error inside `importCodexSelected` or `importPendingOmp`, the modal state is cleared."
+            ]
+          },
+          {
+            "title": "Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-545847f2043c71c0; not established as a duplicate. {\"detail\": \"Isolated synthetic test and source inspection of the `pty-session-title` Tauri event listener on the exact pinned base. Canonical ID: discovery-545847f2043c71c0.\", \"reproduction\": {\"actual\": \"The second event maps over the `tabs` state, allocating a new object reference `{ ...tab, label: title }` and a new array reference, triggering a React re-render.\", \"expected\": \"The second event is deduplicated, causing no new array allocations or React state updates.\", \"steps\": [\"Trigger a `pty-session-title` event matching an existing terminal.\", \"Trigger the exact same event again.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "State updates are bypassed when `PtySessionTitleEvent` receives a title that is exactly equal to the terminal's current label."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/203764782581588905/activities/5ce359f5a1b14082bb3e64d69421e29b",
+          "report_sha256": "541aeebdfe851a575dcb4e916dba64705d741e87af526cf6dfdb58d26a696d62",
+          "activity_created_at": "2026-09-23T08:05:59.661100Z",
+          "session_id": "203764782581588905",
+          "dispatch_key": "590dc1be81fe859c509fbb56"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-94bf5b1fa52c9f90",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-94bf5b1fa52c9f90"
+            },
+            {
+              "id": "discovery-545847f2043c71c0",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-545847f2043c71c0"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent import modals from remaining stuck open on backend import failure",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-94bf5b1fa52c9f90; not established as a duplicate. {\"detail\": \"Observed via source code inspection of `src/App.tsx` on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. The catch block bypasses state clearing. Canonical ID: discovery-94bf5b1fa52c9f90.\", \"reproduction\": {\"actual\": \"The error toast is shown, but the modal remains permanently open.\", \"expected\": \"The error toast is shown, and the modal state (`codexOpen` or `pendingOmpImportPath`) is reset, dismissing the modal.\", \"steps\": [\"Trigger an import session operation (via codex or pending omp).\", \"Simulate a backend rejection (throw error).\", \"Observe the modal state.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "When `importSessions` throws an error inside `importCodexSelected` or `importPendingOmp`, the modal state is cleared."
+              ]
+            },
+            {
+              "title": "Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-545847f2043c71c0; not established as a duplicate. {\"detail\": \"Isolated synthetic test and source inspection of the `pty-session-title` Tauri event listener on the exact pinned base. Canonical ID: discovery-545847f2043c71c0.\", \"reproduction\": {\"actual\": \"The second event maps over the `tabs` state, allocating a new object reference `{ ...tab, label: title }` and a new array reference, triggering a React re-render.\", \"expected\": \"The second event is deduplicated, causing no new array allocations or React state updates.\", \"steps\": [\"Trigger a `pty-session-title` event matching an existing terminal.\", \"Trigger the exact same event again.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "State updates are bypassed when `PtySessionTitleEvent` receives a title that is exactly equal to the terminal's current label."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T08:15:39.891977Z",
+    "last_poll_at": "2026-09-23T08:15:42.604482Z",
     "last_tick_at": "2026-09-23T08:09:39.259208Z",
     "run_id": "35835510726"
   }
