@@ -35674,7 +35674,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T13:24:16.887632Z"
+        "observed_at": "2026-09-23T13:24:16.887632Z",
+        "released_attempt_ref": "autonomous/attempt-841c2f7f957ce8fb5ff1775e"
       },
       "research_result": {
         "summary": "Investigated the behavior of multiple consecutive switchInputRecovery errors in App.tsx and the eviction bounds logic in runtimeIncidents.",
