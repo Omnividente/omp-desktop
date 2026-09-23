@@ -35361,7 +35361,8 @@
         "research_request": {
           "contract_version": "legacy-pr82",
           "context_provenance": "not_recorded"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-7b6515a5cc361426c3966ed3"
       },
       "research_result": {
         "summary": "Verified empty disk space rendering in ResourceHealthPanel and lack of deduplication for PtySessionTitleEvent in App.tsx.",
