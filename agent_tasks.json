@@ -34061,7 +34061,7 @@
       "id": "research-settings-models-behavior-7",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -34179,18 +34179,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "4035460820517764448",
         "dispatch_key": "651b5bed05b5211f17b33c7b",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-651b5bed05b5211f17b33c7b",
         "started_at": "2026-09-23T10:15:55.971534Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T11:11:33.128629Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T11:03:37.766453Z",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T11:11:33.128629Z",
         "research_detached": {
           "at": "2026-09-23T10:36:11.383476Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -34199,22 +34199,10 @@
           "at": "2026-09-23T10:36:11.383476Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-23T10:57:04.982538Z",
-          "source": {
-            "activity_id": "sessions/4035460820517764448/activities/eeca14a7adad4395b259841944de5fb0",
-            "report_sha256": "3630453bf4638123c78a62aff57fffadcfa0b01b793e37fa0ef5440b5b8c0d7d",
-            "activity_created_at": "2026-09-23T10:32:26.926066Z",
-            "session_id": "4035460820517764448",
-            "dispatch_key": "651b5bed05b5211f17b33c7b"
-          }
-        },
         "report_repair": {
           "at": "2026-09-23T10:57:39.325553Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/4035460820517764448/activities/eeca14a7adad4395b259841944de5fb0",
             "report_sha256": "3630453bf4638123c78a62aff57fffadcfa0b01b793e37fa0ef5440b5b8c0d7d",
@@ -34223,6 +34211,30 @@
             "dispatch_key": "651b5bed05b5211f17b33c7b"
           }
         }
+      },
+      "research_result": {
+        "summary": "Confirmed that the ModelPicker correctly filters model matches in a case-insensitive manner regardless of whether the input is uppercase or lowercase.",
+        "observations": [
+          {
+            "scenario": "Simulate ModelPicker matchesSelector matching behavior with an uppercase input string on the fallback model selector.",
+            "evidence": "Executed a synthetic Vitest unit test directly invoking matchesSelector from ModelPicker with an uppercase selector 'OPENAI/GPT-4' and comparing it to the 'gpt-4' underlying configuration block. It correctly matches regardless of input casing.",
+            "result": "Establishes that the ModelPicker handles case-insensitivity on model IDs, base names, and selectors robustly, mitigating any hard-coding bugs."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if SettingsPanel properly cleans up or propagates deletion operations when a Custom Provider with long labels is forcibly removed while still partially edited.",
+          "Investigate if model list sorting respects custom provider ordering correctly when numerous identical-prefix custom provider models are available."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T11:11:33.128629Z",
+        "source": {
+          "activity_id": "sessions/4035460820517764448/activities/fb272d4b67104bf68c2131ce0f77b5ec",
+          "report_sha256": "f340fa751ef04787b0d674acef8764e174778bf75c51dade8cae0415120606fb",
+          "activity_created_at": "2026-09-23T10:59:00.874867Z",
+          "session_id": "4035460820517764448",
+          "dispatch_key": "651b5bed05b5211f17b33c7b"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -34391,7 +34403,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T11:11:55.837804Z",
+    "last_poll_at": "2026-09-23T11:11:59.370441Z",
     "last_tick_at": "2026-09-23T11:05:43.724909Z",
     "run_id": "35852305981"
   }
