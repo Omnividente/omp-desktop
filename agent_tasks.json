@@ -35455,6 +35455,148 @@
         "session_id": "4177348324449373254",
         "dispatch_key": "7b6515a5cc361426c3966ed3"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-7",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-23T13:03:30Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Verified focus behavior when opening a terminal from an incident, investigated focus trap loop in IncidentCenter, and evaluated fallback chain transitions in runtimeEvents.",
+            "observations": [
+              {
+                "scenario": "Review the UI behavior of `IncidentCenter` focus restoration when closing via 'Open terminal' (Canonical ID: discovery-26c4a50fb11c2827).",
+                "evidence": "Observed via synthetic jsdom tests that `IncidentCenter.tsx` explicitly sets `restoreTriggerFocusRef.current = false` inside `focusTerminal`. This intentionally bypasses returning focus to the original triggering button, in order to pass the focus flow logically to the newly opened terminal workspace.",
+                "result": "Establishes that the failure to restore focus to the originating button when opening a terminal is a deliberate product decision, not a regression or bug."
+              },
+              {
+                "scenario": "Execute keyboard focus trap testing in IncidentCenter.tsx via a synthetic jsdom test, providing an incident with a long reason to trigger the `<details>`/`<summary>` expander.",
+                "evidence": "A vitest synthetic jsdom environment was constructed (`src/test_incident_focus_trap.test.tsx`). The test rendered `IncidentCenter` with an incident containing a 200-character string to enforce the rendering of the `details` element. We observed the list of focusable elements gathered by the internal query selector indeed includes the dynamically rendered `summary` element. Focusing the last element and pressing 'Tab' accurately trapped focus, wrapping back to the first active element.",
+                "result": "Establishes that the focus trap inside IncidentCenter correctly identifies dynamically rendered `<summary>` interactive elements based on content length without regressions, preventing keyboard users from escaping the modal unexpectedly."
+              },
+              {
+                "scenario": "Test runtimeIncidents behavior for chaining multiple consecutive fallback events in `src/runtimeIncidents.ts`.",
+                "evidence": "Invoked `applyRuntimeIncidentEvent` with `kind: 'retryFallbackApplied'` transitioning from `provider/A` to `provider/B`, followed by a second transition from `provider/B` to `provider/C`. The state correctly tracks both active fallback incidents independently based on the `groupingKey` logic which includes `fallbackFrom` and `fallbackTo`.",
+                "result": "Establishes that the incident state correctly records distinct chained fallback transitions rather than incorrectly deduplicating or merging them, providing a full history."
+              },
+              {
+                "scenario": "Test manual user override resolving multiple active fallbacks in `src/runtimeIncidents.ts`.",
+                "evidence": "Created multiple active fallbacks using `kind: 'retryFallbackApplied'`. Then invoked a `kind: 'modelChange'` event with `resolvedModelIsFallback: false`, signaling the user manually selected a primary model. Verified that all active fallback incidents were marked as 'resolved' with `resolutionReason: 'primaryRestored'`.",
+                "result": "Establishes that manual overrides correctly clean up all relevant fallback states across chained transitions."
+              },
+              {
+                "scenario": "Test severity rendering logic in ResourceHealthPanel for partial memory warnings.",
+                "evidence": "Executed a jsdom test where `snapshot.memory.availableSeverity` and `swapSeverity` were `'ok'`, but the overall `memory.severity` was `'warning'`. The `ResourceHealthPanel` correctly uses `snapshot.memory.severity` to apply the `is-warning` class to the memory card container and the main summary.",
+                "result": "Establishes that the UI correctly respects the overall memory severity aggregate even if individual sub-components (swap, available) might conflict or appear OK."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the bounds checking and eviction logic for `switchInputRecovery` states in `terminalContinuity` during heavy churn.",
+              "Verify whether `PtySessionTitleEvent` updates are correctly deduplicated when the title sequence rapid-fires the same label."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-22T13:23:03.480340Z",
+            "source": {
+              "activity_id": "sessions/16331050547642540978/activities/336bf59e2f064eb3aac633b5cd487d3d",
+              "report_sha256": "c68237397d6de077ce966469e8a6b73c07a2d461cc9e8a2e0c7ff1dae3da0df6",
+              "activity_created_at": "2026-09-22T13:12:43.096320Z",
+              "session_id": "16331050547642540978",
+              "dispatch_key": "40d5d8cfac5e3a3ccc93574b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the deduplication behavior of PtySessionTitleEvent and verified terminal continuity baseline expectations.",
+            "observations": [
+              {
+                "scenario": "Rapid-fire testing of `PtySessionTitleEvent` with the same title string to evaluate state deduplication.",
+                "evidence": "Observed via source inspection of `src/App.tsx` and a synthetic React rendering test. The `pty-session-title` listener calls `setTabs` which unconditionally maps over the `tabs` array. Even when `tab.label === title`, it returns `{ ...tab, label: title }`. This allocates a new object reference and a new array reference every time the event fires, bypassing React's built-in bailout mechanism and forcing unnecessary re-renders of the terminal tab list.",
+                "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+              },
+              {
+                "scenario": "Review terminal continuity baseline bounds tracking when discarding or resetting attachments.",
+                "evidence": "Observed via `src/terminalContinuity.ts`. The logic tracks `generation` and `lastSeq`. When an attachment is received with `baselineReset` or a new `generation`, the previous state is abandoned and `expectedSeq` is firmly reset to `1`. Subsequent output events correctly validate bounds by comparing `event.generation` to `previous.generation` and computing `gap: event.seq !== expectedSeq`.",
+                "result": "Establishes that terminal continuity baselines accurately defend against unexpected generation jumps or sequence gaps without unbounded growth of recovery states."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the bounds checking and eviction logic for `switchInputRecovery` states in `App.tsx` during heavy terminal churn.",
+              "Verify the accuracy of the empty/missing volumes status rendering in `ResourceHealthPanel.tsx` when no volumes are returned."
+            ],
+            "proposed_task_ids": [
+              "discovery-545847f2043c71c0"
+            ],
+            "completed_at": "2026-09-22T14:00:13.771560Z",
+            "source": {
+              "activity_id": "sessions/12862731787932834569/activities/72c21f89f32a4262ad9ec153428ec056",
+              "report_sha256": "588698d846395a7b6539e2f318469a03d505f9f3880a21b8e36c955c888c11be",
+              "activity_created_at": "2026-09-22T13:52:12.531606Z",
+              "session_id": "12862731787932834569",
+              "dispatch_key": "64890cd6db2dcbbe88ec8848"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified empty disk space rendering in ResourceHealthPanel and lack of deduplication for PtySessionTitleEvent in App.tsx.",
+            "observations": [
+              {
+                "scenario": "Review the empty/missing volumes status rendering in ResourceHealthPanel.tsx when no volumes are returned.",
+                "evidence": "Observed via synthetic jsdom tests and source inspection that when `snapshot.volumes` and `snapshot.unavailableVolumes` are both empty arrays, the `ResourceHealthPanel` renders the 'Disk space' (`<section>...<h3>`) header container with no child content or error message placeholder. It correctly falls back to showing only the title, but does not render any distinct missing status.",
+                "result": "Establishes that the UI safely handles an empty volumes list without crashing, resulting in a blank section under the 'Disk space' heading."
+              },
+              {
+                "scenario": "Review PtySessionTitleEvent deduplication in App.tsx.",
+                "evidence": "Observed via source inspection that `setTabs` is called in response to `pty-session-title` and unconditionally maps over the `tabs` array returning `{ ...tab, label: title }` for the matched terminal, even if the label has not changed. This creates a new object reference every time the event fires.",
+                "result": "Establishes that repeated `PtySessionTitleEvent` updates with an unchanged title are not correctly deduplicated in the React state logic, leading to wasted renders."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether terminal continuity eviction properly manages stale baselines during long-running sessions with heavy background churn.",
+              "Verify what happens when multiple consecutive `switchInputRecoveryDetails` exceptions are caught for the same terminal in heavy network failure conditions."
+            ],
+            "proposed_task_ids": [
+              "discovery-e1d7448e8a1d4446"
+            ],
+            "completed_at": "2026-09-23T13:03:30.883107Z",
+            "source": {
+              "activity_id": "sessions/4177348324449373254/activities/89795600a9b647839794993a2a8e6655",
+              "report_sha256": "c893ae012cd2617561998617f5bb2856330f3c5b97fdd9199c23e19667acf475",
+              "activity_created_at": "2026-09-23T12:27:41.295932Z",
+              "session_id": "4177348324449373254",
+              "dispatch_key": "7b6515a5cc361426c3966ed3"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
