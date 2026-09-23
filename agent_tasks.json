@@ -34398,7 +34398,7 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "observed_at": "2026-09-23T11:45:19.074855Z",
-        "released_attempt_ref": "autonomous/attempt-30b0759a34f6638401aca539",
+        "released_attempt_ref": "autonomous/attempt-5d4e8a055eae0d809b021bd2",
         "session_state": "COMPLETED",
         "research_detached": {
           "at": "2026-09-23T11:31:00.136770Z",
