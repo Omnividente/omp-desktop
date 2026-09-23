@@ -33811,7 +33811,7 @@
       "id": "research-settings-models-ux-7",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -33929,18 +33929,18 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5574858411828618336",
         "dispatch_key": "d513775eb3f1186f00f37b95",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-d513775eb3f1186f00f37b95",
         "started_at": "2026-09-23T09:49:07.469434Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T10:23:29.808854Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T10:15:55.971534Z",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T10:23:29.808854Z",
         "research_detached": {
           "at": "2026-09-23T10:09:27.963600Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -33948,6 +33948,111 @@
         "feedback_nudge": {
           "at": "2026-09-23T10:09:27.963600Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Confirmed that long strings overflow SettingsRecoveryScreen action buttons vertically (truncation) and description/details code horizontally.",
+        "observations": [
+          {
+            "scenario": "Rendering the SettingsRecoveryScreen with exceptionally long translated strings in the action buttons on a 300px viewport.",
+            "evidence": "Synthetic Puppeteer test simulating the layout of .settings-recovery-actions .button. Inherited base .button styles (height: 34px, white-space: nowrap) caused the text to be truncated and overflow the button boundaries horizontally despite width: 100%. Changing the styles to height: auto, min-height: 34px, and white-space: normal resolves the truncation.",
+            "result": "Establishes that localized action buttons can become unreadable on narrow viewports."
+          },
+          {
+            "scenario": "Rendering the SettingsRecoveryScreen with a long, unbroken string (e.g. 500 characters without spaces) in the description paragraph and settings path code element.",
+            "evidence": "Synthetic Puppeteer tests using App.css styles for .settings-recovery-description and .settings-recovery-details code. Both elements' scrollWidth exceeded their container's offsetWidth (e.g. paragraph scrollWidth 2663px vs offsetWidth 590px). Applying overflow-wrap: anywhere resolves the horizontal overflow.",
+            "result": "Establishes that long file paths or unusually long translated words overflow the recovery card horizontally."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the model picker option text correctly ellipsizes long model names and providers on narrow screens.",
+          "Verify if dropdowns or input labels in SettingsPanel clip deeply nested translation strings on minimum widths."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T10:23:29.808854Z",
+        "source": {
+          "activity_id": "sessions/5574858411828618336/activities/22850b496eed475a8b9d6b1e3be74baa",
+          "report_sha256": "cb4912c776b42c6dc35fe3377b00102f0fcf49f5baa02c92656f3566738173b3",
+          "activity_created_at": "2026-09-23T10:10:33.051515Z",
+          "session_id": "5574858411828618336",
+          "dispatch_key": "d513775eb3f1186f00f37b95"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix text truncation in SettingsRecoveryScreen action buttons on narrow viewports",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-08ed104590df0edb; not established as a duplicate. {\"detail\": \"Verified via synthetic Puppeteer tests rendering the exact .settings-recovery-actions .button CSS on a 300px viewport. The base .button styles enforce height: 34px and white-space: nowrap, causing long translations to overflow.\", \"reproduction\": {\"actual\": \"The text overflows the button container and is truncated, making the button unreadable.\", \"expected\": \"The button height expands automatically and text wraps to the next line.\", \"steps\": [\"Render the SettingsRecoveryScreen action buttons with a very long translation string (e.g., 100 characters).\", \"Constrain the viewport width to a narrow mobile size (e.g., 300px).\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.css"
+            ],
+            "acceptance": [
+              "Long translations in SettingsRecoveryScreen action buttons wrap correctly to multiple lines on narrow viewports without overflowing or truncating."
+            ]
+          },
+          {
+            "title": "Fix horizontal overflow of unbroken strings in SettingsRecoveryScreen description and path details",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Verified via synthetic Puppeteer tests using App.css styles. A 500-character unbroken string overflows the .settings-recovery-description container and the .settings-recovery-details code element horizontally because they lack overflow-wrap: anywhere.\", \"reproduction\": {\"actual\": \"The long strings do not wrap, causing the content to overflow the card container horizontally.\", \"expected\": \"The long unbroken strings wrap to new lines, staying within the bounds of the card container.\", \"steps\": [\"Render the SettingsRecoveryScreen with a long, unbroken string for the description and the settings/backup paths (e.g., an exceptionally deep Windows directory path).\", \"Constrain the view to a normal or narrow viewport width.\", \"Observe the boundaries of the paragraph and code elements relative to the main card container.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.css"
+            ],
+            "acceptance": [
+              "Unusually long unbroken strings in the recovery screen description and file path elements wrap to new lines and do not overflow their containers horizontally."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5574858411828618336/activities/22850b496eed475a8b9d6b1e3be74baa",
+          "report_sha256": "cb4912c776b42c6dc35fe3377b00102f0fcf49f5baa02c92656f3566738173b3",
+          "activity_created_at": "2026-09-23T10:10:33.051515Z",
+          "session_id": "5574858411828618336",
+          "dispatch_key": "d513775eb3f1186f00f37b95"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-366d047b8a02c016",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-08ed104590df0edb"
+            },
+            {
+              "id": "discovery-18f0d79df7c5b2f6",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-1c2ef3e497408198"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix text truncation in SettingsRecoveryScreen action buttons on narrow viewports",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-08ed104590df0edb; not established as a duplicate. {\"detail\": \"Verified via synthetic Puppeteer tests rendering the exact .settings-recovery-actions .button CSS on a 300px viewport. The base .button styles enforce height: 34px and white-space: nowrap, causing long translations to overflow.\", \"reproduction\": {\"actual\": \"The text overflows the button container and is truncated, making the button unreadable.\", \"expected\": \"The button height expands automatically and text wraps to the next line.\", \"steps\": [\"Render the SettingsRecoveryScreen action buttons with a very long translation string (e.g., 100 characters).\", \"Constrain the viewport width to a narrow mobile size (e.g., 300px).\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.css"
+              ],
+              "acceptance": [
+                "Long translations in SettingsRecoveryScreen action buttons wrap correctly to multiple lines on narrow viewports without overflowing or truncating."
+              ]
+            },
+            {
+              "title": "Fix horizontal overflow of unbroken strings in SettingsRecoveryScreen description and path details",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Verified via synthetic Puppeteer tests using App.css styles. A 500-character unbroken string overflows the .settings-recovery-description container and the .settings-recovery-details code element horizontally because they lack overflow-wrap: anywhere.\", \"reproduction\": {\"actual\": \"The long strings do not wrap, causing the content to overflow the card container horizontally.\", \"expected\": \"The long unbroken strings wrap to new lines, staying within the bounds of the card container.\", \"steps\": [\"Render the SettingsRecoveryScreen with a long, unbroken string for the description and the settings/backup paths (e.g., an exceptionally deep Windows directory path).\", \"Constrain the view to a normal or narrow viewport width.\", \"Observe the boundaries of the paragraph and code elements relative to the main card container.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.css"
+              ],
+              "acceptance": [
+                "Unusually long unbroken strings in the recovery screen description and file path elements wrap to new lines and do not overflow their containers horizontally."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -34089,7 +34194,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T10:23:47.228792Z",
+    "last_poll_at": "2026-09-23T10:23:50.056748Z",
     "last_tick_at": "2026-09-23T10:17:38.842176Z",
     "run_id": "35847763814"
   }
