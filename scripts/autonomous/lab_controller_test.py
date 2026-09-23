@@ -492,6 +492,69 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.reload(), before)
         self.assertEqual((self.reload()[0]["execution"]["session_id"], self.api.posts), ("1", 1))
 
+    def test_quarantined_approved_worker_gets_one_safe_same_session_instruction(self):
+        self.run_tick()
+        identity = copy.deepcopy(self.reload()[0]["execution"])
+        self.github.is_enabled = False
+        self.run_tick(now=NOW + timedelta(minutes=1))
+        self.assertEqual(self.reload()[0]["execution"]["state"], "quarantined")
+        self.github.is_enabled = True
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.message_status = 0  # Lost acknowledgement cannot authorize a second send.
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        worker = self.reload()[0]
+        self.assertEqual(worker["execution"]["feedback_nudge"]["result"], "unknown")
+        self.assertEqual(self.api.messages[0][0], "/v1alpha/sessions/1:sendMessage")
+        self.assertIn("no_change", self.api.messages[0][1]["prompt"])
+        self.assertIn("pull request", self.api.messages[0][1]["prompt"])
+        self.assertEqual(len(self.api.messages), 1)
+        self.assertEqual(worker["proposal_decision"], task("first")["proposal_decision"])
+        self.assertEqual(validate(self.data), [])
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        self.api.values["1"]["state"] = "IN_PROGRESS"
+        self.run_tick(now=NOW + timedelta(minutes=15))
+        current = self.reload()[0]["execution"]
+        self.assertEqual(len(self.api.messages), 1)
+        self.assertEqual(self.api.posts, 1)
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(current[field], identity[field])
+        self.api.values["1"]["state"] = "COMPLETED"
+        self.run_tick(now=NOW + timedelta(minutes=20))
+        finished = self.reload()[0]
+        self.assertEqual((finished["status"], finished["execution"]["state"], finished["execution"]["outcome"]),
+                         ("done", "completed", "no_change"))
+        self.assertEqual(len(self.api.messages), 1)
+
+    def test_implementation_feedback_needs_durable_intent_and_skips_existing_pr(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+
+        def fail_intent(data):
+            if data["tasks"][0].get("execution", {}).get("feedback_nudge"):
+                raise RuntimeError("state unavailable")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=fail_intent)
+        self.assertEqual(self.api.messages, [])
+        self.reload()
+        self.github.add_proposal(59)
+        self.api.values["1"]["outputs"] = [{"pullRequest": {"url": f"https://github.com/{REPOSITORY}/pull/59"}}]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.api.messages, [])
+        self.assertEqual(self.reload()[0]["execution"]["pull_request"], 59)
+
+    def test_implementation_without_recorded_approval_never_receives_feedback(self):
+        self.run_tick()
+        self.reload()
+        self.data["tasks"][0].pop("proposal_decision")
+        self.persist(self.data)
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        self.assertEqual(self.api.messages, [])
+        self.assertNotIn("feedback_nudge", self.reload()[0]["execution"])
+
     def test_same_poll_error_preserves_error_timestamp_and_queue_revision(self):
         self.run_tick()
         self.reload()
@@ -553,7 +616,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(tasks[-2]["status"], "todo")
         self.assertEqual(sum(t["status"] == "proposed" for t in tasks), 40)
         self.assertNotIn("automationMode", self.api.values["2"])
-        self.assertEqual(self.api.messages, [])
+        self.assertEqual(len(self.api.messages), 1)
         self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=5))
         self.assertEqual((self.api.posts, self.reload()[0]), (2, first))
 

@@ -296,6 +296,24 @@ def tick(
         result["attention"].append(observation)
         checkpoint()
 
+    def nudge_waiting_worker(task, prompt):
+        execution = task["execution"]
+        if execution.get("feedback_nudge") or not enabled or not github.enabled():
+            return
+        receipt = {"at": iso(now), "result": "pending"}
+        execution["feedback_nudge"] = receipt
+        checkpoint()  # No blind retry after a lost acknowledgement or process crash.
+        if not github.enabled():
+            return
+        response = request_with_keys(
+            transport, ring, "POST", api_base.rstrip("/") + "/"
+            + session_resource(execution["session_id"]) + ":sendMessage",
+            {"prompt": prompt}, max_attempts=1,
+        )
+        receipt["result"] = ("sent" if response.status // 100 == 2 else "unknown"
+                             if response.status == 0 or response.status >= 500 else "rejected")
+        checkpoint()
+
     def detach_waiting_research(task, state):
         # A reported question is not permission to implement or invent an answer.
         # Preserve the unresolved session on its own immutable ref; another scope
@@ -310,17 +328,8 @@ def tick(
         if not execution.get("research_detached"):
             execution["research_detached"] = detached
             checkpoint()
-        if state != "AWAITING_USER_FEEDBACK" or execution.get("feedback_nudge"):
-            return
-        receipt = {"at": iso(now), "result": "pending"}
-        execution["feedback_nudge"] = receipt
-        checkpoint()  # No blind retry after a lost acknowledgement or process crash.
-        if not github.enabled():
-            return
-        response = request_with_keys(
-            transport, ring, "POST", api_base.rstrip("/") + "/"
-            + session_resource(execution["session_id"]) + ":sendMessage",
-            {"prompt": (
+        if state == "AWAITING_USER_FEEDBACK":
+            nudge_waiting_worker(task, (
                 "This session is read-only research, not implementation. Do not wait for an answer, "
                 "approval or a choice of which proposal to implement. Finish this same session now "
                 "with the observations already available, unresolved questions and environment "
@@ -328,10 +337,28 @@ def tick(
                 "in AUTONOMOUS_TASKS_BEGIN/END for later human review. Do not fabricate observations, "
                 "change product files, create a PR or start further work. No permission is granted "
                 "to execute any proposed change or privileged action."
-            )}, max_attempts=1,
-        )
-        receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
-        checkpoint()
+            ))
+
+
+    def nudge_approved_implementation(task, state, number):
+        if (task.get("task_type") == "project_discovery" or state != "AWAITING_USER_FEEDBACK"
+                or number is not None):
+            return
+        decision = task.get("proposal_decision") or {}
+        if decision.get("action") != "approve":
+            return
+        authorize(config, decision.get("actor", ""))
+        nudge_waiting_worker(task, (
+            "The repository owner already authorized this one implementation task. Decide routine "
+            "implementation choices independently within its original scope; do not ask for a "
+            "clarification, approach choice or plan approval inside Jules. Reproduce the reported "
+            "issue on the pinned base using isolated data. If confirmed, implement the smallest safe "
+            f"fix and propose a pull request targeting {LAB_BRANCH} for GitHub review; "
+            "do not merge, release or expand scope. "
+            "If evidence, access or safety constraints prevent a justified fix, finish this same "
+            "session with no_change and explain the checks and limitations instead of guessing or "
+            "bypassing safeguards. The owner decides whether to accept any PR on GitHub, not here."
+        ))
 
     def request_report_repair(task, source=None):
         execution = task["execution"]
@@ -496,6 +523,7 @@ def tick(
                                       reason="report_repair_" + current["execution"]["report_repair"]["status"])
             result["attention"].append({"task_id": task["id"], "reason": "report_repair_" + current["execution"]["report_repair"]["status"]})
         detach_waiting_research(find_task(manifest, task["id"]), state)
+        nudge_approved_implementation(find_task(manifest, task["id"]), state, number)
         checkpoint()
 
     # Only stored identities are queried. A foreign PR cannot occupy the worker.
