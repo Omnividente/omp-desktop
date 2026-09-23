@@ -34360,13 +34360,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-23T10:36:11.383476Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-23T10:44:22.401183Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T10:44:48.439179Z",
+    "last_poll_at": "2026-09-23T10:44:51.949575Z",
     "last_tick_at": "2026-09-23T10:38:27.850539Z",
     "run_id": "35849716274"
   }
