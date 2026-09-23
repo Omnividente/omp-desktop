@@ -34409,6 +34409,118 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-reliability-7",
+      "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-23T11:31:00Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-b157732b0a1a8ecb\",\"status\":\"proposed\",\"title\":\"Preserve transcript UI state across identical path reloads\",\"target_paths\":[\"src/useTranscript.ts\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React hook tests using JSDOM that simulating `loadTranscriptPath` immediately drops search and mode states. Evaluated on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.\",\"expected\":\"The active transcript search query 'hello' and mode 'all' are retained during the reload of the same path.\",\"actual\":\"The state is abruptly cleared, defaulting the search to empty and mode to 'dialogue', because the absent session object triggers an unconditional reset.\",\"acceptance\":[\"Reloading the transcript data for the currently active path does not clear the active search term or filter mode\"]}},{\"canonical_id\":\"discovery-fe5159f693ee72fe\",\"status\":\"proposed\",\"title\":\"Retain virtual layout measurement cache across mode toggles\",\"target_paths\":[\"src/useVirtualList.ts\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React hook simulation of `useVirtualList` on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.\",\"expected\":\"The total scroll height is preserved upon returning to the default mode, and the layout doesn't collapse back to the default `estimatedRowHeight`.\",\"actual\":\"The `measurementCachesRef` is cleared when the mode changes, causing the layout to shrink to `estimatedRowHeight` for unmounted elements when toggling back.\",\"acceptance\":[\"Toggling modes (e.g. source/formatted view) in the transcript does not discard layout measurements for the previously viewed mode\",\"Memory is bounded by an LRU cache or fixed number of retained modes, preventing unbounded growth from continuous key generation\"]}},{\"canonical_id\":\"discovery-7156c20f6c4addb9\",\"status\":\"proposed\",\"title\":\"Fix keyboard focus drop when refreshing or retrying transcript load\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic React hook and DOM tests simulating the error and loading states of TranscriptModal on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703.\",\"expected\":\"Focus is gracefully managed (e.g. shifted to the scrollable container or modal panel) to preserve the user's keyboard navigation context.\",\"actual\":\"The 'Retry' button unmounts instantly and the browser resets focus to the document body.\",\"acceptance\":[\"Clicking or pressing Enter on the 'Retry' button in the transcript error state safely shifts focus to a stable element (e.g., the transcript container) instead of dropping to document.body\",\"Activating the top-bar 'Refresh' button does not drop focus to the document body when disabled\"]}},{\"canonical_id\":\"discovery-86ee5072b42c9535\",\"status\":\"proposed\",\"title\":\"Fix focus drop when directly opening external content links from transcript\",\"target_paths\":[\"src/MarkdownContent.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of `src/MarkdownContent.tsx` and synthetic React tests on pinned base 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. Natively, left-clicking an anchor in macOS WebKit does not shift focus, and the React `onClick` handler prevents default without programmatically focusing the  [excerpt]\",\"expected\":\"Focus is explicitly moved to the clicked link.\",\"actual\":\"Focus remains on the previously active element (e.g., document body or scroll container).\",\"acceptance\":[\"Directly left-clicking an external link in the transcript explicitly focuses the link, ensuring consistent focus restoration when returning to the app.\"]}},{\"canonical_id\":\"discovery-f25052402356bf34\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/useTranscript.ts\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via synthetic unit test simulating a close and reopen sequence for the Transcript Modal using `useTranscript`. The underlying `scrollTop` position inside `useVirtualList` drops to 0.\",\"expected\":\"The list remembers the user's scroll position and restores it upon render.\",\"actual\":\"The list forces the scroll position back to the very top (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-ccd17b3cdd6d7d64\",\"status\":\"done\",\"title\":\"Fix context menu placement when triggered via keyboard in transcript links\",\"target_paths\":[\"src/TranscriptModal.tsx\",\"src/LinkedText.tsx\",\"src/TerminalView.tsx\"],\"observed_contract\":{\"detail\":\"Keyboard-triggered contextmenu events usually have clientX=0 and clientY=0 (or undefined). The current implementation passes these exactly as coordinates to the ContentActionMenu.\",\"expected\":\"The context menu is positioned centered over or below the link element that has focus.\",\"actual\":\"The context menu appears at the top left corner (0,0) of the viewport.\",\"acceptance\":[\"When a context menu is triggered by the keyboard (Shift+F10), it appears near the focused element or selection, not at the top-left corner of the window (0,0).\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-9327b83174e38ad4\",\"status\":\"done\",\"title\":\"Make transcript scrolling area focusable for keyboard navigation\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via static analysis of `src/TranscriptModal.tsx` and DOM focus behavior. Without `tabIndex={0}`, custom overflow areas cannot receive keyboard focus directly.\",\"expected\":\"The user can Tab into the scrollable area and scroll up/down using the keyboard.\",\"actual\":\"The scrollable area cannot receive focus, preventing keyboard scrolling.\",\"acceptance\":[\"The `.transcript-scroll` container has a `tabIndex={0}` attribute.\",\"A keyboard-only user can Tab into the empty transcript container to scroll it using Arrow keys.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-af2b979b73ceb228\",\"status\":\"done\",\"title\":\"Retain modal scroll position per session across closes\",\"target_paths\":[\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source analysis and synthetic testing that the TranscriptModal component lacks a cleanup phase to synchronously persist its active scroll position upon unmounting (matches canonical_id: discovery-f25052402356bf34).\",\"expected\":\"The modal restores its scroll position to the previously viewed message without needing further manual scrolling.\",\"actual\":\"The modal forces the scroll position to the top of the transcript view (scrollTop = 0).\",\"acceptance\":[\"Reopening a previously opened transcript modal restores its last active scroll position without returning to the top\"]},\"decision\":\"resolve\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "reliability",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Verified performance regression in TranscriptModal: toggling source/formatted modes discards all previous layout measurements.",
+            "observations": [
+              {
+                "scenario": "Simulated toggling between 'source' and 'formatted' transcript modes in useVirtualList.",
+                "evidence": "Inspected `src/useVirtualList.ts` and verified with synthetic React hook tests. `measurementCachesRef` retains only one measurement key at a time because `useEffect` iteratively deletes any cache whose key does not strictly match (`Object.is`) the current `measurementKey`. Toggling the mode allocates a new `virtualLayoutKey` reference, causing the virtual list to drop the previous mode's cache and revert all offscreen row heights back to `estimatedRowHeight` (50).",
+                "result": "Establishes a layout collapse and measurement overhead defect. Every time the user toggles back to a previously viewed mode, the virtual list container abruptly shrinks to the estimated size and forces the browser to expensively remeasure all items as they are scrolled back into view."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual item layout regeneration blocks the main thread excessively when thousands of extremely tall or highly formatted log entries are suddenly uncollapsed by a mode switch."
+            ],
+            "proposed_task_ids": [
+              "discovery-fe5159f693ee72fe"
+            ],
+            "completed_at": "2026-09-22T16:53:50.043794Z",
+            "source": {
+              "activity_id": "sessions/15878214732097590752/activities/0305cc1fe62342f2b2433232d9bad130",
+              "report_sha256": "e97c930d255cab4c0923baa1d2fde88bbe4e331c7e889e1a632380bb8c19898b",
+              "activity_created_at": "2026-09-22T16:46:48.892146Z",
+              "session_id": "15878214732097590752",
+              "dispatch_key": "38ff4444e7736735a1f97438"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus management behavior during error-state Retry and top-bar Refresh interactions.",
+            "observations": [
+              {
+                "scenario": "Simulating keyboard interaction to activate the 'Retry' button in the TranscriptModal error state, and the top-bar 'Refresh' button.",
+                "evidence": "Inspected `src/TranscriptModal.tsx` and simulated the state transitions using synthetic Vitest testing (`transcriptError` -> `transcriptLoading`). The `refresh` function in `TranscriptModal` executes `preservePosition()` and `onRefresh()`, the latter of which causes `useTranscript` to synchronously update `transcriptLoading` to `true`. This change immediately unmounts the 'Retry' button (and disables the top-bar Refresh button) before the browser's default focus handling can occur. Because `refresh` lacks explicit focus management (unlike `clearSearch`), focus drops unconditionally to `document.body`.",
+                "result": "Establishes a focus management defect where attempting to reload a failed or active transcript abruptly drops keyboard focus to the document root, forcing keyboard-only users to restart their navigation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate whether rapid repeated toggles of the transcript Appearance modes (Rendered vs Source) can strand React layout requests or race the ResizeObserver cache invalidation.",
+              "Investigate if opening external content links from a transcript modal correctly restores focus to the clicked link rather than dropping focus when returning to the app."
+            ],
+            "proposed_task_ids": [
+              "discovery-7156c20f6c4addb9"
+            ],
+            "completed_at": "2026-09-22T18:29:24.271171Z",
+            "source": {
+              "activity_id": "sessions/8013998322907730933/activities/90c456681f1f4df88d7d777cddfae59d",
+              "report_sha256": "fbdad4fe0ff32c0f4db6ec5d2d6cb0d50f23c68bde70621b6af57a211422c399",
+              "activity_created_at": "2026-09-22T18:17:47.653490Z",
+              "session_id": "8013998322907730933",
+              "dispatch_key": "85977b754878b039e45607d1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus management behavior when opening external content links from a transcript modal.",
+            "observations": [
+              {
+                "scenario": "Simulating a user natively left-clicking an external content link inside a transcript message.",
+                "evidence": "Inspected `src/MarkdownContent.tsx` and `src/TranscriptModal.tsx` and verified with a synthetic React test in `jsdom`. `MarkdownContent` handles direct link clicks by calling `event.preventDefault()` and `onOpen(uri)`, which `TranscriptModal` routes to the Tauri API `openContentLink`. Unlike the context menu's `dismissMenu(true)` which explicitly calls `focus()` on the origin element, direct clicks have no explicit focus management. Natively, some webviews (like macOS WebKit) do not shift focus to anchor tags on click. Because the default navigation is prevented and no programmatic focus is applied to compensate, focus remains on the previously active element (e.g., the document body or scroll container) instead of the clicked link when the user returns to the app from their external browser.",
+                "result": "Establishes a focus management defect where directly clicking external links fails to consistently restore or move focus to the clicked link across all supported webviews, unlike context menu activations which correctly restore focus."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate whether rapid repeated toggles of the transcript Appearance modes (Rendered vs Source) can strand React layout requests or race the ResizeObserver cache invalidation.",
+              "Investigate if long-running or large output terminal sessions leak detached DOM nodes or Xterm references when closed abruptly or switched rapidly."
+            ],
+            "proposed_task_ids": [
+              "discovery-86ee5072b42c9535"
+            ],
+            "completed_at": "2026-09-22T23:44:49.274025Z",
+            "source": {
+              "activity_id": "sessions/7045117393096977396/activities/f07902a3bf9144df9f9b367b3415fc70",
+              "report_sha256": "dd20e1f1bae936e270d812eb906cfbd07197615dbba6e96ac4ce9a3b79526f97",
+              "activity_created_at": "2026-09-22T23:35:24.625293Z",
+              "session_id": "7045117393096977396",
+              "dispatch_key": "903312a801ee9de02a012fcf"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
