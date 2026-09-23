@@ -32947,12 +32947,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-23T06:54:49.506783Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T06:55:12.170916Z",
+    "last_poll_at": "2026-09-23T06:56:40.607196Z",
     "last_tick_at": "2026-09-23T06:44:07.702274Z",
     "run_id": "35828092446"
   }
