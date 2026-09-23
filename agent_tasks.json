@@ -38689,7 +38689,7 @@
       "id": "research-terminal-input-behavior-8",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -38806,16 +38806,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "5186752007426495389",
         "dispatch_key": "635e90b6b7a750411960c8d3",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-635e90b6b7a750411960c8d3",
         "started_at": "2026-09-23T22:33:41.726494Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T23:33:39.345574Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -38990,8 +38990,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T23:25:39.254703Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T23:33:39.345574Z",
         "research_detached": {
           "at": "2026-09-23T22:48:01.002328Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -39000,22 +39000,10 @@
           "at": "2026-09-23T22:48:01.002328Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-23T23:19:08.969374Z",
-          "source": {
-            "activity_id": "sessions/5186752007426495389/activities/17202121ac494b6d86cdb51d878d53a5",
-            "report_sha256": "74b2228d814546520ec9ae99e46f995372bc0a4ad3f6b052d439ed9ee1f1f066",
-            "activity_created_at": "2026-09-23T22:49:24.451385Z",
-            "session_id": "5186752007426495389",
-            "dispatch_key": "635e90b6b7a750411960c8d3"
-          }
-        },
         "report_repair": {
           "at": "2026-09-23T23:19:32.335434Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/5186752007426495389/activities/17202121ac494b6d86cdb51d878d53a5",
             "report_sha256": "74b2228d814546520ec9ae99e46f995372bc0a4ad3f6b052d439ed9ee1f1f066",
@@ -39023,6 +39011,53 @@
             "session_id": "5186752007426495389",
             "dispatch_key": "635e90b6b7a750411960c8d3"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated terminal rendering failures during rapid tab switching.",
+        "observations": [
+          {
+            "scenario": "Rapidly switching between active tabs when a terminal container might briefly report a zero width/height.",
+            "evidence": "Created and ran a synthetic Vitest script simulating the component's `useEffect` behavior during tab switch where `fitAddon.fit()` throws an exception due to a zero-sized container. The test revealed that because `fitAddon.fit()` and `terminalRef.current?.focus()` are grouped in the same `try...catch` block (lines 622-633 in TerminalView.tsx), throwing on `fit()` silently aborts the block, preventing `terminal.focus()` from executing and leaving the terminal in a suspended/unfocused state.",
+            "result": "Establishes that the shared `try...catch` block in the `requestAnimationFrame` callback prevents terminal focus restoration if the container's layout is momentarily zero-sized during activation. Fix requires separating the `fit()` and `focus()` operations."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal continuity is broken when large binary payloads arrive right at the generation boundary before standard output queues.",
+          "Investigate if restoring the terminal state after minimizing and restoring the desktop application window correctly handles focus on macOS vs Linux."
+        ],
+        "proposed_task_ids": [
+          "discovery-5f246af60eb16b09"
+        ],
+        "completed_at": "2026-09-23T23:33:39.345574Z",
+        "source": {
+          "activity_id": "sessions/5186752007426495389/activities/81e3e67245094a2f96365090f8ca9d8f",
+          "report_sha256": "716fa7cb953318a4d42bc8eeebc7cc740fbe1861a512a565f4484ac5ba6d649b",
+          "activity_created_at": "2026-09-23T23:20:11.560590Z",
+          "session_id": "5186752007426495389",
+          "dispatch_key": "635e90b6b7a750411960c8d3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5186752007426495389/activities/81e3e67245094a2f96365090f8ca9d8f",
+          "report_sha256": "716fa7cb953318a4d42bc8eeebc7cc740fbe1861a512a565f4484ac5ba6d649b",
+          "activity_created_at": "2026-09-23T23:20:11.560590Z",
+          "session_id": "5186752007426495389",
+          "dispatch_key": "635e90b6b7a750411960c8d3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5f246af60eb16b09"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -39379,10 +39414,52 @@
         "session_state": "QUEUED",
         "observed_at": "2026-09-23T23:25:39.254703Z"
       }
+    },
+    {
+      "id": "discovery-5f246af60eb16b09",
+      "title": "Ensure terminal focus is restored even if fitAddon throws during tab switch",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-23T23:33:39.345574Z",
+      "acceptance": [
+        "Terminal regains focus when tab becomes active even if fitAddon.fit() throws due to zero dimensions"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React component test simulating zero-sized terminal dimensions during a component active prop change.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render TerminalView with active=false",
+            "Mock fitAddon.fit() to throw an Error('zero sized')",
+            "Rerender TerminalView with active=true",
+            "Observe that terminalRef.current?.focus() is never called because the try-catch block aborts early"
+          ],
+          "expected": "The terminal instance receives a .focus() call regardless of fitAddon.fit() success.",
+          "actual": "The terminal instance is left unfocused because the exception stops execution of the callback."
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-behavior-8",
+        "activity_id": "sessions/5186752007426495389/activities/81e3e67245094a2f96365090f8ca9d8f",
+        "report_sha256": "716fa7cb953318a4d42bc8eeebc7cc740fbe1861a512a565f4484ac5ba6d649b",
+        "activity_created_at": "2026-09-23T23:20:11.560590Z",
+        "session_id": "5186752007426495389",
+        "dispatch_key": "635e90b6b7a750411960c8d3"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T23:27:36.983820Z",
+    "last_poll_at": "2026-09-23T23:34:05.990934Z",
     "last_tick_at": "2026-09-23T23:27:40.017227Z",
     "run_id": "35933517979"
   }
