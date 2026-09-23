@@ -32110,13 +32110,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-23T05:29:26.177705Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-23T05:37:14.703354Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T05:37:33.501236Z",
+    "last_poll_at": "2026-09-23T05:37:36.850678Z",
     "last_tick_at": "2026-09-23T05:31:26.533347Z",
     "run_id": "35822600025"
   }
