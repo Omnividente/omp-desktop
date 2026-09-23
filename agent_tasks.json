@@ -34385,12 +34385,13 @@
         "outcome": "",
         "note": "",
         "observed_at": "2026-09-23T11:03:37.766453Z",
-        "released_attempt_ref": "autonomous/attempt-30b0759a34f6638401aca539"
+        "released_attempt_ref": "autonomous/attempt-30b0759a34f6638401aca539",
+        "session_state": "IN_PROGRESS"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T11:04:05.646130Z",
+    "last_poll_at": "2026-09-23T11:05:40.918879Z",
     "last_tick_at": "2026-09-23T10:57:51.278571Z",
     "run_id": "35851677849"
   }
