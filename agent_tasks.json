@@ -34669,7 +34669,8 @@
             "session_id": "8572035853619407454",
             "dispatch_key": "99f68cf49a012446a668bed9"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-99f68cf49a012446a668bed9"
       },
       "research_result": {
         "summary": "Verified UI state loss on transcript reload, layout cache loss on mode switch, focus drop on retry/refresh, and lack of focus when clicking external links.",
