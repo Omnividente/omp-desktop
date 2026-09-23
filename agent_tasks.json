@@ -32111,7 +32111,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T05:56:22.965546Z"
+        "observed_at": "2026-09-23T05:56:22.965546Z",
+        "released_attempt_ref": "autonomous/attempt-597c776f9a790c14222d81ca"
       },
       "research_result": {
         "summary": "Investigated performance of session import and list APIs, focus stability on rename escapes, and modal unresponsiveness on batch errors.",
