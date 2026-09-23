@@ -33730,13 +33730,13 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-23T09:21:56.163171Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-23T09:29:47.370216Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T09:30:09.251754Z",
+    "last_poll_at": "2026-09-23T09:30:12.700430Z",
     "last_tick_at": "2026-09-23T09:23:53.053677Z",
     "run_id": "35842471804"
   }
