@@ -35711,7 +35711,7 @@
       "id": "research-diagnostics-resources-performance-7",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -35834,16 +35834,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2345774681930554603",
         "dispatch_key": "e90a3fb34115ec6cba57869b",
         "base_sha": "9f5a91be0b7ae56878dfed51df16f1395d6e0adb",
         "starting_branch": "autonomous/attempt-e90a3fb34115ec6cba57869b",
         "started_at": "2026-09-23T13:24:16.887632Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T13:45:17.574630Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "ea443496c22649e94b0a3fc50cc87cf9538e7e14",
@@ -35908,13 +35908,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T13:32:21.979656Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T13:45:17.574630Z"
+      },
+      "research_result": {
+        "summary": "Investigated runtime incidents state eviction logic to confirm priority based on active incident count per terminal.",
+        "observations": [
+          {
+            "scenario": "Verify whether the logic that selects which active incident to evict prioritizes terminals with multiple active incidents correctly over single-incident terminals.",
+            "evidence": "Tested synthetic state where active incidents reached MAX_RUNTIME_INCIDENTS (100). The oldest incident in the system was from 'term-0' (a single-incident terminal). A separate terminal, 'term-50', possessed two active incidents (the first of which was newer than term-0's incident). When a new 101st incident was added forcing an eviction, observation from `src/runtimeIncidents.ts` via synthetic tests showed that the eviction logic correctly spared term-0 and identified 'term-50' due to it having multiple incidents. It subsequently evicted the oldest incident belonging to term-50.",
+            "result": "Establishes that the incident state logic accurately protects single-incident terminals from unfair eviction under capacity pressure, prioritizing eviction correctly among multiple-incident terminals."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T13:45:17.574630Z",
+        "source": {
+          "activity_id": "sessions/2345774681930554603/activities/05a7a952ae4a4a619347c4aea1e930cd",
+          "report_sha256": "9032120d124c3ad3088f08a54d1488b272a2d539521be25ed78d1cdde44eda27",
+          "activity_created_at": "2026-09-23T13:36:44.389536Z",
+          "session_id": "2345774681930554603",
+          "dispatch_key": "e90a3fb34115ec6cba57869b"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T13:45:43.911424Z",
+    "last_poll_at": "2026-09-23T13:45:47.320790Z",
     "last_tick_at": "2026-09-23T13:39:16.491335Z",
     "run_id": "35868473669"
   }
