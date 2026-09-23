@@ -35956,7 +35956,7 @@
       "id": "research-diagnostics-resources-ux-7",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -36072,16 +36072,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3454774798721230607",
         "dispatch_key": "95662c54c63c5782851fc010",
         "base_sha": "9f5a91be0b7ae56878dfed51df16f1395d6e0adb",
         "starting_branch": "autonomous/attempt-95662c54c63c5782851fc010",
         "started_at": "2026-09-23T14:01:07.567705Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T15:22:12.732818Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "ea443496c22649e94b0a3fc50cc87cf9538e7e14",
@@ -36146,8 +36146,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T14:53:41.926487Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T15:22:12.732818Z",
         "research_detached": {
           "at": "2026-09-23T14:46:22.312801Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -36156,11 +36156,108 @@
           "at": "2026-09-23T14:46:22.312801Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified focus trap logic flaw in IncidentCenter and ResourceHealthPanel relating to hidden elements inside collapsed details tags.",
+        "observations": [
+          {
+            "scenario": "Verify focus trap logic behavior regarding <details> elements in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+            "evidence": "Tested synthetic React rendering states using JSDOM to simulate focus changes on elements matching DIALOG_FOCUSABLE_SELECTOR. The focus trap explicitly filters out elements using '!element.hasAttribute(\"disabled\") && !element.hidden'. However, elements inside a collapsed <details> tag (except the <summary> itself) return false for '.hidden' because they do not carry the 'hidden' HTML attribute, though they are visually hidden by browser layout. As a result, the focus trap logic includes these invisible elements in the focusable array, and when standard keyboard navigation (Shift+Tab/Tab) occurs near the boundary, focus misbehaves by failing to loop back or getting stuck on visually hidden interactive elements.",
+            "result": "Establishes a keyboard accessibility and focus trap bug where the focus bounds calculate incorrectly when closed <details> elements contain interactive elements like links or buttons."
+          },
+          {
+            "scenario": "Verify ResourceHealthPanel missing snapshot state rendering.",
+            "evidence": "Observed via synthetic React testing that when ResourceHealthPanel is passed an empty snapshot (null) but has an error ('An error occurred'), the severity falls back to 'warning', and the status text correctly maps to 'resourceUnavailable' but no success checkmark icon is displayed (an alert icon is used instead based on the warning severity). This behavior was observed on the pinned base and contrasts with a previous report about success icons displaying during errors, confirming that specific prior issue is correctly resolved/addressed in this branch.",
+            "result": "Establishes that the ResourceHealthPanel correctly renders an alert icon (not a success icon) for empty snapshots with errors."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+          "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays and is announced by a screen reader when the last active incident is cleared.",
+          "Verify the interaction flow when resolving an incident and checking whether focus is properly restored to the trigger element."
+        ],
+        "proposed_task_ids": [
+          "discovery-b82daad4c8b8b9f9"
+        ],
+        "completed_at": "2026-09-23T15:22:12.732818Z",
+        "source": {
+          "activity_id": "sessions/3454774798721230607/activities/424a7335ccd949fb83083a3de9f01bd3",
+          "report_sha256": "d9566c88c6e2950d5eadf9d0588d7f39dfd58dcc28a11331d7e8ed88e6c9f331",
+          "activity_created_at": "2026-09-23T14:50:13.421970Z",
+          "session_id": "3454774798721230607",
+          "dispatch_key": "95662c54c63c5782851fc010"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3454774798721230607/activities/424a7335ccd949fb83083a3de9f01bd3",
+          "report_sha256": "d9566c88c6e2950d5eadf9d0588d7f39dfd58dcc28a11331d7e8ed88e6c9f331",
+          "activity_created_at": "2026-09-23T14:50:13.421970Z",
+          "session_id": "3454774798721230607",
+          "dispatch_key": "95662c54c63c5782851fc010"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b82daad4c8b8b9f9"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b82daad4c8b8b9f9",
+      "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-23T15:22:12.732818Z",
+      "acceptance": [
+        "Interactive elements inside a closed <details> tag (other than the <summary>) are excluded from the focusable array.",
+        "Tabbing past the last visible focusable element properly loops back to the first visible element."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed in synthetic React tests simulating keyboard navigation in IncidentCenter and ResourceHealthPanel. Native browsers hide elements inside a collapsed <details> tag using layout, not the HTML 'hidden' attribute, causing '!element.hidden' to incorrectly include them.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the IncidentCenter panel in the UI.",
+            "Ensure there is an incident with a long reason that renders a collapsed <details> tag containing a focusable element (e.g. an anchor or button).",
+            "Use the Tab key to navigate through the panel until reaching the <summary> element.",
+            "Press Tab again."
+          ],
+          "expected": "Focus correctly loops back to the first focusable element in the panel (e.g. the close button) since the elements inside the closed <details> are not visible.",
+          "actual": "Focus attempts to trap onto the visually hidden element inside the closed <details> tag, breaking standard keyboard navigation bounds."
+        }
+      },
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-ux-7",
+        "activity_id": "sessions/3454774798721230607/activities/424a7335ccd949fb83083a3de9f01bd3",
+        "report_sha256": "d9566c88c6e2950d5eadf9d0588d7f39dfd58dcc28a11331d7e8ed88e6c9f331",
+        "activity_created_at": "2026-09-23T14:50:13.421970Z",
+        "session_id": "3454774798721230607",
+        "dispatch_key": "95662c54c63c5782851fc010"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T15:22:14.233067Z",
+    "last_poll_at": "2026-09-23T15:22:19.900659Z",
     "last_tick_at": "2026-09-23T15:03:01.759743Z",
     "run_id": "35878630095"
   }
