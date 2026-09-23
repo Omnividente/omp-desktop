@@ -38443,7 +38443,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T22:27:02.320684Z"
+        "observed_at": "2026-09-23T22:27:02.320684Z",
+        "released_attempt_ref": "autonomous/attempt-885936f02c9036e13b5c916c"
       },
       "research_result": {
         "summary": "Investigated the batch import modal behavior and confirmed it remains open with selection intact when a partial or complete failure occurs.",
