@@ -33950,6 +33950,127 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-settings-models-behavior-7",
+      "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-23T10:15:55Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.\n\nController existing-proposal context (queue snapshot, not a worker report; reported claims are not verified):\n[{\"canonical_id\":\"discovery-6126922b5115ca89\",\"status\":\"proposed\",\"title\":\"Show localized validation error when Custom Provider settings are incomplete\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Verified via synthetic vitest test simulating user input. An incomplete Custom Provider configuration (e.g. only setting the ID) correctly halts the save process and displays an error via `setSaveError`.\",\"expected\":\"The save operation stops, does not call the backend API, and a localized validation error banner appears.\",\"actual\":\"The save operation correctly stops, does not call the backend API, and the error banner appears as intended.\",\"acceptance\":[\"Entering incomplete Custom Provider settings correctly triggers a UI validation error on save\"]}},{\"canonical_id\":\"discovery-21935d2cee4d8a7e\",\"status\":\"done\",\"title\":\"Preserve built-in thinking modifiers when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\",\"src/ModelPicker.test.ts\"],\"observed_contract\":{\"detail\":\"Frontend observation using synthetic data to trace ModelPicker's selectorForModel mapping.\",\"expected\":\"The returned selector is 'openai/gpt-4o:off'.\",\"actual\":\"The returned selector is 'openai/gpt-4o', silently dropping the explicitly selected :off state because 'off' is not part of the model's backend `thinking` array.\",\"acceptance\":[\"When switching from a model with an explicit :off or :auto thinking level to another model that also supports thinking levels, the :off or :auto modifier is preserved in the new selector.\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-f94f0fd889c52402\",\"status\":\"done\",\"title\":\"Preserve base thinking modifiers (:off, :auto) when switching models\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed in `src/ModelPicker.tsx` that `selectorForModel` drops `:off` and `:auto` because it strictly checks `model.thinking.includes(thinking)`. Base modifiers are not listed in `model.thinking` which causes them to be silently dropped during model switching.\",\"expected\":\"The new model is selected and the `:off` modifier is preserved in the selector string (e.g. `new-model:off`).\",\"actual\":\"The `:off` modifier is stripped out and the selector falls back to the base model selector (e.g., `new-model`).\",\"acceptance\":[\"Switching to a model that supports thinking levels preserves `:off` and `:auto` modifiers\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-ecab55df9b8166cc\",\"status\":\"done\",\"title\":\"Fix focus trapping and Escape key accessibility in Application Modals\",\"target_paths\":[\"src/useModalFocus.ts\",\"src/ImportSessionModal.tsx\",\"src/CodexImportModal.tsx\",\"src/SettingsPanel.tsx\",\"src/TranscriptModal.tsx\"],\"observed_contract\":{\"detail\":\"Verified using synthetic vitest tests simulating keyboard interaction on a locally prototyped useModalFocus hook.\",\"expected\":\"The modal traps focus on Tab navigation and closes when Escape is pressed.\",\"actual\":\"Focus escapes the modal into the background document, and the Escape key does not close the modal.\",\"acceptance\":[\"Pressing Escape closes the active modal\",\"Focus is trapped inside the active modal during Tab navigation\",\"Focus is returned to the original active element when the modal closes\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-be56185691369523\",\"status\":\"done\",\"title\":\"Preserve SettingsPanel drafts on graceful IPC save errors\",\"target_paths\":[\"src/SettingsPanel.tsx\",\"src/SettingsPanel.test.tsx\"],\"observed_contract\":{\"detail\":\"Observed via code inspection and component behavior tracing in `SettingsPanel.tsx`. When `saveSettingsBundle` returns `{ type: 'error' }`, it calls `refreshConfig(true)`, wiping out all uncommitted drafts via `acceptConfig()`.\",\"expected\":\"The error is displayed and the user's drafts are preserved so they can correct the issue and retry.\",\"actual\":\"The drafts are silently discarded because the panel fetches the old snapshot and calls `acceptConfig()`.\",\"acceptance\":[\"Settings Panel drafts (e.g., fallback chains, advisor toggle, operational changes) remain intact when the backend rejects a save with a structured error result.\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-db32c1ac35bd4222\",\"status\":\"done\",\"title\":\"Preserve language preference during settings recovery\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `recover_settings_fields` in `src-tauri/src/settings.rs` which explicitly ignores the `language` field when extracting other fields.\",\"expected\":\"The recovery screen text and logs reflect the recovered language preference.\",\"actual\":\"The recovery process resets the language to the default (`ru`) because the backend recovery logic omits it.\",\"acceptance\":[\"Partial settings recovery extracts and preserves the `language` field when it is readable\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-37764527ab2ab728\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring `useMemo` latency. The code spreads the models into a new array, sorts the entire array, and then filters it.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"resolve\"},{\"canonical_id\":\"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\",\"status\":\"done\",\"title\":\"Optimize ModelPicker performance by filtering models before sorting\",\"target_paths\":[\"src/ModelPicker.tsx\"],\"observed_contract\":{\"detail\":\"Source inspection of `src/ModelPicker.tsx` and synthetic benchmarks measuring latency of `useMemo` operations. Matches exactly the proposed change in discovery-37764527ab2ab728.\",\"expected\":\"The application filters out non-matching models first, then sorts only the matched subset, reducing latency.\",\"actual\":\"The application makes a full copy of the model list, sorts the entire list, and then filters it.\",\"acceptance\":[\"The ModelPicker search applies the text filter to the model list before sorting the results\"]},\"decision\":\"reject\"},{\"canonical_id\":\"discovery-a674fea024868caf\",\"status\":\"done\",\"title\":\"Preserve application language preference when reverting to default settings\",\"target_paths\":[\"src-tauri/src/settings.rs\"],\"observed_contract\":{\"detail\":\"Observed via source inspection of `prepare_defaults_at_with` in `src-tauri/src/settings.rs`. The backend resets all preferences including language to their defaults by calling `AppSettings::default()`. The language property is not extracted from the backup, confirming the related finding in discover [excerpt]\",\"expected\":\"The generated default settings file has `language` set to `en`.\",\"actual\":\"The generated default settings file has `language` reset to `ru`.\",\"acceptance\":[\"When the user selects \\\"Start with defaults\\\" in the recovery screen, the resulting default settings preserve the user's previously configured language from the corrupted settings file.\"]},\"decision\":\"reject\"}]\nFor the same observed contract, cite the canonical_id in your observations instead of proposing a renamed duplicate. A shared file is not a duplicate. Preserve independent findings; explain uncertain overlap. Closed or rejected work is historical context, not evidence against a newly reproduced regression.\nContext is truncated; other relevant proposals may exist."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "behavior",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 7,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that extremely long localized string translations inside SettingsRecoveryScreen action buttons cause horizontal overflow and text truncation on narrow screens.",
+            "observations": [
+              {
+                "scenario": "Rendering the SettingsRecoveryScreen layout with an extremely long string inside the action buttons in a narrow viewport.",
+                "evidence": "Created a synthetic HTML fixture capturing the CSS context of `.settings-recovery-actions .button` on a 300px viewport. Scripted a Puppeteer test injecting an excessively long localized string (simulating an extreme translation). Measurements showed the button's `scrollWidth` (the actual width of its content) significantly exceeded its `offsetWidth` (the container width) due to the inherited `white-space: nowrap` and `height: 34px` constraints on `.button`.",
+                "result": "Establishes that long button labels in the recovery screen fail to wrap properly on narrow screens, causing the text to overflow and become truncated or unreadable."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the `.settings-recovery-description` can properly handle strings with unbroken, unusually long word sequences without overflowing the card."
+            ],
+            "proposed_task_ids": [
+              "discovery-08ed104590df0edb"
+            ],
+            "completed_at": "2026-09-22T10:15:11.477527Z",
+            "source": {
+              "activity_id": "sessions/685378285279011776/activities/5aeab462916446608853bdb5d8ef1e43",
+              "report_sha256": "b5867391cad3c855f822ac2426f5952e827315a1da4f8b66a5df0938900d5699",
+              "activity_created_at": "2026-09-22T10:02:30.137017Z",
+              "session_id": "685378285279011776",
+              "dispatch_key": "96351a9fd21baeb21cee0394"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Confirmed that custom provider validation in SettingsPanel stops invalid input gracefully and displays a localized error. Confirmed that long localized text overflows .button because of hardcoded height. Confirmed that extremely long strings overflow .settings-recovery-details code elements without wrapping.",
+            "observations": [
+              {
+                "scenario": "Simulating UI validation on Custom Providers input.",
+                "evidence": "Executed synthetic vitest DOM tests to input incomplete configuration (e.g. only setting the Custom Provider ID) and clicking Save. The save API is correctly skipped, and an error is set using setSaveError.",
+                "result": "Establishes that the UI successfully checks constraints and reports errors before hitting the backend."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if ModelPicker search input placeholder can be truncated incorrectly when a custom long model name is selected."
+            ],
+            "proposed_task_ids": [
+              "discovery-87291cefda2ea74a",
+              "discovery-2450daef7b11aaa9",
+              "discovery-6126922b5115ca89"
+            ],
+            "completed_at": "2026-09-22T10:21:36.389909Z",
+            "source": {
+              "activity_id": "sessions/1648608779480684360/activities/5db71371bef84981895d015acb41036a",
+              "report_sha256": "fc10dbcc36fe98e68c625974307461d5578fbc77e1fdec72b4c13b5f4c1714e0",
+              "activity_created_at": "2026-09-22T10:12:49.765816Z",
+              "session_id": "1648608779480684360",
+              "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Confirmed that unbroken, unusually long word sequences in SettingsRecoveryScreen description cause horizontal overflow.",
+            "observations": [
+              {
+                "scenario": "Rendering the SettingsRecoveryScreen layout with an extremely long unbroken localized string in the description on a narrow viewport.",
+                "evidence": "Created a synthetic HTML fixture capturing the CSS context of `.settings-recovery-card` and `.settings-recovery-description` based on `src/App.css`. Scripted a Puppeteer test injecting an excessively long string without spaces. Measurements showed the description paragraph's `scrollWidth` (4102px) significantly exceeded the card container's `clientWidth` (340px). Adding `overflow-wrap: anywhere` or `word-break: break-word` to the CSS resolved the overflow.",
+                "result": "Establishes that the recovery screen description fails to wrap properly when it contains long unbroken sequences (like URLs or certain language translations), causing it to overflow the card container horizontally."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if dropdowns or input labels in SettingsPanel clip deeply nested translation strings on minimum widths."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T09:36:02.991556Z",
+            "source": {
+              "activity_id": "sessions/18388401861679383969/activities/72874b6d2327419c9f25019145a71bff",
+              "report_sha256": "00f3ff5b587e42b0ddfa292b73fc85f1369cc97f7b3aa099e186c07845a68d1b",
+              "activity_created_at": "2026-09-23T09:28:59.686998Z",
+              "session_id": "18388401861679383969",
+              "dispatch_key": "efc8c605c7df9e5273e6955e"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix horizontal overflow of long unbroken strings in settings recovery description",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Measured via synthetic Puppeteer DOM test matching `App.css` styles for `.settings-recovery-description`. A string of 500 characters without spaces overflows a 340px wide card.\", \"reproduction\": {\"actual\": \"The long unbroken string causes the paragraph to overflow the card container horizontally.\", \"expected\": \"The long unbroken string wraps to a new line and stays within the card container bounds.\", \"steps\": [\"Render the SettingsRecoveryScreen with a synthetic long unbroken string for its description (e.g., simulating a long file path or unbroken translation).\", \"Constrain the container to a narrow mobile viewport.\", \"Observe the description paragraph boundaries relative to the card container.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.css"
+                ],
+                "acceptance": [
+                  "Long, unbroken word sequences in the recovery description wrap to a new line and do not overflow the card horizontally."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
