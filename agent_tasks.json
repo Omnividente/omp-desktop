@@ -33612,7 +33612,7 @@
       "id": "research-settings-models-performance-7",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -33720,23 +33720,95 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18388401861679383969",
         "dispatch_key": "efc8c605c7df9e5273e6955e",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-efc8c605c7df9e5273e6955e",
         "started_at": "2026-09-23T09:21:56.163171Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T09:36:02.991556Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T09:29:47.370216Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T09:36:02.991556Z"
+      },
+      "research_result": {
+        "summary": "Confirmed that unbroken, unusually long word sequences in SettingsRecoveryScreen description cause horizontal overflow.",
+        "observations": [
+          {
+            "scenario": "Rendering the SettingsRecoveryScreen layout with an extremely long unbroken localized string in the description on a narrow viewport.",
+            "evidence": "Created a synthetic HTML fixture capturing the CSS context of `.settings-recovery-card` and `.settings-recovery-description` based on `src/App.css`. Scripted a Puppeteer test injecting an excessively long string without spaces. Measurements showed the description paragraph's `scrollWidth` (4102px) significantly exceeded the card container's `clientWidth` (340px). Adding `overflow-wrap: anywhere` or `word-break: break-word` to the CSS resolved the overflow.",
+            "result": "Establishes that the recovery screen description fails to wrap properly when it contains long unbroken sequences (like URLs or certain language translations), causing it to overflow the card container horizontally."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if dropdowns or input labels in SettingsPanel clip deeply nested translation strings on minimum widths."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T09:36:02.991556Z",
+        "source": {
+          "activity_id": "sessions/18388401861679383969/activities/72874b6d2327419c9f25019145a71bff",
+          "report_sha256": "00f3ff5b587e42b0ddfa292b73fc85f1369cc97f7b3aa099e186c07845a68d1b",
+          "activity_created_at": "2026-09-23T09:28:59.686998Z",
+          "session_id": "18388401861679383969",
+          "dispatch_key": "efc8c605c7df9e5273e6955e"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix horizontal overflow of long unbroken strings in settings recovery description",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Measured via synthetic Puppeteer DOM test matching `App.css` styles for `.settings-recovery-description`. A string of 500 characters without spaces overflows a 340px wide card.\", \"reproduction\": {\"actual\": \"The long unbroken string causes the paragraph to overflow the card container horizontally.\", \"expected\": \"The long unbroken string wraps to a new line and stays within the card container bounds.\", \"steps\": [\"Render the SettingsRecoveryScreen with a synthetic long unbroken string for its description (e.g., simulating a long file path or unbroken translation).\", \"Constrain the container to a narrow mobile viewport.\", \"Observe the description paragraph boundaries relative to the card container.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.css"
+            ],
+            "acceptance": [
+              "Long, unbroken word sequences in the recovery description wrap to a new line and do not overflow the card horizontally."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/18388401861679383969/activities/72874b6d2327419c9f25019145a71bff",
+          "report_sha256": "00f3ff5b587e42b0ddfa292b73fc85f1369cc97f7b3aa099e186c07845a68d1b",
+          "activity_created_at": "2026-09-23T09:28:59.686998Z",
+          "session_id": "18388401861679383969",
+          "dispatch_key": "efc8c605c7df9e5273e6955e"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-8cfd596d99540a6d",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-1c2ef3e497408198"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix horizontal overflow of long unbroken strings in settings recovery description",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Measured via synthetic Puppeteer DOM test matching `App.css` styles for `.settings-recovery-description`. A string of 500 characters without spaces overflows a 340px wide card.\", \"reproduction\": {\"actual\": \"The long unbroken string causes the paragraph to overflow the card container horizontally.\", \"expected\": \"The long unbroken string wraps to a new line and stays within the card container bounds.\", \"steps\": [\"Render the SettingsRecoveryScreen with a synthetic long unbroken string for its description (e.g., simulating a long file path or unbroken translation).\", \"Constrain the container to a narrow mobile viewport.\", \"Observe the description paragraph boundaries relative to the card container.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.css"
+              ],
+              "acceptance": [
+                "Long, unbroken word sequences in the recovery description wrap to a new line and do not overflow the card horizontally."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T09:36:24.074798Z",
+    "last_poll_at": "2026-09-23T09:36:27.427884Z",
     "last_tick_at": "2026-09-23T09:30:16.353761Z",
     "run_id": "35843244429"
   }
