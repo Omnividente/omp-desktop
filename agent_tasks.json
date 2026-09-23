@@ -19296,7 +19296,8 @@
           "session_id": "18085791308144113483",
           "dispatch_key": "f133e19c6dd89a90051e4bf6",
           "verified_at": "2026-09-23T16:18:55.959936Z"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-f133e19c6dd89a90051e4bf6"
       }
     },
     {
