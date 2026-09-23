@@ -38689,7 +38689,7 @@
       "id": "research-terminal-input-behavior-8",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -38806,7 +38806,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "5186752007426495389",
         "dispatch_key": "635e90b6b7a750411960c8d3",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
@@ -38814,8 +38814,8 @@
         "started_at": "2026-09-23T22:33:41.726494Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -38990,8 +38990,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-23T22:48:01.002328Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T23:19:08.969374Z",
         "research_detached": {
           "at": "2026-09-23T22:48:01.002328Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -38999,12 +38999,36 @@
         "feedback_nudge": {
           "at": "2026-09-23T22:48:01.002328Z",
           "result": "sent"
+        },
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-23T23:19:08.969374Z",
+          "source": {
+            "activity_id": "sessions/5186752007426495389/activities/17202121ac494b6d86cdb51d878d53a5",
+            "report_sha256": "74b2228d814546520ec9ae99e46f995372bc0a4ad3f6b052d439ed9ee1f1f066",
+            "activity_created_at": "2026-09-23T22:49:24.451385Z",
+            "session_id": "5186752007426495389",
+            "dispatch_key": "635e90b6b7a750411960c8d3"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-23T23:19:32.335434Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/5186752007426495389/activities/17202121ac494b6d86cdb51d878d53a5",
+            "report_sha256": "74b2228d814546520ec9ae99e46f995372bc0a4ad3f6b052d439ed9ee1f1f066",
+            "activity_created_at": "2026-09-23T22:49:24.451385Z",
+            "session_id": "5186752007426495389",
+            "dispatch_key": "635e90b6b7a750411960c8d3"
+          }
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T22:48:18.813112Z",
+    "last_poll_at": "2026-09-23T23:19:30.681740Z",
     "last_tick_at": "2026-09-23T22:48:30.306152Z",
     "run_id": "35930278795"
   }
