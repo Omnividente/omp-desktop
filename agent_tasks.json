@@ -35025,7 +35025,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T12:18:47.268008Z"
+        "observed_at": "2026-09-23T12:18:47.268008Z",
+        "released_attempt_ref": "autonomous/attempt-8b845b7e45b4e50237ea597d"
       },
       "research_result": {
         "summary": "Investigated the terminal font resizing behavior in `TerminalView.tsx`.",
