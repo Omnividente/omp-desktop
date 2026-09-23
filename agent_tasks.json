@@ -36155,7 +36155,8 @@
         "feedback_nudge": {
           "at": "2026-09-23T14:46:22.312801Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-95662c54c63c5782851fc010"
       },
       "research_result": {
         "summary": "Verified focus trap logic flaw in IncidentCenter and ResourceHealthPanel relating to hidden elements inside collapsed details tags.",
