@@ -33731,7 +33731,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T09:36:02.991556Z"
+        "observed_at": "2026-09-23T09:36:02.991556Z",
+        "released_attempt_ref": "autonomous/attempt-efc8c605c7df9e5273e6955e"
       },
       "research_result": {
         "summary": "Confirmed that unbroken, unusually long word sequences in SettingsRecoveryScreen description cause horizontal overflow.",
