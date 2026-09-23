@@ -31899,7 +31899,8 @@
         "feedback_nudge": {
           "at": "2026-09-23T01:26:11.020844Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-fefae0d8dcf4e113759c9d40"
       },
       "research_result": {
         "summary": "Investigated the performance of terminal output batching, terminal focus restoration during right-click interactions, and backend terminal recovery state during new inputs. Reproduced and verified existing defects in these areas.",
