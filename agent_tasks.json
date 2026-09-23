@@ -34229,7 +34229,7 @@
       "id": "research-settings-models-reliability-7",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "todo",
       "focus": [
         "quality",
         "bugfix",
@@ -34374,23 +34374,23 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "retry",
         "session_id": "9935211493624980530",
         "dispatch_key": "30b0759a34f6638401aca539",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-30b0759a34f6638401aca539",
         "started_at": "2026-09-23T10:36:11.383476Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T11:03:37.766453Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T10:44:22.401183Z"
+        "outcome": "failed",
+        "note": "Jules reported a terminal failure",
+        "session_state": "FAILED",
+        "observed_at": "2026-09-23T11:03:37.766453Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T11:04:02.453181Z",
+    "last_poll_at": "2026-09-23T11:04:05.646130Z",
     "last_tick_at": "2026-09-23T10:57:51.278571Z",
     "run_id": "35851677849"
   }
