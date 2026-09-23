@@ -36626,7 +36626,8 @@
           "at": "2026-09-23T16:56:26.529601Z",
           "result": "sent",
           "status": "resolved"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-66df95036bce82ce69175f29"
       },
       "research_result": {
         "summary": "Investigated keyboard focus behavior when clearing search in the session list, and the UI state of batch import modals after failures.",
