@@ -10,6 +10,7 @@ import { reorderTerminalTabs } from "./uiUtils"
 vi.mock("./TerminalView", () => ({
   TerminalView: ({ terminalId }: { terminalId: string }) => <div data-terminal-view={terminalId} />,
 }))
+
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true

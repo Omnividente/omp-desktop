@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IncidentCenter } from "./IncidentCenter"
 import type { RuntimeIncident } from "./runtimeIncidents"
 import type { TerminalTab } from "./types"
+
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true

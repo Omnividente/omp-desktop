@@ -2018,11 +2018,19 @@ where
     if let Err(error) = fs::write(&intent_file, intent_data.to_string()) {
         let _ = fs::remove_dir_all(&staging);
         let _ = fs::remove_file(&staged_jsonl);
-        return Err(format!("Не удалось создать файл намерений {}: {error}", intent_file.display()));
+        return Err(format!(
+            "Не удалось создать файл намерений {}: {error}",
+            intent_file.display()
+        ));
     }
 
-    let _guard = ActiveTransactionGuard { path: intent_file.clone() };
-    ACTIVE_IMPORT_TRANSACTIONS.lock().unwrap_or_else(|p| p.into_inner()).insert(intent_file.clone());
+    let _guard = ActiveTransactionGuard {
+        path: intent_file.clone(),
+    };
+    ACTIVE_IMPORT_TRANSACTIONS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(intent_file.clone());
 
     if let Some(backup) = backup.as_ref() {
         if let Err(error) = rename(&target_artifacts, backup) {
@@ -5485,12 +5493,19 @@ mod interruption_tests {
 
     #[test]
     fn interrupted_import_recovers_consistently() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!("omp-desktop-interrupted-{}", nonce));
         fs::create_dir_all(&root).unwrap();
 
         let session_file = root.join("session.jsonl");
-        fs::write(&session_file, r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#).unwrap();
+        fs::write(
+            &session_file,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
 
         let artifact_dir = root.join("session");
         fs::create_dir_all(&artifact_dir).unwrap();
@@ -5503,7 +5518,11 @@ mod interruption_tests {
         let backup_dir = root.join(".session.artifacts-backup.1.3");
 
         let staged_jsonl = root.join("session.jsonl.staged");
-        fs::write(&staged_jsonl, r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#).unwrap();
+        fs::write(
+            &staged_jsonl,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
 
         let intent_file = root.join("session.import-txn");
         let intent_data = serde_json::json!({
@@ -5515,8 +5534,14 @@ mod interruption_tests {
         // Scenario 1: Interruption mid-swap, target deleted/moved, backup exists, new artifacts not in place
         fs::rename(&artifact_dir, &backup_dir).unwrap();
         scan_sessions(&root).unwrap();
-        assert!(artifact_dir.exists(), "target artifact dir should be restored");
-        assert_eq!(fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(), "old artifacts");
+        assert!(
+            artifact_dir.exists(),
+            "target artifact dir should be restored"
+        );
+        assert_eq!(
+            fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(),
+            "old artifacts"
+        );
         assert!(!backup_dir.exists());
         assert!(!staged_jsonl.exists());
         assert!(!intent_file.exists());
@@ -5524,14 +5549,21 @@ mod interruption_tests {
         // Setup Scenario 2
         fs::create_dir_all(&staged_dir).unwrap();
         fs::write(staged_dir.join("artifact.txt"), "new artifacts").unwrap();
-        fs::write(&staged_jsonl, r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#).unwrap();
+        fs::write(
+            &staged_jsonl,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
         fs::write(&intent_file, intent_data.to_string()).unwrap();
 
         // Scenario 2: Interruption after swap, target has NEW artifacts, backup has OLD artifacts.
         fs::rename(&artifact_dir, &backup_dir).unwrap();
         fs::rename(&staged_dir, &artifact_dir).unwrap();
         scan_sessions(&root).unwrap();
-        assert_eq!(fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(), "old artifacts");
+        assert_eq!(
+            fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(),
+            "old artifacts"
+        );
         assert!(!backup_dir.exists());
         assert!(!staged_jsonl.exists());
         assert!(!intent_file.exists());
@@ -5554,7 +5586,11 @@ mod interruption_tests {
         fs::create_dir_all(&staged_dir2).unwrap();
         fs::write(staged_dir2.join("artifact.txt"), "new artifacts").unwrap();
         let staged_jsonl2 = root.join("session2.jsonl.staged");
-        fs::write(&staged_jsonl2, r#"{"type":"session","id":"session2","cwd":"/tmp/project"}"#).unwrap();
+        fs::write(
+            &staged_jsonl2,
+            r#"{"type":"session","id":"session2","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
         let intent_file2 = root.join("session2.import-txn");
         let intent_data2 = serde_json::json!({
             "staging": staged_dir2.to_string_lossy(),

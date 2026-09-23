@@ -6,10 +6,7 @@ export type RuntimeIncidentKind = "fallback" | "modelError" | "runtimeError"
 export type RuntimeIncidentStatus = "active" | "resolved"
 export type RuntimeHealthStatus = "normal" | "fallback" | "error"
 export type RuntimeIncidentResolutionReason =
-  | "recovered"
-  | "recoveredThroughFallback"
-  | "primaryRestored"
-  | "terminalEnded"
+  "recovered" | "recoveredThroughFallback" | "primaryRestored" | "terminalEnded"
 
 type RuntimeIncidentSourceKind = Extract<
   PtyRuntimeEventKind,
