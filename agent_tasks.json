@@ -34397,9 +34397,9 @@
         "pull_request": 0,
         "outcome": "",
         "note": "",
-        "observed_at": "2026-09-23T11:31:00.136770Z",
+        "observed_at": "2026-09-23T11:38:51.283584Z",
         "released_attempt_ref": "autonomous/attempt-30b0759a34f6638401aca539",
-        "session_state": "AWAITING_USER_FEEDBACK",
+        "session_state": "IN_PROGRESS",
         "research_detached": {
           "at": "2026-09-23T11:31:00.136770Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -34539,7 +34539,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T11:39:12.308890Z",
+    "last_poll_at": "2026-09-23T11:39:15.371663Z",
     "last_tick_at": "2026-09-23T11:33:01.290928Z",
     "run_id": "35854958463"
   }
