@@ -39413,7 +39413,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T23:46:35.452096Z"
+        "observed_at": "2026-09-23T23:46:35.452096Z",
+        "released_attempt_ref": "autonomous/attempt-17505af6e76fc6ed0b565ad3"
       },
       "research_result": {
         "summary": "Verified focus behavior during background updates, renaming conflicts, and list element deletions.",
