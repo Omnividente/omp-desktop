@@ -32949,7 +32949,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T07:21:39.107615Z"
+        "observed_at": "2026-09-23T07:21:39.107615Z",
+        "released_attempt_ref": "autonomous/attempt-893dc49eec078e3014ce2d97"
       },
       "research_result": {
         "summary": "Verified focus behavior and fallback target when the last session in a workspace is deleted.",
