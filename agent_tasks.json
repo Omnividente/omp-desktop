@@ -36261,7 +36261,7 @@
       "id": "research-sessions-persistence-behavior-8",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -36429,16 +36429,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "13631245351245448339",
         "dispatch_key": "66df95036bce82ce69175f29",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-66df95036bce82ce69175f29",
         "started_at": "2026-09-23T16:41:48.839214Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T17:04:13.068013Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: report_absent",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing, possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -36622,15 +36622,249 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-09-23T16:56:07.005668Z",
-        "report_error": {
-          "code": "report_absent",
-          "detail": "completed discovery has no worker report",
-          "reported_at": "2026-09-23T16:56:07.005668Z"
-        },
         "report_repair": {
           "at": "2026-09-23T16:56:26.529601Z",
           "result": "sent",
-          "status": "pending"
+          "status": "resolved"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated keyboard focus behavior when clearing search in the session list, and the UI state of batch import modals after failures.",
+        "observations": [
+          {
+            "scenario": "Review keyboard focus behavior when clearing the session search filter in SessionList.",
+            "evidence": "Source inspection of src/SessionList.tsx and verification via a jsdom test. The clear search button unmounts immediately when search becomes empty. There is no ref on the search input or logic in onClearSearch to reclaim focus. The test confirmed that after clicking the clear button, document.activeElement falls back to document.body.",
+            "result": "Establishes that keyboard users lose their focus position in the document when they clear a search query in the session list."
+          },
+          {
+            "scenario": "Review the batch import UI state after partial or total failure in importCodexSelected and importPendingOmp.",
+            "evidence": "Code inspection of src/App.tsx shows that if a batch import fails, showError is called but setCodexOpen(false) or setPendingOmpImportPath(null) is bypassed. A jsdom test against CodexImportModal confirmed that simulating a failure without explicitly closing the modal leaves the user in the modal with their previous selection intact.",
+            "result": "Establishes that the UI leaves users in the modal with their previous selection intact after import failures. Retrying without manual deselection would re-run the entire batch."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T17:04:13.068013Z",
+        "source": {
+          "activity_id": "sessions/13631245351245448339/activities/835a2eee5605493493e7c9085b992d1d",
+          "report_sha256": "81c8ad29182eea90be35a834165fc092a4854d892fa337a72b6eaffaa3a969e9",
+          "activity_created_at": "2026-09-23T16:57:37.408997Z",
+          "session_id": "13631245351245448339",
+          "dispatch_key": "66df95036bce82ce69175f29"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus to the search input after clearing the session list search",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-2121d4b2b9e7bcd1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and jsdom synthetic testing on the exact pinned base.\", \"reproduction\": {\"actual\": \"Focus falls back to the document body because the clear button unmounts without redirecting focus.\", \"expected\": \"Focus returns to the search input field.\", \"steps\": [\"Focus the search input in the session list and type a query.\", \"Tab to the 'Clear' button and activate it via the keyboard.\", \"Observe the active element after the search is cleared.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx",
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Keyboard focus is restored to the search input field immediately after clearing the search query via the clear button in the session list."
+            ]
+          },
+          {
+            "title": "Close the batch import modal when partial or complete failures occur",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.\", \"reproduction\": {\"actual\": \"The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones.\", \"expected\": \"The modal closes, forcing the user to review the list and re-open/re-select before retrying.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial import failure from the Tauri backend.\", \"Observe the modal state after the error notice is shown.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+            ],
+            "deferred_id": "80397f7b593b83487ab596f7fde4a1113ad7588a922269e390176a7478f4a366",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Close the batch import modal when partial or complete failures occur",
+              "risk": "low",
+              "priority": 45,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Open the Codex import modal and select multiple sessions.",
+                    "Simulate a partial import failure from the Tauri backend.",
+                    "Observe the modal state after the error notice is shown."
+                  ],
+                  "expected": "The modal closes, forcing the user to review the list and re-open/re-select before retrying.",
+                  "actual": "The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones."
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-d3e1fcb6e79f4693",
+                  "action": "reject",
+                  "decision_at": "2026-09-21T20:13:04Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                  "action": "reject",
+                  "decision_at": "2026-09-20T20:30:51Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-39c130be90c4a65e",
+                  "action": "reject",
+                  "decision_at": "2026-09-20T07:49:50Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-sessions-persistence-behavior-8",
+              "activity_id": "sessions/13631245351245448339/activities/835a2eee5605493493e7c9085b992d1d",
+              "report_sha256": "81c8ad29182eea90be35a834165fc092a4854d892fa337a72b6eaffaa3a969e9",
+              "activity_created_at": "2026-09-23T16:57:37.408997Z",
+              "session_id": "13631245351245448339",
+              "dispatch_key": "66df95036bce82ce69175f29"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13631245351245448339/activities/835a2eee5605493493e7c9085b992d1d",
+          "report_sha256": "81c8ad29182eea90be35a834165fc092a4854d892fa337a72b6eaffaa3a969e9",
+          "activity_created_at": "2026-09-23T16:57:37.408997Z",
+          "session_id": "13631245351245448339",
+          "dispatch_key": "66df95036bce82ce69175f29"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-3e7071e35d45dd4e",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-2121d4b2b9e7bcd1"
+            },
+            {
+              "id": "discovery-6afdfe1425377864",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-d3e1fcb6e79f4693"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus to the search input after clearing the session list search",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-2121d4b2b9e7bcd1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and jsdom synthetic testing on the exact pinned base.\", \"reproduction\": {\"actual\": \"Focus falls back to the document body because the clear button unmounts without redirecting focus.\", \"expected\": \"Focus returns to the search input field.\", \"steps\": [\"Focus the search input in the session list and type a query.\", \"Tab to the 'Clear' button and activate it via the keyboard.\", \"Observe the active element after the search is cleared.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx",
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Keyboard focus is restored to the search input field immediately after clearing the search query via the clear button in the session list."
+              ]
+            },
+            {
+              "title": "Close the batch import modal when partial or complete failures occur",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.\", \"reproduction\": {\"actual\": \"The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones.\", \"expected\": \"The modal closes, forcing the user to review the list and re-open/re-select before retrying.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial import failure from the Tauri backend.\", \"Observe the modal state after the error notice is shown.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+              ],
+              "deferred_id": "80397f7b593b83487ab596f7fde4a1113ad7588a922269e390176a7478f4a366",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Close the batch import modal when partial or complete failures occur",
+                "risk": "low",
+                "priority": 45,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Open the Codex import modal and select multiple sessions.",
+                      "Simulate a partial import failure from the Tauri backend.",
+                      "Observe the modal state after the error notice is shown."
+                    ],
+                    "expected": "The modal closes, forcing the user to review the list and re-open/re-select before retrying.",
+                    "actual": "The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones."
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-d3e1fcb6e79f4693",
+                    "action": "reject",
+                    "decision_at": "2026-09-21T20:13:04Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                    "action": "reject",
+                    "decision_at": "2026-09-20T20:30:51Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-39c130be90c4a65e",
+                    "action": "reject",
+                    "decision_at": "2026-09-20T07:49:50Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-sessions-persistence-behavior-8",
+                "activity_id": "sessions/13631245351245448339/activities/835a2eee5605493493e7c9085b992d1d",
+                "report_sha256": "81c8ad29182eea90be35a834165fc092a4854d892fa337a72b6eaffaa3a969e9",
+                "activity_created_at": "2026-09-23T16:57:37.408997Z",
+                "session_id": "13631245351245448339",
+                "dispatch_key": "66df95036bce82ce69175f29"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -37002,7 +37236,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T16:58:23.463005Z",
+    "last_poll_at": "2026-09-23T17:04:33.487591Z",
     "last_tick_at": "2026-09-23T16:58:25.787507Z",
     "run_id": "35892144786"
   }
