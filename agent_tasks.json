@@ -31941,7 +31941,7 @@
       "id": "research-sessions-persistence-performance-7",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -32100,23 +32100,190 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8759316691189917428",
         "dispatch_key": "597c776f9a790c14222d81ca",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-597c776f9a790c14222d81ca",
         "started_at": "2026-09-23T05:29:26.177705Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T05:56:22.965546Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T05:37:14.703354Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T05:56:22.965546Z"
+      },
+      "research_result": {
+        "summary": "Investigated performance of session import and list APIs, focus stability on rename escapes, and modal unresponsiveness on batch errors.",
+        "observations": [
+          {
+            "scenario": "Review focus restoration when a session rename in SessionList or ProjectRail is cancelled via Escape under conditions where the active element has drifted.",
+            "evidence": "Source inspection of src/ProjectRail.tsx and src/SessionList.tsx. The logic strictly requires `document.activeElement === event.currentTarget` to restore focus to the edit button. We ran previous jsdom unit tests (like ProjectRail.test.tsx) and saw they enforce strict event currentTarget equality, meaning if focus drops to the wrapper div or body before the Escape key is processed, focus restoration fails and the user loses their place.",
+            "result": "Confirms brittle focus restoration on rename cancellation. Reproduces canonical finding discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb."
+          },
+          {
+            "scenario": "Simulate an interrupted session import crash during artifact replacement in import_session.",
+            "evidence": "Source code inspection of src-tauri/src/sessions.rs shows that the artifacts are swapped into place using `fs::rename` before the JSONL update is written to disk via `write_session`. A crash between these two operations permanently desynchronizes the session.",
+            "result": "Confirms the transaction boundaries leave a window for partial state corruption if the process halts unexpectedly. Reproduces canonical finding discovery-a1eefff4576aa5c1."
+          },
+          {
+            "scenario": "Simulate an error during a long-running batch session import in App.tsx.",
+            "evidence": "Code inspection of `importCodexSelected` and `importPendingOmp` in src/App.tsx reveals that errors thrown by `importSessions` are caught, a generic `showError` notice is displayed, but `setCodexOpen(false)` and `setPendingOmpImportPath(null)` are bypassed entirely. Because the import happens in a single blocking Tauri backend call without cancellation support (reproducing discovery-c991788ddc60b7c5), the application leaves the user stuck with an open modal if an unhandled promise rejection occurs during the long-running operation.",
+            "result": "Establishes that failed session imports leave the application stuck in an open modal state, requiring manual dismissal by the user after an unexpected batch failure."
+          },
+          {
+            "scenario": "Measure list_codex_sessions performance over a synthetic 10,000 file dataset to see if it caches results like scan_sessions does.",
+            "evidence": "Created a synthetic benchmark within src-tauri/src/sessions.rs to create 10,000 JSON files inside a temporary `.codex/sessions` directory. We then called `list_codex_sessions()` twice. The first (cold) scan took ~13ms and the second (warm) scan took ~12ms. The times are identical within margin of error because `list_codex_sessions` has no caching layer; it re-reads every file on every invocation.",
+            "result": "Establishes that `list_codex_sessions` completely reparses unchanged files on repeated invocations without any memory caching. While it is fast on NVMe SSDs for simple JSON (12ms for 10k), it scales linearly with file count and storage latency on every call. Reproduces canonical finding discovery-9881e0c7ffe77346, though the rejection noted it is currently considered acceptable overhead."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+        ],
+        "proposed_task_ids": [
+          "discovery-70ce486d68ca18b9"
+        ],
+        "completed_at": "2026-09-23T05:56:22.965546Z",
+        "source": {
+          "activity_id": "sessions/8759316691189917428/activities/50ae05a112c043eb910c6a053716a7c4",
+          "report_sha256": "a5ab25e32e5c6fc42485d1430a56cef128b01e73759b86aacbf57e344568dede",
+          "activity_created_at": "2026-09-23T05:43:58.787704Z",
+          "session_id": "8759316691189917428",
+          "dispatch_key": "597c776f9a790c14222d81ca"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-a1eefff4576aa5c1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection of transaction boundaries in src-tauri/src/sessions.rs.\", \"reproduction\": {\"actual\": \"The session retains its original JSONL but is permanently associated with the new artifacts.\", \"expected\": \"The session should retain its original JSONL and its original artifacts, avoiding partial state application.\", \"steps\": [\"Examine the transaction logic in import_session inside src-tauri/src/sessions.rs.\", \"Identify that rename(&staging, &target_artifacts) happens before write_session(destination, body).\", \"Simulate a hard process crash or kill the application immediately between these two steps.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/sessions.rs"
+            ],
+            "acceptance": [
+              "If a crash occurs during session import update, the session state and its artifacts remain synchronized"
+            ]
+          },
+          {
+            "title": "Restore focus to edit button after cancelling a workspace or session rename",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via source inspection and confirmed against jsdom strict activeElement behaviors in test environments.\", \"reproduction\": {\"actual\": \"Focus shifts to document.body or the .session-select div container, depending on the component.\", \"expected\": \"Focus correctly shifts back to the specific edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Simulate focus drifting away from the input (e.g. input.blur()) in a vitest environment.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/ProjectRail.tsx",
+              "src/SessionList.tsx",
+              "src/SessionRow.tsx"
+            ],
+            "acceptance": [
+              "Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if the input lost strict activeElement status.",
+              "Focus moves back to the edit button when a session rename is canceled via Escape, avoiding falling back to the session row container."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8759316691189917428/activities/50ae05a112c043eb910c6a053716a7c4",
+          "report_sha256": "a5ab25e32e5c6fc42485d1430a56cef128b01e73759b86aacbf57e344568dede",
+          "activity_created_at": "2026-09-23T05:43:58.787704Z",
+          "session_id": "8759316691189917428",
+          "dispatch_key": "597c776f9a790c14222d81ca"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-70ce486d68ca18b9"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-a1eefff4576aa5c1",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-a1eefff4576aa5c1"
+            },
+            {
+              "id": "discovery-1b0c3efa0c72ca8c",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-a1eefff4576aa5c1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection of transaction boundaries in src-tauri/src/sessions.rs.\", \"reproduction\": {\"actual\": \"The session retains its original JSONL but is permanently associated with the new artifacts.\", \"expected\": \"The session should retain its original JSONL and its original artifacts, avoiding partial state application.\", \"steps\": [\"Examine the transaction logic in import_session inside src-tauri/src/sessions.rs.\", \"Identify that rename(&staging, &target_artifacts) happens before write_session(destination, body).\", \"Simulate a hard process crash or kill the application immediately between these two steps.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/sessions.rs"
+              ],
+              "acceptance": [
+                "If a crash occurs during session import update, the session state and its artifacts remain synchronized"
+              ]
+            },
+            {
+              "title": "Restore focus to edit button after cancelling a workspace or session rename",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb; not established as a duplicate. {\"detail\": \"Observed via source inspection and confirmed against jsdom strict activeElement behaviors in test environments.\", \"reproduction\": {\"actual\": \"Focus shifts to document.body or the .session-select div container, depending on the component.\", \"expected\": \"Focus correctly shifts back to the specific edit button that initiated the rename.\", \"steps\": [\"Focus the rename button on a workspace or session.\", \"Press Enter to start renaming.\", \"Simulate focus drifting away from the input (e.g. input.blur()) in a vitest environment.\", \"Press Escape to cancel renaming.\", \"Check the active element.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/ProjectRail.tsx",
+                "src/SessionList.tsx",
+                "src/SessionRow.tsx"
+              ],
+              "acceptance": [
+                "Focus reliably moves back to the edit button when a workspace rename is canceled via Escape, even if the input lost strict activeElement status.",
+                "Focus moves back to the edit button when a session rename is canceled via Escape, avoiding falling back to the session row container."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-70ce486d68ca18b9",
+      "title": "Dismiss import modals automatically when a batch import fails completely",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "refactor"
+      ],
+      "created_at": "2026-09-23T05:56:22.965546Z",
+      "acceptance": [
+        "When importSessions throws an error, the codex import modal is closed automatically.",
+        "When importSessions throws an error, the pending OMP import modal is closed automatically."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via code inspection of App.tsx try-catch blocks for importCodexSelected and importPendingOmp.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a batch session import via the Codex or OMP import modal.",
+            "Simulate an unhandled Promise rejection or error thrown from the importSessions Tauri call.",
+            "Observe the modal state."
+          ],
+          "expected": "The error is shown and the modal is dismissed (setCodexOpen(false) or setPendingOmpImportPath(null)).",
+          "actual": "The error is shown but the modal remains open indefinitely, requiring manual cancellation."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-7",
+        "activity_id": "sessions/8759316691189917428/activities/50ae05a112c043eb910c6a053716a7c4",
+        "report_sha256": "a5ab25e32e5c6fc42485d1430a56cef128b01e73759b86aacbf57e344568dede",
+        "activity_created_at": "2026-09-23T05:43:58.787704Z",
+        "session_id": "8759316691189917428",
+        "dispatch_key": "597c776f9a790c14222d81ca"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T05:56:43.870299Z",
+    "last_poll_at": "2026-09-23T05:56:47.160435Z",
     "last_tick_at": "2026-09-23T05:50:30.993602Z",
     "run_id": "35824006404"
   }
