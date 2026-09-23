@@ -35460,7 +35460,7 @@
       "id": "research-diagnostics-resources-reliability-7",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -35599,16 +35599,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7315406604621776548",
         "dispatch_key": "841c2f7f957ce8fb5ff1775e",
         "base_sha": "9f5a91be0b7ae56878dfed51df16f1395d6e0adb",
         "starting_branch": "autonomous/attempt-841c2f7f957ce8fb5ff1775e",
         "started_at": "2026-09-23T13:03:30.883107Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T13:24:16.887632Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "ea443496c22649e94b0a3fc50cc87cf9538e7e14",
@@ -35673,13 +35673,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T13:11:29.891156Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T13:24:16.887632Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of multiple consecutive switchInputRecovery errors in App.tsx and the eviction bounds logic in runtimeIncidents.",
+        "observations": [
+          {
+            "scenario": "Verify what happens when multiple consecutive switchInputRecoveryDetails exceptions are caught for the same terminal in heavy network failure conditions.",
+            "evidence": "Observed via synthetic React rendering tests that simulate App.tsx's error catch blocks for sendSwitchInputRecovery and discardSwitchInputRecovery. When multiple consecutive errors occur for the same terminal, if a subsequent error does not contain recovery details (e.g. a generic network error returning null from switchInputRecoveryDetails), the catch blocks in App.tsx use 'currentRecovery ?? candidate.switchRecovery' or 'if (currentRecovery)' guards. This intentionally retains the previous valid recovery state rather than wiping it out.",
+            "result": "Establishes that consecutive exceptions without recovery payloads safely preserve the existing switch input recovery state, preventing accidental loss of recovery tokens during transient network failures."
+          },
+          {
+            "scenario": "Verify the bounds checking and eviction logic for switchInputRecovery states and runtime incidents during heavy terminal churn.",
+            "evidence": "Observed via synthetic React state testing of applyRuntimeIncidentEvent and createRuntimeIncidentState from src/runtimeIncidents.ts. Created a loop that generates active incidents for distinct terminals beyond MAX_RUNTIME_INCIDENTS. The enforceIncidentBound logic correctly enforced the length of the incidents array to not exceed the defined limit (100) by evicting the oldest candidates. Also observed that terminalContinuity baseline states are properly evicted only upon explicit UI tab closures via forgetTerminalContinuity.",
+            "result": "Establishes that incident arrays are safely bounded against unbounded growth during heavy error churn, and terminal continuity baselines accurately follow explicit tab lifecycles."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify whether the logic that selects which active incident to evict prioritizes terminals with multiple active incidents correctly over single-incident terminals.",
+          "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T13:24:16.887632Z",
+        "source": {
+          "activity_id": "sessions/7315406604621776548/activities/c8691fc7dc0d465c88b3cd712c9f61c1",
+          "report_sha256": "95833d1f90667e8563465f336d981e10a8b57b0179db9e97a7091f334ddf32cb",
+          "activity_created_at": "2026-09-23T13:14:05.513182Z",
+          "session_id": "7315406604621776548",
+          "dispatch_key": "841c2f7f957ce8fb5ff1775e"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T13:24:37.442145Z",
+    "last_poll_at": "2026-09-23T13:24:41.642324Z",
     "last_tick_at": "2026-09-23T13:18:16.032415Z",
     "run_id": "35866065170"
   }
