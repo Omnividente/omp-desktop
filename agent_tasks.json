@@ -32701,12 +32701,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "QUEUED",
+        "observed_at": "2026-09-23T06:16:52.740203Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T06:17:12.352121Z",
+    "last_poll_at": "2026-09-23T06:19:01.987984Z",
     "last_tick_at": "2026-09-23T06:10:56.965791Z",
     "run_id": "35825527353"
   }
