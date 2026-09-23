@@ -37232,7 +37232,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T17:23:17.883187Z"
+        "observed_at": "2026-09-23T17:23:17.883187Z",
+        "released_attempt_ref": "autonomous/attempt-dd074163cbc7f94f306607b8"
       },
       "research_result": {
         "summary": "Investigated transcript virtual list, search performance, cache retention, external links, and focus transitions.",
