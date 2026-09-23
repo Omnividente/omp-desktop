@@ -237,7 +237,14 @@ export interface OmpCredentialInfo {
   keyName: string | null
   source: "desktop" | "environment" | "command" | "models" | "omp"
   status:
-    "ready" | "configured" | "ok" | "limited" | "exhausted" | "auth-error" | "missing" | "disabled"
+    | "ready"
+    | "configured"
+    | "ok"
+    | "limited"
+    | "exhausted"
+    | "auth-error"
+    | "missing"
+    | "disabled"
   available: boolean
   modelCount: number
   custom: boolean

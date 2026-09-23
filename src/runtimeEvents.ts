@@ -2,7 +2,9 @@ import { splitSelector } from "./ModelPicker"
 import type { PtyRuntimeEvent, TerminalTab } from "./types"
 
 export type RuntimeEventFeedback =
-  { kind: "fallback"; model: string } | { kind: "error"; message: string } | null
+  | { kind: "fallback"; model: string }
+  | { kind: "error"; message: string }
+  | null
 
 export function runtimeEventFeedback(event: PtyRuntimeEvent): RuntimeEventFeedback {
   if (event.kind === "retryFallbackApplied") {
