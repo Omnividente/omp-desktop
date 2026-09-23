@@ -36261,7 +36261,7 @@
       "id": "research-sessions-persistence-behavior-8",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -36429,7 +36429,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "13631245351245448339",
         "dispatch_key": "66df95036bce82ce69175f29",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
@@ -36437,8 +36437,8 @@
         "started_at": "2026-09-23T16:41:48.839214Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: report_absent",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -36620,13 +36620,23 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T16:49:50.476932Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T16:56:07.005668Z",
+        "report_error": {
+          "code": "report_absent",
+          "detail": "completed discovery has no worker report",
+          "reported_at": "2026-09-23T16:56:07.005668Z"
+        },
+        "report_repair": {
+          "at": "2026-09-23T16:56:26.529601Z",
+          "result": "pending",
+          "status": "pending"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T16:50:10.071361Z",
+    "last_poll_at": "2026-09-23T16:56:24.563549Z",
     "last_tick_at": "2026-09-23T16:50:12.722699Z",
     "run_id": "35891417948"
   }
