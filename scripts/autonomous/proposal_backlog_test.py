@@ -15,10 +15,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from research_disposition import append_recovery_event, validate_research_disposition
-from proposal_backlog import backlog, close_research_unaccepted, decide, main, render_summary
+from proposal_backlog import backlog, close_research_unaccepted, decide, main, materialize_deferred, render_summary
 from state_store import StateConflict, load_state, save_state
 from task_lifecycle import complete, start
 from validate_tasks import validate
+from import_discovery_tasks import import_tasks, normalize
+from import_discovery_tasks_test import post_fixture, CONFIG as PRODUCT_CONFIG, FINDING
 
 NOW = "2026-09-14T12:00:00Z"
 CONFIG = {"merge_gate": {"owner_approvers": ["Owner"]}}
@@ -62,6 +64,86 @@ def close_research(data, **overrides):
     arguments = {"task_id": "research", "actor": "Owner", "note": "Inspected invalid report", "now": NOW}
     arguments.update(overrides)
     return close_research_unaccepted(data, CONFIG, **arguments)
+
+
+def deferred_queue():
+    data, text, origin = post_fixture(deliver=False)
+    result = import_tasks(data, text, config=PRODUCT_CONFIG, origin=origin)
+    return data, origin["task_id"], result["deferred"][0]["deferred_id"]
+
+
+def materialize(data, source_id, deferred_id, **overrides):
+    args = {"source_task_id": source_id, "deferred_id": deferred_id, "actor": "Owner",
+            "note": "Owner requests reconsideration", "now": NOW, **overrides}
+    return materialize_deferred(data, {**PRODUCT_CONFIG, **CONFIG}, **args)
+
+
+class DeferredMaterializationTests(unittest.TestCase):
+    def test_materialization_is_proposed_only_and_preserves_receipt_and_owner_history(self):
+        data, source_id, deferred_id = deferred_queue()
+        before = copy.deepcopy(data)
+        result = materialize(data, source_id, deferred_id)
+        proposal = data["tasks"][-1]
+        self.assertEqual(proposal["id"], result["task_id"])
+        self.assertEqual(proposal["status"], "proposed")
+        self.assertNotIn("execution", proposal)
+        self.assertNotIn("proposal_decision", proposal)
+        self.assertEqual(proposal["evidence"]["status"], "reported")
+        self.assertEqual(data["tasks"][0], before["tasks"][0])
+        source = data["tasks"][1]
+        restored_source = copy.deepcopy(source)
+        restored_source.pop("deferred_materializations")
+        self.assertEqual(restored_source, before["tasks"][1])
+        self.assertEqual(validate(data), [])
+        saved = copy.deepcopy(data)
+        replay = materialize(data, source_id, deferred_id, actor="owner", note=" Owner requests reconsideration ")
+        self.assertFalse(replay["changed"])
+        self.assertEqual(data, saved)
+        with self.assertRaises(ValueError):
+            materialize(data, source_id, deferred_id, note="Different authorization")
+        self.assertEqual(data, saved)
+        view = backlog(data)
+        self.assertEqual(view["research_hypotheses"][0]["deferred_materializations"], source["deferred_materializations"])
+        self.assertIn(deferred_id, render_summary(view))
+
+    def test_unauthorized_wrong_source_unsafe_and_open_overlap_never_partly_mutate(self):
+        cases = ("actor", "note", "source", "deferred", "unsafe", "exact", "possible")
+        for case in cases:
+            with self.subTest(case=case):
+                data, source_id, deferred_id = deferred_queue()
+                args = {"source_task_id": source_id, "deferred_id": deferred_id, "actor": "Owner", "note": "Reviewed"}
+                config = {**PRODUCT_CONFIG, **CONFIG}
+                if case == "actor":
+                    args["actor"] = "stranger"
+                elif case == "note":
+                    args["note"] = " "
+                elif case == "source":
+                    args["source_task_id"] = "previous"
+                elif case == "deferred":
+                    args["deferred_id"] = "f" * 64
+                elif case == "unsafe":
+                    config = {**config, "product": {"editable_globs": ["other/**"]}}
+                else:
+                    finding = copy.deepcopy(FINDING)
+                    if case == "possible":
+                        finding["evidence"]["reproduction"]["steps"].append("Repeat with a different duration")
+                    data["tasks"].append(normalize({**finding, "id": "open-canonical"}, now=NOW))
+                before = copy.deepcopy(data)
+                with self.assertRaises(ValueError):
+                    materialize_deferred(data, config, **args)
+                self.assertEqual(data, before)
+
+    def test_proposal_authorization_can_advance_without_rewriting_materialization(self):
+        data, source_id, deferred_id = deferred_queue()
+        result = materialize(data, source_id, deferred_id)
+        receipt = copy.deepcopy(data["tasks"][1]["discovery_import"])
+        decide(data, CONFIG, action="approve", task_id=result["task_id"], actor="Owner", note="Implement", now=NOW)
+        self.assertEqual(data["tasks"][-1]["status"], "todo")
+        self.assertFalse(materialize(data, source_id, deferred_id)["changed"])
+        self.assertEqual(data["tasks"][1]["discovery_import"], receipt)
+        self.assertEqual(validate(data), [])
+
+
 
 
 class DecisionTests(unittest.TestCase):
@@ -402,6 +484,25 @@ class BacklogStoreTests(unittest.TestCase):
         resolved_sha = self.git(self.remote, "rev-parse", "autonomous/state").decode()
         self.assertEqual(json.loads(self.git(self.repo, "show", resolved_sha + "^:agent_tasks.json")), approved)
         self.assertEqual(json.loads(self.view.read_bytes())["tasks"][0]["review_state"], "resolved")
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.head)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/lab"), self.head)
+
+    def test_cli_materializes_exact_deferred_once_via_authoritative_store(self):
+        data, source_id, deferred_id = deferred_queue()
+        load_state(self.repo, self.queue, self.revision)
+        self.queue.write_text(json.dumps(data), encoding="utf-8")
+        save_state(self.repo, self.queue, self.revision)
+        self.config.write_text(json.dumps({**PRODUCT_CONFIG, **CONFIG}), encoding="utf-8")
+        self.argv.extend(["--source-task-id", source_id, "--deferred-id", deferred_id])
+        with patch("urllib.request.urlopen", side_effect=AssertionError("unexpected external request")):
+            self.assertEqual(self.call("materialize_deferred"), 0)
+            materialized_sha = self.git(self.remote, "rev-parse", "autonomous/state")
+            self.assertEqual(self.call("materialize_deferred"), 0)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state"), materialized_sha)
+        stored = json.loads(self.queue.read_bytes())
+        self.assertEqual(stored["tasks"][-1]["status"], "proposed")
+        self.assertNotIn("execution", stored["tasks"][-1])
+        self.assertEqual(stored["tasks"][1]["discovery_import"], data["tasks"][1]["discovery_import"])
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.head)
         self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/lab"), self.head)
 

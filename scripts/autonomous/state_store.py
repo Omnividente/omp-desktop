@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from validate_tasks import validate
+from research_request import ATTEMPT_FIELDS, CONTRACT_VERSION
 
 STATE_BRANCH = "autonomous/state"
 QUEUE = "agent_tasks.json"
@@ -143,7 +144,7 @@ def save_state(
     if manifest_path.resolve() == (repo / QUEUE).resolve():
         raise ValueError("state output must not be the product queue")
     raw = manifest_path.read_bytes()
-    _manifest(raw)
+    data = _manifest(raw)
     if _remote_head(repo, branch) != expected:
         raise StateConflict("state advanced since it was read")
     if expected and hashlib.sha256(raw).hexdigest() == metadata.get("digest"):
@@ -160,6 +161,28 @@ def save_state(
         parent = _commit(repo, original)
         commit = parent if raw == original else _commit(repo, raw, parent)
     else:
+        previous = _manifest(_git(repo, "show", expected + ":" + QUEUE).stdout)
+        if previous["version"] == CONTRACT_VERSION and data["version"] != CONTRACT_VERSION:
+            raise ValueError("the research contract cannot be downgraded")
+        current_tasks = {task["id"]: task for task in data["tasks"]}
+        for task in previous["tasks"]:
+            old = task.get("execution") or {}
+            if "research_request" not in old:
+                continue
+            new = current_tasks.get(task["id"], {}).get("execution") or {}
+            if old["research_request"] == new.get("research_request"):
+                if (new.get("attempts"), new.get("dispatch_key")) != (old.get("attempts"), old.get("dispatch_key")):
+                    raise ValueError("a saved research request cannot change its attempt identity")
+                if new.get("research_request_history", []) != old.get("research_request_history", []):
+                    raise ValueError("research request history is immutable")
+                continue
+            if (new.get("attempts") != old["attempts"] + 1 or new.get("state") != "dispatching"
+                    or new.get("dispatch_key") == old["dispatch_key"]
+                    or (new.get("research_request") or {}).get("contract_version") != CONTRACT_VERSION):
+                raise ValueError("a saved research request is immutable within its attempt")
+            archived = {field: old[field] for field in ATTEMPT_FIELDS if field in old}
+            if new.get("research_request_history") != [*old.get("research_request_history", []), archived]:
+                raise ValueError("a new attempt must retain the previous research request")
         commit = _commit(repo, raw, parent)
     for attempt in range(3):
         try:

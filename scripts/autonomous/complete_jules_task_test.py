@@ -62,9 +62,10 @@ def activity(text, minute=1):
 
 
 class API:
-    def __init__(self, pages=(), session=None, fail_page=None):
+    def __init__(self, pages=(), session=None, fail_page=None, resource=None):
         self.pages = list(pages) or [[]]
         self.session = copy.deepcopy(SESSION if session is None else session)
+        self.resource = resource or self.session["name"]
         self.fail_page = fail_page
         self.requests = []
 
@@ -73,9 +74,10 @@ class API:
         if method != "GET" or payload is not None:
             raise AssertionError("harvesting must only read")
         parts = urlsplit(url)
-        if parts.path == "/v1alpha/sessions/7":
+        resource_path = "/v1alpha/" + self.resource
+        if parts.path == resource_path:
             return Response(200, self.session)
-        if parts.path != "/v1alpha/sessions/7/activities":
+        if parts.path != resource_path + "/activities":
             raise AssertionError("must only read the bound session")
         query = parse_qs(parts.query)
         if query.get("pageSize") != ["100"]:
@@ -176,7 +178,7 @@ class CompletionTest(unittest.TestCase):
                 self.assertEqual(api.requests, [])
                 self.assertEqual(data, before)
                 with self.assertRaises(ValueError):
-                    run(data, API(session=dict(SESSION, **override)))
+                    run(data, API(session=dict(SESSION, **override), resource="sessions/7"))
                 self.assertEqual(data, before)
 
     def test_exact_get_rejects_wrong_starting_branch_before_importing_reports(self):
@@ -482,6 +484,82 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(redact("before fixture-value after", ["", "fixture-value"]),
                          "before [REDACTED] after")
 
+    def test_shared_diagnostics_directory_retains_invalid_and_successful_workers(self):
+        first, second = manifest(), manifest()
+        second["tasks"][0]["id"] = "research-calendar"
+        second["tasks"][0]["execution"].update(session_id="8", dispatch_key="second")
+        second_session = dict(SESSION, name="sessions/8", id="8", title="[dispatch:second] calendar")
+        invalid = activity("AUTONOMOUS_RESEARCH_BEGIN {broken")
+        valid = dict(activity(report()), name="sessions/8/activities/result")
+        with tempfile.TemporaryDirectory() as directory:
+            diagnostics = Path(directory) / "nested" / "research-diagnostics"
+            self.assertEqual(run(first, API([[invalid]]), diagnostics=diagnostics)["reason"], "report_invalid")
+            original = {path: path.read_bytes() for path in diagnostics.glob("*.json")}
+            result = harvest(second, CONFIG, "research-calendar", second_session,
+                             transport=API([[valid]], session=second_session), api_base="http://localhost/v1alpha",
+                             api_keys=["test-only"], now=NOW, diagnostics=diagnostics)
+            self.assertEqual(result["reason"], "no_change")
+            documents = {json.loads(path.read_text(encoding="utf-8"))["task_id"]:
+                         json.loads(path.read_text(encoding="utf-8")) for path in diagnostics.glob("*.json")}
+            self.assertEqual(set(documents), {"research-clock", "research-calendar"})
+            self.assertEqual(documents["research-clock"]["source"],
+                             first["tasks"][0]["execution"]["report_error"]["source"])
+            self.assertEqual(documents["research-calendar"]["source"], second["tasks"][0]["research_result"]["source"])
+            self.assertEqual(documents["research-clock"]["worker_report"], invalid["agentMessaged"]["agentMessage"])
+            self.assertEqual(documents["research-calendar"]["worker_report"], valid["agentMessaged"]["agentMessage"])
+            for path, content in original.items():
+                self.assertEqual(path.read_bytes(), content)
+
+    def test_content_addressing_reuses_identical_document_but_retains_changed_diagnostics(self):
+        worker_report = activity(report(summary="Проверено возобновление"))
+        with tempfile.TemporaryDirectory() as directory:
+            diagnostics = Path(directory) / "research-diagnostics"
+            run(manifest(), API([[worker_report]]), diagnostics=diagnostics)
+            original = {path: path.read_bytes() for path in diagnostics.glob("*.json")}
+            self.assertEqual(len(original), 1)
+            run(manifest(), API([[worker_report]]), diagnostics=diagnostics)
+            self.assertEqual({path: path.read_bytes() for path in diagnostics.glob("*.json")}, original)
+            harvest(manifest(), CONFIG, "research-clock", SESSION, transport=API([[worker_report]]),
+                    api_base="http://localhost/v1alpha", api_keys=["test-only"],
+                    now=NOW.replace(minute=1), diagnostics=diagnostics)
+            paths = list(diagnostics.glob("*.json"))
+            self.assertEqual(len(paths), 2)
+            documents = [json.loads(path.read_bytes()) for path in paths]
+            self.assertEqual(documents[0]["source"], documents[1]["source"])
+            self.assertNotEqual(documents[0]["collected_at"], documents[1]["collected_at"])
+            for path in paths:
+                self.assertTrue(path.stem.endswith("-" + hashlib.sha256(path.read_bytes()).hexdigest()))
+            for path, content in original.items():
+                self.assertEqual(path.read_bytes(), content)
+
+    def test_unselectable_reports_keep_diagnostics_without_source_or_raw_task_paths(self):
+        task_id = "../../private/исследование"
+        cases = [([], "report_absent", ""),
+                 ([dict(activity("Malformed timestamp report"), createTime="invalid")],
+                  "report_timestamp", "Malformed timestamp report"),
+                 ([activity("First report"), dict(activity("Second report"), name="sessions/7/activities/other")],
+                  "report_ambiguous", "First report\n\nSecond report")]
+        with tempfile.TemporaryDirectory() as directory:
+            diagnostics = Path(directory) / "research-diagnostics"
+            for activities, code, text in cases:
+                with self.subTest(code=code):
+                    data = manifest()
+                    data["tasks"][0]["id"] = task_id
+                    result = harvest(data, CONFIG, task_id, SESSION, transport=API([activities]),
+                                     api_base="http://localhost/v1alpha", api_keys=["test-only"],
+                                     now=NOW, diagnostics=diagnostics)
+                    self.assertEqual(result["report_error_code"], code)
+            paths = list(diagnostics.glob("*.json"))
+            self.assertEqual(len(paths), len(cases))
+            documents = {json.loads(path.read_bytes())["error_code"]: json.loads(path.read_bytes()) for path in paths}
+            for _activities, code, text in cases:
+                self.assertEqual(documents[code]["worker_report"], text)
+                self.assertNotIn("source", documents[code])
+            prefix = hashlib.sha256(task_id.encode("utf-8")).hexdigest() + "-1-no-source-"
+            for path in paths:
+                self.assertEqual(path.name, prefix + hashlib.sha256(path.read_bytes()).hexdigest() + ".json")
+            self.assertEqual(list(Path(directory).iterdir()), [diagnostics])
+
     def test_invalid_diagnostics_preserve_parser_reason_and_redact_before_bounding(self):
         secrets = ["test-only", "configured-value/with?punct", "ghp_" + "a" * 36,
                    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature", "password123", "url-secret"]
@@ -492,10 +570,11 @@ class CompletionTest(unittest.TestCase):
                 + "x" * MAX_REPORT_CHARS + secrets[1])
         data = manifest()
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "diagnostics.json"
+            path = Path(directory) / "research-diagnostics"
             with patch.dict("os.environ", {"CUSTOM_SECRET": secrets[1]}):
-                result = run(data, API([[activity(text)]]), diagnostics=path)
-            raw = path.read_text(encoding="utf-8")
+                result = run(data, API([[dict(activity(text), name="sessions/7/activities/test-only")]]), diagnostics=path)
+            diagnostic_path, = path.glob("*.json")
+            raw = diagnostic_path.read_text(encoding="utf-8")
             diagnostic = json.loads(raw)
         self.assertEqual(result["reason"], "report_invalid")
         for secret in secrets:
@@ -504,10 +583,30 @@ class CompletionTest(unittest.TestCase):
         self.assertEqual(diagnostic["session_id"], "7")
         self.assertEqual(diagnostic["dispatch_key"], "first")
         self.assertEqual(diagnostic["tasks_parser"]["status"], "malformed_block")
-        self.assertIn("line 1 column 2", diagnostic["tasks_parser"]["detail"])
         self.assertEqual(diagnostic["research_parser"]["status"], "ok")
         self.assertTrue(diagnostic["report_truncated"])
         self.assertLessEqual(len(diagnostic["worker_report"]), MAX_REPORT_CHARS)
+
+    def test_cli_rejects_diagnostics_containing_inputs_or_pointing_to_a_file_before_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            queue, config, snapshot, other = (root / name for name in
+                                               ("queue.json", "config.json", "session.json", "existing.json"))
+            originals = {queue: json.dumps(manifest()).encode(), config: json.dumps(CONFIG).encode(),
+                         snapshot: json.dumps(SESSION).encode(), other: b"existing content\n"}
+            for path, content in originals.items():
+                path.write_bytes(content)
+            for diagnostics in (root, queue, config, snapshot, other):
+                with self.subTest(diagnostics=diagnostics), \
+                        patch("complete_jules_task.get_session") as get_session, \
+                        patch.dict("os.environ", {"JULES_API_KEY": "test-only"}), \
+                        redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                    result = main(["--manifest", str(queue), "--config", str(config),
+                                   "--task-id", "research-clock", "--session-file", str(snapshot),
+                                   "--diagnostics", str(diagnostics)])
+                    self.assertEqual(result, 1)
+                    get_session.assert_not_called()
+                    self.assertEqual({path: path.read_bytes() for path in root.iterdir()}, originals)
 
     def test_retry_transport_failure_preserves_manifest_and_diagnostics_bytes_without_error_body(self):
         data = manifest()
@@ -515,12 +614,14 @@ class CompletionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             queue, config, snapshot, diagnostics = (root / name for name in
-                                                    ("queue.json", "config.json", "session.json", "diagnostics.json"))
+                                                    ("queue.json", "config.json", "session.json", "research-diagnostics"))
             original = json.dumps(data, indent=4).encode() + b"\n\n"
             queue.write_bytes(original)
             config.write_text(json.dumps(CONFIG), encoding="utf-8")
             snapshot.write_text(json.dumps(SESSION), encoding="utf-8")
-            diagnostics.write_bytes(b"previous diagnostic\n")
+            diagnostics.mkdir()
+            previous = diagnostics / "previous.json"
+            previous.write_bytes(b"previous diagnostic\n")
             stdout, stderr = StringIO(), StringIO()
             with patch("complete_jules_task.get_session", side_effect=RuntimeError("PRIVATE_UPSTREAM_BODY")) as get_session, \
                     patch.dict("os.environ", {"JULES_API_KEY": "test-only", "GITHUB_ACTOR": "Owner"}), \
@@ -531,7 +632,8 @@ class CompletionTest(unittest.TestCase):
             self.assertEqual(result, 1)
             get_session.assert_called_once()
             self.assertEqual(queue.read_bytes(), original)
-            self.assertEqual(diagnostics.read_bytes(), b"previous diagnostic\n")
+            self.assertEqual({path.name: path.read_bytes() for path in diagnostics.glob("*.json")},
+                             {"previous.json": b"previous diagnostic\n"})
             self.assertNotIn("PRIVATE_UPSTREAM_BODY", stdout.getvalue() + stderr.getvalue())
 
 

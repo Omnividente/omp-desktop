@@ -12,6 +12,10 @@ from typing import Any
 
 from jules_dispatch import session_is_active
 from select_task import blocks_lane, is_unresolved, pending_rejection, valid_research_detachment
+from research_request import CONTRACT_VERSION, sha256_json, validate_task_request
+
+POST_DEFERRED_REASONS = frozenset({"historical_post_context_missing", "historical_post_unexplained",
+                                   "historical_post_insufficient_evidence"})
 
 VALID_STATUSES = {"proposed", "todo", "in_progress", "done", "blocked"}
 VALID_RISKS = {"low", "medium", "high"}
@@ -93,9 +97,12 @@ def _validate_proposal(task: dict, prefix: str) -> list:
         errors.append(prefix + ".proposal_decision requires a nonresearch task")
     if decision.get("action") not in ("approve", "reject", "resolve"):
         errors.append(prefix + ".proposal_decision.action must be approve, reject or resolve")
-    for field in ("actor", "note"):
-        if not _nonblank(decision.get(field)):
-            errors.append(prefix + ".proposal_decision." + field + " must be a non-empty string")
+    if not _nonblank(decision.get("actor")):
+        errors.append(prefix + ".proposal_decision.actor must be a non-empty string")
+    if not _nonblank(decision.get("note")) and not (
+            decision.get("action") in ("reject", "resolve") and task.get("status") == "done"
+            and (decision.get("note") is None or isinstance(decision.get("note"), str))):
+        errors.append(prefix + ".proposal_decision.note must be a non-empty string")
     if not _utc_timestamp(decision.get("at")):
         errors.append(prefix + ".proposal_decision.at must be an ISO UTC timestamp")
     execution = task.get("execution") or {}
@@ -268,6 +275,119 @@ def _validate_review_context(context: Any, tasks_by_id: dict, report_time: Any,
             expected = "pre" if report_moment <= decision_moment else "post"
             if timing != expected:
                 errors.append(item_prefix + ".timing contradicts report and decision timestamps")
+    return errors
+
+
+def _validate_deferred_links(tasks_by_id: dict) -> list:
+    """Validate both ends of new receipts without rewriting legacy report schemas."""
+    from import_discovery_tasks import stable_candidate, normalize
+    errors = []
+    linked_proposals = set()
+    for source_id, source in tasks_by_id.items():
+        prefix = "task " + source_id
+        receipt = source.get("discovery_import")
+        report = source.get("research_result")
+        events = source.get("deferred_materializations", [])
+        if not isinstance(events, list):
+            errors.append(prefix + ".deferred_materializations must be a list")
+            continue
+        receipt_result = receipt.get("result") if isinstance(receipt, dict) else None
+        deferred = receipt_result.get("deferred", []) if isinstance(receipt_result, dict) else []
+        if not isinstance(deferred, list):
+            continue
+        origin = {"task_id": source_id, **report["source"]} if isinstance(report, dict) and isinstance(report.get("source"), dict) else None
+        full = {}
+        for item in deferred:
+            if not isinstance(item, dict) or not ("deferred_id" in item or str(item.get("reason")) in POST_DEFERRED_REASONS):
+                continue
+            identifier, candidate = item.get("deferred_id"), item.get("candidate")
+            if (not isinstance(identifier, str) or not isinstance(candidate, dict)
+                    or str(item.get("reason")) not in POST_DEFERRED_REASONS or not origin
+                    or item.get("source") != origin
+                    or identifier != sha256_json({"source": origin, "candidate": candidate})):
+                errors.append(prefix + ".deferred identity must bind the accepted source and candidate")
+                continue
+            if identifier in full:
+                errors.append(prefix + ".deferred_id must be unique")
+            full[identifier] = item
+            if candidate != stable_candidate(candidate) or candidate != stable_candidate(normalize(candidate, now="")):
+                errors.append(prefix + ".deferred candidate must be normalized stable proposal data")
+            if (str(candidate.get("task_type")) not in VALID_TASK_TYPES or candidate.get("task_type") == "project_discovery"
+                    or str(candidate.get("risk")) not in VALID_RISKS or type(candidate.get("priority")) is not int
+                    or not _nonblank(candidate.get("title")) or not _string_list(candidate.get("focus"))
+                    or any(not _string_list(candidate.get(field)) or not candidate[field]
+                           for field in ("target_paths", "acceptance"))):
+                errors.append(prefix + ".deferred candidate requires current proposal shape")
+            evidence = candidate.get("evidence")
+            if not isinstance(evidence, dict):
+                errors.append(prefix + ".deferred candidate requires evidence")
+            else:
+                errors.extend(validate_reproduction(evidence.get("reproduction"), prefix + ".deferred reproduction"))
+            if any(item.get(field) != candidate.get(field) for field in ("title", "target_paths", "acceptance")):
+                errors.append(prefix + ".deferred flattened proposal must match candidate")
+            if item.get("evidence") != json.dumps(candidate.get("evidence"), ensure_ascii=False, sort_keys=True):
+                errors.append(prefix + ".deferred flattened evidence must match candidate")
+            errors.extend(_validate_review_context(item.get("review_context"), tasks_by_id,
+                                                   origin.get("activity_created_at"), prefix + ".deferred review_context"))
+            context = item.get("review_context")
+            if (not isinstance(context, dict) or context.get("post_gate") != item["reason"]
+                    or not isinstance(context.get("matches"), list)
+                    or not any(isinstance(match, dict) and match.get("timing") == "post"
+                               and match.get("match") in ("exact", "possible")
+                               for match in context["matches"])):
+                errors.append(prefix + ".deferred must preserve a strong POST admission exclusion")
+            report_deferred = report.get("deferred_findings", [])
+            if not isinstance(report_deferred, list) or sum(saved == item for saved in report_deferred) != 1:
+                errors.append(prefix + ".deferred receipt must match the accepted report")
+        if isinstance(report, dict):
+            for item in report.get("deferred_findings", []) if isinstance(report.get("deferred_findings"), list) else []:
+                if (isinstance(item, dict) and ("deferred_id" in item or str(item.get("reason")) in POST_DEFERRED_REASONS)
+                        and item not in full.values()):
+                    errors.append(prefix + ".report deferred must link its immutable import receipt")
+        request = (source.get("execution") or {}).get("research_request") if isinstance(source.get("execution"), dict) else None
+        if full and (not isinstance(request, dict) or request.get("contract_version") != CONTRACT_VERSION):
+            errors.append(prefix + ".POST deferred requires its versioned controller request")
+        if isinstance(request, dict) and request.get("contract_version") == CONTRACT_VERSION and isinstance(receipt_result, dict):
+            for task_id in receipt_result.get("added", []) if isinstance(receipt_result.get("added"), list) else []:
+                proposal = tasks_by_id.get(task_id) if isinstance(task_id, str) else None
+                if not proposal or proposal.get("origin") != origin:
+                    errors.append(prefix + ".added proposal must retain its accepted source identity")
+        seen = set()
+        for event in events:
+            if not isinstance(event, dict):
+                errors.append(prefix + ".materialization event must be an object")
+                continue
+            identifier = event.get("deferred_id")
+            if not isinstance(identifier, str) or identifier not in full or identifier in seen:
+                errors.append(prefix + ".materialization must identify one unique accepted deferred finding")
+                continue
+            seen.add(identifier)
+            item = full[identifier]
+            proposal_id = "discovery-" + sha256_json({"source": origin, "deferred_id": identifier})
+            proposal = tasks_by_id.get(proposal_id)
+            if (event.get("proposal_id") != proposal_id or not _utc_timestamp(event.get("at"))
+                    or not _nonblank(event.get("actor")) or not _nonblank(event.get("note"))):
+                errors.append(prefix + ".materialization requires deterministic identity and owner audit")
+            expected = {"source_task_id": source_id, **{key: event.get(key) for key in ("deferred_id", "actor", "at", "note")}}
+            if (proposal is None or proposal.get("materialized_from") != expected
+                    or proposal.get("origin") != origin or stable_candidate(proposal) != item["candidate"]
+                    or proposal.get("review_context") != item["review_context"]
+                    or proposal.get("created_at") != event.get("at")):
+                errors.append(prefix + ".materialization must match its canonical proposal in both directions")
+            linked_proposals.add(proposal_id)
+    for task_id, task in tasks_by_id.items():
+        if "materialized_from" in task and task_id not in linked_proposals:
+            errors.append("task " + task_id + ".materialized_from must link an accepted source event")
+        origin = task.get("origin")
+        if isinstance(origin, dict) and isinstance(origin.get("task_id"), str):
+            source = tasks_by_id.get(origin["task_id"], {})
+            request = (source.get("execution") or {}).get("research_request", {}) if isinstance(source.get("execution"), dict) else {}
+            if isinstance(request, dict) and request.get("contract_version") == CONTRACT_VERSION:
+                receipt = source.get("discovery_import") or {}
+                added = (receipt.get("result") or {}).get("added", [])
+                if origin != {"task_id": source["id"], **((source.get("research_result") or {}).get("source") or {})} or (
+                        task_id not in added and task_id not in linked_proposals):
+                    errors.append("task " + task_id + ".origin must link its canonical receipt or materialization")
     return errors
 
 
@@ -454,8 +574,8 @@ def validate(manifest: Any) -> list:
     errors: list = []
     if not isinstance(manifest, dict):
         return ["manifest must be a JSON object"]
-    if not isinstance(manifest.get("version"), int):
-        errors.append("version must be an integer")
+    if type(manifest.get("version")) is not int and manifest.get("version") != CONTRACT_VERSION:
+        errors.append("version must be a legacy integer or " + CONTRACT_VERSION)
     controller = manifest.get("controller")
     if controller is not None:
         if not isinstance(controller, dict):
@@ -470,6 +590,10 @@ def validate(manifest: Any) -> list:
     if not isinstance(policy, dict):
         errors.append("autonomous_loop_policy must be an object")
     else:
+        if policy.get("research_contract") not in (None, CONTRACT_VERSION):
+            errors.append("unsupported research contract")
+        if (manifest.get("version") == CONTRACT_VERSION) != (policy.get("research_contract") == CONTRACT_VERSION):
+            errors.append("version and required research contract must migrate together")
         lifecycle = policy.get("lifecycle")
         if lifecycle is not None:
             if not isinstance(lifecycle, dict):
@@ -550,12 +674,16 @@ def validate(manifest: Any) -> list:
                 errors.append(prefix + ".execution.research_detached requires a pinned research attempt and UTC wait record")
             if "feedback_nudge" in execution:
                 nudge = execution["feedback_nudge"]
-                if (task.get("task_type") != "project_discovery"
-                        or not _nonblank(execution.get("session_id"))
+                decision = task.get("proposal_decision") or {}
+                authorized = (task.get("task_type") == "project_discovery"
+                              or isinstance(decision, dict) and decision.get("action") in ("approve", "reject"))
+                if (not authorized or not _nonblank(execution.get("session_id"))
+                        or not _nonblank(execution.get("dispatch_key"))
+                        or type(execution.get("attempts")) is not int or execution["attempts"] < 1
                         or not isinstance(nudge, dict)
                         or nudge.get("result") not in ("pending", "sent", "unknown", "rejected")
                         or not _utc_timestamp(nudge.get("at"))):
-                    errors.append(prefix + ".execution.feedback_nudge requires a research session, UTC at and a durable result")
+                    errors.append(prefix + ".execution.feedback_nudge requires a bound authorized session, UTC at and a durable result")
             if "rejection_stop" in execution:
                 stop = execution["rejection_stop"]
                 decision = task.get("proposal_decision") or {}
@@ -589,6 +717,8 @@ def validate(manifest: Any) -> list:
                 origin.get("activity_created_at") if isinstance(origin, dict) else None,
                 prefix + ".review_context"))
         errors.extend(_validate_research(task, prefix))
+        errors.extend(validate_task_request(task, required=isinstance(policy, dict)
+                                           and policy.get("research_contract") == CONTRACT_VERSION, prefix=prefix))
         errors.extend(_validate_discovery_import(task, task_ids, prefix))
         report = task.get("research_result")
         if isinstance(report, dict):
@@ -608,6 +738,7 @@ def validate(manifest: Any) -> list:
                             item["review_context"], tasks_by_id, report_time,
                             prefix + suffix + ".deferred[" + str(item_index) + "].review_context"))
         errors.extend(_validate_proposal(task, prefix))
+    errors.extend(_validate_deferred_links(tasks_by_id))
 
     for discovery, count in lane_counts.items():
         if count > 1:

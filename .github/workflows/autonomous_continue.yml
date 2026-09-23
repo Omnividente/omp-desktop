@@ -1,5 +1,11 @@
 name: Autonomous Continue
-run-name: ${{ inputs.continuation_key != '' && format('Continue {0}', inputs.continuation_key) || 'Autonomous Continue' }}
+run-name: >-
+  ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_run' &&
+      (github.event.workflow_run.head_branch == 'main' ||
+       github.event.workflow_run.name == 'Autonomous Proposal Review') &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      format('Continue trusted callback {0}', github.run_id) ||
+      (inputs.continuation_key != '' && format('Continue {0}', inputs.continuation_key) || 'Autonomous Continue') }}
 
 # The explicit dispatch relay owns cadence; schedule and completion events recover
 # a lost owner. Waiting never holds the queue writer lock.

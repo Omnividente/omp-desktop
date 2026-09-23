@@ -31,6 +31,7 @@ function snapshot(): ResourceHealthSnapshot {
         severity: "critical",
       },
     ],
+    unavailableVolumes: [],
     processes: [],
   }
 }
@@ -45,5 +46,19 @@ describe("resource health presentation", () => {
   it("counts one persistent warning per pressured resource", () => {
     expect(resourceWarningCount(snapshot())).toBe(2)
     expect(resourceWarningCount(null)).toBe(0)
+  })
+
+  it("keeps unavailable paths visible in the warning count until recovery", () => {
+    const partial = snapshot()
+    partial.memory.severity = "ok"
+    partial.volumes.forEach((volume) => {
+      volume.severity = "ok"
+    })
+    partial.unavailableVolumes = [
+      { path: "/missing/workspace", purpose: "workspace", error: "Path unavailable" },
+    ]
+    expect(resourceWarningCount(partial)).toBe(1)
+    partial.unavailableVolumes = []
+    expect(resourceWarningCount(partial)).toBe(0)
   })
 })

@@ -174,8 +174,8 @@ without an actionable reproduction remain hypotheses, not implementation work.
 
 New imported findings require `evidence.reproduction`: a nonempty `steps` array
 of nonblank strings plus nonblank `expected` and `actual` strings. The controller
-whitelists these fields with
-`source` and `detail` and assigns `evidence.status = reported`; worker claims of
+whitelists these fields with `source`, `detail` and the bounded structural
+`revisit` fields, and assigns `evidence.status = reported`; worker claims of
 verification, review or approval confer no authority. Missing or malformed
 reproductions are retained as `deferred_findings` with `unverified_finding`, not
 queued as fixes or treated as a malformed whole report. Valid neighbors can still
@@ -233,10 +233,11 @@ checked at admission time. The boundary is the accepted source's
 `activity_created_at`, not the import time: reports at or before the decision
 are PRE, later reports are POST. Exact or possible overlaps that are all PRE
 remain in `deferred_findings` as `historical_predecision_overlap`, not another
-proposal. A strong POST match permits a new `proposed` task with review context;
-it does not reopen or overwrite the old decision. A title-only match is weak
-context and never suppresses an independent behavioral contract. All historical
-links, match strengths and PRE/POST classifications are retained deterministically
+proposal. A strong POST match in a new versioned attempt must pass the structural
+revisit gate below before becoming `proposed`; legacy attempts retain their old
+admission rules. Neither path reopens or overwrites the old decision. A title-only
+match is weak context and never suppresses an independent behavioral contract.
+All historical links, match strengths and PRE/POST classifications are retained deterministically
 in controller-owned `review_context` and validated against canonical decisions.
 Worker-supplied review metadata is ignored. A missing/invalid trusted source time
 refuses import without mutation. Open-task deduplication and closed tasks without
@@ -252,6 +253,94 @@ and an empty findings list. Neither is proof that a release is verified.
 On a new lab the seed is empty; the planner creates the first investigation.
 An existing lab queue is migrated byte-for-byte into `autonomous/state`, never
 replaced with a fresh seed. Reports and pending proposals survive restarts.
+
+### Versioned requests and historical POST admission
+
+Every newly reserved research attempt stores `execution.research_request` before
+CreateSession: `contract_version = post-revisit-v1`, the controller checkout SHA,
+the exact credential-free request payload, its SHA-256 and the decision-context
+snapshot/hash. The prompt includes that exact context. Reconciliation reads the
+saved payload, not a new template or the now-mutated task; it keeps
+`allow_create=False`. A reservation is intent, not proof of delivery or worker
+understanding. A bound session confirms delivery, not the truth of its findings.
+On a genuine retry, the prior request and attempt/session identity are retained
+in `execution.research_request_history`; state writes cannot rewrite the same
+attempt's payload or its history, even by recomputing hashes.
+
+At dispatch, missing-context obligations take priority over other settled owner
+notes and active proposal excerpts. Ties use prior full bound delivery count,
+source timestamp, deferred ID and decision ID. Context has at most 10 entries
+and 12,000 serialized JSON characters. Truncated notes are explicitly incomplete,
+never counted as full delivery; reserved/unbound attempts do not count either.
+Materialized obligations no longer take priority. Rotation does not bypass the
+requirement that every mandatory note be delivered together for that candidate,
+and deferred findings alone do not create another research session.
+
+For all strong (exact/possible) POST matches with nonblank owner rationale:
+
+1. Each canonical note must be fully delivered in this attempt's saved context,
+   matching decision ID/action/time, full-note hash, exact text and `context_id`.
+   Missing, stale or truncated context produces `historical_post_context_missing`.
+2. `evidence.revisit` must declare `contract_version = post-revisit-v1`,
+   `change_kind`, a nonblank `difference`, `evidence_mode`, unique zero-based
+   integer `observation_refs` into this report, and `primary_decision_task_id`.
+   Primary ordering is exact before possible, newest decision time, then task ID.
+   `responses` must contain exactly one entry for each required rationale with
+   `decision_task_id`, `decision_context_id` and nonblank
+   `why_previous_reason_no_longer_explains`. Difference and response text are
+   bounded at 4,000 characters. Missing/malformed links produce
+   `historical_post_unexplained` without invalidating the observation report.
+3. `change_kind` is `code_change`, `new_evidence`, `changed_conditions`,
+   `different_contract` or `rationale_reassessment`. Evidence modes are
+   `real_runtime`, `static_analysis`, `mock_or_model`, `hypothesis`, `unavailable`.
+   The last two yield `historical_post_insufficient_evidence`; the others may
+   pass structurally, but remain reported/unverified. There is no semantic judge:
+   complete yet weak explanations can pass, and static/mocked observations are
+   not native runtime proof. If no strong POST match has a recorded rationale,
+   the historical fallback remains allowed with `rationale_status = unknown`.
+
+Each of these three POST exclusions preserves a normalized complete `candidate`,
+`review_context`, exact accepted `source` and deterministic `deferred_id` in both
+the immutable import receipt and the accepted report, alongside the existing
+flattened backlog fields. The ID excludes worker-suggested ID and import time.
+In **Autonomous Backlog**, `materialize_deferred` requires the exact
+`source_task_id`, `deferred_id`, configured owner and a nonblank note. It creates
+only a `proposed` task, preserving reported evidence and source; it neither
+approves nor dispatches Jules. Current product/reproduction/schema checks and
+open exact/possible overlap still apply. An overlap fails with the canonical ID.
+Repeating the same owner/note is a no-op; changing an existing authorization is
+rejected. `materialized_from` and `deferred_materializations` retain both ends
+of the audit link without modifying the original receipt or older decisions.
+
+### Explicit research-contract cutover
+
+Deploying the source and migrating live state are separate owner operations.
+No reader silently migrates the queue. After the reviewed controller is on main:
+
+1. Disable through **Autonomous Loop Switch** and let its writer job finish;
+   this retains existing workers, it does not cancel external Jules sessions.
+2. Review the current `autonomous/state` SHA. Run **Autonomous Research Contract
+   Migration** on main with that exact `expected_state_sha` and a rationale.
+   It requires the configured owner and disabled switch, holds the same
+   `autonomous-lab-queue` lock as Next, Backlog, Switch and Replenish, rechecks the
+   switch and publishes through CAS. Old lock holders drain before the cutover.
+3. Inspect the migration receipt before enabling with Loop Switch. The top-level
+   `version` becomes the string `post-revisit-v1` together with the policy marker.
+   Old integer-only validators reject this queue, including old queued writers
+   admitted after migration; CAS alone would not provide that version fence.
+   New writers also reject a downgrade of the schema or request history.
+
+Existing nonaccepted attempted research, including acknowledged but recoverable
+incidents, receives `legacy-pr82` with `context_provenance = not_recorded`.
+Accepted old reports/receipts, sealed disposition snapshots and unattempted tasks
+remain unchanged. A later genuine attempt gets v1; recovery of the saved legacy
+attempt never gains CreateSession authority. Do not roll back by deleting the
+version marker or request metadata: use version-aware controller code.
+
+For a local preview only, run `migrate_research_contract.py --manifest <copy>
+--out <different-output> --config autonomous-project.json --actor <owner>
+--note <rationale> --summary-out <receipt>`. It performs no API/Git effects unless
+the separately guarded `--publish` workflow path is selected.
 
 ## One-time owner setup
 
@@ -358,6 +447,18 @@ matching trusted successor run, not the currently executing timer; an observed
 failed/cancelled/skipped successor is not successful delivery. A reused pending
 run must be an explicit dispatch, schedule or main push: a `workflow_run` listing
 alone cannot prove that its upstream passes the continuation job's trust gate.
+If the exact keyed Continue successor is observed `completed/cancelled`, a new
+replacement can be confirmed within the same deadline, without another POST.
+It must be absent from the pre-POST baseline and created no earlier than intent.
+A pending `workflow_run` additionally needs the server-rendered
+`Continue trusted callback <run_id>` marker, guarded by the workflow's upstream
+trust predicate, same repository/main/Continue path and the exact controller
+checkout SHA. Two fresh direct run-detail reads confirm the same pending
+candidate; an admitted in-progress candidate confirms immediately. Changing
+candidate or losing proof resets confirmation. No job-start proof is required
+behind the held workflow lock. Wrong/older revision or unproved callback remains
+unknown; original cancelled and replacement receipts are retained. Failures,
+timeouts and NEXT/SYNC handoffs cannot use this replacement rule.
 
 An ambiguous Next/Continue request is reconciled before at most one retry with
 the same correlation key. Sync is pinned to main/lab and a pre-dispatch run-ID
@@ -422,10 +523,18 @@ the task, safe session ID/link and observation timestamp in `waiting_workers`.
 Normal waiting is informational, not a controller failure. Quarantine, unknown
 identity, invalid reports and actual errors remain separate attention conditions.
 
-An implementation session retains its lane and receives no automatic answer or
-plan approval. Open that exact Jules session if you want to handle its request;
-read-only research continues independently. An ordinary scheduled observation is
-due in 30 minutes, or run NextTask explicitly to observe a manual response sooner.
+Implementation requests set `requirePlanApproval=false` and `AUTO_CREATE_PR`.
+For an owner-approved, bound implementation in `AWAITING_USER_FEEDBACK` with
+no PR, the controller persists one `execution.feedback_nudge` intent before
+instructing the **same** Jules session to decide routine in-scope details and
+either propose a PR or finish `no_change` with honest limitations. An ambiguous
+send or lost acknowledgement never triggers a blind resend. Quarantined work
+keeps its exact attempt and continues to occupy its lane until a verified
+terminal outcome or PR review. The instruction neither supplies missing facts
+nor authorizes extra tasks, plan approval, merge or release. Rejected workers,
+sessions already reporting a PR and disabled loops never receive it. The owner
+decides whether to accept a proposed PR on GitHub, not in Jules. Unexpected
+`AWAITING_PLAN_APPROVAL` and `PAUSED` remain observed, not auto-approved.
 
 A waiting research session on its saved immutable attempt receives a sticky
 `execution.research_detached = {at, reason}` marker. Another area/perspective may
@@ -451,12 +560,15 @@ remain valid and use saved worker transitions until a real observation occurs.
 ### Recovering a completed research report
 
 Open the NextTask run's `laboratory-result-<run>-<attempt>` artifact. Its
-`research-diagnostics.json` contains the exact task/session/dispatch binding,
-parser status and rejection reason, plus a redacted report excerpt of at most
-24,000 characters. `lab-result.json` records the last confirmed state revision.
-Redaction occurs before truncation; artifacts are retained for 14 days. Health
-does not fetch worker prose; acknowledged records expose their saved incident
-binding and diagnostics.
+`research-diagnostics/*.json` files retain each task/attempt/source, including
+reports that lack a valid source identity. Safe task hashes and content hashes
+in filenames prevent a later worker or changed diagnostic from overwriting
+another; identical documents reuse the same path. Each document contains the
+session/dispatch binding, parser status and rejection reason plus a redacted
+report excerpt of at most 24,000 characters. `lab-result.json` records the last
+confirmed state revision. Redaction precedes truncation; all diagnostics are
+uploaded even after failure and retained for 14 days. Health does not fetch
+worker prose; acknowledged records expose their saved binding and diagnostics.
 
 A valid observation report may omit the optional findings array when there are
 no tasks. A present but malformed array is an error, never an empty list. To

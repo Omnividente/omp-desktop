@@ -339,6 +339,10 @@ export function TranscriptModal({
       ? null
       : (readingPositions.get(transcriptSession.filePath) ?? null)
   }
+  const clearSearch = () => {
+    onClearSearch()
+    searchRef.current?.focus({ preventScroll: true })
+  }
   const showLatest = () => {
     onClearSearch()
     pendingMatchRef.current = null
@@ -462,7 +466,7 @@ export function TranscriptModal({
               {transcriptSearch && (
                 <button
                   aria-label={t(lang, "clearSearch")}
-                  onClick={onClearSearch}
+                  onClick={clearSearch}
                   title={t(lang, "clearSearch")}
                   type="button"
                 >
@@ -615,7 +619,7 @@ export function TranscriptModal({
               <Icon name="search" size={24} />
               <strong>{t(lang, "transcriptNoMatches")}</strong>
               {transcriptSearch && (
-                <button className="button secondary" onClick={onClearSearch} type="button">
+                <button className="button secondary" onClick={clearSearch} type="button">
                   {t(lang, "clearSearch")}
                 </button>
               )}

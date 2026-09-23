@@ -22,6 +22,10 @@ from typing import Any, Mapping, Sequence
 from check_change_scope import evaluate, manual_review_hits
 from select_task import DEFAULT_MAX_ATTEMPTS, RISK_ORDER, is_unresolved, select
 from validate_tasks import MAX_PREVIOUS_REPORTS, MAX_PREVIOUS_REPORT_CHARS, validate
+from research_request import (
+    CONTRACT_VERSION, MAX_CONTEXT_ENTRIES, MAX_DECISION_CONTEXT_CHARS,
+    canonical_json, decision_entry, sha256_json,
+)
 
 
 def _iso(moment: datetime) -> str:
@@ -164,54 +168,105 @@ def _previous_reports(history: list[dict]) -> list[dict]:
     return list(reversed(reports))
 
 
-def _proposal_context(tasks: list[dict], paths: list[str]) -> str:
-    """A labeled queue snapshot, not a modification to immutable worker reports."""
+def request_context(tasks: list[dict], paths: list[str]) -> tuple[list[dict], str]:
+    """Snapshot current decisions at dispatch; prioritize undelivered obligations."""
     roots = [path.rstrip("/") for path in paths]
     relevant = [task for task in tasks if task.get("task_type") != "project_discovery"
                 and any(path == root or path.startswith(root + "/")
                         for path in task.get("target_paths", []) for root in roots)]
-    relevant.sort(key=lambda task: (task["status"] == "done",
-                                    task.get("created_at", ""), task["id"]))
-    context = []
+    settled = {task["id"]: task for task in relevant
+               if task.get("status") == "done"
+               and (task.get("proposal_decision") or {}).get("action") in {"reject", "resolve"}
+               and str((task.get("proposal_decision") or {}).get("note") or "").strip()}
+    entries = {identifier: decision_entry(task) for identifier, task in settled.items()}
+    delivered = {identifier: 0 for identifier in entries}
+    obligations = {}
+    for source in tasks:
+        execution = source.get("execution") or {}
+        for attempt in [*execution.get("research_request_history", []), execution]:
+            request = attempt.get("research_request") or {}
+            if request.get("contract_version") != CONTRACT_VERSION or not attempt.get("session_id"):
+                continue
+            # Reservation alone is not worker delivery. Bound, full context counts.
+            for entry in request.get("decision_context", []):
+                identifier = entry.get("task_id")
+                current = entries.get(identifier)
+                if (current and entry.get("complete") and not entry.get("truncated")
+                        and all(entry.get(field) == current[field] for field in (
+                            "action", "decision_at", "full_note_sha256", "delivered_text"))):
+                    delivered[identifier] += 1
+        receipt = source.get("discovery_import") or {}
+        materialized = {item["deferred_id"] for item in source.get("deferred_materializations", [])}
+        for item in (receipt.get("result") or {}).get("deferred", []):
+            if (item.get("reason") != "historical_post_context_missing"
+                    or item.get("deferred_id") in materialized):
+                continue
+            order = (str((receipt.get("source") or {}).get("activity_created_at") or ""),
+                     item.get("deferred_id", ""))
+            for match in (item.get("review_context") or {}).get("matches", []):
+                identifier = match.get("task_id")
+                if (identifier in entries and match.get("timing") == "post"
+                        and match.get("match") in {"exact", "possible"}):
+                    obligations[identifier] = min(obligations.get(identifier, order), order)
+
+    def rank(identifier):
+        if identifier in obligations:
+            return (0, delivered[identifier], *obligations[identifier], identifier)
+        decision_at = _time(entries[identifier]["decision_at"])
+        return (1, -(decision_at.timestamp() if decision_at else 0), "", "", identifier)
 
     def excerpt(value: str, limit: int = 300) -> str:
         return value if len(value) <= limit else value[:limit] + " [excerpt]"
 
-    for task in relevant:
+    context = []
+    for identifier in sorted(entries, key=rank):
+        if len(context) == MAX_CONTEXT_ENTRIES:
+            break
+        task = settled[identifier]
+        entry = entries[identifier]
+        metadata = {"title": excerpt(task["title"], 160), "target_paths": task.get("target_paths", [])[:8]}
+        entry.update(metadata)
+        entry["context_id"] = sha256_json({k: v for k, v in entry.items() if k != "context_id"})
+        if len(canonical_json([*context, entry])) > MAX_DECISION_CONTEXT_CHARS:
+            # Explicitly mark a bounded excerpt, never claim a hash delivers a note.
+            remaining = max(0, MAX_DECISION_CONTEXT_CHARS - len(canonical_json([*context, entry]))
+                            + len(canonical_json(entry["delivered_text"])) - 2)
+            text = entry["delivered_text"][:remaining]
+            entry = decision_entry(task, text)
+            entry.update(metadata)
+            entry["context_id"] = sha256_json({k: v for k, v in entry.items() if k != "context_id"})
+            while text and len(canonical_json([*context, entry])) > MAX_DECISION_CONTEXT_CHARS:
+                text = text[:max(0, len(text) - (len(canonical_json([*context, entry])) - MAX_DECISION_CONTEXT_CHARS))]
+                entry = decision_entry(task, text)
+                entry.update(metadata)
+                entry["context_id"] = sha256_json({k: v for k, v in entry.items() if k != "context_id"})
+            if len(canonical_json([*context, entry])) > MAX_DECISION_CONTEXT_CHARS:
+                continue
+        context.append(entry)
+
+    active = []
+    candidates = sorted((task for task in relevant if task["id"] not in settled),
+                        key=lambda task: (task.get("status") == "done", task.get("created_at", ""), task["id"]))
+    for task in candidates:
         evidence = task.get("evidence") or {}
         reproduction = evidence.get("reproduction") or {}
-        item = {
-            "canonical_id": task["id"], "status": task["status"],
-            "title": excerpt(task["title"], 160),
-            "target_paths": task.get("target_paths", [])[:8],
-            "observed_contract": {
-                "detail": excerpt(evidence.get("detail", "")),
-                "expected": excerpt(reproduction.get("expected", "")),
-                "actual": excerpt(reproduction.get("actual", "")),
-                "acceptance": [excerpt(value, 200) for value in task.get("acceptance", [])[:3]],
-            },
-        }
-        decision = (task.get("proposal_decision") or {}).get("action")
-        if decision:
-            item["decision"] = decision
-        if len(json.dumps([*context, item], ensure_ascii=False)) > MAX_PREVIOUS_REPORT_CHARS // 3:
+        item = {"canonical_id": task["id"], "status": task["status"],
+                "title": excerpt(task["title"], 160), "target_paths": task.get("target_paths", [])[:8],
+                "observed_contract": {"detail": excerpt(evidence.get("detail", "")),
+                    "expected": excerpt(reproduction.get("expected", "")),
+                    "actual": excerpt(reproduction.get("actual", "")),
+                    "acceptance": [excerpt(value, 200) for value in task.get("acceptance", [])[:3]]}}
+        if (len(context) + len(active) == MAX_CONTEXT_ENTRIES
+                or len(canonical_json(context)) + len(canonical_json([*active, item])) > MAX_DECISION_CONTEXT_CHARS):
             break
-        context.append(item)
-        if len(context) == 10:
-            break
-    if not context:
-        return ""
-    return (
-        "\n\nController existing-proposal context (queue snapshot, not a worker report; "
-        "reported claims are not verified):\n"
-        + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        + "\nFor the same observed contract, cite the canonical_id in your observations "
-        "instead of proposing a renamed duplicate. A shared file is not a duplicate. "
-        "Preserve independent findings; explain uncertain overlap. Closed or rejected "
-        "work is historical context, not evidence against a newly reproduced regression."
-        + ("\nContext is truncated; other relevant proposals may exist."
-           if len(context) < len(relevant) else "")
-    )
+        active.append(item)
+    text = ("Controller existing-proposal context (current queue snapshot, not a worker report; "
+            "all claims remain reported/unverified):\n" + canonical_json(active)
+            + "\nCite the canonical_id for the same observed contract instead of renaming it. "
+            "Shared paths alone are not duplicates; preserve independent findings.")
+    if len(context) + len(active) < len(relevant):
+        text += "\nContext is bounded; additional decisions/proposals may exist."
+    return context, text
 
 
 def plan_research(
@@ -331,8 +386,7 @@ def plan_research(
                       + " Use isolated synthetic data, never live sessions or credentials. "
                       "Record observed findings or explicit no-change with evidence in "
                       "AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in "
-                      "AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
-                      + _proposal_context(tasks, area["paths"]),
+                      "AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes.",
         },
         "research": {
             "area_id": area["id"], "perspective_id": perspective["id"],

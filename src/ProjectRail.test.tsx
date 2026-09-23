@@ -116,10 +116,16 @@ describe("ProjectRail workspace actions", () => {
     container.remove()
   })
 
-  it("exposes rename, remove, and inline rename submission", () => {
-    const onStartRename = vi.fn()
-    const onRemoveWorkspace = vi.fn()
-    const onSubmitWorkspaceRename = vi.fn()
+  it("restores the edit control after Escape without reclaiming a newer focus", () => {
+    let moveFocusOnCancel = false
+    const render = (renamingWorkspaceKey: string | null) => {
+      root.render(
+        <>
+          <button className="outside-rail">Outside rail</button>
+          <ProjectRail {...common} renamingWorkspaceKey={renamingWorkspaceKey} />
+        </>,
+      )
+    }
     const common = {
       autoHidePaused: false,
       autoOpen: false,
@@ -128,36 +134,43 @@ describe("ProjectRail workspace actions", () => {
       onAutoOpenChange: vi.fn(),
       onModeChange: vi.fn(),
       onOpenFolder: vi.fn(),
-      onRemoveWorkspace,
+      onRemoveWorkspace: vi.fn(),
       onSelectWorkspace: vi.fn(),
-      onStartWorkspaceRename: onStartRename,
-      onSubmitWorkspaceRename,
+      onStartWorkspaceRename: () => render(workspace.key),
+      onSubmitWorkspaceRename: vi.fn(),
       onWorkspaceNameChange: vi.fn(),
-      onWorkspaceRenameKeyDown: vi.fn(),
+      onWorkspaceRenameKeyDown: (event: { key: string }) => {
+        if (event.key !== "Escape") return
+        if (moveFocusOnCancel) {
+          container.querySelector<HTMLButtonElement>(".outside-rail")!.focus()
+        }
+        render(null)
+      },
       selectedWorkspace: workspace,
       sessionList: sessionList(),
       workspaceBusyKey: null,
-      workspaceNameValue: "Renamed App",
+      workspaceNameValue: "Unsaved draft",
       workspaces: [workspace],
     }
 
-    act(() => {
-      root.render(<ProjectRail {...common} renamingWorkspaceKey={null} />)
-    })
-    act(() => {
-      container.querySelector<HTMLButtonElement>('button[title="Переименовать проект"]')?.click()
-      container.querySelector<HTMLButtonElement>('button[title="Убрать проект из списка"]')?.click()
-    })
-    expect(onStartRename).toHaveBeenCalledWith(workspace)
-    expect(onRemoveWorkspace).toHaveBeenCalledWith(workspace)
+    act(() => render(null))
+    const edit = () =>
+      container.querySelector<HTMLButtonElement>('button[title="Переименовать проект"]')!
+    act(() => edit().click())
+    const input = container.querySelector<HTMLInputElement>(".project-rename")!
+    expect(document.activeElement).toBe(input)
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+    expect(document.activeElement).toBe(edit())
+    expect(container.querySelector(".project-copy strong")?.textContent).toBe(workspace.name)
 
-    act(() => {
-      root.render(<ProjectRail {...common} renamingWorkspaceKey={workspace.key} />)
-    })
-    const input = container.querySelector<HTMLInputElement>(".project-rename")
-    expect(input?.value).toBe("Renamed App")
-    act(() => input?.dispatchEvent(new FocusEvent("focusout", { bubbles: true })))
-    expect(onSubmitWorkspaceRename).toHaveBeenCalledWith(workspace)
+    moveFocusOnCancel = true
+    act(() => edit().click())
+    const nextInput = container.querySelector<HTMLInputElement>(".project-rename")!
+    act(() =>
+      nextInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    )
+    expect(container.querySelector(".project-rename")).toBeNull()
+    expect(document.activeElement).toBe(container.querySelector(".outside-rail"))
   })
 
   it("restores keyboard focus inside the existing rail after asynchronous deletion", async () => {

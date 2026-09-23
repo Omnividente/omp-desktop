@@ -39,7 +39,14 @@ export function ContentActionMenu({ left, top, actions, onDismiss }: ContentActi
         event.stopPropagation()
         dismissRef.current(true)
       } else if (event.key === "Tab") {
-        dismissRef.current(false)
+        const inside = menuRef.current?.contains(document.activeElement) ?? false
+        if (inside) {
+          // Consume before restoring the origin: this Tab must not reach the PTY
+          // or the parent dialog, nor navigate from a soon-to-be-removed item.
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        dismissRef.current(inside)
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const buttons = Array.from(
           menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
