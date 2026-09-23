@@ -35273,12 +35273,14 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": ""
+        "note": "",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-23T12:18:47.268008Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T12:19:11.671070Z",
+    "last_poll_at": "2026-09-23T12:21:00.560533Z",
     "last_tick_at": "2026-09-23T12:12:59.378791Z",
     "run_id": "35859026080"
   }
