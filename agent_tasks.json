@@ -34672,7 +34672,7 @@
         },
         "report_repair": {
           "at": "2026-09-23T11:58:12.273546Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/8572035853619407454/activities/424219efc8d140bc88c6e47fb7747ea1",
