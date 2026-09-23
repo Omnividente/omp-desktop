@@ -19275,7 +19275,7 @@
         "starting_branch": "autonomous/attempt-f133e19c6dd89a90051e4bf6",
         "started_at": "2026-09-20T20:35:40.042612Z",
         "finished_at": "",
-        "pull_request": 0,
+        "pull_request": 89,
         "outcome": "stale",
         "note": "owner_disabled_loop",
         "session_state": "IN_PROGRESS",
@@ -19284,6 +19284,18 @@
         "feedback_nudge": {
           "at": "2026-09-23T14:46:22.312801Z",
           "result": "sent"
+        },
+        "provenance": {
+          "pull_request": 89,
+          "url": "https://github.com/Omnividente/omp-desktop/pull/89",
+          "repository": "Omnividente/omp-desktop",
+          "base_branch": "autonomous/lab",
+          "head_repository": "Omnividente/omp-desktop",
+          "head_ref": "jules-18085791308144113483-5174e364",
+          "head_sha": "6c61326310e68693ce490ae3ed2e77fed5a56116",
+          "session_id": "18085791308144113483",
+          "dispatch_key": "f133e19c6dd89a90051e4bf6",
+          "verified_at": "2026-09-23T15:22:12.732818Z"
         }
       }
     },
@@ -36148,7 +36160,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T15:02:57.429993Z",
+    "last_poll_at": "2026-09-23T15:22:14.233067Z",
     "last_tick_at": "2026-09-23T15:03:01.759743Z",
     "run_id": "35878630095"
   }
