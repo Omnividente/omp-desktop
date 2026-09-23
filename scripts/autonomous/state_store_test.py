@@ -2,6 +2,8 @@
 """Real Git regressions for queue migration, isolation and competing writers."""
 from __future__ import annotations
 
+import copy
+
 import json
 import subprocess
 import tempfile
@@ -93,6 +95,55 @@ class StateStoreTests(unittest.TestCase):
             save_state(self.repo, other_queue, other_revision)
         self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), first)
         self.assertEqual(json.loads(other_queue.read_bytes())["observation"], "second")
+
+    def test_migrated_schema_rejects_stale_save_and_fresh_downgrade(self):
+        from research_request import migrate_legacy
+        self.load()
+        save_state(self.repo, self.queue, self.revision)
+        stale_queue, stale_revision = self.load("-old")
+        migrated, _ = migrate_legacy(json.loads(self.queue.read_bytes()))
+        self.queue.write_text(json.dumps(migrated), encoding="utf-8")
+        saved = save_state(self.repo, self.queue, self.revision)
+        self.update(stale_queue, "old writer")
+        with self.assertRaises(StateConflict):
+            save_state(self.repo, stale_queue, stale_revision)
+        current, revision = self.load("-fresh")
+        downgraded = json.loads(current.read_bytes())
+        downgraded["version"] = 2
+        downgraded["autonomous_loop_policy"].pop("research_contract")
+        current.write_text(json.dumps(downgraded), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            save_state(self.repo, current, revision)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+
+    def test_rehashed_request_rewrite_cannot_pass_cas_but_real_retry_preserves_history(self):
+        from research_request import sha256_json
+        from research_request_test import research, reserve_research
+        from task_lifecycle import complete
+        self.load()
+        data = json.loads(self.queue.read_bytes())
+        data["tasks"] = [research()]
+        original = reserve_research(data)
+        self.queue.write_text(json.dumps(data), encoding="utf-8")
+        saved = save_state(self.repo, self.queue, self.revision)
+        forged = copy.deepcopy(data)
+        request = forged["tasks"][0]["execution"]["research_request"]
+        request["request"]["title"] += " rewritten"
+        request["request_sha256"] = sha256_json(request["request"])
+        self.queue.write_text(json.dumps(forged), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            save_state(self.repo, self.queue, self.revision)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+        complete(data, "research", outcome="failed")
+        self.queue.write_text(json.dumps(data), encoding="utf-8")
+        save_state(self.repo, self.queue, self.revision)
+        reserve_research(data)
+        self.queue.write_text(json.dumps(data), encoding="utf-8")
+        save_state(self.repo, self.queue, self.revision)
+        queue, _ = self.load("-reader")
+        execution = json.loads(queue.read_bytes())["tasks"][0]["execution"]
+        self.assertEqual(execution["attempts"], 2)
+        self.assertEqual(execution["research_request_history"][0]["research_request"], original)
 
     def test_concurrent_initialization_never_replaces_winner(self):
         self.load()

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from research_cycle import main, plan_research, scope_fingerprints, validate_config  # noqa: E402
+from research_cycle import main, plan_research, request_context, scope_fingerprints, validate_config  # noqa: E402
 from select_task import select  # noqa: E402
 from build_jules_request import build
 
@@ -161,7 +161,9 @@ class RotationTest(unittest.TestCase):
         task = updated["tasks"][-1]
         self.assertEqual(task["research"]["perspective_id"], "reliability")
         self.assertEqual(task["research"]["previous_reports"], [report])
-        request = build(task, template="{{TASK_JSON}}", repo="owner/repo", branch="main", base_sha="a" * 40)
+        context, proposals = request_context(updated["tasks"], task["target_paths"])
+        request = build(task, template="{{TASK_JSON}}", repo="owner/repo", branch="main", base_sha="a" * 40,
+                        decision_context=context, proposal_context=proposals)
         for value in (proposal["id"], proposal["target_paths"][0], proposal["acceptance"][0],
                       proposal["evidence"]["reproduction"]["expected"],
                       proposal["evidence"]["reproduction"]["actual"]):
@@ -170,29 +172,6 @@ class RotationTest(unittest.TestCase):
         self.assertEqual(data, before)
         self.assertEqual(updated["tasks"][:-1], before["tasks"])
 
-    def test_backlog_context_is_bounded_and_preserves_closed_history_as_context(self):
-        settings = config(areas=("terminal",))
-        closed = concrete("closed-regression", status="done", target_paths=["src/terminal.ts"],
-                          acceptance=["Retain the active terminal"],
-                          proposal_decision={"action": "reject", "actor": "owner", "at": NOW.isoformat(),
-                                             "note": "Unable to reproduce earlier"})
-        updated, _ = plan(manifest(closed), settings)
-        detail = updated["tasks"][-1]["evidence"]["detail"]
-        self.assertIn(closed["id"], detail)
-        self.assertIn('"status":"done"', detail)
-        self.assertIn('"decision":"reject"', detail)
-        proposals = [concrete("proposal-" + str(index), status="proposed", target_paths=["src/terminal.ts"],
-                              acceptance=["Long contract " * 300],
-                              evidence={"source": "research", "detail": "Detailed observation " * 300})
-                     for index in range(50)]
-        data = manifest(*proposals)
-        before = copy.deepcopy(data)
-        bounded, _ = plan(data, settings)
-        context = bounded["tasks"][-1]["evidence"]["detail"]
-        self.assertIn(proposals[0]["id"], context)
-        self.assertNotIn(proposals[-1]["id"], context)
-        self.assertLess(len(context), 10000)
-        self.assertEqual(data, before)
 
     def test_changed_scope_is_eligible_without_waiting_for_success_cooldown(self):
         settings = config(areas=("terminal",))

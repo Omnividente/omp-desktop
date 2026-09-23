@@ -43,6 +43,8 @@ from validate_tasks import (  # noqa: E402
 from check_change_scope import evaluate as evaluate_scope  # noqa: E402
 from task_lifecycle import find_task  # noqa: E402
 from select_task import pending_rejection  # noqa: E402
+from research_request import (CONTRACT_VERSION, MAX_REVISIT_TEXT_CHARS, CHANGE_KINDS,
+                              EVIDENCE_MODES, sha256_json, sha256_text, validate_task_request)
 
 BEGIN = "AUTONOMOUS_TASKS_BEGIN"
 END = "AUTONOMOUS_TASKS_END"
@@ -123,6 +125,38 @@ def extract_block(text: str) -> list:
     return parse_block(text)["entries"]
 
 
+def sanitize_revisit(value: Any) -> dict:
+    """Retain bounded worker claims, never their authority or arbitrary metadata."""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for field in ("contract_version", "change_kind", "difference", "evidence_mode",
+                  "primary_decision_task_id"):
+        item = value.get(field)
+        if isinstance(item, str) and len(item) <= MAX_REVISIT_TEXT_CHARS:
+            result[field] = item
+        elif field in value:
+            result[field] = ""
+    refs = value.get("observation_refs")
+    if isinstance(refs, list) and len(refs) <= 100:
+        result["observation_refs"] = [item if type(item) is int else None for item in refs]
+    responses = value.get("responses")
+    if isinstance(responses, list) and len(responses) <= 100:
+        result["responses"] = [
+            {field: item[field] for field in ("decision_task_id", "decision_context_id",
+                                             "why_previous_reason_no_longer_explains")
+             if isinstance(item.get(field), str) and len(item[field]) <= MAX_REVISIT_TEXT_CHARS}
+            if isinstance(item, dict) else {} for item in responses
+        ]
+    return result
+
+
+def stable_candidate(candidate: Mapping[str, Any]) -> dict:
+    return copy.deepcopy({field: candidate[field] for field in (
+        "task_type", "title", "risk", "priority", "focus", "target_paths", "acceptance", "evidence"
+    ) if field in candidate})
+
+
 def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
     title = str(entry.get("title") or "").strip()
     evidence = entry.get("evidence")
@@ -168,6 +202,7 @@ def normalize(entry: Mapping[str, Any], *, now: str) -> dict:
                 "expected": evidence["reproduction"]["expected"],
                 "actual": evidence["reproduction"]["actual"],
             }} if not validate_reproduction(evidence.get("reproduction")) else {}),
+            **({"revisit": sanitize_revisit(evidence["revisit"])} if "revisit" in evidence else {}),
         },
         **({"target_paths": list(entry["target_paths"])}
            if isinstance(entry.get("target_paths"), list) else {}),
@@ -344,6 +379,75 @@ def _historical_review_context(profile: dict, profiles: list, report_at: datetim
     return {"kind": "historical_decision_overlap", "matches": matches}
 
 
+def post_admission(candidate: dict, context: dict, source: dict, tasks_by_id: dict) -> str:
+    """Check delivery and report-local links, not the truth of worker explanations."""
+    strong = [item for item in context["matches"]
+              if item["timing"] == "post" and item["match"] != "same_title"]
+    required = [(item, tasks_by_id[item["task_id"]]["proposal_decision"].get("note"))
+                for item in strong]
+    required = [(item, note) for item, note in required if isinstance(note, str) and note.strip()]
+    if not required:
+        context.update(rationale_status="unknown", post_gate="not_applicable_no_rationale")
+        return ""
+    context["rationale_status"] = "recorded"
+    request = source["execution"]["research_request"]
+    delivered = request.get("decision_context", [])
+    linked = []
+    for match, note in required:
+        entries = [entry for entry in delivered if isinstance(entry, dict)
+                   and entry.get("task_id") == match["task_id"]
+                   and entry.get("action") == match["action"]
+                   and entry.get("decision_at") == match["decision_at"]
+                   and entry.get("complete") is True and entry.get("truncated") is False
+                   and entry.get("full_note_sha256") == sha256_text(note)
+                   and entry.get("delivered_text") == note
+                   and entry.get("delivered_sha256") == sha256_text(note)
+                   and entry.get("context_id") == sha256_json({key: value for key, value in entry.items()
+                                                                            if key != "context_id"})]
+        if len(entries) != 1:
+            context["post_gate"] = "historical_post_context_missing"
+            return context["post_gate"]
+        linked.append((match["task_id"], entries[0]["context_id"]))
+    revisit = candidate["evidence"].get("revisit", {})
+    refs, responses = revisit.get("observation_refs"), revisit.get("responses")
+    observations = source["research_result"].get("observations", [])
+    valid = (revisit.get("contract_version") == CONTRACT_VERSION
+             and revisit.get("change_kind") in CHANGE_KINDS
+             and isinstance(revisit.get("difference"), str) and bool(revisit["difference"].strip())
+             and revisit.get("evidence_mode") in EVIDENCE_MODES
+             and isinstance(refs, list) and bool(refs)
+             and all(type(ref) is int and 0 <= ref < len(observations) for ref in refs)
+             and len(refs) == len(set(refs))
+             and revisit.get("primary_decision_task_id") == strong[0]["task_id"]
+             and isinstance(responses, list) and len(responses) == len(linked))
+    if valid:
+        response_links = []
+        for response in responses:
+            explanation = response.get("why_previous_reason_no_longer_explains")
+            if (not isinstance(explanation, str) or not explanation.strip()
+                    or not isinstance(response.get("decision_task_id"), str)
+                    or not isinstance(response.get("decision_context_id"), str)):
+                valid = False
+                break
+            response_links.append((response.get("decision_task_id"), response.get("decision_context_id")))
+        valid = valid and sorted(response_links) == sorted(linked)
+    reason = "" if valid else "historical_post_unexplained"
+    if valid and revisit["evidence_mode"] in {"hypothesis", "unavailable"}:
+        reason = "historical_post_insufficient_evidence"
+    context["post_gate"] = reason or "passed"
+    return reason
+
+
+def post_deferred(candidate: dict, context: dict, origin: Mapping[str, str], reason: str) -> dict:
+    stable = stable_candidate(candidate)
+    source = dict(origin)
+    return {"title": candidate["title"], "reason": reason,
+            "evidence": json.dumps(candidate["evidence"], ensure_ascii=False, sort_keys=True),
+            "target_paths": list(candidate["target_paths"]), "acceptance": list(candidate["acceptance"]),
+            "deferred_id": sha256_json({"source": source, "candidate": stable}),
+            "candidate": stable, "review_context": copy.deepcopy(context), "source": source}
+
+
 def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                  max_new: int = DEFAULT_MAX_NEW, now: str | None = None,
                  origin: Mapping[str, str] | None = None) -> dict:
@@ -375,6 +479,10 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                                   "existing_task_id": identifier} for identifier in result["added"])
         result.update(changed=False, duplicates=list(dict.fromkeys(result["added"] + result["duplicates"])), added=[])
         return result
+    request_errors = validate_task_request(source)
+    if request_errors:
+        raise ValueError("; ".join(request_errors))
+    versioned = execution.get("research_request", {}).get("contract_version") == CONTRACT_VERSION
     report_at = datetime.fromisoformat(origin["activity_created_at"].replace("Z", "+00:00"))
     block = parse_block(body)
     tasks = manifest.get("tasks", [])
@@ -444,6 +552,16 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
                     "review_context": context,
                 })
                 continue
+            if versioned and any(item["timing"] == "post" for item in strong):
+                reason = post_admission(candidate, context, source, known_ids)
+                if reason:
+                    skipped.append({"id": candidate["id"], "reason": reason,
+                                    "existing_task_id": next(item["task_id"] for item in strong
+                                                             if item["timing"] == "post")})
+                    item = post_deferred(candidate, context, origin, reason)
+                    if not any(previous.get("deferred_id") == item["deferred_id"] for previous in deferred):
+                        deferred.append(item)
+                    continue
             candidate["review_context"] = context
         if len(added) >= max_new:
             skipped.append({"id": candidate["id"], "reason": "max_new_reached"})
@@ -480,10 +598,16 @@ def import_tasks(manifest: dict, body: str, *, config: Mapping[str, Any],
     if result["changed"]:
         receipt = {"source": copy.deepcopy(accepted), "result": copy.deepcopy(result)}
         staged_source = dict(source, discovery_import=receipt)
+        if versioned:
+            staged_report = copy.deepcopy(source["research_result"])
+            staged_report["deferred_findings"] = copy.deepcopy(deferred)
+            staged_source["research_result"] = staged_report
         staged = dict(manifest, tasks=[staged_source if task is source else task for task in tasks] + pending)
         if validate(staged):
             raise ValueError("discovery import would create an invalid queue")
         source["discovery_import"] = receipt
+        if versioned:
+            source["research_result"] = staged_report
         tasks.extend(pending)
     return result
 

@@ -335,6 +335,30 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual((bound["state"], bound["session_id"], bound["attempts"], self.api.posts),
                          ("dispatched", "1", 1, 1))
 
+    def test_research_lost_binding_uses_saved_payload_after_control_inputs_change(self):
+        source = self.data["tasks"][0]
+        source["task_type"] = "project_discovery"
+        source.pop("proposal_decision")
+
+        def lose_binding(data):
+            if data["tasks"][0].get("execution", {}).get("session_id"):
+                raise RuntimeError("lost research binding save")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError):
+            self.run_tick(persist=lose_binding, config=self.research_config())
+        source = self.reload()[0]
+        saved = copy.deepcopy(source["execution"]["research_request"])
+        sent = self.api.values["1"]
+        self.assertEqual({key: sent[key] for key in saved["request"]}, saved["request"])
+        source["title"] = "Changed after the first dispatch"
+        source["evidence"]["detail"] = "New evidence not in the original request"
+        self.persist(self.data)
+        self.run_tick(focus="changed", risk="high", config=self.research_config())
+        bound = self.reload()[0]["execution"]
+        self.assertEqual((bound["session_id"], bound["attempts"], self.api.posts), ("1", 1, 1))
+        self.assertEqual(bound["research_request"], saved)
+
     def test_switch_during_create_retains_identity_without_replacement_on_resume(self):
         self.api.after_create = lambda: setattr(self.github, "is_enabled", False)
         self.run_tick()

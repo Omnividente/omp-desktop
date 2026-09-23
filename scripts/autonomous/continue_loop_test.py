@@ -49,8 +49,15 @@ def run(run_id, title, **changes):
             "html_url": f"https://github.com/{REPOSITORY}/actions/runs/{run_id}", **changes}
 
 
+def callback(run_id, **changes):
+    return run(run_id, f"Continue trusted callback {run_id}", event="workflow_run",
+               repository={"full_name": REPOSITORY}, path=".github/workflows/" + CONTINUE,
+               head_sha=MAIN, created_at=iso(NOW), **changes)
+
+
 class Runtime:
     repository = REPOSITORY
+    control_sha = MAIN
 
     def __init__(self, clock, observe):
         self.clock = clock
@@ -61,6 +68,8 @@ class Runtime:
         self.action_runs = {NEXT: [], CONTINUE: [], SYNC: []}
         self.on_post = self.accept
         self.on_runs = None
+        self.detail_reads = []
+        self.on_detail = None
 
     def enabled(self):
         return self.clock.seconds < self.disable_at
@@ -73,6 +82,12 @@ class Runtime:
         if self.on_runs:
             return self.on_runs(workflow)
         return copy.deepcopy(self.action_runs[workflow])
+
+    def run_detail(self, run_id):
+        self.detail_reads.append(run_id)
+        if self.on_detail:
+            return self.on_detail(run_id)
+        return copy.deepcopy(next(run for run in self.action_runs[CONTINUE] if run["id"] == run_id))
 
     def dispatch(self, workflow, inputs):
         self.posts.append((workflow, dict(inputs)))
@@ -202,6 +217,204 @@ class ContinuationTest(unittest.TestCase):
         self.assertEqual(result["outcome"], "unknown")
         self.assertEqual(result["handoff"]["status"], "failed")
         self.assertEqual(result["handoff"]["run_id"], 101)
+        self.assertEqual(len(runtime.posts), 1)
+
+    def cancelled_continue(self, *successors):
+        controller, runtime, clock, reports = self.controller(lambda rt: health())
+        runtime.action_runs[CONTINUE] = [run(50, "Continue owner", status="in_progress")]
+
+        def cancelled(workflow, inputs):
+            runtime.accept(workflow, inputs)
+            runtime.action_runs[workflow][-1].update(status="completed", conclusion="cancelled")
+            runtime.action_runs[workflow].extend(copy.deepcopy(successors))
+
+        runtime.on_post = cancelled
+        return controller, runtime, clock, reports
+
+    def test_queued_trusted_callback_replaces_cancelled_key_while_owner_holds_group(self):
+        controller, runtime, clock, reports = self.cancelled_continue(callback(102))
+        persisted = []
+        controller.publish = lambda report: persisted.append(copy.deepcopy(report))
+        result = controller.run(handoff=True)
+        self.assertEqual(result["reason"], "cancelled_successor_replaced")
+        self.assertEqual(result["handoff"]["run_id"], 102)
+        self.assertEqual(result["handoff"]["run_status"], "queued")
+        self.assertEqual(result["handoff"]["cancelled_successor"]["run_id"], 101)
+        self.assertEqual(result["handoff"]["cancelled_successor"]["conclusion"], "cancelled")
+        self.assertEqual(runtime.detail_reads, [102, 102])
+        observations = result["handoff"]["replacement_observations"]
+        self.assertEqual([item["observed_at"] for item in observations],
+                         [iso(NOW + timedelta(seconds=5)), iso(NOW + timedelta(seconds=10))])
+        self.assertEqual(observations[-1]["proof"], "revision_bound_callback_marker")
+        intent = next(report["handoff"] for report in persisted if report["outcome"] == "dispatching")
+        self.assertEqual(intent["intent_at"], iso(NOW))
+        self.assertEqual(intent["baseline_run_ids"], ["50"])
+        self.assertEqual(runtime.action_runs[CONTINUE][0]["status"], "in_progress")
+        self.assertEqual(len(runtime.posts), 1)
+
+    def test_invalid_callback_proof_cannot_replace_cancelled_key(self):
+        invalid = [
+            {"display_title": "Continue trusted callback 999"},
+            {"head_sha": LAB},
+            {"repository": {"full_name": "fork/repo"}},
+            {"head_repository": {"full_name": "fork/repo"}},
+            {"head_branch": "feature"},
+            {"path": ".github/workflows/" + NEXT},
+            # Listing upstream metadata is not server-rendered admission proof.
+            {"display_title": "Autonomous Continue", "workflow_run": {
+                "head_branch": "feature", "name": "Autonomous Next Task",
+                "head_repository": {"full_name": REPOSITORY}}},
+            {"display_title": "Autonomous Continue", "workflow_run": {
+                "head_branch": "main", "name": "Autonomous Proposal Review",
+                "head_repository": {"full_name": "fork/repo"}}},
+        ]
+        for changes in invalid:
+            with self.subTest(changes=changes):
+                candidate = callback(102)
+                candidate.update(changes)
+                controller, runtime, clock, _ = self.cancelled_continue(candidate)
+                result = controller.run(handoff=True)
+                self.assertNotEqual(result["outcome"], "handed_off")
+                self.assertEqual(result["handoff"]["run_id"], 101)
+                self.assertEqual(runtime.detail_reads, [])
+                self.assertEqual(clock.seconds, CONFIRM_SECONDS)
+                self.assertEqual(len(runtime.posts), 1)
+
+    def test_missing_control_revision_cannot_prove_callback(self):
+        controller, runtime, _, _ = self.cancelled_continue(callback(102))
+        runtime.control_sha = None
+        result = controller.run(handoff=True)
+        self.assertNotEqual(result["outcome"], "handed_off")
+        self.assertEqual(runtime.detail_reads, [])
+
+    def test_baseline_timer_and_run_predating_intent_cannot_replace_cancelled_key(self):
+        old = callback(60, status="in_progress")
+        old.update(event="schedule", display_title="Autonomous Continue")
+        predating = callback(102)
+        predating["created_at"] = iso(NOW - timedelta(seconds=1))
+        controller, runtime, clock, _ = self.cancelled_continue(predating)
+        runtime.action_runs[CONTINUE].append(old)
+        result = controller.run(handoff=True)
+        self.assertNotEqual(result["outcome"], "handed_off")
+        self.assertEqual(result["handoff"]["baseline_run_ids"], ["50", "60"])
+        self.assertEqual(runtime.detail_reads, [])
+        self.assertEqual(clock.seconds, CONFIRM_SECONDS)
+
+    def test_callback_replaced_during_confirmation_requires_two_new_observations(self):
+        controller, runtime, clock, _ = self.cancelled_continue(callback(102))
+
+        def detail(run_id):
+            candidate = next(item for item in runtime.action_runs[CONTINUE] if item["id"] == run_id)
+            if runtime.detail_reads == [102, 102]:
+                candidate.update(status="completed", conclusion="cancelled")
+                runtime.action_runs[CONTINUE].append(callback(103))
+            return copy.deepcopy(candidate)
+
+        runtime.on_detail = detail
+        result = controller.run(handoff=True)
+        self.assertEqual(result["handoff"]["run_id"], 103)
+        self.assertEqual(runtime.detail_reads, [102, 102, 103, 103])
+        self.assertEqual(clock.seconds, 20)
+        self.assertEqual([item["run_status"] for item in result["handoff"]["replacement_observations"]],
+                         ["queued", "completed", "queued", "queued"])
+        self.assertEqual(len(runtime.posts), 1)
+
+    def test_admitted_callback_replacement_does_not_need_second_observation(self):
+        controller, runtime, clock, _ = self.cancelled_continue(callback(102, status="in_progress"))
+        result = controller.run(handoff=True)
+        self.assertEqual(result["handoff"]["run_id"], 102)
+        self.assertEqual(runtime.detail_reads, [102])
+        self.assertEqual(clock.seconds, 5)
+
+    def test_new_scheduled_timer_can_replace_cancelled_key(self):
+        successor = callback(102)
+        successor.update(event="schedule", display_title="Autonomous Continue")
+        controller, runtime, _, _ = self.cancelled_continue(successor)
+        result = controller.run(handoff=True)
+        self.assertEqual(result["handoff"]["run_id"], 102)
+        self.assertEqual(result["handoff"]["replacement"]["proof"], "trusted_main_event")
+        self.assertEqual(runtime.detail_reads, [102, 102])
+
+    def test_stale_queued_listing_cannot_override_fresh_failed_proof(self):
+        for changes in ({"status": "completed", "conclusion": "cancelled"}, {"head_sha": LAB}):
+            with self.subTest(changes=changes):
+                controller, runtime, clock, _ = self.cancelled_continue(callback(102))
+                runtime.on_detail = lambda run_id: {**callback(run_id), **changes}
+                result = controller.run(handoff=True)
+                self.assertEqual(result["reason"], "successor_replacement_unavailable")
+                self.assertEqual(result["handoff"]["status"], "failed")
+                self.assertEqual(clock.seconds, CONFIRM_SECONDS)
+                self.assertEqual(len(runtime.posts), 1)
+
+    def test_second_observation_after_confirmation_deadline_is_not_delivery(self):
+        controller, runtime, clock, _ = self.cancelled_continue(callback(102))
+
+        def delayed(run_id):
+            if len(runtime.detail_reads) == 2:
+                clock.seconds = CONFIRM_SECONDS
+            return callback(run_id)
+
+        runtime.on_detail = delayed
+        result = controller.run(handoff=True)
+        self.assertEqual(result["reason"], "successor_replacement_unavailable")
+        self.assertEqual(runtime.detail_reads, [102, 102])
+        self.assertEqual(len(runtime.posts), 1)
+
+    def test_failed_duplicate_of_cancelled_key_is_not_hidden_by_replacement(self):
+        controller, runtime, _, _ = self.cancelled_continue(
+            run(103, "Continue opaque-key", status="completed", conclusion="timed_out"), callback(102))
+        result = controller.run(handoff=True)
+        self.assertEqual(result["reason"], "successor_failed")
+        self.assertEqual(result["handoff"]["run_id"], 103)
+        self.assertEqual(result["handoff"]["conclusion"], "timed_out")
+        self.assertEqual(runtime.detail_reads, [])
+
+    def test_keyed_failure_or_timeout_is_never_substituted(self):
+        for conclusion in ("failure", "timed_out", "startup_failure"):
+            with self.subTest(conclusion=conclusion):
+                controller, runtime, _, _ = self.cancelled_continue(callback(102))
+                cancelled = runtime.on_post
+
+                def failed(workflow, inputs):
+                    cancelled(workflow, inputs)
+                    runtime.action_runs[workflow][1]["conclusion"] = conclusion
+
+                runtime.on_post = failed
+                result = controller.run(handoff=True)
+                self.assertEqual(result["reason"], "successor_failed")
+                self.assertEqual(result["handoff"]["status"], "failed")
+                self.assertEqual(result["handoff"]["conclusion"], conclusion)
+                self.assertEqual(runtime.detail_reads, [])
+                self.assertEqual(len(runtime.posts), 1)
+
+    def test_next_and_sync_cancelled_key_do_not_use_continue_replacement(self):
+        for workflow, action in ((NEXT, "next_task"), (SYNC, "sync")):
+            with self.subTest(workflow=workflow):
+                controller, runtime, _, _ = self.controller(lambda rt: health(action))
+
+                def cancelled(selected, inputs):
+                    runtime.accept(selected, inputs)
+                    runtime.action_runs[selected][-1].update(status="completed", conclusion="cancelled")
+                    runtime.action_runs[CONTINUE].append(callback(102))
+
+                runtime.on_post = cancelled
+                result = controller.run()
+                self.assertEqual(result["reason"], "successor_failed")
+                self.assertEqual(result["handoff"]["workflow"], workflow)
+                self.assertEqual(runtime.detail_reads, [])
+                self.assertEqual(len(runtime.posts), 1)
+
+    def test_ambiguous_cancelled_post_is_reconciled_without_an_extra_dispatch(self):
+        controller, runtime, _, _ = self.cancelled_continue(callback(102))
+        cancelled = runtime.on_post
+
+        def lost_ack(workflow, inputs):
+            cancelled(workflow, inputs)
+            raise TimeoutError("lost ACK")
+
+        runtime.on_post = lost_ack
+        result = controller.run(handoff=True)
+        self.assertEqual(result["reason"], "cancelled_successor_replaced")
         self.assertEqual(len(runtime.posts), 1)
 
     def test_observed_disable_is_terminal_even_if_switch_is_reenabled(self):
