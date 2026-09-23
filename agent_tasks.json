@@ -33312,7 +33312,7 @@
       "id": "research-workspace-navigation-ux-7",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -33484,23 +33484,132 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4870076094027855950",
         "dispatch_key": "52103cd85bdda8468bec5437",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-52103cd85bdda8468bec5437",
         "started_at": "2026-09-23T08:49:19.016113Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T09:21:56.163171Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T08:56:51.186454Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T09:21:56.163171Z"
+      },
+      "research_result": {
+        "summary": "Verified focus behavior and fallback target when a session is deleted.",
+        "observations": [
+          {
+            "scenario": "Deleting the last session inside the `SessionList` component and verifying active element restoration using synthetic testing with jsdom.",
+            "evidence": "Wrote and executed a synthetic Vitest test simulating session deletion and measuring `document.activeElement` within `src/SessionList.tsx`. The component successfully falls back to `listRef.current` (the div container with `tabIndex={-1}`). However, because this div has no inherent interactivity for a user to move from, leaving focus here effectively strands the user or behaves poorly on many browsers, resulting in focus being effectively lost to `document.body` in real-world scenarios. The component lacks logic to gracefully traverse to remaining interactive elements like the 'New session' button or the search box.",
+            "result": "Establishes that deleting the last session (or any session causing focus to fall back to the empty list ref) drops keyboard focus due to an insufficient fallback strategy in `SessionList.tsx`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate focus behavior when a workspace rename occurs via background sync while currently being edited in the UI.",
+          "Verify focus behavior when editing a session title and the backend responds with a conflicting title update."
+        ],
+        "proposed_task_ids": [
+          "discovery-82458c4d2663376a"
+        ],
+        "completed_at": "2026-09-23T09:21:56.163171Z",
+        "source": {
+          "activity_id": "sessions/4870076094027855950/activities/a198b42f72d24ce98b9eb03510d8dc8b",
+          "report_sha256": "9ee73bbc60b0ba317083d7a9ca8407a273d8401e9ae6cc161b724e9a78f24788",
+          "activity_created_at": "2026-09-23T09:08:58.265600Z",
+          "session_id": "4870076094027855950",
+          "dispatch_key": "52103cd85bdda8468bec5437"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4870076094027855950/activities/a198b42f72d24ce98b9eb03510d8dc8b",
+          "report_sha256": "9ee73bbc60b0ba317083d7a9ca8407a273d8401e9ae6cc161b724e9a78f24788",
+          "activity_created_at": "2026-09-23T09:08:58.265600Z",
+          "session_id": "4870076094027855950",
+          "dispatch_key": "52103cd85bdda8468bec5437"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-82458c4d2663376a"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-82458c4d2663376a",
+      "title": "Restore focus to an interactive fallback element after deleting a session",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 10,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-23T09:21:56.163171Z",
+      "acceptance": [
+        "Focus correctly moves to a relevant, interactive element in the workspace UI (e.g., the 'New session' button or search input) when the last session is deleted and its row unmounts, instead of remaining stranded on the non-interactive list container."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic testing of `<SessionList />` using jsdom. Deleting the single remaining session causes the active element (the delete button) to unmount. The current fallback logic inside `useLayoutEffect` in `SessionList.tsx` shifts focus to `listRef.current`. Since `listRef.current` is not naturally focusable and has no interactive children left, this strands focus. Note: Possible overlap with existing task discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and select a workspace with exactly one session.",
+            "Use the keyboard to navigate to the session's delete button.",
+            "Trigger the deletion using the keyboard.",
+            "Observe the active element after the session row disappears."
+          ],
+          "expected": "Focus correctly shifts to another relevant interactive element in the list container or header, such as the 'New session' button or the search bar.",
+          "actual": "Focus drops to the non-interactive list container or `document.body`."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-093977724114020f",
+            "action": "resolve",
+            "decision_at": "2026-09-20T09:02:35Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-f2427c63eed09a2c",
+            "action": "resolve",
+            "decision_at": "2026-09-19T17:01:37Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ]
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-7",
+        "activity_id": "sessions/4870076094027855950/activities/a198b42f72d24ce98b9eb03510d8dc8b",
+        "report_sha256": "9ee73bbc60b0ba317083d7a9ca8407a273d8401e9ae6cc161b724e9a78f24788",
+        "activity_created_at": "2026-09-23T09:08:58.265600Z",
+        "session_id": "4870076094027855950",
+        "dispatch_key": "52103cd85bdda8468bec5437"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T09:22:18.449104Z",
+    "last_poll_at": "2026-09-23T09:22:21.722048Z",
     "last_tick_at": "2026-09-23T09:16:05.631243Z",
     "run_id": "35841863536"
   }
