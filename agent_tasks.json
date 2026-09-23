@@ -37853,7 +37853,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T18:51:03.171271Z"
+        "observed_at": "2026-09-23T18:51:03.171271Z",
+        "released_attempt_ref": "autonomous/attempt-bfe95c11a0f62c3ea8bd46b5"
       },
       "research_result": {
         "summary": "Verified focus management behavior on external links and UI state retention across transcript reloads.",
