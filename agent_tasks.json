@@ -32417,7 +32417,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T06:16:52.740203Z"
+        "observed_at": "2026-09-23T06:16:52.740203Z",
+        "released_attempt_ref": "autonomous/attempt-b9367ba2081634d8facd34fb"
       },
       "research_result": {
         "summary": "Investigated the PTY exit event mechanism and discovered a race condition that can cause the UI to display a newly restarted terminal session as exited.",
