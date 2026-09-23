@@ -34893,7 +34893,7 @@
       "id": "research-terminal-input-ux-7",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -35014,23 +35014,112 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4837637215068643094",
         "dispatch_key": "8b845b7e45b4e50237ea597d",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
         "starting_branch": "autonomous/attempt-8b845b7e45b4e50237ea597d",
         "started_at": "2026-09-23T11:57:48.107967Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T12:18:47.268008Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T12:05:58.570823Z"
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T12:18:47.268008Z"
+      },
+      "research_result": {
+        "summary": "Investigated the terminal font resizing behavior in `TerminalView.tsx`.",
+        "observations": [
+          {
+            "scenario": "Changing the terminal font size via settings panel which updates `terminalFontFamily` and `terminalFontSize` props in `TerminalView.tsx`.",
+            "evidence": "Observed via synthetic React component test simulating font size changes. When the font size props change, a `useEffect` calls `fitAddon.fit()` in a `requestAnimationFrame`. This recalculates the `cols` and `rows` of the xterm canvas. However, it does not call the local `fit()` closure or `resizeTerminal()`. Because the `.terminal-host` container size itself typically does not change (it's constrained by its flex parent), the `ResizeObserver` does not trigger, meaning the backend PTY is never notified of the new `cols` and `rows` until the user manually resizes the application window.",
+            "result": "Establishes that terminal font resizing fails to update the backend PTY dimensions, leading to garbled text layout."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+        ],
+        "proposed_task_ids": [
+          "discovery-04eb5c9fb6e41d82"
+        ],
+        "completed_at": "2026-09-23T12:18:47.268008Z",
+        "source": {
+          "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+          "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+          "activity_created_at": "2026-09-23T12:08:08.803368Z",
+          "session_id": "4837637215068643094",
+          "dispatch_key": "8b845b7e45b4e50237ea597d"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+          "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+          "activity_created_at": "2026-09-23T12:08:08.803368Z",
+          "session_id": "4837637215068643094",
+          "dispatch_key": "8b845b7e45b4e50237ea597d"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-04eb5c9fb6e41d82"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-04eb5c9fb6e41d82",
+      "title": "Fix terminal PTY desync when changing font size",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-23T12:18:47.268008Z",
+      "acceptance": [
+        "When the terminal font family or size changes, the backend PTY is updated with the new columns and rows dimensions immediately after `fitAddon.fit()`."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React component testing in the Node environment simulating the font size `useEffect` behavior in `TerminalView.tsx`. The resize call is missing.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `TerminalView` with initial font size 14.",
+            "Wait for the initial connection and `resizeTerminal` call.",
+            "Change the font size prop to 16.",
+            "Observe that `fitAddon.fit()` is called in the `requestAnimationFrame`.",
+            "Observe that `resizeTerminal()` is NOT called to notify the backend."
+          ],
+          "expected": "The backend PTY receives a `resizeTerminal` call with the new columns and rows.",
+          "actual": "The backend PTY is not notified, causing layout desynchronization."
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-ux-7",
+        "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+        "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+        "activity_created_at": "2026-09-23T12:08:08.803368Z",
+        "session_id": "4837637215068643094",
+        "dispatch_key": "8b845b7e45b4e50237ea597d"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T12:19:07.835762Z",
+    "last_poll_at": "2026-09-23T12:19:11.671070Z",
     "last_tick_at": "2026-09-23T12:12:59.378791Z",
     "run_id": "35859026080"
   }
