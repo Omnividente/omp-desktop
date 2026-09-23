@@ -19207,7 +19207,7 @@
       "id": "discovery-a1eefff4576aa5c1",
       "title": "Prevent session JSONL and artifacts desynchronization on interrupted import",
       "task_type": "bugfix",
-      "status": "in_progress",
+      "status": "blocked",
       "priority": 75,
       "risk": "medium",
       "focus": [
@@ -19251,7 +19251,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "quarantined",
         "session_id": "18085791308144113483",
         "dispatch_key": "f133e19c6dd89a90051e4bf6",
         "base_sha": "2725a1f6255b75974bde7983a1e5694288a4a222",
@@ -19259,10 +19259,11 @@
         "started_at": "2026-09-20T20:35:40.042612Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "stale",
+        "note": "owner_disabled_loop",
         "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-20T21:14:17.184870Z"
+        "observed_at": "2026-09-20T21:14:17.184870Z",
+        "quarantined_at": "2026-09-23T12:26:16.146506Z"
       }
     },
     {
@@ -35122,7 +35123,7 @@
       "id": "research-diagnostics-resources-behavior-7",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -35264,7 +35265,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "quarantined",
         "session_id": "4177348324449373254",
         "dispatch_key": "7b6515a5cc361426c3966ed3",
         "base_sha": "90626eb0032fbb366f5af9f57d5fc7b3a67b7703",
@@ -35272,10 +35273,11 @@
         "started_at": "2026-09-23T12:18:47.268008Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "stale",
+        "note": "owner_disabled_loop",
         "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T12:18:47.268008Z"
+        "observed_at": "2026-09-23T12:18:47.268008Z",
+        "quarantined_at": "2026-09-23T12:26:16.146575Z"
       }
     }
   ],
