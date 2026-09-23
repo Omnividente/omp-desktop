@@ -52,8 +52,9 @@ lint pass or an audit of the automation itself.
 5. Record what actually ran, what was observed and what remains unverified.
    If the native app cannot be exercised, do not present a mocked bridge or a
    source inspection as a successful native smoke test.
-   Source reading is not an experiment. Do not promote a hypothesis into an
-   implementation finding without observing the defect or measurable limitation.
+   A source inspection or a model may support a reported finding, but does not
+   establish native behavior. Label its evidence mode and limitations; an
+   unobserved hypothesis belongs in next_hypotheses, not a claimed verification.
 
 Temporary local fixtures and experiments are allowed; remove them before ending.
 Do not change tracked files. Do not inspect secret values. The controller's
@@ -157,6 +158,21 @@ report packaging remains a separate error. State the observed problem, expected
 benefit and how to verify the change. At most ten concrete tasks per report;
 additional unconfirmed directions belong in `next_hypotheses`. Do not propose
 more discovery tasks or repeat prior findings.
+
+For a strong overlap with a rejected/resolved finding, use the controller's
+`AUTONOMOUS_DECISION_CONTEXT_BEGIN/END` snapshot. Do not guess a missing note or
+claim a truncated note was fully delivered. In `evidence.revisit`, set
+`contract_version` to `post-revisit-v1` and provide the structural fields named
+by the controller: `change_kind`, `difference`, `evidence_mode`, unique zero-based
+`observation_refs` into this final report, `primary_decision_task_id`, and
+`responses` linking each fully supplied rationale by `decision_task_id` and its
+exact `decision_context_id`. Each response needs a concrete
+`why_previous_reason_no_longer_explains`; difference and responses are bounded
+at 4,000 characters. Explain every relevant rationale, not just the primary one.
+Never label static analysis or a mock/model as `real_runtime`. Hypothesis,
+unavailable evidence or missing context remains deferred for owner review; do
+not repeat work, ask for approval or rewrite an old decision to force admission.
+Passing the structural gate still means proposed/reported, not verified.
 
 A human or Main AI later rejects, implements externally or explicitly approves a
 finding and selects its task for Jules implementation. This is not automatic and

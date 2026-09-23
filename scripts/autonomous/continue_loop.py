@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -118,6 +119,15 @@ class Runtime:
         self.scratch = Path(scratch)
         self.clock = clock
         self.check_interval = check_interval
+        # The laboratory HEAD is mutable and is not the code rendering the
+        # callback trust marker. Bind that proof to this script's checkout.
+        revision = subprocess.run(
+            ["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"],
+            check=True, text=True, encoding="utf-8", stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=API_TIMEOUT)
+        self.control_sha = revision.stdout.strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", self.control_sha):
+            raise ValueError("control revision unavailable")
 
     def enabled(self):
         return self.github.enabled()
@@ -161,6 +171,9 @@ class Runtime:
         # historical runs (the 1000-result cap would eventually stop the loop).
         return snapshot_runs(get, workflow)
 
+    def run_detail(self, run_id):
+        return self.github.api("actions/runs/" + str(run_id))
+
     def dispatch(self, workflow, inputs):
         return self.github.api("actions/workflows/" + workflow + "/dispatches", method="POST",
                                body={"ref": "main", "inputs": inputs})
@@ -176,13 +189,41 @@ def trusted(run, repository, current_run_id, *, dispatched=True):
 
 
 def run_receipt(run):
-    return {"run_id": run["id"], "url": run.get("html_url"), "run_status": run.get("status")}
+    return {"run_id": run["id"], "url": run.get("html_url"), "run_status": run.get("status"),
+            "conclusion": run.get("conclusion"), "event": run.get("event"),
+            "display_title": run.get("display_title"), "created_at": run.get("created_at"),
+            "head_sha": run.get("head_sha"), "head_branch": run.get("head_branch"),
+            "repository": (run.get("repository") or {}).get("full_name"),
+            "head_repository": (run.get("head_repository") or {}).get("full_name"),
+            "path": run.get("path")}
 
 
 def pending_continue(runs, repository, current_run_id):
     candidates = [run for run in runs if trusted(run, repository, current_run_id, dispatched=False)
                   and run.get("status") in ACTIVE_RUN_STATUSES - {"in_progress"}]
     return min(candidates, key=lambda run: int(run["id"]), default=None)
+
+
+def continue_proof(run, repository, current_run_id, control_sha):
+    """Only the Continue endpoint's own revision-bound marker proves callbacks.
+
+    Actions renders run-name before workflow concurrency admission; waiting for
+    jobs here would deadlock against the timer which owns that same group.
+    """
+    if (run.get("path") != ".github/workflows/" + CONTINUE
+            or (run.get("repository") or {}).get("full_name") != repository):
+        return None
+    if trusted(run, repository, current_run_id, dispatched=False):
+        return "trusted_main_event"
+    if (re.fullmatch(r"[0-9a-f]{40}", control_sha or "")
+            and run.get("head_sha") == control_sha
+            and run.get("event") == "workflow_run"
+            and str(run.get("id", "")) != str(current_run_id)
+            and run.get("head_branch") == "main"
+            and (run.get("head_repository") or {}).get("full_name") == repository
+            and run.get("display_title") == f"Continue trusted callback {run.get('id')}"):
+        return "revision_bound_callback_marker"
+    return None
 
 
 def operation(health):
@@ -238,9 +279,9 @@ class Controller:
         self.check_enabled()
         return self.health
 
-    def reuse_continue(self):
+    def reuse_continue(self, runs):
         self.check_enabled()
-        run = pending_continue(self.runtime.runs(CONTINUE), self.runtime.repository, self.current_run_id)
+        run = pending_continue(runs, self.runtime.repository, self.current_run_id)
         if run is None:
             return None
         self.check_enabled()
@@ -248,6 +289,36 @@ class Controller:
         self.handoff = {"workflow": CONTINUE, "key": title[9:] if title.startswith("Continue ") else None,
                         "status": "confirmed", "reused": True, **run_receipt(run)}
         return self.report("handed_off", "pending_continue_reused")
+
+    def replacement(self, runs, baseline, intent_at, previous):
+        """Reconcile coalescing without adding another dispatch or wait budget."""
+        control_sha = getattr(self.runtime, "control_sha", None)
+
+        def proof(run):
+            created = timestamp(run.get("created_at"))
+            if (str(run.get("id")) in baseline or created is None or created < intent_at
+                    or run.get("status") not in ACTIVE_RUN_STATUSES):
+                return None
+            return continue_proof(run, self.runtime.repository, self.current_run_id, control_sha)
+
+        candidates = [run for run in runs if proof(run)]
+        candidate = max(candidates, key=lambda run: int(run["id"]), default=None)
+        if candidate is None:
+            return None, None
+        # A list snapshot can contain a stale active row after coalescing. Read
+        # the actual run on each observation, never infer admission from jobs.
+        fresh = self.runtime.run_detail(candidate["id"])
+        self.check_enabled()
+        if str(fresh.get("id")) != str(candidate["id"]):
+            return None, None
+        evidence = proof(fresh)
+        receipt = {**run_receipt(fresh), "observed_at": iso(self.clock.now()), "proof": evidence}
+        self.handoff.setdefault("replacement_observations", []).append(receipt)
+        if not evidence:
+            return None, None
+        identity = (str(fresh["id"]), fresh.get("head_sha"), evidence)
+        confirmed = fresh["status"] == "in_progress" or previous == identity
+        return receipt if confirmed else None, identity
 
     def confirm(self, workflow, inputs, *, timer_handoff=False):
         # One identity survives the entire ambiguous-ACK reconciliation. Sync
@@ -259,12 +330,13 @@ class Controller:
         expected_title = ("Next " if workflow == NEXT else "Continue ") + key if key else "Sync main " + inputs["main_sha"]
         baseline = set()
         if workflow == SYNC:
-            baseline = {run["id"] for run in self.runtime.runs(SYNC)}
+            baseline = {str(run["id"]) for run in self.runtime.runs(SYNC)}
         self.handoff = {"workflow": workflow, "key": key, "status": "pending", "attempts": 0}
         end = self.clock.monotonic() + CONFIRM_SECONDS
         ambiguous = False
         acknowledged = False
         next_post_at = self.clock.monotonic()
+        pending_replacement = None
         while self.clock.monotonic() < end:
             self.check_enabled()
             # Always reconcile before a retry, even after a transport timeout.
@@ -274,17 +346,41 @@ class Controller:
                 except Disabled:
                     raise
                 except TRANSIENT:
+                    pending_replacement = None
                     self.pause(min(5, max(0, end - self.clock.monotonic())))
                     continue
                 matches = [run for run in runs if trusted(run, self.runtime.repository, self.current_run_id)
-                           and run.get("display_title") == expected_title and run["id"] not in baseline]
+                           and run.get("display_title") == expected_title and str(run["id"]) not in baseline]
                 if matches:
                     viable = [run for run in matches if run.get("status") in ACTIVE_RUN_STATUSES
                               or (run.get("status") == "completed" and run.get("conclusion") == "success")]
-                    run = min(viable or matches, key=lambda candidate: int(candidate["id"]))
-                    self.handoff.update(status="confirmed" if viable else "failed", **run_receipt(run))
-                    return self.report("handed_off" if viable else "unknown",
-                                       "successor_observed" if viable else "successor_failed")
+                    failed = [run for run in matches if workflow == CONTINUE
+                              and run.get("status") == "completed" and run.get("conclusion") != "cancelled"]
+                    run = min(viable or failed or matches, key=lambda candidate: int(candidate["id"]))
+                    if workflow == CONTINUE and not viable and run.get("status") == "completed" and run.get("conclusion") == "cancelled":
+                        self.handoff["cancelled_successor"] = run_receipt(run)
+                        self.handoff.update(**run_receipt(run))
+                        # The POST reached Actions. Coalescing is not a reason
+                        # to retry it, including after an ambiguous transport.
+                        ambiguous = False
+                    else:
+                        self.handoff.update(status="confirmed" if viable else "failed", **run_receipt(run))
+                        return self.report("handed_off" if viable else "unknown",
+                                           "successor_observed" if viable else "successor_failed")
+                if workflow == CONTINUE and self.handoff.get("cancelled_successor"):
+                    try:
+                        replacement, pending_replacement = self.replacement(
+                            runs, baseline, timestamp(self.handoff["intent_at"]), pending_replacement)
+                    except Disabled:
+                        raise
+                    except TRANSIENT:
+                        pending_replacement = None
+                        replacement = None
+                    if replacement and self.clock.monotonic() < end:
+                        self.handoff.update(status="confirmed", replacement=replacement,
+                                            **{k: v for k, v in replacement.items() if k not in {"proof", "observed_at"}})
+                        return self.report("handed_off", "cancelled_successor_replaced")
+                    self.report("pending", "confirming_cancelled_successor_replacement")
             if self.clock.monotonic() >= end:
                 break
             can_post = (not self.handoff["attempts"] or
@@ -301,12 +397,20 @@ class Controller:
                         return self.report("unknown" if self.handoff["attempts"] else "changed",
                                            "snapshot_changed_before_dispatch")
                 if workflow == CONTINUE and not self.handoff["attempts"]:
-                    reused = self.reuse_continue()
+                    runs = self.runtime.runs(CONTINUE)
+                    reused = self.reuse_continue(runs)
                     if reused:
                         return reused
+                    baseline = {str(run["id"]) for run in runs}
+                    self.handoff["baseline_run_ids"] = sorted(baseline)
+                    self.handoff["control_sha"] = getattr(self.runtime, "control_sha", None)
                 self.check_enabled()
                 if self.clock.monotonic() >= end:
                     break
+                if not self.handoff["attempts"]:
+                    # GitHub created_at has whole-second resolution. The
+                    # pre-POST baseline excludes existing runs in that second.
+                    self.handoff["intent_at"] = iso(self.clock.now().replace(microsecond=0))
                 self.handoff["attempts"] += 1
                 # Persist the intent before POST; an ACK is still only pending.
                 self.report("dispatching", "requesting_successor")
@@ -320,6 +424,9 @@ class Controller:
                     ambiguous = True
                 next_post_at = self.clock.monotonic() + 15
             self.pause(min(5, max(0, end - self.clock.monotonic())))
+        if self.handoff.get("cancelled_successor"):
+            self.handoff["status"] = "failed"
+            return self.report("unknown", "successor_replacement_unavailable")
         self.handoff["status"] = "pending" if acknowledged else "unknown"
         return self.report(self.handoff["status"], "successor_confirmation_unavailable")
 

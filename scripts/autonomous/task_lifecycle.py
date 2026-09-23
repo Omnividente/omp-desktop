@@ -22,6 +22,7 @@ All times are UTC.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -31,6 +32,7 @@ from typing import Any, Mapping, Sequence
 
 from jules_dispatch import session_is_active
 from select_task import blocks_lane, select
+from research_request import ATTEMPT_FIELDS, CONTRACT_VERSION, validate_task_request
 
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_STALE_HOURS = 6
@@ -201,8 +203,9 @@ def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
 
 
 def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
-            starting_branch: str, now: datetime | None = None) -> dict:
-    """Persist one attempt before its single permitted CreateSession call."""
+            starting_branch: str, research_request: dict | None = None,
+            now: datetime | None = None) -> dict:
+    """Persist one attempt and, for research, its exact request before CreateSession."""
     task = find_task(manifest, task_id)
     if task is None:
         raise ValueError("task not found")
@@ -214,21 +217,38 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
     if block.get("dispatch_key") == dispatch_key:
         if block.get("base_sha") != base_sha or block.get("starting_branch") != starting_branch:
             raise ValueError("reservation identity conflicts with the stored attempt")
+        if task.get("task_type") == "project_discovery" and research_request is not None:
+            old = block.get("research_request")
+            if old != research_request:
+                raise ValueError("research request conflicts with the stored attempt")
         return {"changed": False, "reason": "already_reserved", "task_id": task_id,
                 "attempts": attempts_of(task)}
+    if task.get("task_type") == "project_discovery":
+        if not isinstance(research_request, dict) or research_request.get("contract_version") != CONTRACT_VERSION:
+            raise ValueError("new research reservations require the controller request contract")
     selection = select(manifest, task_id=task["id"])
     if not selection["selected"]:
         raise ValueError("task is not available for reservation: " + selection["reason"])
-    block = _execution(task)
+    block = dict(task.get("execution") or {})
+    if "research_request" in block:
+        previous = {field: copy.deepcopy(block[field]) for field in ATTEMPT_FIELDS if field in block}
+        block["research_request_history"] = [*block.get("research_request_history", []), previous]
     block.update(attempts=attempts_of(task) + 1, state="dispatching", session_id="",
                  dispatch_key=dispatch_key, base_sha=base_sha, starting_branch=starting_branch,
                  started_at=iso(now or utcnow()), finished_at="", pull_request=0,
                  outcome="", note="")
+    if task.get("task_type") == "project_discovery":
+        block["research_request"] = copy.deepcopy(research_request)
+    else:
+        block.pop("research_request", None)
     block.pop("provenance", None)
     block.pop("session_state", None)
     block.pop("research_detached", None)
     block.pop("feedback_nudge", None)
-    task["status"] = STATUS_IN_PROGRESS
+    errors = validate_task_request(dict(task, status=STATUS_IN_PROGRESS, execution=block))
+    if errors:
+        raise ValueError("invalid reserved research request: " + "; ".join(errors))
+    task.update(status=STATUS_IN_PROGRESS, execution=block)
     return {"changed": True, "reason": "reserved", "task_id": task_id,
             "status": STATUS_IN_PROGRESS, "attempts": block["attempts"]}
 
@@ -285,6 +305,10 @@ def start(
             "task_id": str(task.get("id") or ""),
             "status": str(task.get("status") or ""), "attempts": attempts_of(task),
         }
+    if (task.get("task_type") == "project_discovery"
+            and ((manifest.get("autonomous_loop_policy") or {}).get("research_contract") == CONTRACT_VERSION
+                 or block.get("research_request"))):
+        raise ValueError("research must reserve its request before binding a new attempt")
     if str(task.get("status") or "") != STATUS_TODO or block.get("outcome") == OUTCOME_CLOSED:
         raise ValueError("task is not available for a new attempt")
     max_attempts, _stale_hours = limits(manifest)
@@ -567,6 +591,7 @@ def main(argv=None) -> int:
     parser.add_argument("--dispatch-key", default="")
     parser.add_argument("--base-sha", default="")
     parser.add_argument("--starting-branch", default="")
+    parser.add_argument("--research-request", type=Path, help="Controller-owned immutable request snapshot for research reserve")
     parser.add_argument("--repository", default="")
     parser.add_argument("--pr-json", type=Path)
     parser.add_argument("--outcome", default="")
@@ -590,7 +615,9 @@ def main(argv=None) -> int:
     try:
         if args.action == "reserve":
             result = reserve(manifest, args.task_id, args.dispatch_key,
-                             base_sha=args.base_sha, starting_branch=args.starting_branch)
+                             base_sha=args.base_sha, starting_branch=args.starting_branch,
+                             research_request=json.loads(args.research_request.read_text(encoding="utf-8"))
+                             if args.research_request else None)
         elif args.action == "quarantine":
             result = quarantine(manifest, args.task_id, reason=args.note)
         elif args.action == "start":

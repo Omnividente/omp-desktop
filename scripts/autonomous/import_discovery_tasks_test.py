@@ -24,6 +24,8 @@ from validate_tasks import validate  # noqa: E402
 from proposal_backlog import decide  # noqa: E402
 from state_store import StateConflict, load_state, save_state  # noqa: E402
 from task_lifecycle import start  # noqa: E402
+from research_request import (CONTRACT_VERSION, CONTEXT_BEGIN, CONTEXT_END, canonical_json,
+                              decision_entry, snapshot, sha256_json)
 
 NOW = "2026-09-12T12:00:00Z"
 FENCE = "```"
@@ -132,6 +134,143 @@ def historical(finding, *, task_id="previous", action="reject", at=NOW):
     task.update(status="done", proposal_decision={"action": action, "actor": "owner",
                                                 "at": at, "note": "Reviewed the previous claim"})
     return task
+
+
+def attach_request(source, entries):
+    execution = source["execution"]
+    execution.update(starting_branch="autonomous/attempt-" + execution["dispatch_key"], base_sha="b" * 40)
+    request = {"prompt": "AUTONOMOUS_DISPATCH_KEY: " + execution["dispatch_key"]
+               + "\nAUTONOMOUS_TASK_ID: " + source["id"] + "\n\nResearch only on exact pinned base "
+               + execution["base_sha"] + ".\n" + CONTEXT_BEGIN + canonical_json(entries) + CONTEXT_END,
+               "title": "[dispatch:" + execution["dispatch_key"] + "] Research",
+               "requirePlanApproval": False,
+               "sourceContext": {"source": "sources/github/owner/repo",
+                                 "githubRepoContext": {"startingBranch": execution["starting_branch"]}}}
+    execution["research_request"] = snapshot(request, entries, "c" * 40)
+
+
+def post_fixture(*, deliver=True, revisit=True, mode="real_runtime", history=None, finding=None):
+    history = history if history is not None else [historical(FINDING, at="2026-09-11T12:00:00Z")]
+    candidate = copy.deepcopy(finding or FINDING)
+    entries = [decision_entry(task) for task in history if (task["proposal_decision"].get("note") or "").strip()]
+    if revisit:
+        candidate["evidence"]["revisit"] = {
+            "contract_version": CONTRACT_VERSION, "change_kind": "new_evidence", "difference": "Observed again",
+            "evidence_mode": mode, "observation_refs": [0], "primary_decision_task_id": history[0]["id"],
+            "responses": [{"decision_task_id": item["task_id"], "decision_context_id": item["context_id"],
+                           "why_previous_reason_no_longer_explains": "The current observation differs"} for item in entries]}
+    text = body(json.dumps([candidate]))
+    data = manifest(*copy.deepcopy(history))
+    origin = accept_report(data, text)
+    attach_request(data["tasks"][-1], entries if deliver else [])
+    return data, text, origin
+
+
+class PostAdmissionTests(unittest.TestCase):
+    def test_each_complete_post_rationale_is_required_even_if_primary_was_delivered(self):
+        history = [historical(FINDING, task_id="a", at="2026-09-11T12:00:00Z"),
+                   historical(FINDING, task_id="b", action="resolve", at="2026-09-10T12:00:00Z")]
+        data, text, origin = post_fixture(history=history)
+        source = data["tasks"][-1]
+        attach_request(source, [decision_entry(history[0])])
+        before = copy.deepcopy(data["tasks"][:2])
+        result = import_tasks(data, text, config=CONFIG, origin=origin)
+        self.assertEqual(result["added"], [])
+        self.assertEqual(result["deferred"][0]["reason"], "historical_post_context_missing")
+        self.assertEqual(data["tasks"][:2], before)
+        self.assertEqual(source["research_result"]["deferred_findings"], result["deferred"])
+
+    def test_partial_or_canonically_different_delivery_is_not_a_complete_owner_note(self):
+        for delivered in ("Reviewed", "Reviewed the previous claim "):
+            data, text, origin = post_fixture()
+            previous, source = data["tasks"]
+            attach_request(source, [decision_entry(previous, delivered)])
+            result = import_tasks(data, text, config=CONFIG, origin=origin)
+            self.assertEqual(result["deferred"][0]["reason"], "historical_post_context_missing")
+
+    def test_static_and_mock_explanations_remain_reported_while_hypotheses_defer(self):
+        for mode in ("real_runtime", "static_analysis", "mock_or_model", "hypothesis", "unavailable"):
+            with self.subTest(mode=mode):
+                data, text, origin = post_fixture(mode=mode)
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                if mode in ("hypothesis", "unavailable"):
+                    self.assertEqual(result["added"], [])
+                    self.assertEqual(result["deferred"][0]["reason"], "historical_post_insufficient_evidence")
+                else:
+                    proposal = data["tasks"][-1]
+                    self.assertEqual(result["added"], [proposal["id"]])
+                    self.assertEqual(proposal["status"], "proposed")
+                    self.assertEqual(proposal["evidence"]["status"], "reported")
+                    self.assertNotIn("proposal_decision", proposal)
+                self.assertEqual(validate(data), [])
+
+    def test_malformed_revisit_is_deferred_not_a_rejected_research_report(self):
+        changes = [{"observation_refs": [True]}, {"observation_refs": [-1]}, {"observation_refs": [1]},
+                   {"observation_refs": [0, 0]}, {"responses": []}, {"responses": [{}]},
+                   {"primary_decision_task_id": "foreign"}, {"difference": "x" * 4001},
+                   {"contract_version": "foreign"}, {"change_kind": "trust_me"}]
+        for changeset in changes:
+            with self.subTest(changes=changeset):
+                data, _, _ = post_fixture()
+                finding = copy.deepcopy(FINDING)
+                entry = decision_entry(data["tasks"][0])
+                finding["evidence"]["revisit"] = {"change_kind": "new_evidence", "difference": "Changed",
+                    "evidence_mode": "static_analysis", "observation_refs": [0], "primary_decision_task_id": "previous",
+                    "responses": [{"decision_task_id": "previous", "decision_context_id": entry["context_id"],
+                                   "why_previous_reason_no_longer_explains": "Different"}], **changeset}
+                text = body(json.dumps([finding]))
+                data = manifest(data["tasks"][0])
+                origin = accept_report(data, text)
+                attach_request(data["tasks"][-1], [entry])
+                result = import_tasks(data, text, config=CONFIG, origin=origin)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["deferred"][0]["reason"], "historical_post_unexplained")
+                self.assertEqual(validate(data), [])
+
+    def test_note_free_fallback_only_applies_when_all_strong_post_notes_are_absent(self):
+        absent = historical(FINDING, task_id="absent", at="2026-09-11T12:00:00Z")
+        absent["proposal_decision"].pop("note")
+        for include_note in (False, True):
+            history = [absent]
+            if include_note:
+                history.append(historical(FINDING, task_id="with-note", at="2026-09-10T12:00:00Z"))
+            data, text, origin = post_fixture(history=history, deliver=False, revisit=False)
+            result = import_tasks(data, text, config=CONFIG, origin=origin)
+            if include_note:
+                self.assertEqual(result["deferred"][0]["reason"], "historical_post_context_missing")
+            else:
+                self.assertEqual(data["tasks"][-1]["review_context"]["post_gate"], "not_applicable_no_rationale")
+                self.assertEqual(result["added"], [data["tasks"][-1]["id"]])
+
+    def test_deferred_identity_ignores_worker_id_and_import_clock_and_replay_is_immutable(self):
+        first = copy.deepcopy(FINDING)
+        second = dict(copy.deepcopy(FINDING), id="worker-second", status="todo", execution={"state": "completed"})
+        text = body(json.dumps([first, second]))
+        data = manifest(historical(FINDING, at="2026-09-11T12:00:00Z"))
+        origin = accept_report(data, text)
+        attach_request(data["tasks"][-1], [])
+        later = copy.deepcopy(data)
+        result = import_tasks(data, text, config=CONFIG, origin=origin, now=NOW)
+        again = import_tasks(later, text, config=CONFIG, origin=origin, now="2026-09-20T12:00:00Z")
+        self.assertEqual(len(result["deferred"]), 1)
+        self.assertEqual(result["deferred"], again["deferred"])
+        saved = json.loads(json.dumps(data))
+        before = copy.deepcopy(saved)
+        replay = import_tasks(saved, text, config=CONFIG, origin=origin)
+        self.assertFalse(replay["changed"])
+        self.assertEqual(saved, before)
+
+    def test_pre_boundary_and_open_overlap_precede_structural_post_gate(self):
+        for history, expected in (([historical(FINDING)], "historical_predecision_overlap"),
+                                  ([normalize(FINDING, now=NOW)], "duplicate_contract")):
+            data = manifest(*history)
+            text = body(ONE_TASK)
+            origin = accept_report(data, text)
+            attach_request(data["tasks"][-1], [])
+            result = import_tasks(data, text, config=CONFIG, origin=origin)
+            self.assertEqual(result["skipped"][0]["reason"], expected)
+
+
 
 
 def config_args(directory):

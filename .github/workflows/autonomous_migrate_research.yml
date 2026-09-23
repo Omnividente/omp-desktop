@@ -1,0 +1,70 @@
+name: Autonomous Research Contract Migration
+
+# Explicit owner cutover only. Never dispatches Jules or changes the loop switch.
+# All state writers (Next, Backlog, Switch, Replenish) share this lock. Old runs
+# already owning it drain first; old runs admitted afterwards reject the new
+# non-integer schema version in their validator before any state save/create.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_state_sha:
+        description: Exact autonomous/state SHA reviewed after disabling the loop
+        type: string
+        required: true
+      note:
+        description: Owner rationale for the post-revisit-v1 state cutover
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-lab-queue
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      MIGRATION_ACTOR: ${{ github.actor }}
+      MIGRATION_NOTE: ${{ inputs.note }}
+      EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
+    steps:
+      - name: Check out the exact owner-selected controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+
+      - name: Check out the laboratory without running product code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          path: lab
+          persist-credentials: false
+
+      - name: Verify policy and publish the fenced schema under state ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
+          python3 control/scripts/autonomous/migrate_research_contract.py \
+            --publish --repo lab --config control/autonomous-project.json \
+            --manifest queue-before.json --out queue-migrated.json --revision-file queue-revision.json \
+            --expected-state-sha "${EXPECTED_STATE_SHA}" --actor "${MIGRATION_ACTOR}" --note "${MIGRATION_NOTE}" \
+            --summary-out migration-result.json
+
+      - name: Retain owner cutover receipt without worker request payloads
+        if: ${{ always() && hashFiles('migration-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: research-contract-migration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: migration-result.json
+          retention-days: 30
+          if-no-files-found: error

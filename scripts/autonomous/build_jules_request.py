@@ -25,6 +25,11 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
+from research_request import (
+    CHANGE_KINDS, CONTRACT_VERSION, CONTEXT_BEGIN, CONTEXT_END, EVIDENCE_MODES,
+    MAX_REVISIT_TEXT_CHARS, canonical_json, saved_request,
+)
+
 
 def dispatch_key(repo: str, task_id: str, attempt: int = 1) -> str:
     try:
@@ -66,10 +71,22 @@ def build(
     risk_ceiling: str = "medium",
     attempt: int | None = None,
     starting_branch: str = "",
+    decision_context: list[dict] | None = None,
+    proposal_context: str = "",
 ) -> dict:
     task_id = str(task.get("id") or "")
     number = next_attempt(task) if attempt is None else attempt
     key = dispatch_key(repo, task_id, number)
+    research = task.get("task_type") == "project_discovery"
+    if research and number == (task.get("execution") or {}).get("attempts"):
+        saved = saved_request(task)
+        if saved is not None:
+            return saved
+    # The intent must not recursively include its own snapshot or mutable state.
+    prompt_task = ({field: task[field] for field in (
+        "id", "title", "task_type", "created_at", "focus", "risk", "priority",
+        "target_paths", "acceptance", "evidence", "research",
+    ) if field in task} if research else task)
     replacements = {
         "PROJECT_REPO": repo,
         "INTEGRATION_BRANCH": branch,
@@ -80,7 +97,7 @@ def build(
         "TASK_ID": task_id,
         "TASK_TITLE": str(task.get("title") or ""),
         "TASK_TYPE": str(task.get("task_type") or ""),
-        "TASK_JSON": json.dumps(task, ensure_ascii=False, indent=2),
+        "TASK_JSON": json.dumps(prompt_task, ensure_ascii=False, indent=2),
         "ATTEMPT": str(number),
     }
     marker = "AUTONOMOUS_DISPATCH_KEY: " + key + "\nAUTONOMOUS_TASK_ID: " + task_id + "\n\n"
@@ -96,6 +113,25 @@ def build(
             "Return the final AUTONOMOUS_RESEARCH_BEGIN/END report and any actionable proposals "
             "in AUTONOMOUS_TASKS_BEGIN/END. Humans review the accumulated backlog later; "
             "do not wait for their decision or start another task.\n\n"
+        )
+        marker += (
+            "Historical decision contract: " + CONTRACT_VERSION + ". For a strong overlap with "
+            "a rejected/resolved finding, address every fully delivered owner rationale in "
+            "evidence.revisit. Fields: contract_version, change_kind, difference, evidence_mode, "
+            "observation_refs (unique zero-based indices in THIS final research report), "
+            "primary_decision_task_id, responses. Each response has decision_task_id, "
+            "decision_context_id (the exact supplied context_id), "
+            "why_previous_reason_no_longer_explains. Choose primary by exact overlap before "
+            "possible overlap, then newest decision timestamp, then task id. "
+            "change_kind: " + ", ".join(sorted(CHANGE_KINDS)) + ". evidence_mode: "
+            + ", ".join(sorted(EVIDENCE_MODES)) + ". difference and each rationale response "
+            "must be nonblank and at most " + str(MAX_REVISIT_TEXT_CHARS) + " characters. "
+            "A truncated note is not a delivered rationale. Do not invent missing context; "
+            "such proposals remain deferred for owner review. Hypothesis/unavailable also "
+            "remain deferred. Static analysis and mocks are not real runtime evidence. "
+            "All findings, including accepted structured revisits, remain reported/unverified.\n\n"
+            + CONTEXT_BEGIN + canonical_json(decision_context or []) + CONTEXT_END + "\n\n"
+            + proposal_context + "\n\n"
         )
     if task.get("task_type") != "project_discovery":
         marker += (
@@ -162,16 +198,16 @@ def main(argv=None) -> int:
         except Exception:
             base_sha = ""
 
-    body = build(
-        task,
-        template=args.template.read_text(encoding="utf-8"),
-        repo=args.repo,
-        branch=args.branch,
-        starting_branch=args.starting_branch,
-        base_sha=base_sha,
-        focus=args.focus,
-        risk_ceiling=args.risk_ceiling,
-    )
+    body = None
+    if next_attempt(task) == (task.get("execution") or {}).get("attempts"):
+        body = saved_request(task)
+    if body is None:
+        from research_cycle import request_context
+        context, proposals = request_context(manifest["tasks"], task.get("target_paths", []))
+        body = build(task, template=args.template.read_text(encoding="utf-8"), repo=args.repo,
+                     branch=args.branch, starting_branch=args.starting_branch, base_sha=base_sha,
+                     focus=args.focus, risk_ceiling=args.risk_ceiling,
+                     decision_context=context, proposal_context=proposals)
     args.out.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
     attempt = next_attempt(task)
     key = dispatch_key(args.repo, args.task_id, attempt)

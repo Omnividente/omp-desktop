@@ -11,6 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from validate_tasks import validate  # noqa: E402
+from import_discovery_tasks import import_tasks
+from import_discovery_tasks_test import post_fixture, CONFIG as PRODUCT_CONFIG
+from proposal_backlog import materialize_deferred
+from research_request import CONTRACT_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "agent_tasks.json"
@@ -35,6 +39,80 @@ def manifest(*tasks, **policy) -> dict:
     loop_policy = {"integration_branch": "autonomous/lab"}
     loop_policy.update(policy)
     return {"version": 2, "autonomous_loop_policy": loop_policy, "tasks": list(tasks)}
+
+
+class DeferredIdentityTests(unittest.TestCase):
+    def queue(self, *, materialized=False):
+        data, text, origin = post_fixture(deliver=False)
+        result = import_tasks(data, text, config=PRODUCT_CONFIG, origin=origin)
+        if materialized:
+            materialize_deferred(data, {**PRODUCT_CONFIG, "merge_gate": {"owner_approvers": ["owner"]}},
+                                 source_task_id=origin["task_id"], deferred_id=result["deferred"][0]["deferred_id"],
+                                 actor="owner", note="Reconsider", now="2026-09-20T12:00:00Z")
+        self.assertEqual(validate(data), [])
+        return data
+
+    def test_receipt_report_and_stable_candidate_cross_links_cannot_be_corrupted(self):
+        original = self.queue()
+        cases = [
+            (("tasks", 1, "discovery_import", "source", "report_sha256"), "f" * 64),
+            (("tasks", 1, "discovery_import", "result", "deferred", 0, "source", "task_id"), "previous"),
+            (("tasks", 1, "discovery_import", "result", "deferred", 0, "candidate", "title"), "Rewritten"),
+            (("tasks", 1, "discovery_import", "result", "deferred", 0, "deferred_id"), "f" * 64),
+            (("tasks", 1, "research_result", "deferred_findings"), []),
+            (("tasks", 1, "discovery_import", "result", "deferred"), []),
+            (("tasks", 1, "research_result", "deferred_findings", 0, "review_context", "matches", 0, "action"), "resolve"),
+        ]
+        for path, value in cases:
+            with self.subTest(path=path):
+                data = copy.deepcopy(original)
+                target = data
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                before = copy.deepcopy(data)
+                self.assertTrue(validate(data))
+                self.assertEqual(data, before)
+
+    def test_materialization_event_and_proposal_are_validated_in_both_directions(self):
+        original = self.queue(materialized=True)
+        cases = [
+            (("tasks", 1, "deferred_materializations"), []),
+            (("tasks", 1, "deferred_materializations", 0, "proposal_id"), "previous"),
+            (("tasks", 1, "deferred_materializations", 0, "deferred_id"), "f" * 64),
+            (("tasks", 2, "materialized_from", "source_task_id"), "previous"),
+            (("tasks", 2, "materialized_from", "actor"), "foreign"),
+            (("tasks", 2, "origin", "report_sha256"), "f" * 64),
+            (("tasks", 2, "evidence", "detail"), "Different evidence"),
+            (("tasks", 2, "review_context", "matches", 0, "decision_at"), "2026-09-01T12:00:00Z"),
+        ]
+        for path, value in cases:
+            with self.subTest(path=path):
+                data = copy.deepcopy(original)
+                target = data
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                self.assertTrue(validate(data))
+        without_proposal = copy.deepcopy(original)
+        without_proposal["tasks"].pop()
+        self.assertTrue(validate(without_proposal))
+        duplicate_event = copy.deepcopy(original)
+        duplicate_event["tasks"][1]["deferred_materializations"] *= 2
+        self.assertTrue(validate(duplicate_event))
+
+    def test_versioned_request_is_validated_without_policy_but_missing_active_request_uses_policy(self):
+        data, _, _ = post_fixture()
+        data["tasks"][1]["execution"]["research_request"]["request_sha256"] = "f" * 64
+        self.assertTrue(validate(data))
+        active = manifest(task("research", task_type="project_discovery", status="in_progress",
+                               execution={"state": "dispatched", "attempts": 1,
+                                          "session_id": "7", "dispatch_key": "first"}))
+        self.assertEqual(validate(active), [])
+        active["autonomous_loop_policy"]["research_contract"] = CONTRACT_VERSION
+        self.assertTrue(validate(active))
+
+
 
 
 class ShippedManifestTest(unittest.TestCase):
