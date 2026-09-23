@@ -33192,7 +33192,8 @@
         "outcome": "researched",
         "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T08:15:25.370078Z"
+        "observed_at": "2026-09-23T08:15:25.370078Z",
+        "released_attempt_ref": "autonomous/attempt-590dc1be81fe859c509fbb56"
       },
       "research_result": {
         "summary": "Investigated workspace switching, project rendering scaling, and import error handling.",
