@@ -35909,7 +35909,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-23T13:45:17.574630Z"
+        "observed_at": "2026-09-23T13:45:17.574630Z",
+        "released_attempt_ref": "autonomous/attempt-e90a3fb34115ec6cba57869b"
       },
       "research_result": {
         "summary": "Investigated runtime incidents state eviction logic to confirm priority based on active incident count per terminal.",
