@@ -39066,7 +39066,7 @@
       "id": "research-workspace-navigation-behavior-8",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -39228,16 +39228,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6276536335705298920",
         "dispatch_key": "17505af6e76fc6ed0b565ad3",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-17505af6e76fc6ed0b565ad3",
         "started_at": "2026-09-23T23:25:39.254703Z",
-        "finished_at": "",
+        "finished_at": "2026-09-23T23:46:35.452096Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -39412,8 +39412,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-23T23:33:39.345574Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-23T23:46:35.452096Z"
+      },
+      "research_result": {
+        "summary": "Verified focus behavior during background updates, renaming conflicts, and list element deletions.",
+        "observations": [
+          {
+            "scenario": "Verify focus behavior when editing a session title and the backend responds with a conflicting title update.",
+            "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment3.test.tsx`) that mounts `<SessionList />` in a renaming state. Focused the `.session-rename` input. Simulated a backend sync that changes the session's title while keeping the ID identical. Observed that `document.activeElement` correctly remains on the rename input.",
+            "result": "Establishes that the UI robustly handles backend title changes during a rename without dropping focus, as long as the session ID remains constant."
+          },
+          {
+            "scenario": "Investigate focus behavior when a background sync/refresh replaces the DOM nodes of an active session while it is currently selected.",
+            "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment2.test.tsx`) that mounts `<SessionList />` with a session. Focused the session row. Simulated a backend sync that changes the session's ID (causing the original DOM node to unmount and remount with a new key). Observed that `document.activeElement` drops to `document.body` because the old DOM node is destroyed and there is no explicit fallback logic for this unmount case.",
+            "result": "Establishes that focus drops to the body if a background synchronization event reconstructs a selected session with a new identity/key."
+          },
+          {
+            "scenario": "Verify focus behavior when a workspace is removed via UI.",
+            "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/ProjectRail.experiment2.test.tsx`) investigating project rail removal. Focused the remove button of a workspace and triggered its deletion. Observed that focus successfully falls back to the `openFolderRef` (the 'Open folder' button) due to the useLayoutEffect logic.",
+            "result": "Confirms the explicit fallback logic in `ProjectRail` behaves correctly during workspace deletions, properly delegating focus to the fallback element when the active element unmounts."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate focus restoration when a modal (like settings or transcript) closes after the session that triggered it was deleted in the background."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-23T23:46:35.452096Z",
+        "source": {
+          "activity_id": "sessions/6276536335705298920/activities/85a38d97eab047cfbf7782e982b00c52",
+          "report_sha256": "63e02588645da57255a3fe4e36f1a1210ed97f5b7f825b47bdc714f4c67f55ef",
+          "activity_created_at": "2026-09-23T23:35:03.109202Z",
+          "session_id": "6276536335705298920",
+          "dispatch_key": "17505af6e76fc6ed0b565ad3"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -39460,7 +39493,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-23T23:40:37.331634Z",
+    "last_poll_at": "2026-09-23T23:46:54.326191Z",
     "last_tick_at": "2026-09-23T23:40:40.650685Z",
     "run_id": "35934713581"
   }
