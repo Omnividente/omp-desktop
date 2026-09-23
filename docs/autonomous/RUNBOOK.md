@@ -523,10 +523,18 @@ the task, safe session ID/link and observation timestamp in `waiting_workers`.
 Normal waiting is informational, not a controller failure. Quarantine, unknown
 identity, invalid reports and actual errors remain separate attention conditions.
 
-An implementation session retains its lane and receives no automatic answer or
-plan approval. Open that exact Jules session if you want to handle its request;
-read-only research continues independently. An ordinary scheduled observation is
-due in 30 minutes, or run NextTask explicitly to observe a manual response sooner.
+Implementation requests set `requirePlanApproval=false` and `AUTO_CREATE_PR`.
+For an owner-approved, bound implementation in `AWAITING_USER_FEEDBACK` with
+no PR, the controller persists one `execution.feedback_nudge` intent before
+instructing the **same** Jules session to decide routine in-scope details and
+either propose a PR or finish `no_change` with honest limitations. An ambiguous
+send or lost acknowledgement never triggers a blind resend. Quarantined work
+keeps its exact attempt and continues to occupy its lane until a verified
+terminal outcome or PR review. The instruction neither supplies missing facts
+nor authorizes extra tasks, plan approval, merge or release. Rejected workers,
+sessions already reporting a PR and disabled loops never receive it. The owner
+decides whether to accept a proposed PR on GitHub, not in Jules. Unexpected
+`AWAITING_PLAN_APPROVAL` and `PAUSED` remain observed, not auto-approved.
 
 A waiting research session on its saved immutable attempt receives a sticky
 `execution.research_detached = {at, reason}` marker. Another area/perspective may

@@ -12,6 +12,13 @@ and an explicit selection of this task. That decision authorizes this task, not
 other backlog findings, and is not evidence that the reported problem is true.
 Do not select or implement another proposal when this task finishes.
 
+Choose routine implementation details yourself within this approved task. Do
+not ask the owner to select an approach, clarify nonessential ambiguity or
+approve a plan inside Jules. If evidence, access or safety constraints prevent
+a justified in-scope fix, finish this session with `no_change` and describe the
+limits rather than guessing or expanding scope. Submit any verified change as
+a PR; the owner decides whether to accept it on GitHub, never in this session.
+
 - Focus filter: `{{FOCUS}}`
 - Highest acceptable risk: `{{RISK_CEILING}}`
 

@@ -674,12 +674,16 @@ def validate(manifest: Any) -> list:
                 errors.append(prefix + ".execution.research_detached requires a pinned research attempt and UTC wait record")
             if "feedback_nudge" in execution:
                 nudge = execution["feedback_nudge"]
-                if (task.get("task_type") != "project_discovery"
-                        or not _nonblank(execution.get("session_id"))
+                decision = task.get("proposal_decision") or {}
+                authorized = (task.get("task_type") == "project_discovery"
+                              or isinstance(decision, dict) and decision.get("action") in ("approve", "reject"))
+                if (not authorized or not _nonblank(execution.get("session_id"))
+                        or not _nonblank(execution.get("dispatch_key"))
+                        or type(execution.get("attempts")) is not int or execution["attempts"] < 1
                         or not isinstance(nudge, dict)
                         or nudge.get("result") not in ("pending", "sent", "unknown", "rejected")
                         or not _utc_timestamp(nudge.get("at"))):
-                    errors.append(prefix + ".execution.feedback_nudge requires a research session, UTC at and a durable result")
+                    errors.append(prefix + ".execution.feedback_nudge requires a bound authorized session, UTC at and a durable result")
             if "rejection_stop" in execution:
                 stop = execution["rejection_stop"]
                 decision = task.get("proposal_decision") or {}

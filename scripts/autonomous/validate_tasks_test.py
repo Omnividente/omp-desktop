@@ -485,7 +485,7 @@ class ProposalAndLaneTest(unittest.TestCase):
         detached.pop("research")
         self.assertTrue(validate(manifest(detached)))
 
-    def test_nudge_receipt_belongs_only_to_saved_research_session(self):
+    def test_nudge_receipt_belongs_only_to_saved_authorized_session(self):
         entry = self.research()
         for result in ("pending", "sent", "unknown", "rejected"):
             entry["execution"]["feedback_nudge"] = {"at": "2026-09-14T12:00:00Z", "result": result}
@@ -498,6 +498,13 @@ class ProposalAndLaneTest(unittest.TestCase):
         entry["task_type"] = "bugfix"
         entry.pop("research")
         self.assertTrue(validate(manifest(entry)))
+        entry["proposal_decision"] = self.decision()
+        self.assertEqual(validate(manifest(entry)), [])
+        entry["proposal_decision"]["action"] = "reject"
+        entry["status"] = "done"
+        entry["execution"].update(state="completed", outcome="no_change", session_state="COMPLETED")
+        self.assertEqual(validate(manifest(entry)), [])
+
 
 
 class HistoricalReviewContextTest(unittest.TestCase):
