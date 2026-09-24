@@ -31067,7 +31067,7 @@
       "id": "discovery-7156c20f6c4addb9",
       "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -31103,6 +31103,12 @@
         "activity_created_at": "2026-09-22T18:17:47.653490Z",
         "session_id": "8013998322907730933",
         "dispatch_key": "85977b754878b039e45607d1"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:17:15Z",
+        "note": "Reject: useModalFocus layout effect refocuses the dialog panel if activeElement becomes body or a disabled control during refresh/retry; Tab trap restores first available control. A transient retry button unmount cannot strand focus outside the modal."
       }
     },
     {
