@@ -47932,7 +47932,7 @@
       "id": "research-transcript-links-reliability-8",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -48198,16 +48198,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-6dadaff308f402e26f8a4020",
         "started_at": "2026-09-24T12:25:41.335212Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T12:52:50.830396Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -48381,13 +48381,372 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T12:25:41.335212Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T12:52:50.830396Z"
+      },
+      "research_result": {
+        "summary": "Verified focus drop defect on external links natively when clicked with preventDefault, state loss defect on path reload, cache drop defect on mode toggle, and focus drop on retry/refresh action in TranscriptModal. Validated acceptable resizing/DOM node performance for large matches.",
+        "observations": [
+          {
+            "scenario": "Simulated left click on external links in MarkdownContent via direct dispatchEvent('click').",
+            "evidence": "Tested using a synthetic jsdom test. Clicking an anchor element with preventDefault leaves focus on the previously focused element or drops it to the document body when native focus behavior is intercepted.",
+            "result": "Confirms discovery-86ee5072b42c9535: Left-clicking external links leaves focus in an unpredictable state because native action is suppressed without an explicit focus fallback."
+          },
+          {
+            "scenario": "Called loadTranscriptPath with the currently active session path.",
+            "evidence": "Tested using a synthetic jsdom test of the `useTranscript` hook. Loading the same path via `loadTranscriptPath` passes undefined for session, causing `!session || sessionPathRef.current !== path` to evaluate to true, unconditionally resetting `transcriptSearch` and `transcriptMode`.",
+            "result": "Confirms discovery-b157732b0a1a8ecb: Reloading the transcript via path clears the active filter and search state."
+          },
+          {
+            "scenario": "Toggling transcript mode resulting in layout caching destruction.",
+            "evidence": "Tested layout caching logic via static analysis and jsdom testing. Changing the mode updates the measurementKey object reference. The `useEffect` iterates over `measurementCachesRef.current.keys()` and calls `.delete(key)` on anything that isn't `measurementKey`, instantly destroying the layout measurement cache.",
+            "result": "Confirms discovery-fe5159f693ee72fe: Toggling views immediately throws away virtual list cached node heights."
+          },
+          {
+            "scenario": "Simulated clicking the 'Retry' button in TranscriptModal during an error state.",
+            "evidence": "Observed via React testing that triggering retry calls `setTranscriptLoading(true)`, which unmounts the error state and its 'Retry' button. Focus naturally drops to the body when the active element disappears without explicitly calling `panelRef.current?.focus()`.",
+            "result": "Confirms discovery-7156c20f6c4addb9: Focus is lost when retrying or refreshing transcript operations."
+          },
+          {
+            "scenario": "Simulated loading transcript concurrently and cancelling pending operations.",
+            "evidence": "Tested via React testing using `useTranscript` hook. Tested starting concurrent loads and checking if older unhandled promises cause regressions. `useTranscript` uses `requestRef` tracking properly, resolving correctly and suppressing older errors.",
+            "result": "Establishes that the basic loading state and request ordering in `useTranscript` are immune to race conditions."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the precise rendering bottleneck for extremely long messages containing large unformatted text blocks (without Markdown structural breaks).",
+          "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+        ],
+        "proposed_task_ids": [
+          "discovery-785f12cd56fb9835",
+          "discovery-b418dbab8fdb5c73",
+          "discovery-1cb87c08b6fe1690",
+          "discovery-d6469a7d2db492867e7d64bf93c3560d12be94efacfc916287043fb6d52628b7"
+        ],
+        "completed_at": "2026-09-24T12:52:50.830396Z",
+        "source": {
+          "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+          "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+          "activity_created_at": "2026-09-24T12:40:24.814025Z",
+          "session_id": "8488157827395858554",
+          "dispatch_key": "6dadaff308f402e26f8a4020"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+          "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+          "activity_created_at": "2026-09-24T12:40:24.814025Z",
+          "session_id": "8488157827395858554",
+          "dispatch_key": "6dadaff308f402e26f8a4020"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-785f12cd56fb9835",
+            "discovery-b418dbab8fdb5c73",
+            "discovery-1cb87c08b6fe1690",
+            "discovery-d6469a7d2db492867e7d64bf93c3560d12be94efacfc916287043fb6d52628b7"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "4 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-785f12cd56fb9835",
+      "title": "Fix focus drop when opening external links in MarkdownContent",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T12:52:50.830396Z",
+      "acceptance": [
+        "Clicking an external link in the transcript natively focuses the link before opening the external handler"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic jsdom test on base 84ff6fd91cc10a890132b62973784ae0daf17edc. Clicking an anchor element with preventDefault intercepts normal focus behavior.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render an external link in MarkdownContent",
+            "Focus an unrelated button",
+            "Simulate a left-click on the link"
+          ],
+          "expected": "The clicked link becomes the active element",
+          "actual": "The previously focused button remains active or focus falls back to the body"
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Previous review claimed synthetic WebKit focus assumptions were not a desktop defect and conflict with user navigation. This observation proves that without explicit focus, the desktop application drops focus completely or strands it on an unrelated element, breaking expected return focus flow.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-86ee5072b42c9535",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-86ee5072b42c9535",
+              "decision_context_id": "cabd4540a6babde86be6030f794286ca181140492378991e647fdec3fc0e33db",
+              "why_previous_reason_no_longer_explains": "The owner's rejection was based on the premise that focus naturally shifts to the OS browser. While true, when returning to the application, if the application actively suppressed the native click behavior (via `preventDefault`) without explicit focus assignment, the application itself is left in a focus-dropped state, which is a local accessibility defect independent of external OS behavior."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/MarkdownContent.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-86ee5072b42c9535",
+            "action": "reject",
+            "decision_at": "2026-09-24T07:08:36Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-transcript-links-reliability-8",
+        "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+        "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+        "activity_created_at": "2026-09-24T12:40:24.814025Z",
+        "session_id": "8488157827395858554",
+        "dispatch_key": "6dadaff308f402e26f8a4020"
+      }
+    },
+    {
+      "id": "discovery-b418dbab8fdb5c73",
+      "title": "Preserve transcript UI state across path reloads",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-24T12:52:50.830396Z",
+      "acceptance": [
+        "Reloading the transcript via loadTranscriptPath for the same path retains the user's search and filter mode"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React hook test on base 84ff6fd91cc10a890132b62973784ae0daf17edc. The `load` function resets state when `session` is undefined, even if the path matches the active session.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Load a transcript via loadTranscript",
+            "Set a search query and toggle the filter mode",
+            "Call loadTranscriptPath with the same file path"
+          ],
+          "expected": "The search query and filter mode are preserved",
+          "actual": "The search query is cleared and filter mode resets to 'dialogue'"
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Previous review stated that load calls on the same path retain search/mode. The new observation explicitly proves that `loadTranscriptPath` passes `undefined` for `session`, triggering the reset condition `!session || sessionPathRef.current !== path`.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-b157732b0a1a8ecb",
+          "observation_refs": [
+            1
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-b157732b0a1a8ecb",
+              "decision_context_id": "6d5395c5b58053f9d1fa7abb2b732c54083901f92861ebeadb2aa91e2d46c76d",
+              "why_previous_reason_no_longer_explains": "The rejection assumed `load` retains state on the same path. This is only true when `session` is provided. `loadTranscriptPath` intentionally omits `session`, causing an unintended unconditional wipe of the UI state even if the path perfectly matches."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/useTranscript.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-b157732b0a1a8ecb",
+            "action": "reject",
+            "decision_at": "2026-09-24T07:16:54Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-transcript-links-reliability-8",
+        "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+        "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+        "activity_created_at": "2026-09-24T12:40:24.814025Z",
+        "session_id": "8488157827395858554",
+        "dispatch_key": "6dadaff308f402e26f8a4020"
+      }
+    },
+    {
+      "id": "discovery-1cb87c08b6fe1690",
+      "title": "Fix virtual layout cache discard on mode switch",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "tests"
+      ],
+      "created_at": "2026-09-24T12:52:50.830396Z",
+      "acceptance": [
+        "Virtual layout cache measurements are not immediately destroyed when the measurementKey changes, allowing fast recovery when toggling between recent views"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via static analysis and jsdom test on base 84ff6fd91cc10a890132b62973784ae0daf17edc. A `useEffect` explicitly iterates over `measurementCachesRef.current.keys()` and unconditionally deletes everything except the current key.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render elements using useVirtualList with a specific mode (e.g. dialogue)",
+            "Toggle mode to 'all', producing a new measurementKey reference",
+            "Toggle mode back to 'dialogue'"
+          ],
+          "expected": "The previously measured heights are retained and immediately applied",
+          "actual": "All previously measured heights were deleted, forcing full layout recalculation"
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Previous review claimed discarding old heights for different markup was deliberate to avoid stale heights. However, toggling back to the original markup forces recalculation because its distinct cache entry was also destroyed.",
+          "evidence_mode": "static_analysis",
+          "primary_decision_task_id": "discovery-fe5159f693ee72fe",
+          "observation_refs": [
+            2
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-fe5159f693ee72fe",
+              "decision_context_id": "027b1728089369985022994397fb984cf8dab1f2cd43ea8694ee9fdd1fa8848c",
+              "why_previous_reason_no_longer_explains": "The rejection reason is valid for sharing a single cache across distinct markups. But `useVirtualList` stores separate Map entries for each `measurementKey`. Deleting unrelated cache keys (rather than capping an LRU) provides no protection against stale heights, it just needlessly destroys valid historical caches for unchanged alternate views."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/useVirtualList.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-fe5159f693ee72fe",
+            "action": "reject",
+            "decision_at": "2026-09-24T07:07:07Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-transcript-links-reliability-8",
+        "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+        "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+        "activity_created_at": "2026-09-24T12:40:24.814025Z",
+        "session_id": "8488157827395858554",
+        "dispatch_key": "6dadaff308f402e26f8a4020"
+      }
+    },
+    {
+      "id": "discovery-d6469a7d2db492867e7d64bf93c3560d12be94efacfc916287043fb6d52628b7",
+      "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-24T12:52:50.830396Z",
+      "acceptance": [
+        "Clicking or pressing Enter on the 'Retry' or 'Refresh' button explicitly focuses a stable element inside the modal instead of dropping focus"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via React testing on base 84ff6fd91cc10a890132b62973784ae0daf17edc. Activating the retry/refresh action sets loading to true, unmounting the active button and dropping focus to the document body.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a transcript load failure to display the Retry button",
+            "Focus the Retry button",
+            "Press Enter to trigger the retry action"
+          ],
+          "expected": "Focus shifts to a stable container within the modal",
+          "actual": "Focus drops to the document body"
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Previous review claimed that `useModalFocus` refocuses the dialog panel if the activeElement becomes body. In React, unmounting an active element causes focus to silently drop. `useModalFocus` relies on a `layoutEffect` running to catch disabled elements, but an unmounted element does not trigger this correctly in all scenarios.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-7156c20f6c4addb9",
+          "observation_refs": [
+            3
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-7156c20f6c4addb9",
+              "decision_context_id": "b9d62d5027cc5ec5312cb98208cae877841b4cc93a21f028a4c6cd1312c6b8d4",
+              "why_previous_reason_no_longer_explains": "The fallback mechanism in `useModalFocus` only works if the target becomes disabled. When the component entirely unmounts the error state to show the loading spinner, the DOM element is removed before focus can be gracefully intercepted, stranding the keyboard user outside the modal context."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-7156c20f6c4addb9",
+            "action": "reject",
+            "decision_at": "2026-09-24T07:17:15Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-transcript-links-reliability-8",
+        "activity_id": "sessions/8488157827395858554/activities/436a1ee2217d40e69cff9852d56b4d31",
+        "report_sha256": "91995df7daf16a03f2018638a9f3443651a91fbfdee7d51dffaee9d4e2f500ec",
+        "activity_created_at": "2026-09-24T12:40:24.814025Z",
+        "session_id": "8488157827395858554",
+        "dispatch_key": "6dadaff308f402e26f8a4020"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T12:46:52.191310Z",
+    "last_poll_at": "2026-09-24T12:53:13.551348Z",
     "last_tick_at": "2026-09-24T12:47:00.565688Z",
     "run_id": "36001151421"
   }
