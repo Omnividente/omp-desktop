@@ -27050,7 +27050,7 @@
       "id": "discovery-a691c680cc7eb8da",
       "title": "Optimize terminal output batcher to prevent expensive array merging on overflow",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 80,
       "risk": "low",
       "focus": [
@@ -27086,6 +27086,12 @@
         "activity_created_at": "2026-09-22T05:38:57.876837Z",
         "session_id": "5538214514765845956",
         "dispatch_key": "f5e914d1dbeed4d78c75ad1e"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:06:29Z",
+        "note": "Reject: benchmark forces repeated 200KiB chunks and 10k iterations, unlike the 4-16KiB PTY IPC frames; no measured real rendering issue. Extra batching policy would optimize an artificial workload."
       }
     },
     {
