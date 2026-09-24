@@ -49851,7 +49851,8 @@
         "feedback_nudge": {
           "at": "2026-09-24T16:57:30.873172Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-330d0c2604df2e6e9826bacc"
       },
       "research_result": {
         "summary": "Investigated the empty and error state rendering behaviors of the ResourceHealthPanel.",
