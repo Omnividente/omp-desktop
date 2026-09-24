@@ -36331,7 +36331,7 @@
       "id": "discovery-b82daad4c8b8b9f9",
       "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -36369,6 +36369,12 @@
         "activity_created_at": "2026-09-23T14:50:13.421970Z",
         "session_id": "3454774798721230607",
         "dispatch_key": "95662c54c63c5782851fc010"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:11:05Z",
+        "note": "Reject: useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement unless within its summary. Proposed keyboard trap fix exists on current main."
       }
     },
     {
