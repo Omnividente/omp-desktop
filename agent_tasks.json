@@ -49587,7 +49587,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T14:30:48.249704Z"
+        "observed_at": "2026-09-24T14:30:48.249704Z",
+        "released_attempt_ref": "autonomous/attempt-8bcdee4fb366b196eb7b51db"
       },
       "research_result": {
         "summary": "Measured React component rendering latency for resource health and incident center bounds.",
