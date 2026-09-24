@@ -35534,7 +35534,7 @@
       "id": "discovery-e1d7448e8a1d4446",
       "title": "Deduplicate PtySessionTitleEvent updates in App.tsx to prevent unnecessary re-renders",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -35567,6 +35567,12 @@
         "activity_created_at": "2026-09-23T12:27:41.295932Z",
         "session_id": "4177348324449373254",
         "dispatch_key": "7b6515a5cc361426c3966ed3"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:09:26Z",
+        "note": "Reject: duplicate of 545847f2. terminal.rs watcher only emits pty-session-title for initial or changed title (emitted_title comparison), so unmodified repeated App state updates do not happen at poll frequency."
       }
     },
     {
