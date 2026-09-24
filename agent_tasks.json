@@ -46111,7 +46111,7 @@
       "id": "research-settings-models-ux-8",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -46355,16 +46355,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6823166216163542621",
         "dispatch_key": "68df74ddbe14ef58f725c766",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-68df74ddbe14ef58f725c766",
         "started_at": "2026-09-24T10:37:04.034786Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T11:29:06.073789Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -46535,8 +46535,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-24T10:57:20.627133Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T11:29:06.073789Z",
         "research_detached": {
           "at": "2026-09-24T10:57:20.627133Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -46545,11 +46545,243 @@
           "at": "2026-09-24T10:57:20.627133Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified multiple layout truncation and horizontal overflow issues for long unbroken strings in ModelPicker and SettingsPanel UI elements on narrow viewports.",
+        "observations": [
+          {
+            "scenario": "Rendering the SettingsPanel global error state banner and field labels with a very long unbroken string.",
+            "evidence": "Measured via synthetic Puppeteer tests applying exact `.settings-state` and `.field-label` CSS from `src/App.css`. An unbroken string of 150 characters overflowed the `.settings-state` horizontal bounds (1093px scrollWidth vs 232px element width) and `.field-label` bounds (1300px scrollWidth vs 234px element width) on a 250px mobile viewport.",
+            "result": "Establishes that the settings global error banners and input labels lack word-breaking rules (`overflow-wrap: anywhere`), causing horizontal layout shifts and overflow on small screens for unbroken localized translations."
+          },
+          {
+            "scenario": "Rendering the ModelPicker dropdown option metadata and role health indicators with a very long unbroken translation.",
+            "evidence": "Measured via synthetic Puppeteer tests applying `.model-picker-option-meta` and `.role-health` CSS. An unbroken 150-character string significantly exceeded the `.model-picker-option-meta span` bounds (1083px scrollWidth without truncation) and `.role-health` bounds (867px scrollWidth in a 250px viewport) because the flex containers lack `min-width: 0` constraints and explicit `overflow` or `word-break` handling.",
+            "result": "Establishes that ModelPicker metadata elements clip or push other content off-screen instead of truncating appropriately on very small resolutions."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if custom provider secret input fields properly manage long pasted keys on narrow screens without obscuring action buttons.",
+          "Verify if `.provider-credential` and `.provider-account-list` components safely truncate or wrap long API endpoints and error messages on mobile viewports."
+        ],
+        "proposed_task_ids": [
+          "discovery-3f11bfdcf7c691a7"
+        ],
+        "completed_at": "2026-09-24T11:29:06.073789Z",
+        "source": {
+          "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+          "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+          "activity_created_at": "2026-09-24T10:58:52.093059Z",
+          "session_id": "6823166216163542621",
+          "dispatch_key": "68df74ddbe14ef58f725c766"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix text overflow in SettingsPanel error banner and field labels",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.\", \"reproduction\": {\"actual\": \"The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds.\", \"expected\": \"The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.\", \"steps\": [\"Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.\", \"Constrain the horizontal viewport to 250px.\", \"Observe the scroll width relative to the visible client width of the element.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/App.css"
+            ],
+            "acceptance": [
+              "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+            ],
+            "deferred_id": "b6b455521cd07d62fe7aa9d37f79794b74a91234d05c77890e8f05df3f30ee89",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix text overflow in SettingsPanel error banner and field labels",
+              "risk": "low",
+              "priority": 40,
+              "focus": [
+                "a11y",
+                "quality",
+                "bugfix"
+              ],
+              "target_paths": [
+                "src/App.css"
+              ],
+              "acceptance": [
+                "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.",
+                    "Constrain the horizontal viewport to 250px.",
+                    "Observe the scroll width relative to the visible client width of the element."
+                  ],
+                  "expected": "The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.",
+                  "actual": "The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds."
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8932b08cef0bc9ad",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:09:54Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-settings-models-ux-8",
+              "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+              "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+              "activity_created_at": "2026-09-24T10:58:52.093059Z",
+              "session_id": "6823166216163542621",
+              "dispatch_key": "68df74ddbe14ef58f725c766"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+          "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+          "activity_created_at": "2026-09-24T10:58:52.093059Z",
+          "session_id": "6823166216163542621",
+          "dispatch_key": "68df74ddbe14ef58f725c766"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-3f11bfdcf7c691a7"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-8a732679803f35d4",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-8932b08cef0bc9ad"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix text overflow in SettingsPanel error banner and field labels",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.\", \"reproduction\": {\"actual\": \"The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds.\", \"expected\": \"The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.\", \"steps\": [\"Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.\", \"Constrain the horizontal viewport to 250px.\", \"Observe the scroll width relative to the visible client width of the element.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/App.css"
+              ],
+              "acceptance": [
+                "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+              ],
+              "deferred_id": "b6b455521cd07d62fe7aa9d37f79794b74a91234d05c77890e8f05df3f30ee89",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix text overflow in SettingsPanel error banner and field labels",
+                "risk": "low",
+                "priority": 40,
+                "focus": [
+                  "a11y",
+                  "quality",
+                  "bugfix"
+                ],
+                "target_paths": [
+                  "src/App.css"
+                ],
+                "acceptance": [
+                  "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.",
+                      "Constrain the horizontal viewport to 250px.",
+                      "Observe the scroll width relative to the visible client width of the element."
+                    ],
+                    "expected": "The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.",
+                    "actual": "The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds."
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8932b08cef0bc9ad",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:09:54Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-settings-models-ux-8",
+                "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+                "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+                "activity_created_at": "2026-09-24T10:58:52.093059Z",
+                "session_id": "6823166216163542621",
+                "dispatch_key": "68df74ddbe14ef58f725c766"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-3f11bfdcf7c691a7",
+      "title": "Fix layout truncation of long text in ModelPicker metadata and role health",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T11:29:06.073789Z",
+      "acceptance": [
+        "Extremely long text in the ModelPicker dropdown metadata spans and role health labels is correctly constrained and truncated with an ellipsis on narrow viewports."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified via synthetic headless Puppeteer checks utilizing exact `.model-picker-option-meta` and `.role-health` flex layouts. Detected that lacking `min-width: 0` and truncation properties causes strings to exceed the flex child bounds without truncating.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the ModelPicker dropdown applying a long unbroken string to a model's metadata (`.model-picker-option-meta span`) and the role health indicator (`.role-health`).",
+            "Constrain the horizontal viewport to 250px.",
+            "Observe the flex layout calculation for the text elements."
+          ],
+          "expected": "The text elements are constrained by the flex container bounds and cleanly truncate using text-overflow ellipsis or wrap appropriately.",
+          "actual": "The flex children expand beyond the viewport bounds to fit the unbroken string contents, breaking the UI layout horizontally."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-8",
+        "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+        "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+        "activity_created_at": "2026-09-24T10:58:52.093059Z",
+        "session_id": "6823166216163542621",
+        "dispatch_key": "68df74ddbe14ef58f725c766"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T10:57:44.422652Z",
+    "last_poll_at": "2026-09-24T11:29:28.867990Z",
     "last_tick_at": "2026-09-24T10:57:58.382002Z",
     "run_id": "35990171374"
   }
