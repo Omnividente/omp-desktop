@@ -28614,7 +28614,7 @@
       "id": "discovery-4a7e10279971ba47",
       "title": "Fix action button text overflow for multi-line localized strings",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 55,
       "risk": "low",
       "focus": [
@@ -28649,6 +28649,12 @@
         "activity_created_at": "2026-09-22T09:35:31.649420Z",
         "session_id": "4948861275060787546",
         "dispatch_key": "a081fc3a6f1cb4e8d98d1239"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:06:09Z",
+        "note": "Reject: artificial long localized label at 280px is outside native 1000px minWidth. A global button geometry change would affect compact toolbars; no observed overflow at supported sizes."
       }
     },
     {
