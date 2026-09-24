@@ -49624,7 +49624,7 @@
       "id": "research-diagnostics-resources-ux-8",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -49752,16 +49752,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12899185073373055573",
         "dispatch_key": "330d0c2604df2e6e9826bacc",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-330d0c2604df2e6e9826bacc",
         "started_at": "2026-09-24T16:42:53.363794Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T17:12:04.586934Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -49842,8 +49842,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T17:05:39.827874Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T17:12:04.586934Z",
         "research_detached": {
           "at": "2026-09-24T16:57:30.873172Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -49852,6 +49852,35 @@
           "at": "2026-09-24T16:57:30.873172Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the empty and error state rendering behaviors of the ResourceHealthPanel.",
+        "observations": [
+          {
+            "scenario": "Verify the rendering behavior of ResourceHealthPanel when initialized with a null snapshot and no error, while loading is false.",
+            "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error=null`, `loading=false`. Instead of rendering an empty dialog or returning null, the component renders a fallback polite live region displaying the localized 'Checking memory and disks...' message with an 'is-ok' (success) icon status.",
+            "result": "Establishes that the panel defaults to a checking state when no data is available yet, ensuring the user sees an active status instead of a blank panel."
+          },
+          {
+            "scenario": "Verify the rendering behavior and localized text display of ResourceHealthPanel when provided an explicit error string.",
+            "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error='Connection refused'`, `loading=false`. The component successfully rendered a dialog with a warning icon ('is-warning' status), a 'Resource metrics are unavailable' header, and a paragraph with class 'resource-error' containing the localized error string 'Connection refused'.",
+            "result": "Establishes that the error state correctly prioritizes the error visual hierarchy over standard data and displays the error securely to the user."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the behavior of useModalFocus controlAvailable when focus is restored after the ResourceHealthPanel unmounts.",
+          "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T17:12:04.586934Z",
+        "source": {
+          "activity_id": "sessions/12899185073373055573/activities/f40b16aad92a4a5ebd3d2cb18948c487",
+          "report_sha256": "53d9972068f79aacc32366424c92ada883932489ce9d8f2e5b7ccc041b5ba656",
+          "activity_created_at": "2026-09-24T16:59:41.003701Z",
+          "session_id": "12899185073373055573",
+          "dispatch_key": "330d0c2604df2e6e9826bacc"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -50432,7 +50461,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T17:06:03.859466Z",
+    "last_poll_at": "2026-09-24T17:12:23.014318Z",
     "last_tick_at": "2026-09-24T17:06:07.219285Z",
     "run_id": "36031859800"
   }
