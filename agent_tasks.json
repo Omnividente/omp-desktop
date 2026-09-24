@@ -52420,7 +52420,7 @@
         },
         "report_repair": {
           "at": "2026-09-24T23:46:59.443623Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending"
         }
       }
