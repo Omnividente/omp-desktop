@@ -40507,7 +40507,7 @@
       "id": "research-sessions-persistence-performance-8",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -40808,16 +40808,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3771081909971214973",
         "dispatch_key": "ab09c6fb23f33dfba8413608",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-ab09c6fb23f33dfba8413608",
         "started_at": "2026-09-24T05:57:21.254811Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T06:18:02.949524Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing, possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -40999,13 +40999,283 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T06:05:09.766129Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T06:18:02.949524Z"
+      },
+      "research_result": {
+        "summary": "Investigated focus loss when clearing search in the session list, and the behavior of batch import modals upon failure.",
+        "observations": [
+          {
+            "scenario": "Review keyboard focus behavior when clearing the session search filter in SessionList.",
+            "evidence": "Source inspection of `src/SessionList.tsx` and jsdom synthetic testing on the exact pinned base show that the clear search button unmounts when the search is cleared, and there is no logic to reclaim focus to the input field.",
+            "result": "Establishes that keyboard users lose their document focus position when they clear a search query."
+          },
+          {
+            "scenario": "Review the batch import UI state after partial or total failure in importCodexSelected and importPendingOmp.",
+            "evidence": "Code inspection of `src/App.tsx` shows that when `result.items.filter(item => item.status === 'failed')` is not empty, `showError` is called but the modals (`setCodexOpen(false)` or `setPendingOmpImportPath(null)`) remain open.",
+            "result": "Establishes that the UI leaves users in the modal with their previous selection intact after failures, making it easy to unintentionally re-run successful imports along with failed ones."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T06:18:02.949524Z",
+        "source": {
+          "activity_id": "sessions/3771081909971214973/activities/206ae558eede468f95f9466695fb4443",
+          "report_sha256": "c2ea799df763ba22a61477872a38354fce7cb01a96fcecb5b077823358422623",
+          "activity_created_at": "2026-09-24T06:09:16.242228Z",
+          "session_id": "3771081909971214973",
+          "dispatch_key": "ab09c6fb23f33dfba8413608"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus to the search input after clearing the session list search",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-2121d4b2b9e7bcd1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and jsdom synthetic testing on the exact pinned base.\", \"reproduction\": {\"actual\": \"Focus falls back to the document body because the clear button unmounts without redirecting focus.\", \"expected\": \"Focus returns to the search input field.\", \"steps\": [\"Focus the search input in the session list and type a query.\", \"Tab to the 'Clear' button and activate it via the keyboard.\", \"Observe the active element after the search is cleared.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx"
+            ],
+            "acceptance": [
+              "Keyboard focus is restored to the search input field immediately after clearing the search query via the clear button in the session list."
+            ]
+          },
+          {
+            "title": "Close the batch import modal when partial or complete failures occur",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.\", \"reproduction\": {\"actual\": \"The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones.\", \"expected\": \"The modal closes, forcing the user to review the list and re-open/re-select before retrying.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial import failure from the Tauri backend.\", \"Observe the modal state after the error notice is shown.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"responses\": [{\"decision_context_id\": \"1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"decision_task_id\": \"discovery-fd3c422f31a73d43\", \"why_previous_reason_no_longer_explains\": \"The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+            ],
+            "deferred_id": "a226191c11a95bb6c4c1b3f8aa52fff1407d9b8af034f7f83727784e86cb0327",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Close the batch import modal when partial or complete failures occur",
+              "risk": "low",
+              "priority": 45,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Open the Codex import modal and select multiple sessions.",
+                    "Simulate a partial import failure from the Tauri backend.",
+                    "Observe the modal state after the error notice is shown."
+                  ],
+                  "expected": "The modal closes, forcing the user to review the list and re-open/re-select before retrying.",
+                  "actual": "The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).",
+                  "evidence_mode": "static_analysis",
+                  "primary_decision_task_id": "discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                  "observation_refs": [
+                    1
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-fd3c422f31a73d43",
+                      "decision_context_id": "1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                      "why_previous_reason_no_longer_explains": "The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-d3e1fcb6e79f4693",
+                  "action": "reject",
+                  "decision_at": "2026-09-21T20:13:04Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                  "action": "reject",
+                  "decision_at": "2026-09-20T20:30:51Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-39c130be90c4a65e",
+                  "action": "reject",
+                  "decision_at": "2026-09-20T07:49:50Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-sessions-persistence-performance-8",
+              "activity_id": "sessions/3771081909971214973/activities/206ae558eede468f95f9466695fb4443",
+              "report_sha256": "c2ea799df763ba22a61477872a38354fce7cb01a96fcecb5b077823358422623",
+              "activity_created_at": "2026-09-24T06:09:16.242228Z",
+              "session_id": "3771081909971214973",
+              "dispatch_key": "ab09c6fb23f33dfba8413608"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3771081909971214973/activities/206ae558eede468f95f9466695fb4443",
+          "report_sha256": "c2ea799df763ba22a61477872a38354fce7cb01a96fcecb5b077823358422623",
+          "activity_created_at": "2026-09-24T06:09:16.242228Z",
+          "session_id": "3771081909971214973",
+          "dispatch_key": "ab09c6fb23f33dfba8413608"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-3e7071e35d45dd4e",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-2121d4b2b9e7bcd1"
+            },
+            {
+              "id": "discovery-6afdfe1425377864",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-d3e1fcb6e79f4693"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus to the search input after clearing the session list search",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-2121d4b2b9e7bcd1; not established as a duplicate. {\"detail\": \"Observed via codebase inspection and jsdom synthetic testing on the exact pinned base.\", \"reproduction\": {\"actual\": \"Focus falls back to the document body because the clear button unmounts without redirecting focus.\", \"expected\": \"Focus returns to the search input field.\", \"steps\": [\"Focus the search input in the session list and type a query.\", \"Tab to the 'Clear' button and activate it via the keyboard.\", \"Observe the active element after the search is cleared.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx"
+              ],
+              "acceptance": [
+                "Keyboard focus is restored to the search input field immediately after clearing the search query via the clear button in the session list."
+              ]
+            },
+            {
+              "title": "Close the batch import modal when partial or complete failures occur",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.\", \"reproduction\": {\"actual\": \"The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones.\", \"expected\": \"The modal closes, forcing the user to review the list and re-open/re-select before retrying.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial import failure from the Tauri backend.\", \"Observe the modal state after the error notice is shown.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"responses\": [{\"decision_context_id\": \"1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"decision_task_id\": \"discovery-fd3c422f31a73d43\", \"why_previous_reason_no_longer_explains\": \"The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+              ],
+              "deferred_id": "a226191c11a95bb6c4c1b3f8aa52fff1407d9b8af034f7f83727784e86cb0327",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Close the batch import modal when partial or complete failures occur",
+                "risk": "low",
+                "priority": 45,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Open the Codex import modal and select multiple sessions.",
+                      "Simulate a partial import failure from the Tauri backend.",
+                      "Observe the modal state after the error notice is shown."
+                    ],
+                    "expected": "The modal closes, forcing the user to review the list and re-open/re-select before retrying.",
+                    "actual": "The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).",
+                    "evidence_mode": "static_analysis",
+                    "primary_decision_task_id": "discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                    "observation_refs": [
+                      1
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-fd3c422f31a73d43",
+                        "decision_context_id": "1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                        "why_previous_reason_no_longer_explains": "The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-d3e1fcb6e79f4693",
+                    "action": "reject",
+                    "decision_at": "2026-09-21T20:13:04Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                    "action": "reject",
+                    "decision_at": "2026-09-20T20:30:51Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-39c130be90c4a65e",
+                    "action": "reject",
+                    "decision_at": "2026-09-20T07:49:50Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-sessions-persistence-performance-8",
+                "activity_id": "sessions/3771081909971214973/activities/206ae558eede468f95f9466695fb4443",
+                "report_sha256": "c2ea799df763ba22a61477872a38354fce7cb01a96fcecb5b077823358422623",
+                "activity_created_at": "2026-09-24T06:09:16.242228Z",
+                "session_id": "3771081909971214973",
+                "dispatch_key": "ab09c6fb23f33dfba8413608"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T06:11:56.164172Z",
+    "last_poll_at": "2026-09-24T06:18:24.451722Z",
     "last_tick_at": "2026-09-24T06:11:59.327903Z",
     "run_id": "35963301427"
   }
