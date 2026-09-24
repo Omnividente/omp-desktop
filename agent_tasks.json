@@ -51781,7 +51781,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T22:55:11.273121Z"
+        "observed_at": "2026-09-24T22:55:11.273121Z",
+        "released_attempt_ref": "autonomous/attempt-9e13ee50dafa8bb35fc49663"
       },
       "research_result": {
         "summary": "Stale terminal output events from older generations corrupt continuity state",
