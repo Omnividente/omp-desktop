@@ -42994,7 +42994,8 @@
             "session_id": "13355743166135000999",
             "dispatch_key": "6afdbab8d58bcfbab4e6dec0"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-6afdbab8d58bcfbab4e6dec0"
       },
       "research_result": {
         "summary": "Investigated workspace background sync during rename and modal lifecycle during session deletion.",
