@@ -49250,7 +49250,8 @@
             "session_id": "3627934981902297232",
             "dispatch_key": "ae43f620875f22beed60321c"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-ae43f620875f22beed60321c"
       },
       "research_result": {
         "summary": "Investigated the behavior of empty incident arrays in IncidentCenter, the aria-live properties of dynamic incident counts, and the rendering of missing recovery switch actions.",
