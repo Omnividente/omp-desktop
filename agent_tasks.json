@@ -32660,7 +32660,7 @@
       "id": "discovery-76525501421788fc",
       "title": "Fix terminal UI incorrectly marking newly restarted sessions as exited due to stale pty-exit events",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -32697,6 +32697,12 @@
         "activity_created_at": "2026-09-23T06:06:49.925988Z",
         "session_id": "12441871823396169091",
         "dispatch_key": "b9367ba2081634d8facd34fb"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:09:01Z",
+        "note": "Reject: every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}; provider-pin restart replaces tab.id with new ID. TerminalView filters pty-exit by terminalId, so old process exit cannot mark the new tab exited."
       }
     },
     {
