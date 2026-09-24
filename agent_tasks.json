@@ -48969,7 +48969,8 @@
             "session_id": "234372672784030942",
             "dispatch_key": "08fbc2c11b6aa638f886768a"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-08fbc2c11b6aa638f886768a"
       },
       "research_result": {
         "summary": "Investigated the keyboard accessibility focus trap behavior regarding collapsed details elements in IncidentCenter.",
