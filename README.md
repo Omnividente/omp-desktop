@@ -29,7 +29,7 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 - **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки, предупреждения и монитор ресурсов.
 - **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
 
-> Подробное поведение ниже описывает ветку `main`, которая может опережать стабильную сборку. Для установленной версии используйте [описание соответствующего релиза](https://github.com/Omnividente/omp-desktop/releases). Изменения этого выпуска перечислены в [v0.9.5](.github/release-notes/v0.9.5.md).
+> Подробное поведение ниже описывает ветку `main`, которая может опережать стабильную сборку. Для установленной версии используйте [описание соответствующего релиза](https://github.com/Omnividente/omp-desktop/releases). Изменения этого выпуска перечислены в [v0.9.6](.github/release-notes/v0.9.6.md).
 
 <details>
 <summary>Подробные возможности, ограничения и поведение</summary>
@@ -131,7 +131,7 @@ For users who want graphical project and settings controls while retaining the O
 - **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search, warnings, and resource monitoring.
 - **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.
 
-> The detailed behavior below describes `main`, which may be ahead of the stable build. For an installed version, see its [release notes](https://github.com/Omnividente/omp-desktop/releases). This release's changes are listed in [v0.9.5](.github/release-notes/v0.9.5.md).
+> The detailed behavior below describes `main`, which may be ahead of the stable build. For an installed version, see its [release notes](https://github.com/Omnividente/omp-desktop/releases). This release's changes are listed in [v0.9.6](.github/release-notes/v0.9.6.md).
 
 <details>
 <summary>Detailed features, limitations, and behavior</summary>
