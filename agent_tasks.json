@@ -26264,7 +26264,7 @@
       "id": "discovery-33d82cbf9e0c59ea92ff46cfdc9a21766d01cecfca52187c21b8127b1a1acdcb",
       "title": "Restore focus to edit button after cancelling a workspace or session rename",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -26323,6 +26323,12 @@
         "activity_created_at": "2026-09-21T22:39:37.400181Z",
         "session_id": "12004610115811608616",
         "dispatch_key": "2074796a53b3ca23c5d35b1f"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:05:49Z",
+        "note": "Reject: ProjectRail renameFocusRef restores focus after Escape to row action; SessionList actionFocusRef restores to focusable row/region. Native Escape originates focused input; synthetic unfocused keydown is not a user path."
       }
     },
     {
