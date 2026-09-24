@@ -48382,7 +48382,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T12:52:50.830396Z"
+        "observed_at": "2026-09-24T12:52:50.830396Z",
+        "released_attempt_ref": "autonomous/attempt-6dadaff308f402e26f8a4020"
       },
       "research_result": {
         "summary": "Verified focus drop defect on external links natively when clicked with preventDefault, state loss defect on path reload, cache drop defect on mode toggle, and focus drop on retry/refresh action in TranscriptModal. Validated acceptable resizing/DOM node performance for large matches.",
