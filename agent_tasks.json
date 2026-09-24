@@ -49030,7 +49030,7 @@
       "id": "research-diagnostics-resources-reliability-8",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -49147,16 +49147,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "3627934981902297232",
         "dispatch_key": "ae43f620875f22beed60321c",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-ae43f620875f22beed60321c",
         "started_at": "2026-09-24T13:31:56.420348Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T14:03:13.726903Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -49237,24 +49237,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T14:00:10.810387Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-24T13:53:32.757837Z",
-          "source": {
-            "activity_id": "sessions/3627934981902297232/activities/c002bec3972849e1b8258dc30213fd38",
-            "report_sha256": "5f56e0d4e46a5adda87b86710de104fecbbdb5b7c04b4161803c2655af504c5c",
-            "activity_created_at": "2026-09-24T13:42:58.722399Z",
-            "session_id": "3627934981902297232",
-            "dispatch_key": "ae43f620875f22beed60321c"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T14:03:13.726903Z",
         "report_repair": {
           "at": "2026-09-24T13:53:56.215393Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/3627934981902297232/activities/c002bec3972849e1b8258dc30213fd38",
             "report_sha256": "5f56e0d4e46a5adda87b86710de104fecbbdb5b7c04b4161803c2655af504c5c",
@@ -49263,6 +49251,40 @@
             "dispatch_key": "ae43f620875f22beed60321c"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of empty incident arrays in IncidentCenter, the aria-live properties of dynamic incident counts, and the rendering of missing recovery switch actions.",
+        "observations": [
+          {
+            "scenario": "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays when the last active incident is cleared.",
+            "evidence": "Tested synthetic rendering state of IncidentCenter in src/IncidentCenter.tsx. When the incidents array contains only 'resolved' status incidents and no 'active' ones, it correctly renders the translated message 'incidentNoActiveIncidents' (e.g. 'No active runtime incidents') instead of 'incidentNoIncidents'. It only renders 'incidentNoIncidents' if the array is completely empty.",
+            "result": "Establishes that the empty incident fallback message dynamically adapts to correctly distinguish between a lack of active incidents and a total absence of recorded incidents."
+          },
+          {
+            "scenario": "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+            "evidence": "Observed via synthetic React component testing that IncidentCenter's title header includes a `<small>` tag displaying the active incident count. This element correctly features 'aria-atomic=\"true\"' and 'aria-live=\"polite\"' attributes.",
+            "result": "Establishes that the incident count properly alerts screen reader users in a polite manner when new incidents increment the counter dynamically without forcing focus changes."
+          },
+          {
+            "scenario": "Verify how switchInputRecovery details behave across generic and detailed errors in runtimeIncidents.",
+            "evidence": "Observed via state generation logic in src/runtimeIncidents.ts (upsertDetailedError and applyRuntimeIncidentEvent) and synthetic unit tests that when a generic 'error' activity is followed by a specific 'runtimeError' with a detailed reason for the same terminal, the logic flawlessly substitutes the generic incident with the detailed one, without duplication and without losing the underlying incident count progression. Subsequent generic errors while the detailed error is still active are safely ignored.",
+            "result": "Establishes that detailed runtime errors strictly override generic background errors without duplication, reducing notification fatigue."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the actual rendering behavior of the Workspace layout when collapsing a rail makes a final active workspace tab invisible while still possessing terminal continuity data.",
+          "Verify whether screen readers correctly read the failed send icon message inside SessionControls."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T14:03:13.726903Z",
+        "source": {
+          "activity_id": "sessions/3627934981902297232/activities/8af6a5d49ab8475892a17673418d481a",
+          "report_sha256": "8346ef5ff2f5efe7113bae9097544aa7703851b8a2fd092cc9480bb7b8877c48",
+          "activity_created_at": "2026-09-24T13:54:47.153023Z",
+          "session_id": "3627934981902297232",
+          "dispatch_key": "ae43f620875f22beed60321c"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -49341,7 +49363,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T14:00:34.157039Z",
+    "last_poll_at": "2026-09-24T14:03:37.983506Z",
     "last_tick_at": "2026-09-24T14:00:39.249702Z",
     "run_id": "36009564861"
   }
