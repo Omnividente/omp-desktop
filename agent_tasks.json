@@ -51475,6 +51475,127 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-terminal-input-behavior-9",
+      "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-24T22:34:06Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "behavior",
+        "fingerprint": "acf46366b2d0470dd14f05df64c48179ee25e3c5aa61a52d334f017fd5615654",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Investigated terminal continuity handling of output events and identified a defect where stale output events from older generations corrupt the terminal state.",
+            "observations": [
+              {
+                "scenario": "A race condition during terminal restart/reconnect where delayed output events from a previous generation (e.g., gen 1) arrive after the UI has already attached to a new generation (gen 2).",
+                "evidence": "Executed an isolated synthetic test of `src/terminalContinuity.ts` calling `applyTerminalAttachment` with `generation: 2`, followed by `applyTerminalOutputEvent` with a stale `generation: 1` event, and finally a legitimate `generation: 2` event. The `applyTerminalOutputEvent` function indiscriminately checks `previous.generation !== event.generation`, which matches. It then incorrectly overwrites the stored baseline to `generation: 1`, returns `accept: true` and `generationChanged: true`. In `TerminalView.tsx`, this combination triggers a UI error notification `terminalOutputGenerationChanged` and permanently desynchronizes the expected sequence numbers for subsequent valid gen 2 events, causing repeated UI errors.",
+                "result": "Establishes that stale terminal output from older generations is incorrectly accepted, corrupting the continuity state of a newer running terminal generation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection."
+            ],
+            "proposed_task_ids": [
+              "discovery-ee7a41f1c14f7d31"
+            ],
+            "completed_at": "2026-09-24T02:12:53.170087Z",
+            "source": {
+              "activity_id": "sessions/12894826830615718505/activities/cce079cd190f4c40aeec5d66dfee11cf",
+              "report_sha256": "7e1a54582e1e28846832617794dbacacf8284d05269212277d2c82b8cccb4bed",
+              "activity_created_at": "2026-09-24T02:05:21.192489Z",
+              "session_id": "12894826830615718505",
+              "dispatch_key": "e945fd10b240c8a9e785d766"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated performance and resource bounding of terminal input and output operations.",
+            "observations": [
+              {
+                "scenario": "Simulated terminal output batching with `TerminalOutputBatcher` using both many small chunks (500,000 enqueues of 10 bytes) and fewer large chunks (100 enqueues of 100KB) to measure latency and bounding.",
+                "evidence": "Executed synthetic Vitest benchmarks directly on `src/terminalOutputBatcher.ts`. 500,000 enqueues (5MB total) processed in ~55ms. 10MB of 100KB chunks processed in ~11ms. Memory scaling behaves correctly according to the 256KB max threshold, efficiently combining chunks using `Uint8Array.set` without heavy allocations.",
+                "result": "Establishes that terminal output batching handles high-throughput scenarios efficiently with low latency and properly bounded memory retention. No regression found."
+              },
+              {
+                "scenario": "Measured base64 decoding performance using the frontend implementation `decodeBase64` in `src/TerminalView.tsx` with a large payload (1MB string).",
+                "evidence": "Synthetic Vitest benchmark measuring a 1MB base64 string decoded to `Uint8Array` in a `for` loop executing in ~9ms.",
+                "result": "Establishes that the custom frontend string-to-binary fallback decoder operates efficiently for reasonable payload sizes without risk of freezing the UI thread. No regression found."
+              },
+              {
+                "scenario": "Evaluated the regular expression performance of `formatSelectionReply` in `src/terminalInput.ts` against pathological long inputs containing unsafe terminal control characters.",
+                "evidence": "Executed a synthetic Vitest benchmark against `formatSelectionReply` with a 500KB string composed of alternating characters and unsafe characters (`A\\u0000`). The regex replace execution completed in ~27ms. Formatting a normal ~10MB string took ~181ms.",
+                "result": "Establishes that terminal mouse selection formatting is safe against pathological inputs and scales reasonably well even for unexpectedly large selections. No regression found."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection, which could lead to loss of user input.",
+              "Measure if repeated rapid opening and closing of agent tabs causes long-term retention of `TerminalView` DOM listeners or Xterm instances that escape React garbage collection."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T06:38:45.618846Z",
+            "source": {
+              "activity_id": "sessions/12695466212818659781/activities/165d7e9997524f2bb7db425d985630ec",
+              "report_sha256": "1e7044002516d435ef6879dd7c90bbd26948336f902911951bbaeb6047dcb91c",
+              "activity_created_at": "2026-09-24T06:26:37.593630Z",
+              "session_id": "12695466212818659781",
+              "dispatch_key": "5fe2312386168b7687a5f6e3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal input state retention during manual and automatic selection clearing.",
+            "observations": [
+              {
+                "scenario": "A keyboard user arms Select All (Ctrl+A) placing the terminal in an armed state (`inputSelectionArmed=true`), then xterm clears its selection internally or externally before the user modifies the input.",
+                "evidence": "Executed an isolated Vitest DOM scenario mounting `TerminalView`. Invoked a Ctrl+A keyboard event to set `selectAllArmedRef.current = true`. Then invoked a mock xterm external selection clear (setting `hasSelection=false` and emitting `selectionChanged`). The test verified that `clearArmedSelection()` was not called because `terminal.onSelectionChange` only conditionally cleared `selectionReply` without clearing the armed state. Subsequent Backspace inputs incorrectly sent `CLEAR_OMP_EDITOR` (\\x03) rather than a normal backspace. Modified `TerminalView.tsx` selectionSubscription to explicitly call `clearArmedSelection()` when `!terminal.hasSelection() && selectAllArmedRef.current` which successfully passed the regression test.",
+                "result": "Establishes that the UI incorrectly retains its `selectAllArmed` state when xterm's selection is lost asynchronously or externally, corrupting subsequent keyboard inputs like Backspace."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity is broken when large binary payloads arrive right at the generation boundary before standard output queues.",
+              "Investigate if restoring the terminal state after minimizing and restoring the desktop application window correctly handles focus on macOS vs Linux.",
+              "Measure if repeated rapid opening and closing of agent tabs causes long-term retention of `TerminalView` DOM listeners or Xterm instances that escape React garbage collection."
+            ],
+            "proposed_task_ids": [
+              "discovery-3dae9095fd4d69ed"
+            ],
+            "completed_at": "2026-09-24T09:27:51.790844Z",
+            "source": {
+              "activity_id": "sessions/12286134869198430383/activities/6951c6232d33469f9267ce7a4cddcf3b",
+              "report_sha256": "2783cd45b383f65a8fe5fb0927cc0bfbeaae1d118eebed98abb79815f4a42096",
+              "activity_created_at": "2026-09-24T09:19:17.365898Z",
+              "session_id": "12286134869198430383",
+              "dispatch_key": "31fc35deb7bec56d59c48205"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
