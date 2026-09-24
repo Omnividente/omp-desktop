@@ -27318,7 +27318,7 @@
       "id": "discovery-94bf5b1fa52c9f90",
       "title": "Prevent import modals from remaining stuck open on backend import failure",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -27354,6 +27354,12 @@
         "activity_created_at": "2026-09-22T06:11:05.803912Z",
         "session_id": "12985027106532144361",
         "dispatch_key": "acb192574377f264c8b6d3c6"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T06:51:45Z",
+        "note": "Reject: App.tsx import handlers clear importing in finally; modal intentionally stays open on error for retry and can be closed. Auto-dismiss would discard selections and error context."
       }
     },
     {
