@@ -35303,7 +35303,7 @@
       "id": "discovery-04eb5c9fb6e41d82",
       "title": "Fix terminal PTY desync when changing font size",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -35342,10 +35342,10 @@
         "dispatch_key": "8b845b7e45b4e50237ea597d"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-24T07:56:07Z",
-        "note": "Accepted. Implemented locally on fix/jules-triage-20260924: shared fit logic applies measured terminal size to PTY after font changes. Frontend suite and native WebView2 resize smoke passed. Source not pushed, merged or released; no Jules dispatch. Resolve only after source publication."
+        "at": "2026-09-24T08:49:52Z",
+        "note": "Implemented in src/TerminalView.tsx with regression test via reviewed PR #90, merged to main d0e5265a79518e15264292dd7d466dbe8b64d472. Font-driven fit synchronizes PTY dimensions; Windows/Linux CI passed. Source merged only, no release."
       }
     },
     {
