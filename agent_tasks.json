@@ -42622,6 +42622,158 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-8",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-24T07:22:39Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace switching, project rendering scaling, and import error handling.",
+            "observations": [
+              {
+                "scenario": "Rendering ProjectRail with 5000 workspaces and switching between them",
+                "evidence": "Wrote and executed a synthetic Vitest test (`src/ProjectRail.experiment.test.tsx`) that renders `<ProjectRail />` containing 5000 workspaces. It took ~7.8 seconds to initially render. Simulating a workspace switch via `rerender` took ~2.2 seconds. No DOM virtualization is used for the workspace list in ProjectRail.",
+                "result": "Confirms the previously rejected task 'discovery-e0f2bce9ebc246e7' is still an accurate observation of reality (O(N) rendering for workspace list). Not re-proposing as it was previously rejected."
+              },
+              {
+                "scenario": "Rendering WorkspaceHome with 5000 sessions",
+                "evidence": "Wrote and executed a synthetic Vitest test (`src/WorkspaceHome.experiment.test.tsx`) that renders `<WorkspaceHome />` containing 5000 sessions. It took ~1.1 seconds to initially render. The array is truncated to the first 4 elements.",
+                "result": "Establishes that the session list in WorkspaceHome does not suffer from virtualization issues because it bounds the rendering to the first 4 elements."
+              },
+              {
+                "scenario": "Handling of import failure in App.tsx (discovery-70ce486d68ca18b9 / discovery-94bf5b1fa52c9f90)",
+                "evidence": "Inspected source code of `importCodexSelected` and `importPendingOmp` in `src/App.tsx`. The `catch (error)` block displays the error via `showError` but does not clear `codexOpen` or `pendingOmpImportPath` state, leaving the modal stuck open indefinitely.",
+                "result": "Corroborates the proposed task discovery-94bf5b1fa52c9f90 that import modals get stuck open if the backend import call fails."
+              },
+              {
+                "scenario": "Deduplicating PtySessionTitleEvent updates (discovery-545847f2043c71c0)",
+                "evidence": "Inspected source code of `pty-session-title` listener in `src/App.tsx`. The code maps over the current tabs state to allocate a new object/array, triggering a re-render regardless of whether the incoming title actually differs from the terminal's current `label`.",
+                "result": "Corroborates the proposed task discovery-545847f2043c71c0 that `PtySessionTitleEvent` triggers unnecessary React allocations when the title is identical."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T08:15:25.370078Z",
+            "source": {
+              "activity_id": "sessions/203764782581588905/activities/5ce359f5a1b14082bb3e64d69421e29b",
+              "report_sha256": "541aeebdfe851a575dcb4e916dba64705d741e87af526cf6dfdb58d26a696d62",
+              "activity_created_at": "2026-09-23T08:05:59.661100Z",
+              "session_id": "203764782581588905",
+              "dispatch_key": "590dc1be81fe859c509fbb56"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent import modals from remaining stuck open on backend import failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-94bf5b1fa52c9f90; not established as a duplicate. {\"detail\": \"Observed via source code inspection of `src/App.tsx` on 90626eb0032fbb366f5af9f57d5fc7b3a67b7703. The catch block bypasses state clearing. Canonical ID: discovery-94bf5b1fa52c9f90.\", \"reproduction\": {\"actual\": \"The error toast is shown, but the modal remains permanently open.\", \"expected\": \"The error toast is shown, and the modal state (`codexOpen` or `pendingOmpImportPath`) is reset, dismissing the modal.\", \"steps\": [\"Trigger an import session operation (via codex or pending omp).\", \"Simulate a backend rejection (throw error).\", \"Observe the modal state.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When `importSessions` throws an error inside `importCodexSelected` or `importPendingOmp`, the modal state is cleared."
+                ]
+              },
+              {
+                "title": "Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-545847f2043c71c0; not established as a duplicate. {\"detail\": \"Isolated synthetic test and source inspection of the `pty-session-title` Tauri event listener on the exact pinned base. Canonical ID: discovery-545847f2043c71c0.\", \"reproduction\": {\"actual\": \"The second event maps over the `tabs` state, allocating a new object reference `{ ...tab, label: title }` and a new array reference, triggering a React re-render.\", \"expected\": \"The second event is deduplicated, causing no new array allocations or React state updates.\", \"steps\": [\"Trigger a `pty-session-title` event matching an existing terminal.\", \"Trigger the exact same event again.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "State updates are bypassed when `PtySessionTitleEvent` receives a title that is exactly equal to the terminal's current label."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified focus behavior and fallback target when a session is deleted.",
+            "observations": [
+              {
+                "scenario": "Deleting the last session inside the `SessionList` component and verifying active element restoration using synthetic testing with jsdom.",
+                "evidence": "Wrote and executed a synthetic Vitest test simulating session deletion and measuring `document.activeElement` within `src/SessionList.tsx`. The component successfully falls back to `listRef.current` (the div container with `tabIndex={-1}`). However, because this div has no inherent interactivity for a user to move from, leaving focus here effectively strands the user or behaves poorly on many browsers, resulting in focus being effectively lost to `document.body` in real-world scenarios. The component lacks logic to gracefully traverse to remaining interactive elements like the 'New session' button or the search box.",
+                "result": "Establishes that deleting the last session (or any session causing focus to fall back to the empty list ref) drops keyboard focus due to an insufficient fallback strategy in `SessionList.tsx`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus behavior when a workspace rename occurs via background sync while currently being edited in the UI.",
+              "Verify focus behavior when editing a session title and the backend responds with a conflicting title update."
+            ],
+            "proposed_task_ids": [
+              "discovery-82458c4d2663376a"
+            ],
+            "completed_at": "2026-09-23T09:21:56.163171Z",
+            "source": {
+              "activity_id": "sessions/4870076094027855950/activities/a198b42f72d24ce98b9eb03510d8dc8b",
+              "report_sha256": "9ee73bbc60b0ba317083d7a9ca8407a273d8401e9ae6cc161b724e9a78f24788",
+              "activity_created_at": "2026-09-23T09:08:58.265600Z",
+              "session_id": "4870076094027855950",
+              "dispatch_key": "52103cd85bdda8468bec5437"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus behavior during background updates, renaming conflicts, and list element deletions.",
+            "observations": [
+              {
+                "scenario": "Verify focus behavior when editing a session title and the backend responds with a conflicting title update.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment3.test.tsx`) that mounts `<SessionList />` in a renaming state. Focused the `.session-rename` input. Simulated a backend sync that changes the session's title while keeping the ID identical. Observed that `document.activeElement` correctly remains on the rename input.",
+                "result": "Establishes that the UI robustly handles backend title changes during a rename without dropping focus, as long as the session ID remains constant."
+              },
+              {
+                "scenario": "Investigate focus behavior when a background sync/refresh replaces the DOM nodes of an active session while it is currently selected.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment2.test.tsx`) that mounts `<SessionList />` with a session. Focused the session row. Simulated a backend sync that changes the session's ID (causing the original DOM node to unmount and remount with a new key). Observed that `document.activeElement` drops to `document.body` because the old DOM node is destroyed and there is no explicit fallback logic for this unmount case.",
+                "result": "Establishes that focus drops to the body if a background synchronization event reconstructs a selected session with a new identity/key."
+              },
+              {
+                "scenario": "Verify focus behavior when a workspace is removed via UI.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/ProjectRail.experiment2.test.tsx`) investigating project rail removal. Focused the remove button of a workspace and triggered its deletion. Observed that focus successfully falls back to the `openFolderRef` (the 'Open folder' button) due to the useLayoutEffect logic.",
+                "result": "Confirms the explicit fallback logic in `ProjectRail` behaves correctly during workspace deletions, properly delegating focus to the fallback element when the active element unmounts."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus restoration when a modal (like settings or transcript) closes after the session that triggered it was deleted in the background."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T23:46:35.452096Z",
+            "source": {
+              "activity_id": "sessions/6276536335705298920/activities/85a38d97eab047cfbf7782e982b00c52",
+              "report_sha256": "63e02588645da57255a3fe4e36f1a1210ed97f5b7f825b47bdc714f4c67f55ef",
+              "activity_created_at": "2026-09-23T23:35:03.109202Z",
+              "session_id": "6276536335705298920",
+              "dispatch_key": "17505af6e76fc6ed0b565ad3"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
