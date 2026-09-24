@@ -91,7 +91,7 @@ export function TerminalView({
   const [linkMenu, setLinkMenu] = useState<{ uri: string; left: number; top: number } | null>(null)
   const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
+  const fitRef = useRef<(() => void) | null>(null)
   const activeRef = useRef(active)
   const languageRef = useRef(language)
   const terminalFontFamilyRef = useRef(terminalFontFamily)
@@ -228,7 +228,6 @@ export function TerminalView({
     )
     terminal.open(container)
     terminalRef.current = terminal
-    fitAddonRef.current = fitAddon
 
     let pointerDownCell: TerminalCell | null = null
     let mouseSelection: MouseSelectionEdit | null = null
@@ -471,6 +470,7 @@ export function TerminalView({
         // The webview can report a zero-sized container during a tab switch.
       }
     }
+    fitRef.current = fit
 
     const resizeObserver = new ResizeObserver(() => {
       if (fitFrame === null)
@@ -570,6 +570,7 @@ export function TerminalView({
 
     return () => {
       disposed = true
+      fitRef.current = null
       void detachTerminal(tab.id, attachmentId).catch(() => undefined)
       outputBatcher.dispose()
       deferredOutput = []
@@ -588,7 +589,6 @@ export function TerminalView({
       for (const unlisten of unlisteners) {
         unlisten()
       }
-      fitAddonRef.current = null
       terminalRef.current = null
       terminal.dispose()
     }
@@ -599,7 +599,7 @@ export function TerminalView({
     if (!terminal) return
     terminal.options.fontFamily = terminalFontFamily
     terminal.options.fontSize = terminalFontSize
-    const frame = window.requestAnimationFrame(() => fitAddonRef.current?.fit())
+    const frame = window.requestAnimationFrame(() => fitRef.current?.())
     return () => window.cancelAnimationFrame(frame)
   }, [terminalFontFamily, terminalFontSize])
 
@@ -608,16 +608,8 @@ export function TerminalView({
       return
     }
     const frame = window.requestAnimationFrame(() => {
-      try {
-        fitAddonRef.current?.fit()
-        terminalRef.current?.focus()
-        const terminal = terminalRef.current
-        if (terminal) {
-          void resizeTerminal(tab.id, terminal.cols, terminal.rows).catch(() => undefined)
-        }
-      } catch {
-        // A hidden terminal can briefly be zero-sized while the tab becomes active.
-      }
+      fitRef.current?.()
+      terminalRef.current?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
   }, [active, focusRequestSequence, tab.id])

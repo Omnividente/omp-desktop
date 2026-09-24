@@ -86,6 +86,7 @@ export function SessionList({
   canLaunch,
 }: SessionListProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const actionFocusRef = useRef<{
     id: string
     workspace: string | null
@@ -243,12 +244,20 @@ export function SessionList({
         <label className="search-box">
           <Icon name="search" size={15} />
           <input
+            ref={searchInputRef}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={t(lang, "searchSessions")}
             value={search}
           />
           {search && (
-            <button onClick={onClearSearch} title={t(lang, "clearSearch")} type="button">
+            <button
+              onClick={() => {
+                onClearSearch()
+                searchInputRef.current?.focus()
+              }}
+              title={t(lang, "clearSearch")}
+              type="button"
+            >
               <Icon name="close" size={13} />
             </button>
           )}
