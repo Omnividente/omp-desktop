@@ -40116,7 +40116,7 @@
       "id": "research-terminal-input-reliability-8",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -40225,16 +40225,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12894826830615718505",
         "dispatch_key": "e945fd10b240c8a9e785d766",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-e945fd10b240c8a9e785d766",
         "started_at": "2026-09-24T01:58:45.712358Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T02:12:53.170087Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -40409,13 +40409,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T02:06:35.589963Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T02:12:53.170087Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal continuity handling of output events and identified a defect where stale output events from older generations corrupt the terminal state.",
+        "observations": [
+          {
+            "scenario": "A race condition during terminal restart/reconnect where delayed output events from a previous generation (e.g., gen 1) arrive after the UI has already attached to a new generation (gen 2).",
+            "evidence": "Executed an isolated synthetic test of `src/terminalContinuity.ts` calling `applyTerminalAttachment` with `generation: 2`, followed by `applyTerminalOutputEvent` with a stale `generation: 1` event, and finally a legitimate `generation: 2` event. The `applyTerminalOutputEvent` function indiscriminately checks `previous.generation !== event.generation`, which matches. It then incorrectly overwrites the stored baseline to `generation: 1`, returns `accept: true` and `generationChanged: true`. In `TerminalView.tsx`, this combination triggers a UI error notification `terminalOutputGenerationChanged` and permanently desynchronizes the expected sequence numbers for subsequent valid gen 2 events, causing repeated UI errors.",
+            "result": "Establishes that stale terminal output from older generations is incorrectly accepted, corrupting the continuity state of a newer running terminal generation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection."
+        ],
+        "proposed_task_ids": [
+          "discovery-ee7a41f1c14f7d31"
+        ],
+        "completed_at": "2026-09-24T02:12:53.170087Z",
+        "source": {
+          "activity_id": "sessions/12894826830615718505/activities/cce079cd190f4c40aeec5d66dfee11cf",
+          "report_sha256": "7e1a54582e1e28846832617794dbacacf8284d05269212277d2c82b8cccb4bed",
+          "activity_created_at": "2026-09-24T02:05:21.192489Z",
+          "session_id": "12894826830615718505",
+          "dispatch_key": "e945fd10b240c8a9e785d766"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12894826830615718505/activities/cce079cd190f4c40aeec5d66dfee11cf",
+          "report_sha256": "7e1a54582e1e28846832617794dbacacf8284d05269212277d2c82b8cccb4bed",
+          "activity_created_at": "2026-09-24T02:05:21.192489Z",
+          "session_id": "12894826830615718505",
+          "dispatch_key": "e945fd10b240c8a9e785d766"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-ee7a41f1c14f7d31"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-ee7a41f1c14f7d31",
+      "title": "Ensure stale terminal output events do not corrupt continuity state for new generations",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "medium",
+      "focus": [
+        "reliability",
+        "tests",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T02:12:53.170087Z",
+      "acceptance": [
+        "Stale output events arriving from an older terminal generation are safely discarded without altering the baseline's expected sequence",
+        "Stale output events do not trigger a 'terminalOutputGenerationChanged' error in the UI when the terminal is already running a newer generation"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated script demonstrating generation state corruption. A delayed output event from an earlier generation writes its older generation number into the `baselines` map when compared against a newly attached generation. This breaks sequence numbering for all subsequent valid output from the new generation.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Execute a synthetic script simulating the continuity module under network delay: call `applyTerminalAttachment(generation=2)` followed by a stale `applyTerminalOutputEvent(generation=1, seq=10)` and then a legitimate `applyTerminalOutputEvent(generation=2, seq=2)`.",
+            "Observe the `TerminalContinuityDecision` for the late generation 1 output.",
+            "Observe the `TerminalContinuityDecision` for the legitimate generation 2 output."
+          ],
+          "expected": "The stale generation 1 output should be rejected (accept=false) and it should NOT update the stored baseline generation to 1. The subsequent generation 2 output should be accepted cleanly.",
+          "actual": "The stale generation 1 output was accepted (accept=true) AND it overwrote the baseline state to `generation: 1`. When the legitimate generation 2 output arrived, the module reported `generationChanged: true` and rejected its sequence number."
+        }
+      },
+      "target_paths": [
+        "src/terminalContinuity.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-reliability-8",
+        "activity_id": "sessions/12894826830615718505/activities/cce079cd190f4c40aeec5d66dfee11cf",
+        "report_sha256": "7e1a54582e1e28846832617794dbacacf8284d05269212277d2c82b8cccb4bed",
+        "activity_created_at": "2026-09-24T02:05:21.192489Z",
+        "session_id": "12894826830615718505",
+        "dispatch_key": "e945fd10b240c8a9e785d766"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T02:06:53.706409Z",
+    "last_poll_at": "2026-09-24T02:13:13.182361Z",
     "last_tick_at": "2026-09-24T02:06:56.318451Z",
     "run_id": "35945830673"
   }
