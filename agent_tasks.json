@@ -41570,7 +41570,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T06:38:45.618846Z"
+        "observed_at": "2026-09-24T06:38:45.618846Z",
+        "released_attempt_ref": "autonomous/attempt-5fe2312386168b7687a5f6e3"
       },
       "research_result": {
         "summary": "Investigated performance and resource bounding of terminal input and output operations.",
