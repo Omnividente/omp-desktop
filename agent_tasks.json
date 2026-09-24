@@ -31901,7 +31901,7 @@
       "id": "discovery-86ee5072b42c9535",
       "title": "Fix focus drop when directly opening external content links from transcript",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -31938,6 +31938,12 @@
         "activity_created_at": "2026-09-22T23:35:24.625293Z",
         "session_id": "7045117393096977396",
         "dispatch_key": "903312a801ee9de02a012fcf"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:08:36Z",
+        "note": "Reject: opening transcript web content moves OS focus to external browser by design. Forcing focus back to Desktop conflicts with user navigation; synthetic WebKit focus assumptions are not a Desktop defect."
       }
     },
     {
