@@ -28139,7 +28139,7 @@
       "id": "discovery-1c2ef3e497408198",
       "title": "Prevent text overflow of long filepaths in Settings Recovery screen",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -28173,6 +28173,12 @@
         "activity_created_at": "2026-09-22T08:56:17.113823Z",
         "session_id": "5484821217634296393",
         "dispatch_key": "ea436effc2e3d5c92cb1e5e3"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:05:04Z",
+        "note": "Reject: current App.css .settings-recovery-details dd already uses overflow-wrap:anywhere and min-width:0; child code uses white-space:normal and inherits wrapping. Synthetic old CSS fixture does not reproduce on current UI."
       }
     },
     {
