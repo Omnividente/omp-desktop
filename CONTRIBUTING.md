@@ -42,6 +42,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Use `npm ci` rather than updating the lockfile unless dependency changes are part of the pull request.
 
+## Publishing source changes
+
+For a requested Desktop fix or feature, branch from current `main`, verify the affected behavior and relevant checks, publish the commits to GitHub in a reviewable pull request, and merge the verified change into `main` after required CI. Accepted Jules findings follow the same product-code path after manual review and testing; the autonomous lab's proposal/acceptance process remains separate and never merges product code automatically. Do not leave accepted changes only in a local worktree or `autonomous/lab`.
+
+Publishing source code does **not** imply a version bump, installer build, tag, GitHub Release, or replacement of an installed Desktop. Perform those separately only when explicitly requested for that task. Without a release request, deliver the code change and its GitHub PR/main result, not new binaries.
+
 ## Pull requests
 
 Describe the motivation, implementation, user impact, verification performed, and any platform-specific limitations. Link related issues and include sanitized screenshots for visible UI changes. Mark checks that cannot be run locally and explain why.
