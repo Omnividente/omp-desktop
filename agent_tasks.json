@@ -40578,7 +40578,7 @@
       "id": "discovery-ee7a41f1c14f7d31",
       "title": "Ensure stale terminal output events do not corrupt continuity state for new generations",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 75,
       "risk": "medium",
       "focus": [
@@ -40615,6 +40615,12 @@
         "activity_created_at": "2026-09-24T02:05:21.192489Z",
         "session_id": "12894826830615718505",
         "dispatch_key": "e945fd10b240c8a9e785d766"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:10:35Z",
+        "note": "Reject: TerminalOutputState generation is assigned only once during spawn; each spawn allocates a unique terminal_id. Continuity is keyed and output subscribed per terminal_id, so different generations for the same ID require synthetic mock events, not production behavior."
       }
     },
     {
