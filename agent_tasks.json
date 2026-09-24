@@ -29239,7 +29239,7 @@
       "id": "discovery-b157732b0a1a8ecb",
       "title": "Preserve transcript UI state across identical path reloads",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -29273,6 +29273,12 @@
         "activity_created_at": "2026-09-22T10:38:01.246176Z",
         "session_id": "2093123348901435481",
         "dispatch_key": "bcb9efd6e9824f67579e14c2"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:16:54Z",
+        "note": "Reject: in-modal Refresh calls load(session) on the same path, retaining search/mode; TranscriptModal preserves reading position before refresh. loadTranscriptPath without a session is the distinct terminal Read action and intentionally opens dialogue at latest. Loading state deliberately hides stale contents."
       }
     },
     {
