@@ -41273,6 +41273,116 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-performance-8",
+      "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-24T06:18:02Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "performance",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Investigated the terminal font resizing behavior in `TerminalView.tsx`.",
+            "observations": [
+              {
+                "scenario": "Changing the terminal font size via settings panel which updates `terminalFontFamily` and `terminalFontSize` props in `TerminalView.tsx`.",
+                "evidence": "Observed via synthetic React component test simulating font size changes. When the font size props change, a `useEffect` calls `fitAddon.fit()` in a `requestAnimationFrame`. This recalculates the `cols` and `rows` of the xterm canvas. However, it does not call the local `fit()` closure or `resizeTerminal()`. Because the `.terminal-host` container size itself typically does not change (it's constrained by its flex parent), the `ResizeObserver` does not trigger, meaning the backend PTY is never notified of the new `cols` and `rows` until the user manually resizes the application window.",
+                "result": "Establishes that terminal font resizing fails to update the backend PTY dimensions, leading to garbled text layout."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+            ],
+            "proposed_task_ids": [
+              "discovery-04eb5c9fb6e41d82"
+            ],
+            "completed_at": "2026-09-23T12:18:47.268008Z",
+            "source": {
+              "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+              "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+              "activity_created_at": "2026-09-23T12:08:08.803368Z",
+              "session_id": "4837637215068643094",
+              "dispatch_key": "8b845b7e45b4e50237ea597d"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal rendering failures during rapid tab switching.",
+            "observations": [
+              {
+                "scenario": "Rapidly switching between active tabs when a terminal container might briefly report a zero width/height.",
+                "evidence": "Created and ran a synthetic Vitest script simulating the component's `useEffect` behavior during tab switch where `fitAddon.fit()` throws an exception due to a zero-sized container. The test revealed that because `fitAddon.fit()` and `terminalRef.current?.focus()` are grouped in the same `try...catch` block (lines 622-633 in TerminalView.tsx), throwing on `fit()` silently aborts the block, preventing `terminal.focus()` from executing and leaving the terminal in a suspended/unfocused state.",
+                "result": "Establishes that the shared `try...catch` block in the `requestAnimationFrame` callback prevents terminal focus restoration if the container's layout is momentarily zero-sized during activation. Fix requires separating the `fit()` and `focus()` operations."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity is broken when large binary payloads arrive right at the generation boundary before standard output queues.",
+              "Investigate if restoring the terminal state after minimizing and restoring the desktop application window correctly handles focus on macOS vs Linux."
+            ],
+            "proposed_task_ids": [
+              "discovery-5f246af60eb16b09"
+            ],
+            "completed_at": "2026-09-23T23:33:39.345574Z",
+            "source": {
+              "activity_id": "sessions/5186752007426495389/activities/81e3e67245094a2f96365090f8ca9d8f",
+              "report_sha256": "716fa7cb953318a4d42bc8eeebc7cc740fbe1861a512a565f4484ac5ba6d649b",
+              "activity_created_at": "2026-09-23T23:20:11.560590Z",
+              "session_id": "5186752007426495389",
+              "dispatch_key": "635e90b6b7a750411960c8d3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal continuity handling of output events and identified a defect where stale output events from older generations corrupt the terminal state.",
+            "observations": [
+              {
+                "scenario": "A race condition during terminal restart/reconnect where delayed output events from a previous generation (e.g., gen 1) arrive after the UI has already attached to a new generation (gen 2).",
+                "evidence": "Executed an isolated synthetic test of `src/terminalContinuity.ts` calling `applyTerminalAttachment` with `generation: 2`, followed by `applyTerminalOutputEvent` with a stale `generation: 1` event, and finally a legitimate `generation: 2` event. The `applyTerminalOutputEvent` function indiscriminately checks `previous.generation !== event.generation`, which matches. It then incorrectly overwrites the stored baseline to `generation: 1`, returns `accept: true` and `generationChanged: true`. In `TerminalView.tsx`, this combination triggers a UI error notification `terminalOutputGenerationChanged` and permanently desynchronizes the expected sequence numbers for subsequent valid gen 2 events, causing repeated UI errors.",
+                "result": "Establishes that stale terminal output from older generations is incorrectly accepted, corrupting the continuity state of a newer running terminal generation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection."
+            ],
+            "proposed_task_ids": [
+              "discovery-ee7a41f1c14f7d31"
+            ],
+            "completed_at": "2026-09-24T02:12:53.170087Z",
+            "source": {
+              "activity_id": "sessions/12894826830615718505/activities/cce079cd190f4c40aeec5d66dfee11cf",
+              "report_sha256": "7e1a54582e1e28846832617794dbacacf8284d05269212277d2c82b8cccb4bed",
+              "activity_created_at": "2026-09-24T02:05:21.192489Z",
+              "session_id": "12894826830615718505",
+              "dispatch_key": "e945fd10b240c8a9e785d766"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
