@@ -50465,7 +50465,8 @@
         "feedback_nudge": {
           "at": "2026-09-24T17:24:53.479306Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-acd8875315af33bccedee153"
       },
       "research_result": {
         "summary": "Investigated failure recovery and retry behaviors during batch session imports, focusing on duplicate operations.",
