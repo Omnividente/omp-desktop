@@ -43200,7 +43200,7 @@
       "id": "research-workspace-navigation-performance-8",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -43390,16 +43390,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9638885789936561435",
         "dispatch_key": "863e3da08c76f361d67abdcc",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-863e3da08c76f361d67abdcc",
         "started_at": "2026-09-24T08:16:16.705612Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T08:36:25.702406Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -43577,13 +43577,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T08:23:59.845131Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T08:36:25.702406Z"
+      },
+      "research_result": {
+        "summary": "Benchmarked and optimized ProjectRail rendering for a large number of workspaces by extracting and memoizing ProjectRailRow.",
+        "observations": [
+          {
+            "scenario": "Render performance of ProjectRail with a large number (1000) of workspaces when selection changes.",
+            "evidence": "Wrote synthetic Profiler tests mimicking a React 'act' update to `selectedWorkspace`. Measured mount time at ~1200ms and selection update time at ~450ms. After extracting `ProjectRailRow` and wrapping it in `React.memo`, mount time dropped slightly (1162ms) but selection update time fell to ~350ms, a significant reduction in React reconcile cost across the 1000 sibling components that didn't change state.",
+            "result": "Establishes that memoizing individual workspace rows in `ProjectRail` reduces wasted render cycles and latency during UI interactions (like selecting a different workspace or renaming) without affecting behavior."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if SessionList re-renders can also be further optimized by memoizing SessionRow when selectedSessionId or renamingSessionId changes.",
+          "Investigate large session list loading times in `App.tsx` and if session search filtering can be moved to a web worker or debounced."
+        ],
+        "proposed_task_ids": [
+          "discovery-ecacdd20617a4f68"
+        ],
+        "completed_at": "2026-09-24T08:36:25.702406Z",
+        "source": {
+          "activity_id": "sessions/9638885789936561435/activities/1ec2f13aed8249378921403f2d7a4cd0",
+          "report_sha256": "a8238f4f72786cdb3f27dac2ef61774034a61f362feaa8cf928fc1f92b826d1e",
+          "activity_created_at": "2026-09-24T08:27:46.857262Z",
+          "session_id": "9638885789936561435",
+          "dispatch_key": "863e3da08c76f361d67abdcc"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/9638885789936561435/activities/1ec2f13aed8249378921403f2d7a4cd0",
+          "report_sha256": "a8238f4f72786cdb3f27dac2ef61774034a61f362feaa8cf928fc1f92b826d1e",
+          "activity_created_at": "2026-09-24T08:27:46.857262Z",
+          "session_id": "9638885789936561435",
+          "dispatch_key": "863e3da08c76f361d67abdcc"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-ecacdd20617a4f68"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-ecacdd20617a4f68",
+      "title": "Optimize ProjectRail rendering by memoizing workspace rows",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-09-24T08:36:25.702406Z",
+      "acceptance": [
+        "ProjectRail mapping logic for workspaces is extracted to a new `ProjectRailRow` component.",
+        "`ProjectRailRow` is wrapped in `React.memo` to prevent unnecessary re-renders of unselected/unmodified rows when the selected workspace changes."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Created a synthetic benchmark test with 1000 workspaces and measured update time when changing `selectedWorkspace`. The unmemoized map re-rendered all 1000 rows. Memoizing the row prevents React from reconciling unchanged workspace rows.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `ProjectRail` with a large array of mock workspaces (e.g., 1000).",
+            "Profile the update phase when `selectedWorkspace` changes from workspace A to workspace B.",
+            "Observe the number of rendered child rows."
+          ],
+          "expected": "Only the newly selected and previously selected rows should re-render.",
+          "actual": "Currently, every row re-renders because they are inline JSX inside a `.map()` without memoization."
+        }
+      },
+      "target_paths": [
+        "src/ProjectRail.tsx",
+        "src/ProjectRailRow.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-performance-8",
+        "activity_id": "sessions/9638885789936561435/activities/1ec2f13aed8249378921403f2d7a4cd0",
+        "report_sha256": "a8238f4f72786cdb3f27dac2ef61774034a61f362feaa8cf928fc1f92b826d1e",
+        "activity_created_at": "2026-09-24T08:27:46.857262Z",
+        "session_id": "9638885789936561435",
+        "dispatch_key": "863e3da08c76f361d67abdcc"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T08:30:35.259932Z",
+    "last_poll_at": "2026-09-24T08:36:44.084674Z",
     "last_tick_at": "2026-09-24T08:30:38.101428Z",
     "run_id": "35975591023"
   }
