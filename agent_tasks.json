@@ -48744,6 +48744,126 @@
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-8",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-24T13:04:28Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Investigated the behavior of multiple consecutive switchInputRecovery errors in App.tsx and the eviction bounds logic in runtimeIncidents.",
+            "observations": [
+              {
+                "scenario": "Verify what happens when multiple consecutive switchInputRecoveryDetails exceptions are caught for the same terminal in heavy network failure conditions.",
+                "evidence": "Observed via synthetic React rendering tests that simulate App.tsx's error catch blocks for sendSwitchInputRecovery and discardSwitchInputRecovery. When multiple consecutive errors occur for the same terminal, if a subsequent error does not contain recovery details (e.g. a generic network error returning null from switchInputRecoveryDetails), the catch blocks in App.tsx use 'currentRecovery ?? candidate.switchRecovery' or 'if (currentRecovery)' guards. This intentionally retains the previous valid recovery state rather than wiping it out.",
+                "result": "Establishes that consecutive exceptions without recovery payloads safely preserve the existing switch input recovery state, preventing accidental loss of recovery tokens during transient network failures."
+              },
+              {
+                "scenario": "Verify the bounds checking and eviction logic for switchInputRecovery states and runtime incidents during heavy terminal churn.",
+                "evidence": "Observed via synthetic React state testing of applyRuntimeIncidentEvent and createRuntimeIncidentState from src/runtimeIncidents.ts. Created a loop that generates active incidents for distinct terminals beyond MAX_RUNTIME_INCIDENTS. The enforceIncidentBound logic correctly enforced the length of the incidents array to not exceed the defined limit (100) by evicting the oldest candidates. Also observed that terminalContinuity baseline states are properly evicted only upon explicit UI tab closures via forgetTerminalContinuity.",
+                "result": "Establishes that incident arrays are safely bounded against unbounded growth during heavy error churn, and terminal continuity baselines accurately follow explicit tab lifecycles."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether the logic that selects which active incident to evict prioritizes terminals with multiple active incidents correctly over single-incident terminals.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T13:24:16.887632Z",
+            "source": {
+              "activity_id": "sessions/7315406604621776548/activities/c8691fc7dc0d465c88b3cd712c9f61c1",
+              "report_sha256": "95833d1f90667e8563465f336d981e10a8b57b0179db9e97a7091f334ddf32cb",
+              "activity_created_at": "2026-09-23T13:14:05.513182Z",
+              "session_id": "7315406604621776548",
+              "dispatch_key": "841c2f7f957ce8fb5ff1775e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated runtime incidents state eviction logic to confirm priority based on active incident count per terminal.",
+            "observations": [
+              {
+                "scenario": "Verify whether the logic that selects which active incident to evict prioritizes terminals with multiple active incidents correctly over single-incident terminals.",
+                "evidence": "Tested synthetic state where active incidents reached MAX_RUNTIME_INCIDENTS (100). The oldest incident in the system was from 'term-0' (a single-incident terminal). A separate terminal, 'term-50', possessed two active incidents (the first of which was newer than term-0's incident). When a new 101st incident was added forcing an eviction, observation from `src/runtimeIncidents.ts` via synthetic tests showed that the eviction logic correctly spared term-0 and identified 'term-50' due to it having multiple incidents. It subsequently evicted the oldest incident belonging to term-50.",
+                "result": "Establishes that the incident state logic accurately protects single-incident terminals from unfair eviction under capacity pressure, prioritizing eviction correctly among multiple-incident terminals."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T13:45:17.574630Z",
+            "source": {
+              "activity_id": "sessions/2345774681930554603/activities/05a7a952ae4a4a619347c4aea1e930cd",
+              "report_sha256": "9032120d124c3ad3088f08a54d1488b272a2d539521be25ed78d1cdde44eda27",
+              "activity_created_at": "2026-09-23T13:36:44.389536Z",
+              "session_id": "2345774681930554603",
+              "dispatch_key": "e90a3fb34115ec6cba57869b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus trap logic flaw in IncidentCenter and ResourceHealthPanel relating to hidden elements inside collapsed details tags.",
+            "observations": [
+              {
+                "scenario": "Verify focus trap logic behavior regarding <details> elements in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Tested synthetic React rendering states using JSDOM to simulate focus changes on elements matching DIALOG_FOCUSABLE_SELECTOR. The focus trap explicitly filters out elements using '!element.hasAttribute(\"disabled\") && !element.hidden'. However, elements inside a collapsed <details> tag (except the <summary> itself) return false for '.hidden' because they do not carry the 'hidden' HTML attribute, though they are visually hidden by browser layout. As a result, the focus trap logic includes these invisible elements in the focusable array, and when standard keyboard navigation (Shift+Tab/Tab) occurs near the boundary, focus misbehaves by failing to loop back or getting stuck on visually hidden interactive elements.",
+                "result": "Establishes a keyboard accessibility and focus trap bug where the focus bounds calculate incorrectly when closed <details> elements contain interactive elements like links or buttons."
+              },
+              {
+                "scenario": "Verify ResourceHealthPanel missing snapshot state rendering.",
+                "evidence": "Observed via synthetic React testing that when ResourceHealthPanel is passed an empty snapshot (null) but has an error ('An error occurred'), the severity falls back to 'warning', and the status text correctly maps to 'resourceUnavailable' but no success checkmark icon is displayed (an alert icon is used instead based on the warning severity). This behavior was observed on the pinned base and contrasts with a previous report about success icons displaying during errors, confirming that specific prior issue is correctly resolved/addressed in this branch.",
+                "result": "Establishes that the ResourceHealthPanel correctly renders an alert icon (not a success icon) for empty snapshots with errors."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+              "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays and is announced by a screen reader when the last active incident is cleared.",
+              "Verify the interaction flow when resolving an incident and checking whether focus is properly restored to the trigger element."
+            ],
+            "proposed_task_ids": [
+              "discovery-b82daad4c8b8b9f9"
+            ],
+            "completed_at": "2026-09-23T15:22:12.732818Z",
+            "source": {
+              "activity_id": "sessions/3454774798721230607/activities/424a7335ccd949fb83083a3de9f01bd3",
+              "report_sha256": "d9566c88c6e2950d5eadf9d0588d7f39dfd58dcc28a11331d7e8ed88e6c9f331",
+              "activity_created_at": "2026-09-23T14:50:13.421970Z",
+              "session_id": "3454774798721230607",
+              "dispatch_key": "95662c54c63c5782851fc010"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
