@@ -52021,7 +52021,7 @@
       "id": "research-terminal-input-reliability-9",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -52229,7 +52229,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "6873399134879292254",
         "dispatch_key": "6cfaba1fb49622c193b1d26f",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
@@ -52237,8 +52237,8 @@
         "started_at": "2026-09-24T23:26:22.469454Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: report_absent",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -52411,13 +52411,23 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T23:26:22.469454Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T23:46:38.877843Z",
+        "report_error": {
+          "code": "report_absent",
+          "detail": "completed discovery has no worker report",
+          "reported_at": "2026-09-24T23:46:38.877843Z"
+        },
+        "report_repair": {
+          "at": "2026-09-24T23:46:59.443623Z",
+          "result": "pending",
+          "status": "pending"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T23:40:40.697390Z",
+    "last_poll_at": "2026-09-24T23:46:57.993650Z",
     "last_tick_at": "2026-09-24T23:40:43.571465Z",
     "run_id": "36073868037"
   }
