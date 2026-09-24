@@ -39969,7 +39969,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T00:06:49.897726Z"
+        "observed_at": "2026-09-24T00:06:49.897726Z",
+        "released_attempt_ref": "autonomous/attempt-b6068ebedaa1ea36758073ab"
       },
       "research_result": {
         "summary": "Verified focus drop defect on external links, state loss on transcript path reloads, and layout cache discard on mode switch.",
