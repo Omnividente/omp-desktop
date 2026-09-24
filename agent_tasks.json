@@ -28947,7 +28947,7 @@
       "id": "discovery-6126922b5115ca89",
       "title": "Show localized validation error when Custom Provider settings are incomplete",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -28982,6 +28982,12 @@
         "activity_created_at": "2026-09-22T10:12:49.765816Z",
         "session_id": "1648608779480684360",
         "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T06:52:28Z",
+        "note": "Reject: SettingsPanel.tsx already blocks incomplete Custom Provider save with localized customProviderFieldsRequired, records saveError and renders role=alert. Proposed expected behavior equals observed."
       }
     },
     {
