@@ -47896,7 +47896,8 @@
         "feedback_nudge": {
           "at": "2026-09-24T12:25:41.335212Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-0719f078b0792818b8d68ed5"
       },
       "research_result": {
         "summary": "Investigated duplicate backup file generation during failed recovery and defaults operations and backend transaction rollback behavior.",
