@@ -44590,7 +44590,7 @@
       "id": "research-settings-models-performance-8",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -44764,16 +44764,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3001433304691637917",
         "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-ef0c79532ecc9d5bcd9cfdd4",
         "started_at": "2026-09-24T09:59:24.364732Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T10:14:11.846023Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -44944,13 +44944,251 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T10:07:45.908210Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T10:14:11.846023Z"
+      },
+      "research_result": {
+        "summary": "Measured and confirmed optimization opportunity in ModelPicker sorting on large model lists.",
+        "observations": [
+          {
+            "scenario": "Sorting a list of 10000 model configurations in the browser using the current string interpolation and single-localeCompare technique.",
+            "evidence": "Measured via synthetic Node.js scripts using the exact filtering and sorting logic from src/ModelPicker.tsx. The original implementation takes ~42-54ms to sort 10000 elements. Replacing the interpolated string comparison (`${left.provider}/${left.name}`.localeCompare(...)) with separate string comparisons (`left.provider.localeCompare` then `left.name.localeCompare`) reduced sort time to ~9-10ms (a 75%+ reduction).",
+            "result": "Establishes that the string concatenation in the sorting loop allocates memory and uses CPU unnecessarily. A significant latency improvement can be gained by avoiding it."
+          },
+          {
+            "scenario": "Filtering a list of 10000 model configurations in the browser using the current string interpolation include technique vs separate includes.",
+            "evidence": "Measured via synthetic Node.js scripts. The original implementation takes ~7.6ms. Changing it to `model.name.toLowerCase().includes(normalized) || ...` takes ~6.8ms. Also, the original code evaluates the filter condition even if the normalized query is empty (`if (!normalized) return true` happens after). Evaluating if `normalized` is empty before checking properties reduces empty filter time from 7.7ms to 0.6ms (though note the current codebase already has `if (!normalized) return true`, the string manipulation inside `.sort` is the main target here).",
+            "result": "Establishes that sorting is the primary CPU/memory bottleneck, not filtering."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if model list can be virtualized in the DOM to avoid rendering thousands of unmounted option buttons at once.",
+          "Examine if SettingsPanel rendering can be optimized by debouncing input events."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T10:14:11.846023Z",
+        "source": {
+          "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+          "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+          "activity_created_at": "2026-09-24T10:06:55.988988Z",
+          "session_id": "3001433304691637917",
+          "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+        },
+        "deferred_findings": [
+          {
+            "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.\", \"reproduction\": {\"actual\": \"The sort logic currently concatenates the provider and name strings on every comparison.\", \"expected\": \"The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.\", \"steps\": [\"Run a profiling test with thousands of synthetic models injected into ModelPicker.\", \"Observe the latency of `filteredModels = useMemo(...)` before and after the change.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-37764527ab2ab728\", \"responses\": [{\"decision_context_id\": \"d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02\", \"decision_task_id\": \"discovery-37764527ab2ab728\", \"why_previous_reason_no_longer_explains\": \"The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity.\"}, {\"decision_context_id\": \"12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6\", \"decision_task_id\": \"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\", \"why_previous_reason_no_longer_explains\": \"Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+            ],
+            "deferred_id": "0f493ef376fc5f7fc131df7e916b1bb06aaf4f09b4d054a982808dade806d42f",
+            "candidate": {
+              "task_type": "product_improvement",
+              "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+              "risk": "low",
+              "priority": 40,
+              "focus": [
+                "perf"
+              ],
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Run a profiling test with thousands of synthetic models injected into ModelPicker.",
+                    "Observe the latency of `filteredModels = useMemo(...)` before and after the change."
+                  ],
+                  "expected": "The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.",
+                  "actual": "The sort logic currently concatenates the provider and name strings on every comparison."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-37764527ab2ab728",
+                  "observation_refs": [
+                    0
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-37764527ab2ab728",
+                      "decision_context_id": "d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02",
+                      "why_previous_reason_no_longer_explains": "The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity."
+                    },
+                    {
+                      "decision_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                      "decision_context_id": "12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6",
+                      "why_previous_reason_no_longer_explains": "Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                  "action": "reject",
+                  "decision_at": "2026-09-20T20:22:17Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-37764527ab2ab728",
+                  "action": "resolve",
+                  "decision_at": "2026-09-19T17:02:13Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-settings-models-performance-8",
+              "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+              "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+              "activity_created_at": "2026-09-24T10:06:55.988988Z",
+              "session_id": "3001433304691637917",
+              "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+          "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+          "activity_created_at": "2026-09-24T10:06:55.988988Z",
+          "session_id": "3001433304691637917",
+          "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-da06253b8552f308",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.\", \"reproduction\": {\"actual\": \"The sort logic currently concatenates the provider and name strings on every comparison.\", \"expected\": \"The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.\", \"steps\": [\"Run a profiling test with thousands of synthetic models injected into ModelPicker.\", \"Observe the latency of `filteredModels = useMemo(...)` before and after the change.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-37764527ab2ab728\", \"responses\": [{\"decision_context_id\": \"d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02\", \"decision_task_id\": \"discovery-37764527ab2ab728\", \"why_previous_reason_no_longer_explains\": \"The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity.\"}, {\"decision_context_id\": \"12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6\", \"decision_task_id\": \"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\", \"why_previous_reason_no_longer_explains\": \"Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+              ],
+              "deferred_id": "0f493ef376fc5f7fc131df7e916b1bb06aaf4f09b4d054a982808dade806d42f",
+              "candidate": {
+                "task_type": "product_improvement",
+                "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+                "risk": "low",
+                "priority": 40,
+                "focus": [
+                  "perf"
+                ],
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Run a profiling test with thousands of synthetic models injected into ModelPicker.",
+                      "Observe the latency of `filteredModels = useMemo(...)` before and after the change."
+                    ],
+                    "expected": "The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.",
+                    "actual": "The sort logic currently concatenates the provider and name strings on every comparison."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-37764527ab2ab728",
+                    "observation_refs": [
+                      0
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-37764527ab2ab728",
+                        "decision_context_id": "d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02",
+                        "why_previous_reason_no_longer_explains": "The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity."
+                      },
+                      {
+                        "decision_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                        "decision_context_id": "12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6",
+                        "why_previous_reason_no_longer_explains": "Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                    "action": "reject",
+                    "decision_at": "2026-09-20T20:22:17Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-37764527ab2ab728",
+                    "action": "resolve",
+                    "decision_at": "2026-09-19T17:02:13Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-settings-models-performance-8",
+                "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+                "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+                "activity_created_at": "2026-09-24T10:06:55.988988Z",
+                "session_id": "3001433304691637917",
+                "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T10:08:03.545731Z",
+    "last_poll_at": "2026-09-24T10:14:31.218647Z",
     "last_tick_at": "2026-09-24T10:08:06.258481Z",
     "run_id": "35985331672"
   }
