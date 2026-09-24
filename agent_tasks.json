@@ -32978,7 +32978,7 @@
       "id": "discovery-2121d4b2b9e7bcd1",
       "title": "Restore focus to the search input after clearing the search query in SessionList",
       "task_type": "product_improvement",
-      "status": "todo",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -33016,10 +33016,10 @@
         "dispatch_key": "18bb3ef1d7365b5d7e278803"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-24T07:55:47Z",
-        "note": "Accepted. Implemented locally on fix/jules-triage-20260924: SessionList returns focus to search input after Clear. Native WebView2 smoke confirmed activeElement is the search input. Source not pushed, merged or released; no Jules dispatch. Resolve only after source publication."
+        "at": "2026-09-24T08:49:05Z",
+        "note": "Implemented in src/SessionList.tsx via reviewed PR #90, merged to main d0e5265a79518e15264292dd7d466dbe8b64d472. Clear returns focus to session search; isolated native WebView2 smoke and CI passed. Source merged only, no release."
       }
     },
     {
