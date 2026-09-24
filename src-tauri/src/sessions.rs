@@ -1966,8 +1966,7 @@ where
     let Some(staging) = staged_artifacts else {
         return write_session(destination, body);
     };
-    // Swap artifacts under reversible sibling names, then commit the JSONL last. Every failure
-    // before the JSONL write restores the prior artifact directory or reports the rollback path.
+
     let target_artifacts = destination.with_extension("");
     let existing_metadata = match fs::symlink_metadata(&target_artifacts) {
         Ok(metadata) => Some(metadata),
@@ -1991,22 +1990,56 @@ where
         ));
     }
 
+    let staged_jsonl = destination.with_extension("jsonl.staged");
+    if let Err(error) = write_session(&staged_jsonl, body) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
     let backup = if existing_metadata.is_some() {
         let backup = match unique_import_sidecar_path(destination, "artifacts-backup") {
             Ok(backup) => backup,
             Err(error) => {
                 let _ = fs::remove_dir_all(&staging);
+                let _ = fs::remove_file(&staged_jsonl);
                 return Err(error);
             }
         };
-        if let Err(error) = rename(&target_artifacts, &backup) {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(error);
-        }
         Some(backup)
     } else {
         None
     };
+
+    let intent_file = destination.with_extension("import-txn");
+    let intent_data = serde_json::json!({
+        "staging": staging.to_string_lossy(),
+        "backup": backup.as_ref().map(|p| p.to_string_lossy())
+    });
+    if let Err(error) = fs::write(&intent_file, intent_data.to_string()) {
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_file(&staged_jsonl);
+        return Err(format!(
+            "Не удалось создать файл намерений {}: {error}",
+            intent_file.display()
+        ));
+    }
+
+    let _guard = ActiveTransactionGuard {
+        path: intent_file.clone(),
+    };
+    ACTIVE_IMPORT_TRANSACTIONS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(intent_file.clone());
+
+    if let Some(backup) = backup.as_ref() {
+        if let Err(error) = rename(&target_artifacts, backup) {
+            let _ = fs::remove_dir_all(&staging);
+            let _ = fs::remove_file(&staged_jsonl);
+            let _ = fs::remove_file(&intent_file);
+            return Err(error);
+        }
+    }
 
     if let Err(error) = rename(&staging, &target_artifacts) {
         let mut rollback_errors = Vec::new();
@@ -2023,10 +2056,12 @@ where
                 ));
             }
         }
+        let _ = fs::remove_file(&staged_jsonl);
+        let _ = fs::remove_file(&intent_file);
         return Err(import_transaction_error(error, rollback_errors));
     }
 
-    if let Err(error) = write_session(destination, body) {
+    if let Err(error) = rename(&staged_jsonl, destination) {
         let mut rollback_errors = Vec::new();
         let moved_new_aside = match rename(&target_artifacts, &staging) {
             Ok(()) => true,
@@ -2040,6 +2075,8 @@ where
                 if let Err(rollback_error) = rename(backup, &target_artifacts) {
                     rollback_errors.push(rollback_error);
                 }
+            } else {
+                let _ = fs::remove_dir_all(&target_artifacts);
             }
             if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
                 if cleanup_error.kind() != io::ErrorKind::NotFound {
@@ -2050,8 +2087,12 @@ where
                 }
             }
         }
+        let _ = fs::remove_file(&staged_jsonl);
+        let _ = fs::remove_file(&intent_file);
         return Err(import_transaction_error(error, rollback_errors));
     }
+
+    let _ = fs::remove_file(&intent_file);
 
     if let Some(backup) = backup {
         if let Err(error) = remove_import_artifacts(&backup) {
@@ -2353,6 +2394,99 @@ struct SessionScan {
     warnings: Vec<SessionScanWarning>,
 }
 
+static ACTIVE_IMPORT_TRANSACTIONS: LazyLock<Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+struct ActiveTransactionGuard {
+    path: PathBuf,
+}
+
+impl Drop for ActiveTransactionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut transactions) = ACTIVE_IMPORT_TRANSACTIONS.lock() {
+            transactions.remove(&self.path);
+        }
+    }
+}
+
+fn recover_import_transaction(intent_file: &Path) {
+    if ACTIVE_IMPORT_TRANSACTIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(intent_file)
+    {
+        return;
+    }
+
+    let Ok(content) = fs::read_to_string(intent_file) else {
+        return;
+    };
+    let Ok(intent) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return;
+    };
+
+    let staging_str = intent
+        .get("staging")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let backup_str = intent.get("backup").and_then(|v| v.as_str());
+
+    let staging = PathBuf::from(staging_str);
+    let backup = backup_str.map(PathBuf::from);
+
+    let staged_jsonl = intent_file.with_extension("jsonl.staged");
+    let target_artifacts = intent_file.with_extension("");
+
+    if !staged_jsonl.exists() {
+        let _ = fs::remove_file(intent_file);
+        if let Some(b) = backup {
+            let _ = remove_import_artifacts(&b);
+        }
+    } else {
+        if target_artifacts.exists() {
+            if let Some(b) = backup.as_ref().filter(|p| p.exists()) {
+                let _ = fs::remove_dir_all(&target_artifacts);
+                let _ = fs::rename(b, &target_artifacts);
+            } else {
+                let _ = fs::remove_dir_all(&target_artifacts);
+            }
+        } else if let Some(b) = backup.as_ref().filter(|p| p.exists()) {
+            let _ = fs::rename(b, &target_artifacts);
+        }
+
+        let _ = fs::remove_file(&staged_jsonl);
+        let _ = fs::remove_dir_all(&staging);
+        let _ = fs::remove_file(intent_file);
+    }
+}
+
+fn recover_interrupted_imports(directory: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let is_import_sidecar = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with('.') && name.contains(".artifacts-"));
+            let is_artifact_directory = path.with_extension("jsonl").is_file()
+                || path.with_extension("import-txn").is_file();
+            if !is_import_sidecar && !is_artifact_directory {
+                recover_interrupted_imports(&path);
+            }
+        } else if path.is_file() {
+            if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("import-txn"))
+            {
+                recover_import_transaction(&path);
+            }
+        }
+    }
+}
+
 fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
     match fs::metadata(root) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -2372,6 +2506,8 @@ fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
         }
         Ok(_) => {}
     }
+
+    recover_interrupted_imports(root);
 
     let mut scan = SessionScan::default();
     let mut files = Vec::new();
@@ -5346,5 +5482,130 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+}
+
+#[cfg(test)]
+mod interruption_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn interrupted_import_recovers_consistently() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("omp-desktop-interrupted-{}", nonce));
+        fs::create_dir_all(&root).unwrap();
+
+        let session_file = root.join("session.jsonl");
+        fs::write(
+            &session_file,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
+
+        let artifact_dir = root.join("session");
+        fs::create_dir_all(&artifact_dir).unwrap();
+        fs::write(artifact_dir.join("artifact.txt"), "old artifacts").unwrap();
+
+        let staged_dir = root.join(".session.artifacts-stage.1.2");
+        fs::create_dir_all(&staged_dir).unwrap();
+        fs::write(staged_dir.join("artifact.txt"), "new artifacts").unwrap();
+
+        let backup_dir = root.join(".session.artifacts-backup.1.3");
+
+        let staged_jsonl = root.join("session.jsonl.staged");
+        fs::write(
+            &staged_jsonl,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
+
+        let intent_file = root.join("session.import-txn");
+        let intent_data = serde_json::json!({
+            "staging": staged_dir.to_string_lossy(),
+            "backup": backup_dir.to_string_lossy()
+        });
+        fs::write(&intent_file, intent_data.to_string()).unwrap();
+
+        // Scenario 1: Interruption mid-swap, target deleted/moved, backup exists, new artifacts not in place
+        fs::rename(&artifact_dir, &backup_dir).unwrap();
+        scan_sessions(&root).unwrap();
+        assert!(
+            artifact_dir.exists(),
+            "target artifact dir should be restored"
+        );
+        assert_eq!(
+            fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(),
+            "old artifacts"
+        );
+        assert!(!backup_dir.exists());
+        assert!(!staged_jsonl.exists());
+        assert!(!intent_file.exists());
+
+        // Setup Scenario 2
+        fs::create_dir_all(&staged_dir).unwrap();
+        fs::write(staged_dir.join("artifact.txt"), "new artifacts").unwrap();
+        fs::write(
+            &staged_jsonl,
+            r#"{"type":"session","id":"session","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
+        fs::write(&intent_file, intent_data.to_string()).unwrap();
+
+        // Scenario 2: Interruption after swap, target has NEW artifacts, backup has OLD artifacts.
+        fs::rename(&artifact_dir, &backup_dir).unwrap();
+        fs::rename(&staged_dir, &artifact_dir).unwrap();
+        scan_sessions(&root).unwrap();
+        assert_eq!(
+            fs::read_to_string(artifact_dir.join("artifact.txt")).unwrap(),
+            "old artifacts"
+        );
+        assert!(!backup_dir.exists());
+        assert!(!staged_jsonl.exists());
+        assert!(!intent_file.exists());
+
+        // Setup Scenario 3
+        fs::create_dir_all(&backup_dir).unwrap();
+        fs::write(backup_dir.join("artifact.txt"), "old artifacts").unwrap();
+        fs::write(&intent_file, intent_data.to_string()).unwrap();
+        // Note: staged_jsonl is intentionally NOT recreated to simulate successful commit
+
+        // Scenario 3: Interruption after successful jsonl rename, staged_jsonl is gone.
+        // Should roll forward (clean up backup).
+        scan_sessions(&root).unwrap();
+        assert!(!backup_dir.exists());
+        assert!(!intent_file.exists());
+
+        // Setup Scenario 4: No previous artifacts, mid-swap
+        let artifact_dir2 = root.join("session2");
+        let staged_dir2 = root.join(".session2.artifacts-stage.1.2");
+        fs::create_dir_all(&staged_dir2).unwrap();
+        fs::write(staged_dir2.join("artifact.txt"), "new artifacts").unwrap();
+        let staged_jsonl2 = root.join("session2.jsonl.staged");
+        fs::write(
+            &staged_jsonl2,
+            r#"{"type":"session","id":"session2","cwd":"/tmp/project"}"#,
+        )
+        .unwrap();
+        let intent_file2 = root.join("session2.import-txn");
+        let intent_data2 = serde_json::json!({
+            "staging": staged_dir2.to_string_lossy(),
+            "backup": null
+        });
+        fs::write(&intent_file2, intent_data2.to_string()).unwrap();
+
+        // New artifacts moved to target, but jsonl not renamed (crash here)
+        fs::rename(&staged_dir2, &artifact_dir2).unwrap();
+        scan_sessions(&root).unwrap();
+        // Because there's no backup and jsonl failed to rename, we expect rollback = target deleted
+        assert!(!artifact_dir2.exists());
+        assert!(!staged_jsonl2.exists());
+        assert!(!intent_file2.exists());
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
