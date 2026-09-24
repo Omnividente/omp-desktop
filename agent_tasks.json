@@ -29446,7 +29446,7 @@
       "id": "discovery-71ebc265fed99164",
       "title": "Fix terminal focus restoration failure for context menu right-click on Windows/Linux",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -29480,6 +29480,12 @@
         "activity_created_at": "2026-09-22T11:12:40.581309Z",
         "session_id": "7118727866427794195",
         "dispatch_key": "6371b6375532953d5932caf0"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:07:56Z",
+        "note": "Reject: TerminalView handles pointer mousedown before contextmenu; forced focus in contextmenu would steal focus from selection and link action menus. JSDOM event-order simulation shows no native focus loss."
       }
     },
     {
