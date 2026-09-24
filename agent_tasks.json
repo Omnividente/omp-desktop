@@ -28942,7 +28942,7 @@
       "id": "discovery-2450daef7b11aaa9",
       "title": "Allow word-break on code blocks within recovery details to prevent overflow",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -28977,6 +28977,12 @@
         "activity_created_at": "2026-09-22T10:12:49.765816Z",
         "session_id": "1648608779480684360",
         "dispatch_key": "ff96e06d3249ad7c4dce4e55"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:06:47Z",
+        "note": "Reject: App.css .settings-recovery-details code has white-space:normal and inherits dd overflow-wrap:anywhere; this duplicate of 1c2ef3e4 is already covered in current stylesheet."
       }
     },
     {
