@@ -46784,7 +46784,7 @@
       "id": "research-settings-models-behavior-8",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -47101,16 +47101,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6839265768202341973",
         "dispatch_key": "53e0d8582e4ac9ddfc57785b",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-53e0d8582e4ac9ddfc57785b",
         "started_at": "2026-09-24T11:31:59.706891Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T11:52:30.192374Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -47281,13 +47281,150 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T11:39:42.035264Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T11:52:30.192374Z"
+      },
+      "research_result": {
+        "summary": "Verified horizontal overflow and truncation issues in SettingsPanel provider account UI elements.",
+        "observations": [
+          {
+            "scenario": "Rendering the provider account empty state and status reason with a very long unbroken string.",
+            "evidence": "Measured via synthetic Puppeteer tests applying exact `.provider-account-empty` and `.provider-account-status-reason` CSS from `src/App.css`. An unbroken string overflowed the horizontal bounds (e.g. 501px scrollWidth vs 248px clientWidth) on a 250px mobile viewport.",
+            "result": "Establishes that these provider account elements lack word-breaking rules (`overflow-wrap: anywhere`), causing horizontal layout shifts and overflow on small screens for unbroken localized translations or reasons."
+          },
+          {
+            "scenario": "Rendering the provider credentials base URL with a very long URL.",
+            "evidence": "Measured via synthetic Puppeteer tests applying `.provider-credential` and `.provider-base-url` CSS. An extremely long base URL can exceed the element's client width (e.g. 303px scrollWidth vs 224px clientWidth) and cause horizontal overflow in narrow viewports despite `overflow: hidden` because the grid cell isn't fully constrained by min-width.",
+            "result": "Establishes that the base URL element can cause horizontal overflow in narrow viewports."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if long unbroken text in incident center reasons can cause horizontal layout shifts on narrow viewports."
+        ],
+        "proposed_task_ids": [
+          "discovery-55d95a28b3f55c76",
+          "discovery-a6869bc2e8638f4b"
+        ],
+        "completed_at": "2026-09-24T11:52:30.192374Z",
+        "source": {
+          "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+          "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+          "activity_created_at": "2026-09-24T11:41:03.754834Z",
+          "session_id": "6839265768202341973",
+          "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+          "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+          "activity_created_at": "2026-09-24T11:41:03.754834Z",
+          "session_id": "6839265768202341973",
+          "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-55d95a28b3f55c76",
+            "discovery-a6869bc2e8638f4b"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-55d95a28b3f55c76",
+      "title": "Fix text overflow in provider account reason and empty limits",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T11:52:30.192374Z",
+      "acceptance": [
+        "Long unbroken strings in provider account reasons and empty limit messages wrap properly without horizontally overflowing their container."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified via synthetic headless Puppeteer checks using the exact CSS styles for .provider-account-status-reason and .provider-account-empty on a 250px mobile-sized viewport. Unbroken strings overflow horizontally.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the .provider-account element with an artificially long unbroken string in the .provider-account-status-reason or .provider-account-empty fields.",
+            "Constrain the horizontal viewport to 250px.",
+            "Observe the scroll width relative to the visible client width of the element."
+          ],
+          "expected": "The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.",
+          "actual": "The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-8",
+        "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+        "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+        "activity_created_at": "2026-09-24T11:41:03.754834Z",
+        "session_id": "6839265768202341973",
+        "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+      }
+    },
+    {
+      "id": "discovery-a6869bc2e8638f4b",
+      "title": "Fix text overflow in SettingsPanel provider credentials base URL",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T11:52:30.192374Z",
+      "acceptance": [
+        "Long provider base URLs in the .provider-credential container are correctly truncated with ellipsis and do not cause horizontal layout shifts."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified via synthetic headless Puppeteer checks using the exact CSS styles for .provider-credential and .provider-base-url on a 250px mobile-sized viewport. Extremely long base URLs can cause the element to overflow its grid cell.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the .provider-credential element with an artificially long provider base URL in .provider-base-url.",
+            "Constrain the horizontal viewport to 250px.",
+            "Observe the scroll width relative to the visible client width of the element."
+          ],
+          "expected": "The long base URL is correctly truncated with an ellipsis and does not overflow horizontally.",
+          "actual": "The long base URL sometimes does not respect its grid container constraints and overflows."
+        }
+      },
+      "target_paths": [
+        "src/App.css"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-8",
+        "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+        "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+        "activity_created_at": "2026-09-24T11:41:03.754834Z",
+        "session_id": "6839265768202341973",
+        "dispatch_key": "53e0d8582e4ac9ddfc57785b"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T11:46:30.832067Z",
+    "last_poll_at": "2026-09-24T11:52:55.110386Z",
     "last_tick_at": "2026-09-24T11:46:34.470151Z",
     "run_id": "35994915315"
   }
