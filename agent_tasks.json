@@ -51448,7 +51448,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T22:34:06.152542Z"
+        "observed_at": "2026-09-24T22:34:06.152542Z",
+        "released_attempt_ref": "autonomous/attempt-f64959df2d9fdeed20f54e37"
       },
       "research_result": {
         "summary": "Verified focus behavior on empty transcript states such as clear search, and read owner rejections on existing hypotheses. Focus safely returns to the active panel or input during error/empty states.",
