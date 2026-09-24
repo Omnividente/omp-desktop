@@ -43976,7 +43976,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T09:27:51.790844Z"
+        "observed_at": "2026-09-24T09:27:51.790844Z",
+        "released_attempt_ref": "autonomous/attempt-31fc35deb7bec56d59c48205"
       },
       "research_result": {
         "summary": "Investigated terminal input state retention during manual and automatic selection clearing.",
