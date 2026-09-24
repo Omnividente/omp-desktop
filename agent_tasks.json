@@ -49888,7 +49888,7 @@
       "id": "research-sessions-persistence-reliability-9",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -50264,16 +50264,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "837913136715643650",
         "dispatch_key": "acd8875315af33bccedee153",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-acd8875315af33bccedee153",
         "started_at": "2026-09-24T16:57:30.873172Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T17:56:41.022314Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -50456,8 +50456,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-24T17:24:53.479306Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T17:56:41.022314Z",
         "research_detached": {
           "at": "2026-09-24T17:24:53.479306Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -50466,11 +50466,105 @@
           "at": "2026-09-24T17:24:53.479306Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated failure recovery and retry behaviors during batch session imports, focusing on duplicate operations.",
+        "observations": [
+          {
+            "scenario": "Retrying a batch import after a partial failure while using 'Copy' mode.",
+            "evidence": "Source inspection of `importCodexSelected` and `importPendingOmp` in `src/App.tsx` on the pinned base. The batch import modal remains open after a failure with the full original selection (`codexSelected` is not updated). If the user retries without manually deselecting the successful items, `importSessions` processes them again. In `ImportMode::Copy` (handled in `src-tauri/src/sessions.rs`), the backend creates new duplicate copies of the already successfully imported sessions.",
+            "result": "Establishes that the UI makes it easy to unintentionally duplicate successfully imported sessions when retrying a failed batch. Automatically deselecting successful items would prevent this while honoring the owner's historical requirement to keep the dialog open for the 'remainder of the selection'."
+          },
+          {
+            "scenario": "Keyboard interaction for clearing a session search query.",
+            "evidence": "Source inspection of `src/SessionList.tsx` and execution of a synthetic jsdom test. Focus falls back to the document body because the clear button unmounts without explicitly redirecting focus.",
+            "result": "Observation overlaps with a historically resolved task (`discovery-2121d4b2b9e7bcd1`), verifying that OMP correctly manages focus restoration via `actionFocusRef` under typical conditions in production. The jsdom test failure was an isolated environment issue."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session while search filters are active correctly preserves the scroll and focus position within the virtualized list.",
+          "Investigate if session backups created during imports are correctly cleaned up if the application is killed gracefully rather than crashing."
+        ],
+        "proposed_task_ids": [
+          "discovery-aa3074cd1d181e73"
+        ],
+        "completed_at": "2026-09-24T17:56:41.022314Z",
+        "source": {
+          "activity_id": "sessions/837913136715643650/activities/62570d88238648e78733702fc593b036",
+          "report_sha256": "9a48019d8d96a1c43a37cc04de7a445fffb635dfbc04648c871c7237d259e0b1",
+          "activity_created_at": "2026-09-24T17:26:56.915611Z",
+          "session_id": "837913136715643650",
+          "dispatch_key": "acd8875315af33bccedee153"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/837913136715643650/activities/62570d88238648e78733702fc593b036",
+          "report_sha256": "9a48019d8d96a1c43a37cc04de7a445fffb635dfbc04648c871c7237d259e0b1",
+          "activity_created_at": "2026-09-24T17:26:56.915611Z",
+          "session_id": "837913136715643650",
+          "dispatch_key": "acd8875315af33bccedee153"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-aa3074cd1d181e73"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-aa3074cd1d181e73",
+      "title": "Deselect successfully imported sessions to prevent duplicate operations on retry",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "ux"
+      ],
+      "created_at": "2026-09-24T17:56:41.022314Z",
+      "acceptance": [
+        "Successfully imported sessions are automatically deselected in the import modal so that retrying a partially failed batch does not process them again."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via codebase inspection and verified by tracing the state of `codexSelected` during a simulated partial batch import failure.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Codex import modal and select multiple sessions.",
+            "Change the import mode to 'Copy'.",
+            "Simulate a partial import failure from the Tauri backend.",
+            "Click 'Import' again to retry the failed items without manually changing the selection."
+          ],
+          "expected": "Only the failed sessions are retried. Successful sessions are deselected after the first attempt.",
+          "actual": "The modal retains the full original selection. Retrying in 'Copy' mode re-runs the successful imports, creating duplicate sessions."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-9",
+        "activity_id": "sessions/837913136715643650/activities/62570d88238648e78733702fc593b036",
+        "report_sha256": "9a48019d8d96a1c43a37cc04de7a445fffb635dfbc04648c871c7237d259e0b1",
+        "activity_created_at": "2026-09-24T17:26:56.915611Z",
+        "session_id": "837913136715643650",
+        "dispatch_key": "acd8875315af33bccedee153"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T17:25:18.534016Z",
+    "last_poll_at": "2026-09-24T17:57:05.905514Z",
     "last_tick_at": "2026-09-24T17:25:34.733507Z",
     "run_id": "36034089770"
   }
