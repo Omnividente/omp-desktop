@@ -28825,7 +28825,7 @@
       "id": "discovery-08ed104590df0edb",
       "title": "Enable text wrapping for SettingsRecoveryScreen action buttons on narrow screens",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -28859,6 +28859,12 @@
         "activity_created_at": "2026-09-22T10:02:30.137017Z",
         "session_id": "685378285279011776",
         "dispatch_key": "96351a9fd21baeb21cee0394"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:04:40Z",
+        "note": "Reject: 300px fixture is below Tauri 1000px minWidth; recovery actions already flex-wrap and at <=620px buttons take full width. No real native regression demonstrated."
       }
     },
     {
