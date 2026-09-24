@@ -40410,7 +40410,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T02:12:53.170087Z"
+        "observed_at": "2026-09-24T02:12:53.170087Z",
+        "released_attempt_ref": "autonomous/attempt-e945fd10b240c8a9e785d766"
       },
       "research_result": {
         "summary": "Investigated terminal continuity handling of output events and identified a defect where stale output events from older generations corrupt the terminal state.",
