@@ -85,6 +85,7 @@ export function TerminalView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [inputSelectionArmed, setInputSelectionArmed] = useState(false)
   const [inputHelpOpen, setInputHelpOpen] = useState(false)
+  const [scrolledUp, setScrolledUp] = useState(false)
   const inputHelpId = useId()
   const [selectionReply, setSelectionReply] = useState<SelectionReplyAction | null>(null)
   const [linkPreview, setLinkPreview] = useState<string | null>(null)
@@ -92,6 +93,7 @@ export function TerminalView({
   const selectAllArmedRef = useRef(false)
   const terminalRef = useRef<Terminal | null>(null)
   const fitRef = useRef<(() => void) | null>(null)
+  const jumpToBottomRef = useRef<(() => void) | null>(null)
   const activeRef = useRef(active)
   const languageRef = useRef(language)
   const terminalFontFamilyRef = useRef(terminalFontFamily)
@@ -401,13 +403,49 @@ export function TerminalView({
     const selectionSubscription = terminal.onSelectionChange(() => {
       if (!terminal.hasSelection()) setSelectionReply(null)
     })
+    let disposed = false
+    let pendingWrites = 0
+    let followingOutput = true
+    let restoringBottom = false
+    let userScrolledDuringWrite = false
+    const atBottom = () => {
+      const buffer = terminal.buffer.active
+      return buffer.viewportY >= buffer.baseY
+    }
+    const syncScrollPosition = () => {
+      const bottom = atBottom()
+      setScrolledUp(!bottom)
+      if (bottom) {
+        if (!userScrolledDuringWrite) followingOutput = true
+        restoringBottom = false
+      } else if (pendingWrites === 0 && !restoringBottom) {
+        followingOutput = false
+      }
+    }
+    const markUserScroll = () => {
+      followingOutput = false
+      restoringBottom = false
+      if (pendingWrites > 0) userScrolledDuringWrite = true
+    }
+    const handleScrollKey = (event: KeyboardEvent) => {
+      if (
+        event.key === "PageUp" ||
+        event.key === "PageDown" ||
+        event.key === "Home" ||
+        event.key === "End"
+      )
+        markUserScroll()
+    }
+    container.addEventListener("wheel", markUserScroll, { passive: true })
+    container.addEventListener("pointerdown", markUserScroll)
+    container.addEventListener("keydown", handleScrollKey, true)
     const scrollSubscription = terminal.onScroll(() => {
+      syncScrollPosition()
       setSelectionReply(null)
       setLinkMenu(null)
       leaveLink()
     })
 
-    let disposed = false
     let lastCols = 0
     let fitFrame: number | null = null
     let lastRows = 0
@@ -415,7 +453,29 @@ export function TerminalView({
     const attachmentId =
       globalThis.crypto?.randomUUID?.() ??
       `${tab.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-    const outputBatcher = createTerminalOutputBatcher((output) => terminal.write(output), {
+    const afterWrite = () => {
+      pendingWrites -= 1
+      if (disposed || pendingWrites !== 0) return
+      const userScrolled = userScrolledDuringWrite
+      userScrolledDuringWrite = false
+      if (!userScrolled && followingOutput && !atBottom()) {
+        restoringBottom = true
+        terminal.scrollToBottom()
+      }
+      syncScrollPosition()
+    }
+    const writeOutput = (output: string | Uint8Array) => {
+      pendingWrites += 1
+      terminal.write(output, afterWrite)
+    }
+    jumpToBottomRef.current = () => {
+      followingOutput = true
+      restoringBottom = true
+      terminal.scrollToBottom()
+      syncScrollPosition()
+      terminal.focus()
+    }
+    const outputBatcher = createTerminalOutputBatcher(writeOutput, {
       schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
       cancel: (handle) => window.clearTimeout(handle),
     })
@@ -451,7 +511,7 @@ export function TerminalView({
       }
       exitHandled = true
       outputBatcher.flush()
-      terminal.write(formatTerminalExitLine(event, languageRef.current))
+      writeOutput(formatTerminalExitLine(event, languageRef.current))
       onExitRef.current(event)
     }
 
@@ -460,7 +520,13 @@ export function TerminalView({
         return
       }
       try {
+        const followAfterFit = followingOutput && atBottom()
         fitAddon.fit()
+        if (followAfterFit && !atBottom()) {
+          restoringBottom = true
+          terminal.scrollToBottom()
+        }
+        syncScrollPosition()
         if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
           lastCols = terminal.cols
           lastRows = terminal.rows
@@ -530,14 +596,14 @@ export function TerminalView({
         reportOutputGap(continuity.expectedSeq, continuity.receivedSeq)
       }
       if (attachment.truncated) {
-        terminal.write(
+        writeOutput(
           `\r\n\x1b[33m${t(languageRef.current, "terminalOutputTruncated").replace(
             "{bytes}",
             String(attachment.droppedBytes),
           )}\x1b[0m\r\n`,
         )
       }
-      if (attachment.data) terminal.write(decodeBase64(attachment.data))
+      if (attachment.data) writeOutput(decodeBase64(attachment.data))
       outputReady = true
       for (const output of deferredOutput) handleOutputEvent(output)
       deferredOutput = []
@@ -571,6 +637,7 @@ export function TerminalView({
     return () => {
       disposed = true
       fitRef.current = null
+      jumpToBottomRef.current = null
       void detachTerminal(tab.id, attachmentId).catch(() => undefined)
       outputBatcher.dispose()
       deferredOutput = []
@@ -581,6 +648,9 @@ export function TerminalView({
       container.removeEventListener("focusout", handleFocusOut)
       container.removeEventListener("mousedown", preserveContextSelection, true)
       container.removeEventListener("contextmenu", handleContextMenu)
+      container.removeEventListener("wheel", markUserScroll)
+      container.removeEventListener("pointerdown", markUserScroll)
+      container.removeEventListener("keydown", handleScrollKey, true)
       selectAllArmedRef.current = false
       dataSubscription.dispose()
       binarySubscription.dispose()
@@ -630,6 +700,17 @@ export function TerminalView({
       onMouseDown={() => terminalRef.current?.focus()}
     >
       <div className="terminal-host" ref={containerRef} />
+      {scrolledUp && (
+        <button
+          aria-label={t(language, "terminalScrollToBottom")}
+          className="terminal-scroll-bottom"
+          onClick={() => jumpToBottomRef.current?.()}
+          title={t(language, "terminalScrollToBottom")}
+          type="button"
+        >
+          <Icon name="arrow" size={18} />
+        </button>
+      )}
       {linkPreview && (
         <div className="terminal-link-preview" role="status">
           {linkPreview}

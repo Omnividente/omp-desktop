@@ -4002,6 +4002,39 @@ button:disabled {
   height: 100%;
 }
 
+.terminal-scroll-bottom {
+  position: absolute;
+  z-index: 5;
+  right: 20px;
+  bottom: 64px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  color: var(--accent);
+  border: 1px solid #506449;
+  border-radius: 50%;
+  background: rgba(25, 33, 27, 0.96);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.terminal-scroll-bottom svg {
+  transform: rotate(90deg);
+}
+
+.terminal-scroll-bottom:hover,
+.terminal-scroll-bottom:focus-visible {
+  border-color: var(--accent);
+  background: #283626;
+}
+
+.terminal-scroll-bottom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .content-action-menu {
   z-index: 1200;
   display: flex;
