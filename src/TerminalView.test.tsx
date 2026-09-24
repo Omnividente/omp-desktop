@@ -3,6 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
+import { resizeTerminal } from "./api"
 import { TerminalView } from "./TerminalView"
 import type { TerminalTab } from "./types"
 
@@ -12,6 +13,8 @@ const terminalState = vi.hoisted(() => ({
   paste: vi.fn(),
   clear: vi.fn(),
   selectionChanged: null as (() => void) | null,
+  fitThrows: false,
+  instance: null as { cols: number; rows: number; options: Record<string, unknown> } | null,
 }))
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   writeText: vi.fn().mockResolvedValue(undefined),
@@ -19,7 +22,12 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
-    fit() {}
+    fit() {
+      if (terminalState.fitThrows) throw new Error("zero-sized terminal")
+      if (terminalState.instance) {
+        terminalState.instance.cols = terminalState.instance.options.fontSize === 16 ? 70 : 80
+      }
+    }
   },
 }))
 vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class {} }))
@@ -31,6 +39,7 @@ vi.mock("@xterm/xterm", () => ({
     options: Record<string, unknown>
     constructor(options: Record<string, unknown>) {
       this.options = options
+      terminalState.instance = this
     }
     loadAddon() {}
     open() {}
@@ -119,6 +128,8 @@ let root: Root
 beforeEach(async () => {
   vi.clearAllMocks()
   terminalState.selection = ""
+  terminalState.fitThrows = false
+  terminalState.instance = null
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -198,4 +209,97 @@ it("retains Reply quoting and clears only after choosing Reply; Escape dismisses
   expect(terminalState.paste.mock.calls[0][0]).toContain("second")
   expect(terminalState.clear).toHaveBeenCalledOnce()
   expect(writeText).not.toHaveBeenCalled()
+})
+
+it("resizes the PTY when font metrics change without container resize", async () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  try {
+    await act(async () =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active
+          focusRequestSequence={1}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform="linux"
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    vi.mocked(resizeTerminal).mockClear()
+
+    await act(async () =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active
+          focusRequestSequence={1}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={16}
+          platform="linux"
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(resizeTerminal).toHaveBeenCalledWith(tab.id, 70, 24)
+  } finally {
+    width.mockRestore()
+  }
+})
+
+it("restores keyboard focus when fit fails during tab activation", async () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  try {
+    await act(async () =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active={false}
+          focusRequestSequence={0}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform="linux"
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+    terminalState.fitThrows = true
+    terminalState.focus.mockClear()
+    await act(async () =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active
+          focusRequestSequence={0}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform="linux"
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(terminalState.focus).toHaveBeenCalled()
+  } finally {
+    width.mockRestore()
+  }
 })
