@@ -30798,7 +30798,7 @@
       "id": "discovery-fe5159f693ee72fe",
       "title": "Retain virtual layout measurement cache across mode toggles",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "medium",
       "focus": [
@@ -30836,6 +30836,12 @@
         "activity_created_at": "2026-09-22T16:46:48.892146Z",
         "session_id": "15878214732097590752",
         "dispatch_key": "38ff4444e7736735a1f97438"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:07:07Z",
+        "note": "Reject: TranscriptModal virtualLayoutKey changes with transcript, mode and source; useVirtualList deliberately discards old measured heights for different markup. Retention would reuse stale heights and cause scroll errors."
       }
     },
     {
