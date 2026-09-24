@@ -44073,7 +44073,7 @@
       "id": "research-workspace-navigation-ux-8",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -44264,16 +44264,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12271884985537538636",
         "dispatch_key": "f24864506122d5e983228a85",
         "base_sha": "4cb18f5c32d74d316aa03e6b508bec09316efcb0",
         "starting_branch": "autonomous/attempt-f24864506122d5e983228a85",
         "started_at": "2026-09-24T09:27:51.790844Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T09:59:24.364732Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d0e5265a79518e15264292dd7d466dbe8b64d472",
@@ -44451,13 +44451,143 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T09:27:51.790844Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T09:59:24.364732Z"
+      },
+      "research_result": {
+        "summary": "Verified the lack of synchronization between App.tsx payload state and useTranscript state.",
+        "observations": [
+          {
+            "scenario": "Verify that the transcript modal remains stuck open when its underlying session is deleted in the background.",
+            "evidence": "Inspected `App.tsx` and `useTranscript.ts` statically and created a temporary patch to dynamically close the transcript. Confirmed that `applyPayload` updates `payload` but fails to invoke `closeTranscript` when the session currently tracked by `useTranscript`'s `transcriptSession` disappears from `next.sessions`. Evaluated that this correctly matches the previous post-revisit hypothesis.",
+            "result": "Establishes that the Transcript modal will remain stuck open, displaying stale or missing data, if its underlying session is deleted via a background synchronization event."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the settings modal also leaves unsaved drafts stuck when the workspace configuration is deleted via background synchronization."
+        ],
+        "proposed_task_ids": [
+          "discovery-f0bc3830546ec195"
+        ],
+        "completed_at": "2026-09-24T09:59:24.364732Z",
+        "source": {
+          "activity_id": "sessions/12271884985537538636/activities/1ebfae9936934e789732905de792e139",
+          "report_sha256": "861cff08bf75eac632bda0efaba4e091fa639abfb91f3a96074ac569fef30e46",
+          "activity_created_at": "2026-09-24T09:39:06.725663Z",
+          "session_id": "12271884985537538636",
+          "dispatch_key": "f24864506122d5e983228a85"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12271884985537538636/activities/1ebfae9936934e789732905de792e139",
+          "report_sha256": "861cff08bf75eac632bda0efaba4e091fa639abfb91f3a96074ac569fef30e46",
+          "activity_created_at": "2026-09-24T09:39:06.725663Z",
+          "session_id": "12271884985537538636",
+          "dispatch_key": "f24864506122d5e983228a85"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f0bc3830546ec195"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f0bc3830546ec195",
+      "title": "Close the transcript modal when its session is deleted in the background",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T09:59:24.364732Z",
+      "acceptance": [
+        "When a background sync removes the currently viewed transcript session from the payload, the transcript modal is automatically closed."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via source code inspection in App.tsx on 4cb18f5c32d74d316aa03e6b508bec09316efcb0. `applyPayload` updates the payload but does not notify `useTranscript` to close the transcript when the session is removed.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the transcript modal for a session.",
+            "Trigger a background sync (or external deletion) that removes the session from the payload.",
+            "Observe the state of the transcript modal."
+          ],
+          "expected": "The transcript modal closes automatically.",
+          "actual": "The transcript modal remains stuck open for a non-existent session."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "This submission completes the deferred proposal from task `research-workspace-navigation-reliability-8` by providing an actionable reproduction and formal proposal format, and explains that it differs from the rejected findings by targeting `useTranscript`'s isolated state rather than `import` or `rename` dialogue behavior.",
+          "evidence_mode": "static_analysis",
+          "primary_decision_task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+              "decision_context_id": "616624f09919272ef753d104419735331b83d553f4e92e78bb7b6436d275f21c",
+              "why_previous_reason_no_longer_explains": "The previous rejection was regarding retaining the *import* dialog to preserve retry state, while this issue correctly identifies that a *read-only transcript view* of a now-deleted underlying session holds stale data with no retry intent."
+            },
+            {
+              "decision_task_id": "discovery-39c130be90c4a65e",
+              "decision_context_id": "ad830a0fcffaf43767aa34a17ecc195e8ad73dc81510723f7ad6ab206617a1c3",
+              "why_previous_reason_no_longer_explains": "The previous rejection stated that the import dialog deliberately does not close on error. This proposal targets the transcript modal and explicitly addresses background synchronization deletion of a viewed session, not an active import failure."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+            "action": "reject",
+            "decision_at": "2026-09-20T20:30:51Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-39c130be90c4a65e",
+            "action": "reject",
+            "decision_at": "2026-09-20T07:49:50Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-8",
+        "activity_id": "sessions/12271884985537538636/activities/1ebfae9936934e789732905de792e139",
+        "report_sha256": "861cff08bf75eac632bda0efaba4e091fa639abfb91f3a96074ac569fef30e46",
+        "activity_created_at": "2026-09-24T09:39:06.725663Z",
+        "session_id": "12271884985537538636",
+        "dispatch_key": "f24864506122d5e983228a85"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T09:42:42.582537Z",
+    "last_poll_at": "2026-09-24T09:59:41.919275Z",
     "last_tick_at": "2026-09-24T09:42:45.943981Z",
     "run_id": "35982819309"
   }
