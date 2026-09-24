@@ -30325,7 +30325,7 @@
       "id": "discovery-545847f2043c71c0",
       "title": "Deduplicate PtySessionTitleEvent updates when the terminal label is unchanged",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -30358,6 +30358,12 @@
         "activity_created_at": "2026-09-22T13:52:12.531606Z",
         "session_id": "12862731787932834569",
         "dispatch_key": "64890cd6db2dcbbe88ec8848"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:07:35Z",
+        "note": "Reject: terminal.rs runtime watcher initializes emitted_title and emits subsequent pty-session-title only if the title differs (lines 3307-3317,3346-3355). Identical-title IPC at 4Hz does not occur."
       }
     },
     {
