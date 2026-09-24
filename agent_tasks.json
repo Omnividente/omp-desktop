@@ -26506,7 +26506,7 @@
       "id": "discovery-b653e46056b0231539fa5069b7e5a6ac7a083b39ba7114e1519c4e0df872648d",
       "title": "Clear pending switch recovery on new terminal input to preserve chronological continuity",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -26590,6 +26590,12 @@
         "activity_created_at": "2026-09-22T00:44:56.767231Z",
         "session_id": "12725884021710490559",
         "dispatch_key": "cd3014eddcfc5ad4b30e3228"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T06:52:06Z",
+        "note": "Reject: pending switch input recovery must retain uncommitted user input until explicit resend/discard; auto-clear on new input causes silent data loss. Existing owner safety invariant."
       }
     },
     {
