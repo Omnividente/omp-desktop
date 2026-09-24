@@ -26808,7 +26808,7 @@
       "id": "discovery-c991788ddc60b7c5",
       "title": "Implement cancelability for batch session imports",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -26860,6 +26860,12 @@
         "activity_created_at": "2026-09-22T05:09:34.469449Z",
         "session_id": "2748131540766880800",
         "dispatch_key": "6967ba4e366f3ffe7191e0b3"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:05:27Z",
+        "note": "Reject: thousands-of-files benchmark is not a demonstrated user workload. Current local per-item import reports partial errors; adding mid-write cancellation/rollback risks partial sessions and extra state without proven need."
       }
     },
     {
