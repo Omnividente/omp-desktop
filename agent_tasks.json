@@ -48749,7 +48749,7 @@
       "id": "research-diagnostics-resources-behavior-8",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -48866,16 +48866,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "234372672784030942",
         "dispatch_key": "08fbc2c11b6aa638f886768a",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-08fbc2c11b6aa638f886768a",
         "started_at": "2026-09-24T13:04:28.851978Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T13:40:32.959744Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -48958,22 +48958,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-09-24T13:31:56.420348Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-24T13:31:56.420348Z",
-          "source": {
-            "activity_id": "sessions/234372672784030942/activities/448b72b9b5354f8cadd6f5c31fa3c31b",
-            "report_sha256": "9fcef87992b478c9864104018ad91bd5cde612722f41ad110620516ecf087c56",
-            "activity_created_at": "2026-09-24T13:20:19.793759Z",
-            "session_id": "234372672784030942",
-            "dispatch_key": "08fbc2c11b6aa638f886768a"
-          }
-        },
         "report_repair": {
           "at": "2026-09-24T13:32:20.821061Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/234372672784030942/activities/448b72b9b5354f8cadd6f5c31fa3c31b",
             "report_sha256": "9fcef87992b478c9864104018ad91bd5cde612722f41ad110620516ecf087c56",
@@ -48981,6 +48969,59 @@
             "session_id": "234372672784030942",
             "dispatch_key": "08fbc2c11b6aa638f886768a"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the keyboard accessibility focus trap behavior regarding collapsed details elements in IncidentCenter.",
+        "observations": [
+          {
+            "scenario": "Verify if the focus trap bounds logic incorrectly includes focusable elements hidden inside a collapsed HTMLDetailsElement.",
+            "evidence": "Tested synthetic React rendering states using JSDOM to simulate focus changes on elements matching DIALOG_FOCUSABLE_SELECTOR. The previous manual rejection indicated that useModalFocus.ts controlAvailable correctly handles descendants of collapsed HTMLDetailsElement. However, IncidentCenter implements its own custom keyboard trap (const handleKeyDown on window), which filters focusable elements purely using !element.hasAttribute(\"disabled\") && !element.hidden. This logic bypasses useModalFocus and calculates focus boundaries independently. Simulated adding a focusable link inside a closed details block (representing a long reason string). The custom handleKeyDown logic selected it as focusable because it lacked the hidden attribute.",
+            "result": "Establishes that the keyboard accessibility and focus trap bug correctly persists due to independent, custom implementations in IncidentCenter and ResourceHealthPanel bypassing useModalFocus.ts bounds checking."
+          },
+          {
+            "scenario": "Verify focus behavior when 'Open terminal' is invoked from the IncidentCenter modal.",
+            "evidence": "Observed via synthetic React rendering tests using JSDOM that simulate App.tsx and TerminalView focus logic alongside IncidentCenter. Clicking 'Open terminal' triggers focusTerminal which sets restoreTriggerFocusRef.current = false inside IncidentCenter, executes onFocusTerminal (which updates terminalFocusRequest in App), and then unmounts the modal via onClose. The simulated event loop (using requestAnimationFrame mocks matching App.tsx scheduling) showed that focus is correctly passed to the inner xterm-helper-textarea belonging to the TerminalView. The previous rejection rationale correctly states that the unmounted trigger node should not steal focus back, and the terminalFocusRequest prop successfully delegates focus to the terminal instance.",
+            "result": "Establishes that terminal focus transition from 'Open terminal' works as intended when the complete component tree is active, confirming the prior rejection was accurate."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+          "Verify whether the empty incident center fallback message correctly displays and is announced by a screen reader when the last active incident is cleared.",
+          "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+        ],
+        "proposed_task_ids": [
+          "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+        ],
+        "completed_at": "2026-09-24T13:40:32.959744Z",
+        "source": {
+          "activity_id": "sessions/234372672784030942/activities/31afc3fc83a14f0d9ad42ae88f4f09ca",
+          "report_sha256": "baccd337d7df133b2cccd3e30a05239c455a72adbe52c53a50fc33c2883e2938",
+          "activity_created_at": "2026-09-24T13:33:40.002155Z",
+          "session_id": "234372672784030942",
+          "dispatch_key": "08fbc2c11b6aa638f886768a"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/234372672784030942/activities/31afc3fc83a14f0d9ad42ae88f4f09ca",
+          "report_sha256": "baccd337d7df133b2cccd3e30a05239c455a72adbe52c53a50fc33c2883e2938",
+          "activity_created_at": "2026-09-24T13:33:40.002155Z",
+          "session_id": "234372672784030942",
+          "dispatch_key": "08fbc2c11b6aa638f886768a"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -49198,10 +49239,84 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-24T13:31:56.420348Z"
       }
+    },
+    {
+      "id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+      "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "medium",
+      "focus": [
+        "a11y",
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T13:40:32.959744Z",
+      "acceptance": [
+        "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open IncidentCenter containing a runtime incident with a long reason that renders a closed details tag.",
+            "Place a focusable element (e.g. a link or button) inside the closed details tag.",
+            "Use the Tab key to navigate through the modal elements to the boundaries."
+          ],
+          "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+          "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "The focus trap bug is rooted in IncidentCenter and ResourceHealthPanel implementing their own custom handleKeyDown bound calculation rather than using useModalFocus.ts.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-b82daad4c8b8b9f9",
+              "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+              "why_previous_reason_no_longer_explains": "The owner's rejection rationale states that useModalFocus controlAvailable already excludes descendants. However, IncidentCenter and ResourceHealthPanel use independent handleKeyDown global event listeners with a custom DIALOG_FOCUSABLE_SELECTOR. These listeners calculate the bounds locally with .filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden) completely ignoring the robust controlAvailable implementation in useModalFocus.ts."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-b82daad4c8b8b9f9",
+            "action": "reject",
+            "decision_at": "2026-09-24T07:11:05Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-8",
+        "activity_id": "sessions/234372672784030942/activities/31afc3fc83a14f0d9ad42ae88f4f09ca",
+        "report_sha256": "baccd337d7df133b2cccd3e30a05239c455a72adbe52c53a50fc33c2883e2938",
+        "activity_created_at": "2026-09-24T13:33:40.002155Z",
+        "session_id": "234372672784030942",
+        "dispatch_key": "08fbc2c11b6aa638f886768a"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T13:34:31.000449Z",
+    "last_poll_at": "2026-09-24T13:40:58.348056Z",
     "last_tick_at": "2026-09-24T13:34:35.069777Z",
     "run_id": "36006262439"
   }
