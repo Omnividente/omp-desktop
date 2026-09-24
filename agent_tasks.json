@@ -43676,7 +43676,7 @@
       "id": "research-terminal-input-ux-8",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -43793,16 +43793,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12286134869198430383",
         "dispatch_key": "31fc35deb7bec56d59c48205",
         "base_sha": "4cb18f5c32d74d316aa03e6b508bec09316efcb0",
         "starting_branch": "autonomous/attempt-31fc35deb7bec56d59c48205",
         "started_at": "2026-09-24T09:07:44.422511Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T09:27:51.790844Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d0e5265a79518e15264292dd7d466dbe8b64d472",
@@ -43975,13 +43975,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T09:15:20.793499Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T09:27:51.790844Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input state retention during manual and automatic selection clearing.",
+        "observations": [
+          {
+            "scenario": "A keyboard user arms Select All (Ctrl+A) placing the terminal in an armed state (`inputSelectionArmed=true`), then xterm clears its selection internally or externally before the user modifies the input.",
+            "evidence": "Executed an isolated Vitest DOM scenario mounting `TerminalView`. Invoked a Ctrl+A keyboard event to set `selectAllArmedRef.current = true`. Then invoked a mock xterm external selection clear (setting `hasSelection=false` and emitting `selectionChanged`). The test verified that `clearArmedSelection()` was not called because `terminal.onSelectionChange` only conditionally cleared `selectionReply` without clearing the armed state. Subsequent Backspace inputs incorrectly sent `CLEAR_OMP_EDITOR` (\\x03) rather than a normal backspace. Modified `TerminalView.tsx` selectionSubscription to explicitly call `clearArmedSelection()` when `!terminal.hasSelection() && selectAllArmedRef.current` which successfully passed the regression test.",
+            "result": "Establishes that the UI incorrectly retains its `selectAllArmed` state when xterm's selection is lost asynchronously or externally, corrupting subsequent keyboard inputs like Backspace."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal continuity is broken when large binary payloads arrive right at the generation boundary before standard output queues.",
+          "Investigate if restoring the terminal state after minimizing and restoring the desktop application window correctly handles focus on macOS vs Linux.",
+          "Measure if repeated rapid opening and closing of agent tabs causes long-term retention of `TerminalView` DOM listeners or Xterm instances that escape React garbage collection."
+        ],
+        "proposed_task_ids": [
+          "discovery-3dae9095fd4d69ed"
+        ],
+        "completed_at": "2026-09-24T09:27:51.790844Z",
+        "source": {
+          "activity_id": "sessions/12286134869198430383/activities/6951c6232d33469f9267ce7a4cddcf3b",
+          "report_sha256": "2783cd45b383f65a8fe5fb0927cc0bfbeaae1d118eebed98abb79815f4a42096",
+          "activity_created_at": "2026-09-24T09:19:17.365898Z",
+          "session_id": "12286134869198430383",
+          "dispatch_key": "31fc35deb7bec56d59c48205"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12286134869198430383/activities/6951c6232d33469f9267ce7a4cddcf3b",
+          "report_sha256": "2783cd45b383f65a8fe5fb0927cc0bfbeaae1d118eebed98abb79815f4a42096",
+          "activity_created_at": "2026-09-24T09:19:17.365898Z",
+          "session_id": "12286134869198430383",
+          "dispatch_key": "31fc35deb7bec56d59c48205"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-3dae9095fd4d69ed"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-3dae9095fd4d69ed",
+      "title": "Clear terminal armed selection state when xterm clears selection externally",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-24T09:27:51.790844Z",
+      "acceptance": [
+        "The `selectAllArmed` state is cleared when xterm's selection is lost, ensuring subsequent backspace keys act normally instead of clearing the editor."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native component observation using an isolated synthetic Vitest DOM scenario for `TerminalView`. Only selection and keystrokes were exercised.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `TerminalView` and simulate pressing Ctrl+A (arming Select All mode).",
+            "Simulate an external xterm selection clear event (e.g., from incoming stream or native right arrow).",
+            "Simulate pressing Backspace."
+          ],
+          "expected": "The Backspace press sends a standard backspace character (\\x7f).",
+          "actual": "The Backspace press sends CLEAR_OMP_EDITOR (\\x03) because the armed state was never cleared."
+        }
+      },
+      "target_paths": [
+        "src/TerminalView.tsx"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-ux-8",
+        "activity_id": "sessions/12286134869198430383/activities/6951c6232d33469f9267ce7a4cddcf3b",
+        "report_sha256": "2783cd45b383f65a8fe5fb0927cc0bfbeaae1d118eebed98abb79815f4a42096",
+        "activity_created_at": "2026-09-24T09:19:17.365898Z",
+        "session_id": "12286134869198430383",
+        "dispatch_key": "31fc35deb7bec56d59c48205"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T09:21:56.362339Z",
+    "last_poll_at": "2026-09-24T09:28:14.568541Z",
     "last_tick_at": "2026-09-24T09:21:59.728647Z",
     "run_id": "35980712899"
   }
