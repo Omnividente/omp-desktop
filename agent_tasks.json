@@ -47427,7 +47427,7 @@
       "id": "research-settings-models-reliability-8",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -47707,16 +47707,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6286749172075087999",
         "dispatch_key": "0719f078b0792818b8d68ed5",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-0719f078b0792818b8d68ed5",
         "started_at": "2026-09-24T11:58:41.211470Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T12:46:21.888553Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -47887,8 +47887,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T12:33:36.983986Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T12:46:21.888553Z",
         "research_detached": {
           "at": "2026-09-24T12:25:41.335212Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -47897,6 +47897,34 @@
           "at": "2026-09-24T12:25:41.335212Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated duplicate backup file generation during failed recovery and defaults operations and backend transaction rollback behavior.",
+        "observations": [
+          {
+            "scenario": "A recovery operation uses `unique_settings_backup` to reserve a filename for backup before attempting to write. If the atomic write fails midway or if a secondary step fails, the backend cleans up its temporary files but `unique_settings_backup` generates a new file name every time it is called.",
+            "evidence": "In `src-tauri/src/settings.rs`, `recover_invalid_settings_with` finds a unique backup name using `unique_settings_backup`. This helper tries up to 16 times to append a random timestamp string and checks if `backup.exists()`. If `backup_write` (using `atomic_write_private_file`) fails before renaming the `.tmp` file, the `.tmp` file is cleaned up, but no persistent duplicate backup is created by that single failed write because the file isn't written until `atomic_write_private_file` successfully finishes. Duplicates only accumulate when multiple recovery or defaults attempts are triggered in succession by the user clicking 'Retry' or 'Start with defaults', each receiving a new random suffix.",
+            "result": "Establishes that duplicate backups are a product of multiple user retry attempts, each resolving to a new timestamped file rather than a leak from a single failed write operation. As per prior context, this is a conservative recovery artifact and not a data-loss bug."
+          },
+          {
+            "scenario": "A failed save settings bundle transaction rolling back concurrent external changes to models.yml.",
+            "evidence": "In `src-tauri/src/omp_bridge.rs`, `save_config` modifies `app_settings` and `models.yml` and pushes `operational_changes`. If `crate::settings::save_settings` fails near the end of the transaction, `resolve_transaction` executes the `rollback()` closures. The `ProviderFileMutation::rollback` implementation correctly restores the original `models.yml` using `atomic_write_private_file`. If `models.yml` was concurrently modified externally between the transaction apply and rollback, `rollback` attempts to restore it back to `original` but first checks `read_optional(&self.path)?.as_deref() != Some(self.updated.as_slice())`. If true, it skips rollback and returns an error: 'models.yml изменился после сохранения и не был перезаписан откатом'.",
+            "result": "Establishes that the backend correctly avoids stomping on external concurrent writes during a failed transaction rollback by checking file state before rollback."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if modifying `ompConfig` operational settings concurrently from multiple windows or external tools causes unrecoverable desynchronization in the React `SettingsPanel` draft state."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T12:46:21.888553Z",
+        "source": {
+          "activity_id": "sessions/6286749172075087999/activities/576ed85135424aabbe225f337ad12c70",
+          "report_sha256": "a2b881beec52a011692db720bf52c4c8d5d21d693e01b1c8e4c870d98e2318ac",
+          "activity_created_at": "2026-09-24T12:37:21.943118Z",
+          "session_id": "6286749172075087999",
+          "dispatch_key": "0719f078b0792818b8d68ed5"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -48358,7 +48386,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T12:40:26.055945Z",
+    "last_poll_at": "2026-09-24T12:46:43.133498Z",
     "last_tick_at": "2026-09-24T12:40:28.992768Z",
     "run_id": "36000475761"
   }
