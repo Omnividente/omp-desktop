@@ -51083,7 +51083,7 @@
       "id": "research-transcript-links-ux-8",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -51264,16 +51264,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "10972959674729685142",
         "dispatch_key": "f64959df2d9fdeed20f54e37",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-f64959df2d9fdeed20f54e37",
         "started_at": "2026-09-24T22:13:26.432792Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T22:34:06.152542Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -51447,13 +51447,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T22:13:26.432792Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T22:34:06.152542Z"
+      },
+      "research_result": {
+        "summary": "Verified focus behavior on empty transcript states such as clear search, and read owner rejections on existing hypotheses. Focus safely returns to the active panel or input during error/empty states.",
+        "observations": [
+          {
+            "scenario": "Simulated an empty transcript state in TranscriptModal due to search filtering, then triggered the 'Clear search' interaction.",
+            "evidence": "Tested locally using Vitest and React Testing Library on TranscriptModal. When `clearSearch` is invoked, it correctly calls `searchRef.current?.focus({ preventScroll: true })`. If the search input unmounts or cannot catch focus, the underlying `useModalFocus` effect kicks in: it verifies that `activeElement === document.body` or is hidden/disabled, and successfully focuses `panelRef.current` preventing focus from leaking outside the modal.",
+            "result": "Establishes that the focus drop on clearing search or recovering from empty states is gracefully handled by `useModalFocus`, meaning a hardcoded focus loop is unnecessary."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if bounding the maximum number of text matches displayed within a single message row can improve dense search performance without hiding matches in other messages.",
+          "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T22:34:06.152542Z",
+        "source": {
+          "activity_id": "sessions/10972959674729685142/activities/287ba4379c554bda8120e2d5d1c73bc5",
+          "report_sha256": "eeb0ec6ec340d92c4da4143d3c439710ee63ccac326e9a40b6a210867947006d",
+          "activity_created_at": "2026-09-24T22:22:21.011659Z",
+          "session_id": "10972959674729685142",
+          "dispatch_key": "f64959df2d9fdeed20f54e37"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T22:28:13.081180Z",
+    "last_poll_at": "2026-09-24T22:34:30.945651Z",
     "last_tick_at": "2026-09-24T22:28:16.102411Z",
     "run_id": "36067548404"
   }
