@@ -40111,6 +40111,118 @@
           "detail": "3 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-reliability-8",
+      "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-24T01:58:45Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "reliability",
+        "fingerprint": "f9382b0a5b0b3f7d8bca8e759a8c0bf4c234baa7d9b80dabf96997e01b4a78e5",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Investigated the PTY exit event mechanism and discovered a race condition that can cause the UI to display a newly restarted terminal session as exited.",
+            "observations": [
+              {
+                "scenario": "A race condition during terminal restart where a delayed `pty-exit` event from a previous generation arrives while the frontend is awaiting `attachTerminal`.",
+                "evidence": "Executed a synthetic Node.js script mirroring the `connect()` logic in `TerminalView.tsx`. The script simulated a stale `pty-exit` event arriving while a new `attachTerminal` promise was pending. The event was stored in `deferredExit`. Once `attachTerminal` resolved successfully for the new running session (generation 2, exited: false), the UI incorrectly processed `deferredExit` and marked the terminal as exited. `PtyExitEvent` currently lacks a `generation` field, making it impossible to discard stale exit events.",
+                "result": "Establishes that the terminal UI can incorrectly show an exited state for a newly restarted running session due to processing stale `pty-exit` events."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal font resizing and `fitAddon` correctly re-evaluates the bounding rectangle during UI layout thrashing without causing an infinite resize loop.",
+              "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+            ],
+            "proposed_task_ids": [
+              "discovery-76525501421788fc"
+            ],
+            "completed_at": "2026-09-23T06:16:52.740203Z",
+            "source": {
+              "activity_id": "sessions/12441871823396169091/activities/2cdf964cf4c24dc5a9a0c5eee1c31751",
+              "report_sha256": "4bfb49edde14703344e120a5db0d3199136478ddae274217460c83209f0eb684",
+              "activity_created_at": "2026-09-23T06:06:49.925988Z",
+              "session_id": "12441871823396169091",
+              "dispatch_key": "b9367ba2081634d8facd34fb"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the terminal font resizing behavior in `TerminalView.tsx`.",
+            "observations": [
+              {
+                "scenario": "Changing the terminal font size via settings panel which updates `terminalFontFamily` and `terminalFontSize` props in `TerminalView.tsx`.",
+                "evidence": "Observed via synthetic React component test simulating font size changes. When the font size props change, a `useEffect` calls `fitAddon.fit()` in a `requestAnimationFrame`. This recalculates the `cols` and `rows` of the xterm canvas. However, it does not call the local `fit()` closure or `resizeTerminal()`. Because the `.terminal-host` container size itself typically does not change (it's constrained by its flex parent), the `ResizeObserver` does not trigger, meaning the backend PTY is never notified of the new `cols` and `rows` until the user manually resizes the application window.",
+                "result": "Establishes that terminal font resizing fails to update the backend PTY dimensions, leading to garbled text layout."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if rapid tab switching causes terminal rendering to suspend unexpectedly due to zero-sized webview reports catching exceptions silently."
+            ],
+            "proposed_task_ids": [
+              "discovery-04eb5c9fb6e41d82"
+            ],
+            "completed_at": "2026-09-23T12:18:47.268008Z",
+            "source": {
+              "activity_id": "sessions/4837637215068643094/activities/6d573a2a56e744cdb85cda7ad4c9958c",
+              "report_sha256": "e028acccabe976d25e95b9eef151579572c94393a4f6a7baeaec1d54a374768d",
+              "activity_created_at": "2026-09-23T12:08:08.803368Z",
+              "session_id": "4837637215068643094",
+              "dispatch_key": "8b845b7e45b4e50237ea597d"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal rendering failures during rapid tab switching.",
+            "observations": [
+              {
+                "scenario": "Rapidly switching between active tabs when a terminal container might briefly report a zero width/height.",
+                "evidence": "Created and ran a synthetic Vitest script simulating the component's `useEffect` behavior during tab switch where `fitAddon.fit()` throws an exception due to a zero-sized container. The test revealed that because `fitAddon.fit()` and `terminalRef.current?.focus()` are grouped in the same `try...catch` block (lines 622-633 in TerminalView.tsx), throwing on `fit()` silently aborts the block, preventing `terminal.focus()` from executing and leaving the terminal in a suspended/unfocused state.",
+                "result": "Establishes that the shared `try...catch` block in the `requestAnimationFrame` callback prevents terminal focus restoration if the container's layout is momentarily zero-sized during activation. Fix requires separating the `fit()` and `focus()` operations."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity is broken when large binary payloads arrive right at the generation boundary before standard output queues.",
+              "Investigate if restoring the terminal state after minimizing and restoring the desktop application window correctly handles focus on macOS vs Linux."
+            ],
+            "proposed_task_ids": [
+              "discovery-5f246af60eb16b09"
+            ],
+            "completed_at": "2026-09-23T23:33:39.345574Z",
+            "source": {
+              "activity_id": "sessions/5186752007426495389/activities/81e3e67245094a2f96365090f8ca9d8f",
+              "report_sha256": "716fa7cb953318a4d42bc8eeebc7cc740fbe1861a512a565f4484ac5ba6d649b",
+              "activity_created_at": "2026-09-23T23:20:11.560590Z",
+              "session_id": "5186752007426495389",
+              "dispatch_key": "635e90b6b7a750411960c8d3"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
