@@ -50981,7 +50981,8 @@
             "session_id": "17723052583341979353",
             "dispatch_key": "06767595273750d397eba580"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-06767595273750d397eba580"
       },
       "research_result": {
         "summary": "Investigated performance bottlenecks in Transcript rendering and virtual scrolling. Discovered slow Markdown text parsing with dense search matches, but virtual list resizing performance is optimal due to correctly coalescing invalidations.",
