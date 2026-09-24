@@ -49361,6 +49361,139 @@
         "session_id": "234372672784030942",
         "dispatch_key": "08fbc2c11b6aa638f886768a"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-performance-8",
+      "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-24T14:03:13Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "performance",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Verified focus trap logic flaw in IncidentCenter and ResourceHealthPanel relating to hidden elements inside collapsed details tags.",
+            "observations": [
+              {
+                "scenario": "Verify focus trap logic behavior regarding <details> elements in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Tested synthetic React rendering states using JSDOM to simulate focus changes on elements matching DIALOG_FOCUSABLE_SELECTOR. The focus trap explicitly filters out elements using '!element.hasAttribute(\"disabled\") && !element.hidden'. However, elements inside a collapsed <details> tag (except the <summary> itself) return false for '.hidden' because they do not carry the 'hidden' HTML attribute, though they are visually hidden by browser layout. As a result, the focus trap logic includes these invisible elements in the focusable array, and when standard keyboard navigation (Shift+Tab/Tab) occurs near the boundary, focus misbehaves by failing to loop back or getting stuck on visually hidden interactive elements.",
+                "result": "Establishes a keyboard accessibility and focus trap bug where the focus bounds calculate incorrectly when closed <details> elements contain interactive elements like links or buttons."
+              },
+              {
+                "scenario": "Verify ResourceHealthPanel missing snapshot state rendering.",
+                "evidence": "Observed via synthetic React testing that when ResourceHealthPanel is passed an empty snapshot (null) but has an error ('An error occurred'), the severity falls back to 'warning', and the status text correctly maps to 'resourceUnavailable' but no success checkmark icon is displayed (an alert icon is used instead based on the warning severity). This behavior was observed on the pinned base and contrasts with a previous report about success icons displaying during errors, confirming that specific prior issue is correctly resolved/addressed in this branch.",
+                "result": "Establishes that the ResourceHealthPanel correctly renders an alert icon (not a success icon) for empty snapshots with errors."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+              "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays and is announced by a screen reader when the last active incident is cleared.",
+              "Verify the interaction flow when resolving an incident and checking whether focus is properly restored to the trigger element."
+            ],
+            "proposed_task_ids": [
+              "discovery-b82daad4c8b8b9f9"
+            ],
+            "completed_at": "2026-09-23T15:22:12.732818Z",
+            "source": {
+              "activity_id": "sessions/3454774798721230607/activities/424a7335ccd949fb83083a3de9f01bd3",
+              "report_sha256": "d9566c88c6e2950d5eadf9d0588d7f39dfd58dcc28a11331d7e8ed88e6c9f331",
+              "activity_created_at": "2026-09-23T14:50:13.421970Z",
+              "session_id": "3454774798721230607",
+              "dispatch_key": "95662c54c63c5782851fc010"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the keyboard accessibility focus trap behavior regarding collapsed details elements in IncidentCenter.",
+            "observations": [
+              {
+                "scenario": "Verify if the focus trap bounds logic incorrectly includes focusable elements hidden inside a collapsed HTMLDetailsElement.",
+                "evidence": "Tested synthetic React rendering states using JSDOM to simulate focus changes on elements matching DIALOG_FOCUSABLE_SELECTOR. The previous manual rejection indicated that useModalFocus.ts controlAvailable correctly handles descendants of collapsed HTMLDetailsElement. However, IncidentCenter implements its own custom keyboard trap (const handleKeyDown on window), which filters focusable elements purely using !element.hasAttribute(\"disabled\") && !element.hidden. This logic bypasses useModalFocus and calculates focus boundaries independently. Simulated adding a focusable link inside a closed details block (representing a long reason string). The custom handleKeyDown logic selected it as focusable because it lacked the hidden attribute.",
+                "result": "Establishes that the keyboard accessibility and focus trap bug correctly persists due to independent, custom implementations in IncidentCenter and ResourceHealthPanel bypassing useModalFocus.ts bounds checking."
+              },
+              {
+                "scenario": "Verify focus behavior when 'Open terminal' is invoked from the IncidentCenter modal.",
+                "evidence": "Observed via synthetic React rendering tests using JSDOM that simulate App.tsx and TerminalView focus logic alongside IncidentCenter. Clicking 'Open terminal' triggers focusTerminal which sets restoreTriggerFocusRef.current = false inside IncidentCenter, executes onFocusTerminal (which updates terminalFocusRequest in App), and then unmounts the modal via onClose. The simulated event loop (using requestAnimationFrame mocks matching App.tsx scheduling) showed that focus is correctly passed to the inner xterm-helper-textarea belonging to the TerminalView. The previous rejection rationale correctly states that the unmounted trigger node should not steal focus back, and the terminalFocusRequest prop successfully delegates focus to the terminal instance.",
+                "result": "Establishes that terminal focus transition from 'Open terminal' works as intended when the complete component tree is active, confirming the prior rejection was accurate."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+              "Verify whether the empty incident center fallback message correctly displays and is announced by a screen reader when the last active incident is cleared.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [
+              "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            ],
+            "completed_at": "2026-09-24T13:40:32.959744Z",
+            "source": {
+              "activity_id": "sessions/234372672784030942/activities/31afc3fc83a14f0d9ad42ae88f4f09ca",
+              "report_sha256": "baccd337d7df133b2cccd3e30a05239c455a72adbe52c53a50fc33c2883e2938",
+              "activity_created_at": "2026-09-24T13:33:40.002155Z",
+              "session_id": "234372672784030942",
+              "dispatch_key": "08fbc2c11b6aa638f886768a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of empty incident arrays in IncidentCenter, the aria-live properties of dynamic incident counts, and the rendering of missing recovery switch actions.",
+            "observations": [
+              {
+                "scenario": "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays when the last active incident is cleared.",
+                "evidence": "Tested synthetic rendering state of IncidentCenter in src/IncidentCenter.tsx. When the incidents array contains only 'resolved' status incidents and no 'active' ones, it correctly renders the translated message 'incidentNoActiveIncidents' (e.g. 'No active runtime incidents') instead of 'incidentNoIncidents'. It only renders 'incidentNoIncidents' if the array is completely empty.",
+                "result": "Establishes that the empty incident fallback message dynamically adapts to correctly distinguish between a lack of active incidents and a total absence of recorded incidents."
+              },
+              {
+                "scenario": "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+                "evidence": "Observed via synthetic React component testing that IncidentCenter's title header includes a `<small>` tag displaying the active incident count. This element correctly features 'aria-atomic=\"true\"' and 'aria-live=\"polite\"' attributes.",
+                "result": "Establishes that the incident count properly alerts screen reader users in a polite manner when new incidents increment the counter dynamically without forcing focus changes."
+              },
+              {
+                "scenario": "Verify how switchInputRecovery details behave across generic and detailed errors in runtimeIncidents.",
+                "evidence": "Observed via state generation logic in src/runtimeIncidents.ts (upsertDetailedError and applyRuntimeIncidentEvent) and synthetic unit tests that when a generic 'error' activity is followed by a specific 'runtimeError' with a detailed reason for the same terminal, the logic flawlessly substitutes the generic incident with the detailed one, without duplication and without losing the underlying incident count progression. Subsequent generic errors while the detailed error is still active are safely ignored.",
+                "result": "Establishes that detailed runtime errors strictly override generic background errors without duplication, reducing notification fatigue."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the actual rendering behavior of the Workspace layout when collapsing a rail makes a final active workspace tab invisible while still possessing terminal continuity data.",
+              "Verify whether screen readers correctly read the failed send icon message inside SessionControls."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T14:03:13.726903Z",
+            "source": {
+              "activity_id": "sessions/3627934981902297232/activities/8af6a5d49ab8475892a17673418d481a",
+              "report_sha256": "8346ef5ff2f5efe7113bae9097544aa7703851b8a2fd092cc9480bb7b8877c48",
+              "activity_created_at": "2026-09-24T13:54:47.153023Z",
+              "session_id": "3627934981902297232",
+              "dispatch_key": "ae43f620875f22beed60321c"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
