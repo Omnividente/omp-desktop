@@ -47422,6 +47422,289 @@
         "session_id": "6839265768202341973",
         "dispatch_key": "53e0d8582e4ac9ddfc57785b"
       }
+    },
+    {
+      "id": "research-settings-models-reliability-8",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-24T11:58:41Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Measured and confirmed optimization opportunity in ModelPicker sorting on large model lists.",
+            "observations": [
+              {
+                "scenario": "Sorting a list of 10000 model configurations in the browser using the current string interpolation and single-localeCompare technique.",
+                "evidence": "Measured via synthetic Node.js scripts using the exact filtering and sorting logic from src/ModelPicker.tsx. The original implementation takes ~42-54ms to sort 10000 elements. Replacing the interpolated string comparison (`${left.provider}/${left.name}`.localeCompare(...)) with separate string comparisons (`left.provider.localeCompare` then `left.name.localeCompare`) reduced sort time to ~9-10ms (a 75%+ reduction).",
+                "result": "Establishes that the string concatenation in the sorting loop allocates memory and uses CPU unnecessarily. A significant latency improvement can be gained by avoiding it."
+              },
+              {
+                "scenario": "Filtering a list of 10000 model configurations in the browser using the current string interpolation include technique vs separate includes.",
+                "evidence": "Measured via synthetic Node.js scripts. The original implementation takes ~7.6ms. Changing it to `model.name.toLowerCase().includes(normalized) || ...` takes ~6.8ms. Also, the original code evaluates the filter condition even if the normalized query is empty (`if (!normalized) return true` happens after). Evaluating if `normalized` is empty before checking properties reduces empty filter time from 7.7ms to 0.6ms (though note the current codebase already has `if (!normalized) return true`, the string manipulation inside `.sort` is the main target here).",
+                "result": "Establishes that sorting is the primary CPU/memory bottleneck, not filtering."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if model list can be virtualized in the DOM to avoid rendering thousands of unmounted option buttons at once.",
+              "Examine if SettingsPanel rendering can be optimized by debouncing input events."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T10:14:11.846023Z",
+            "source": {
+              "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+              "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+              "activity_created_at": "2026-09-24T10:06:55.988988Z",
+              "session_id": "3001433304691637917",
+              "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+            },
+            "deferred_findings": [
+              {
+                "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.\", \"reproduction\": {\"actual\": \"The sort logic currently concatenates the provider and name strings on every comparison.\", \"expected\": \"The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.\", \"steps\": [\"Run a profiling test with thousands of synthetic models injected into ModelPicker.\", \"Observe the latency of `filteredModels = useMemo(...)` before and after the change.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-37764527ab2ab728\", \"responses\": [{\"decision_context_id\": \"d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02\", \"decision_task_id\": \"discovery-37764527ab2ab728\", \"why_previous_reason_no_longer_explains\": \"The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity.\"}, {\"decision_context_id\": \"12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6\", \"decision_task_id\": \"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\", \"why_previous_reason_no_longer_explains\": \"Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+                ],
+                "deferred_id": "0f493ef376fc5f7fc131df7e916b1bb06aaf4f09b4d054a982808dade806d42f",
+                "candidate": {
+                  "task_type": "product_improvement",
+                  "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+                  "risk": "low",
+                  "priority": 40,
+                  "focus": [
+                    "perf"
+                  ],
+                  "target_paths": [
+                    "src/ModelPicker.tsx"
+                  ],
+                  "acceptance": [
+                    "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Run a profiling test with thousands of synthetic models injected into ModelPicker.",
+                        "Observe the latency of `filteredModels = useMemo(...)` before and after the change."
+                      ],
+                      "expected": "The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.",
+                      "actual": "The sort logic currently concatenates the provider and name strings on every comparison."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-37764527ab2ab728",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-37764527ab2ab728",
+                          "decision_context_id": "d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02",
+                          "why_previous_reason_no_longer_explains": "The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity."
+                        },
+                        {
+                          "decision_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                          "decision_context_id": "12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6",
+                          "why_previous_reason_no_longer_explains": "Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T20:22:17Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-37764527ab2ab728",
+                      "action": "resolve",
+                      "decision_at": "2026-09-19T17:02:13Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-settings-models-performance-8",
+                  "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+                  "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+                  "activity_created_at": "2026-09-24T10:06:55.988988Z",
+                  "session_id": "3001433304691637917",
+                  "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Verified multiple layout truncation and horizontal overflow issues for long unbroken strings in ModelPicker and SettingsPanel UI elements on narrow viewports.",
+            "observations": [
+              {
+                "scenario": "Rendering the SettingsPanel global error state banner and field labels with a very long unbroken string.",
+                "evidence": "Measured via synthetic Puppeteer tests applying exact `.settings-state` and `.field-label` CSS from `src/App.css`. An unbroken string of 150 characters overflowed the `.settings-state` horizontal bounds (1093px scrollWidth vs 232px element width) and `.field-label` bounds (1300px scrollWidth vs 234px element width) on a 250px mobile viewport.",
+                "result": "Establishes that the settings global error banners and input labels lack word-breaking rules (`overflow-wrap: anywhere`), causing horizontal layout shifts and overflow on small screens for unbroken localized translations."
+              },
+              {
+                "scenario": "Rendering the ModelPicker dropdown option metadata and role health indicators with a very long unbroken translation.",
+                "evidence": "Measured via synthetic Puppeteer tests applying `.model-picker-option-meta` and `.role-health` CSS. An unbroken 150-character string significantly exceeded the `.model-picker-option-meta span` bounds (1083px scrollWidth without truncation) and `.role-health` bounds (867px scrollWidth in a 250px viewport) because the flex containers lack `min-width: 0` constraints and explicit `overflow` or `word-break` handling.",
+                "result": "Establishes that ModelPicker metadata elements clip or push other content off-screen instead of truncating appropriately on very small resolutions."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if custom provider secret input fields properly manage long pasted keys on narrow screens without obscuring action buttons.",
+              "Verify if `.provider-credential` and `.provider-account-list` components safely truncate or wrap long API endpoints and error messages on mobile viewports."
+            ],
+            "proposed_task_ids": [
+              "discovery-3f11bfdcf7c691a7"
+            ],
+            "completed_at": "2026-09-24T11:29:06.073789Z",
+            "source": {
+              "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+              "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+              "activity_created_at": "2026-09-24T10:58:52.093059Z",
+              "session_id": "6823166216163542621",
+              "dispatch_key": "68df74ddbe14ef58f725c766"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix text overflow in SettingsPanel error banner and field labels",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.\", \"reproduction\": {\"actual\": \"The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds.\", \"expected\": \"The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.\", \"steps\": [\"Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.\", \"Constrain the horizontal viewport to 250px.\", \"Observe the scroll width relative to the visible client width of the element.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.css"
+                ],
+                "acceptance": [
+                  "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+                ],
+                "deferred_id": "b6b455521cd07d62fe7aa9d37f79794b74a91234d05c77890e8f05df3f30ee89",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix text overflow in SettingsPanel error banner and field labels",
+                  "risk": "low",
+                  "priority": 40,
+                  "focus": [
+                    "a11y",
+                    "quality",
+                    "bugfix"
+                  ],
+                  "target_paths": [
+                    "src/App.css"
+                  ],
+                  "acceptance": [
+                    "Long unbroken strings in the settings error banner (`.settings-state.is-error`) and field labels (`.field-label`) wrap properly without horizontally overflowing their container."
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Verified via synthetic headless Puppeteer checks using the exact CSS styles for `.settings-state` and `.field-label`. Measured the DOM `scrollWidth` exceeding `clientWidth` on narrow mobile-sized viewports when populated with an unbroken 150-character string.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Render a SettingsPanel container with an artificially long, unbroken localized string injected into `.settings-state.is-error` or `.field-label`.",
+                        "Constrain the horizontal viewport to 250px.",
+                        "Observe the scroll width relative to the visible client width of the element."
+                      ],
+                      "expected": "The long unbroken strings wrap to new lines using `overflow-wrap: anywhere`, staying within the visible container bounds.",
+                      "actual": "The long unbroken strings do not wrap, causing horizontal overflow out of the container bounds."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-8932b08cef0bc9ad",
+                      "action": "reject",
+                      "decision_at": "2026-09-24T07:09:54Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-settings-models-ux-8",
+                  "activity_id": "sessions/6823166216163542621/activities/603a94f8626d4a3cb67dab78d6a16209",
+                  "report_sha256": "5db41ce1948c51239d7c20e6d974f5bb9b59e369dd4fa91d8881d7b08c42be16",
+                  "activity_created_at": "2026-09-24T10:58:52.093059Z",
+                  "session_id": "6823166216163542621",
+                  "dispatch_key": "68df74ddbe14ef58f725c766"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Verified horizontal overflow and truncation issues in SettingsPanel provider account UI elements.",
+            "observations": [
+              {
+                "scenario": "Rendering the provider account empty state and status reason with a very long unbroken string.",
+                "evidence": "Measured via synthetic Puppeteer tests applying exact `.provider-account-empty` and `.provider-account-status-reason` CSS from `src/App.css`. An unbroken string overflowed the horizontal bounds (e.g. 501px scrollWidth vs 248px clientWidth) on a 250px mobile viewport.",
+                "result": "Establishes that these provider account elements lack word-breaking rules (`overflow-wrap: anywhere`), causing horizontal layout shifts and overflow on small screens for unbroken localized translations or reasons."
+              },
+              {
+                "scenario": "Rendering the provider credentials base URL with a very long URL.",
+                "evidence": "Measured via synthetic Puppeteer tests applying `.provider-credential` and `.provider-base-url` CSS. An extremely long base URL can exceed the element's client width (e.g. 303px scrollWidth vs 224px clientWidth) and cause horizontal overflow in narrow viewports despite `overflow: hidden` because the grid cell isn't fully constrained by min-width.",
+                "result": "Establishes that the base URL element can cause horizontal overflow in narrow viewports."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if long unbroken text in incident center reasons can cause horizontal layout shifts on narrow viewports."
+            ],
+            "proposed_task_ids": [
+              "discovery-55d95a28b3f55c76",
+              "discovery-a6869bc2e8638f4b"
+            ],
+            "completed_at": "2026-09-24T11:52:30.192374Z",
+            "source": {
+              "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+              "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+              "activity_created_at": "2026-09-24T11:41:03.754834Z",
+              "session_id": "6839265768202341973",
+              "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
