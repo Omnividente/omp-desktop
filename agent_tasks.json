@@ -44068,6 +44068,200 @@
         "session_id": "12286134869198430383",
         "dispatch_key": "31fc35deb7bec56d59c48205"
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-8",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-24T09:27:51Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Verified focus behavior during background updates, renaming conflicts, and list element deletions.",
+            "observations": [
+              {
+                "scenario": "Verify focus behavior when editing a session title and the backend responds with a conflicting title update.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment3.test.tsx`) that mounts `<SessionList />` in a renaming state. Focused the `.session-rename` input. Simulated a backend sync that changes the session's title while keeping the ID identical. Observed that `document.activeElement` correctly remains on the rename input.",
+                "result": "Establishes that the UI robustly handles backend title changes during a rename without dropping focus, as long as the session ID remains constant."
+              },
+              {
+                "scenario": "Investigate focus behavior when a background sync/refresh replaces the DOM nodes of an active session while it is currently selected.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/SessionList.experiment2.test.tsx`) that mounts `<SessionList />` with a session. Focused the session row. Simulated a backend sync that changes the session's ID (causing the original DOM node to unmount and remount with a new key). Observed that `document.activeElement` drops to `document.body` because the old DOM node is destroyed and there is no explicit fallback logic for this unmount case.",
+                "result": "Establishes that focus drops to the body if a background synchronization event reconstructs a selected session with a new identity/key."
+              },
+              {
+                "scenario": "Verify focus behavior when a workspace is removed via UI.",
+                "evidence": "Wrote and executed a synthetic Vitest test using jsdom (`src/ProjectRail.experiment2.test.tsx`) investigating project rail removal. Focused the remove button of a workspace and triggered its deletion. Observed that focus successfully falls back to the `openFolderRef` (the 'Open folder' button) due to the useLayoutEffect logic.",
+                "result": "Confirms the explicit fallback logic in `ProjectRail` behaves correctly during workspace deletions, properly delegating focus to the fallback element when the active element unmounts."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus restoration when a modal (like settings or transcript) closes after the session that triggered it was deleted in the background."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T23:46:35.452096Z",
+            "source": {
+              "activity_id": "sessions/6276536335705298920/activities/85a38d97eab047cfbf7782e982b00c52",
+              "report_sha256": "63e02588645da57255a3fe4e36f1a1210ed97f5b7f825b47bdc714f4c67f55ef",
+              "activity_created_at": "2026-09-23T23:35:03.109202Z",
+              "session_id": "6276536335705298920",
+              "dispatch_key": "17505af6e76fc6ed0b565ad3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace background sync during rename and modal lifecycle during session deletion.",
+            "observations": [
+              {
+                "scenario": "Focus behavior when a workspace is updated via background sync while being renamed in the UI.",
+                "evidence": "Wrote and executed a synthetic Vitest test simulating ProjectRail rendering in a renaming state for a workspace. Focused the rename input, then simulated a background sync that updated the workspace name while preserving its key. The document.activeElement remained on the input.",
+                "result": "Establishes that focus robustly remains on the rename input during a background sync, provided the workspace key does not change, because React preserves the DOM node."
+              },
+              {
+                "scenario": "Transcript modal lifecycle when its underlying session is deleted in the background.",
+                "evidence": "Inspected `App.tsx` and `useTranscript.ts`. `App.tsx` handles background payload updates via `applyPayload`, which correctly resets `selectedSessionId` if the session goes missing. However, `useTranscript` manages its own isolated state (`transcriptSession`) and `applyPayload` lacks any logic to monitor or clear `transcriptSession` if it disappears from `next.sessions`.",
+                "result": "Establishes that the Transcript modal will remain stuck open, displaying stale or missing data, if its underlying session is deleted via a background synchronization event."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if active terminal tabs gracefully close or handle errors when their associated session is deleted in the background.",
+              "Verify if the Settings modal handles background configuration resets safely without losing active edits."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T07:56:51.957299Z",
+            "source": {
+              "activity_id": "sessions/13355743166135000999/activities/073f6831008c4ea2b0a091a892578c4e",
+              "report_sha256": "084c829309764e3ffa6a395bd77054f57b045a68107b7a20790e37d379f278cd",
+              "activity_created_at": "2026-09-24T07:44:13.038794Z",
+              "session_id": "13355743166135000999",
+              "dispatch_key": "6afdbab8d58bcfbab4e6dec0"
+            },
+            "deferred_findings": [
+              {
+                "title": "Close the transcript modal when its session is deleted in the background",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Observed via source code inspection in App.tsx on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. `applyPayload` updates the payload but does not notify `useTranscript` to clear `transcriptSession` when a session is removed.\", \"reproduction\": {\"actual\": \"The transcript modal remains stuck open for a non-existent session.\", \"expected\": \"The transcript modal closes automatically.\", \"steps\": [\"Open the transcript modal for a session.\", \"Trigger a background sync (or external deletion) that removes the session from the payload.\", \"Observe the state of the transcript modal.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When a background sync removes the currently viewed transcript session, the transcript modal is automatically closed."
+                ],
+                "deferred_id": "addfeb297312861210cde2a7734c50ce72644b67cce7ffb745b1a4185426d33a",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Close the transcript modal when its session is deleted in the background",
+                  "risk": "low",
+                  "priority": 60,
+                  "focus": [
+                    "quality",
+                    "bugfix"
+                  ],
+                  "target_paths": [
+                    "src/App.tsx"
+                  ],
+                  "acceptance": [
+                    "When a background sync removes the currently viewed transcript session, the transcript modal is automatically closed."
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Observed via source code inspection in App.tsx on da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb. `applyPayload` updates the payload but does not notify `useTranscript` to clear `transcriptSession` when a session is removed.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Open the transcript modal for a session.",
+                        "Trigger a background sync (or external deletion) that removes the session from the payload.",
+                        "Observe the state of the transcript modal."
+                      ],
+                      "expected": "The transcript modal closes automatically.",
+                      "actual": "The transcript modal remains stuck open for a non-existent session."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T20:30:51Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-39c130be90c4a65e",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T07:49:50Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-workspace-navigation-reliability-8",
+                  "activity_id": "sessions/13355743166135000999/activities/073f6831008c4ea2b0a091a892578c4e",
+                  "report_sha256": "084c829309764e3ffa6a395bd77054f57b045a68107b7a20790e37d379f278cd",
+                  "activity_created_at": "2026-09-24T07:44:13.038794Z",
+                  "session_id": "13355743166135000999",
+                  "dispatch_key": "6afdbab8d58bcfbab4e6dec0"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Benchmarked and optimized ProjectRail rendering for a large number of workspaces by extracting and memoizing ProjectRailRow.",
+            "observations": [
+              {
+                "scenario": "Render performance of ProjectRail with a large number (1000) of workspaces when selection changes.",
+                "evidence": "Wrote synthetic Profiler tests mimicking a React 'act' update to `selectedWorkspace`. Measured mount time at ~1200ms and selection update time at ~450ms. After extracting `ProjectRailRow` and wrapping it in `React.memo`, mount time dropped slightly (1162ms) but selection update time fell to ~350ms, a significant reduction in React reconcile cost across the 1000 sibling components that didn't change state.",
+                "result": "Establishes that memoizing individual workspace rows in `ProjectRail` reduces wasted render cycles and latency during UI interactions (like selecting a different workspace or renaming) without affecting behavior."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if SessionList re-renders can also be further optimized by memoizing SessionRow when selectedSessionId or renamingSessionId changes.",
+              "Investigate large session list loading times in `App.tsx` and if session search filtering can be moved to a web worker or debounced."
+            ],
+            "proposed_task_ids": [
+              "discovery-ecacdd20617a4f68"
+            ],
+            "completed_at": "2026-09-24T08:36:25.702406Z",
+            "source": {
+              "activity_id": "sessions/9638885789936561435/activities/1ec2f13aed8249378921403f2d7a4cd0",
+              "report_sha256": "a8238f4f72786cdb3f27dac2ef61774034a61f362feaa8cf928fc1f92b826d1e",
+              "activity_created_at": "2026-09-24T08:27:46.857262Z",
+              "session_id": "9638885789936561435",
+              "dispatch_key": "863e3da08c76f361d67abdcc"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
