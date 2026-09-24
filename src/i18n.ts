@@ -178,6 +178,7 @@ export const UI_TEXT = {
     terminalInputHelp:
       "Ctrl+Z — отменить правку текущего ввода OMP. Ctrl+Backspace/Delete — удалить слово назад/вперёд; Shift+Enter — новая строка; Ctrl+Enter — сообщение в очередь. Ctrl+C копирует выделенный текст, без выделения прерывает работу. Ctrl+V вставляет из буфера через OMP (включая изображения), Ctrl+Shift+V — текст без сворачивания. Ctrl+A выбирает ввод для очистки Backspace/Delete. Ссылки открываются кликом; файлы показываются в файловом менеджере. Выделенный вывод можно добавить во ввод кнопкой «Ответить». Ctrl+Y — yank OMP, не redo.",
     terminalInputSelected: "Текущий ввод выбран; Backspace или Delete очистит его",
+    terminalScrollToBottom: "К последним сообщениям",
     contentLinkUnsupported: "Этот тип ссылки не поддерживается клиентом.",
     terminalReplyToSelection: "Ответить",
     terminalReplyContext: "По выделенному фрагменту:",
@@ -731,6 +732,7 @@ export const UI_TEXT = {
     terminalInputHelp:
       "Ctrl+Z undoes an edit in the current OMP input. Ctrl+Backspace/Delete delete a word backward/forward; Shift+Enter adds a line; Ctrl+Enter queues a follow-up. Ctrl+C copies selected text, or interrupts when nothing is selected. Ctrl+V pastes through OMP (including images); Ctrl+Shift+V pastes uncollapsed text. Ctrl+A arms the input for clearing with Backspace/Delete. Click links to open them; files are revealed in the file manager. Use Reply to quote selected output. Ctrl+Y is OMP yank, not redo.",
     terminalInputSelected: "Current input selected; Backspace or Delete will clear it",
+    terminalScrollToBottom: "Jump to latest output",
     contentLinkUnsupported: "This link type is not supported by the client.",
     terminalReplyToSelection: "Reply",
     terminalReplyContext: "Regarding the selected passage:",

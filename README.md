@@ -24,7 +24,7 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 ### Основные возможности
 
 - **Проекты и сессии:** рабочие папки, поиск, возобновление и цепочки handoff.
-- **Нативные PTY-терминалы:** параллельные вкладки, изменение размера, прерывание и завершение процессов.
+- **Нативные PTY-терминалы:** параллельные вкладки, изменение размера, прерывание и завершение процессов; новый вывод остаётся внизу, пока пользователь не просматривает историю, а стрелка возвращает к последним сообщениям.
 - **Конфигурация и провайдеры:** настройки OMP, модели, аккаунты, лимиты и фиксация провайдера для сессии.
 - **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки, предупреждения и монитор ресурсов.
 - **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
@@ -126,7 +126,7 @@ For users who want graphical project and settings controls while retaining the O
 ### Core features
 
 - **Projects and sessions:** workspaces, search, resume, and handoff lineage.
-- **Native PTY terminals:** concurrent tabs, resizing, interruption, and process cleanup.
+- **Native PTY terminals:** concurrent tabs, resizing, interruption, and process cleanup; live output stays at the bottom unless you scroll through history, and a down-arrow returns to the latest output.
 - **Configuration and providers:** OMP settings, models, accounts, limits, and per-session provider pinning.
 - **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search, warnings, and resource monitoring.
 - **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.

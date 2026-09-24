@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { resizeTerminal } from "./api"
 import { TerminalView } from "./TerminalView"
-import type { TerminalTab } from "./types"
+import type { PtyOutputEvent, TerminalTab } from "./types"
+import { forgetTerminalContinuity } from "./terminalContinuity"
 
 const terminalState = vi.hoisted(() => ({
   selection: "",
@@ -13,13 +14,27 @@ const terminalState = vi.hoisted(() => ({
   paste: vi.fn(),
   clear: vi.fn(),
   selectionChanged: null as (() => void) | null,
+  scrollChanged: null as (() => void) | null,
+  outputListener: null as ((event: { payload: PtyOutputEvent }) => void) | null,
+  writeCallbacks: [] as Array<() => void>,
+  scrollToBottom: vi.fn(),
   fitThrows: false,
-  instance: null as { cols: number; rows: number; options: Record<string, unknown> } | null,
+  instance: null as {
+    cols: number
+    rows: number
+    options: Record<string, unknown>
+    buffer: { active: { viewportY: number; baseY: number } }
+  } | null,
 }))
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   writeText: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, callback: (event: { payload: PtyOutputEvent }) => void) => {
+    if (name.startsWith("pty-output:")) terminalState.outputListener = callback
+    return () => undefined
+  }),
+}))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     fit() {
@@ -36,6 +51,7 @@ vi.mock("@xterm/xterm", () => ({
     cols = 80
     rows = 24
     modes = { bracketedPasteMode: false, mouseTrackingMode: "none" }
+    buffer = { active: { viewportY: 0, baseY: 0 } }
     options: Record<string, unknown>
     constructor(options: Record<string, unknown>) {
       this.options = options
@@ -48,7 +64,8 @@ vi.mock("@xterm/xterm", () => ({
       terminalState.selectionChanged = callback
       return { dispose() {} }
     }
-    onScroll() {
+    onScroll(callback: () => void) {
+      terminalState.scrollChanged = callback
       return { dispose() {} }
     }
     onData() {
@@ -74,7 +91,14 @@ vi.mock("@xterm/xterm", () => ({
     paste(input: string) {
       terminalState.paste(input)
     }
-    write() {}
+    scrollToBottom() {
+      terminalState.scrollToBottom()
+      this.buffer.active.viewportY = this.buffer.active.baseY
+      terminalState.scrollChanged?.()
+    }
+    write(_data: string | Uint8Array, callback?: () => void) {
+      if (callback) terminalState.writeCallbacks.push(callback)
+    }
     dispose() {}
   },
 }))
@@ -130,6 +154,10 @@ beforeEach(async () => {
   terminalState.selection = ""
   terminalState.fitThrows = false
   terminalState.instance = null
+  terminalState.scrollChanged = null
+  terminalState.outputListener = null
+  terminalState.writeCallbacks = []
+  forgetTerminalContinuity(tab.id)
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -302,4 +330,58 @@ it("restores keyboard focus when fit fails during tab activation", async () => {
   } finally {
     width.mockRestore()
   }
+})
+
+it("shows a labeled return control only away from the latest output", async () => {
+  const buffer = terminalState.instance!.buffer.active
+  expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
+  act(() => {
+    buffer.baseY = 26
+    buffer.viewportY = 8
+    terminalState.scrollChanged?.()
+  })
+  const button = container.querySelector<HTMLButtonElement>(".terminal-scroll-bottom")!
+  expect(button.getAttribute("aria-label")).toBe("Jump to latest output")
+  await act(async () => button.click())
+  expect(buffer.viewportY).toBe(buffer.baseY)
+  expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
+  expect(terminalState.focus).toHaveBeenCalled()
+})
+
+it("recovers an output-induced viewport jump when following live output", () => {
+  const buffer = terminalState.instance!.buffer.active
+  const sendOutput = (seq: number) => {
+    terminalState.outputListener?.({
+      payload: { terminalId: tab.id, generation: 1, seq, data: btoa("next\r\n") },
+    })
+  }
+  act(() => sendOutput(1))
+  expect(terminalState.writeCallbacks).toHaveLength(1)
+  act(() => {
+    buffer.baseY = 30
+    buffer.viewportY = 8
+    terminalState.scrollChanged?.()
+    terminalState.writeCallbacks.shift()?.()
+  })
+  expect(buffer.viewportY).toBe(30)
+  expect(terminalState.scrollToBottom).toHaveBeenCalledOnce()
+})
+
+it("does not override a user's scroll while PTY output is pending", () => {
+  const buffer = terminalState.instance!.buffer.active
+  act(() => {
+    terminalState.outputListener?.({
+      payload: { terminalId: tab.id, generation: 1, seq: 1, data: btoa("next\r\n") },
+    })
+    container
+      .querySelector(".terminal-host")!
+      .dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
+    buffer.baseY = 31
+    buffer.viewportY = 11
+    terminalState.scrollChanged?.()
+    terminalState.writeCallbacks.shift()?.()
+  })
+  expect(buffer.viewportY).toBe(11)
+  expect(terminalState.scrollToBottom).not.toHaveBeenCalled()
+  expect(container.querySelector(".terminal-scroll-bottom")).not.toBeNull()
 })
