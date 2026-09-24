@@ -48749,7 +48749,7 @@
       "id": "research-diagnostics-resources-behavior-8",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -48866,7 +48866,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "234372672784030942",
         "dispatch_key": "08fbc2c11b6aa638f886768a",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
@@ -48874,8 +48874,8 @@
         "started_at": "2026-09-24T13:04:28.851978Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -48956,13 +48956,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T13:12:24.991632Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T13:31:56.420348Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-24T13:31:56.420348Z",
+          "source": {
+            "activity_id": "sessions/234372672784030942/activities/448b72b9b5354f8cadd6f5c31fa3c31b",
+            "report_sha256": "9fcef87992b478c9864104018ad91bd5cde612722f41ad110620516ecf087c56",
+            "activity_created_at": "2026-09-24T13:20:19.793759Z",
+            "session_id": "234372672784030942",
+            "dispatch_key": "08fbc2c11b6aa638f886768a"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-24T13:32:20.821061Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/234372672784030942/activities/448b72b9b5354f8cadd6f5c31fa3c31b",
+            "report_sha256": "9fcef87992b478c9864104018ad91bd5cde612722f41ad110620516ecf087c56",
+            "activity_created_at": "2026-09-24T13:20:19.793759Z",
+            "session_id": "234372672784030942",
+            "dispatch_key": "08fbc2c11b6aa638f886768a"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T13:25:45.391821Z",
+    "last_poll_at": "2026-09-24T13:32:19.480104Z",
     "last_tick_at": "2026-09-24T13:25:49.264238Z",
     "run_id": "36005506899"
   }
