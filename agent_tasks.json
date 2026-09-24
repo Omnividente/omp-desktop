@@ -47282,7 +47282,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T11:52:30.192374Z"
+        "observed_at": "2026-09-24T11:52:30.192374Z",
+        "released_attempt_ref": "autonomous/attempt-53e0d8582e4ac9ddfc57785b"
       },
       "research_result": {
         "summary": "Verified horizontal overflow and truncation issues in SettingsPanel provider account UI elements.",
