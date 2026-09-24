@@ -5171,6 +5171,25 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   font-size: 0.625rem;
 }
 
+.incident-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.incident-capture-result {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 0.625rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-capture-result.is-failed {
+  color: #ef7070;
+}
+
 .resource-backdrop {
   position: fixed;
   z-index: 110;
