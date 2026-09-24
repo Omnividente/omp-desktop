@@ -43390,8 +43390,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "9638885789936561435",
         "dispatch_key": "863e3da08c76f361d67abdcc",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-863e3da08c76f361d67abdcc",
