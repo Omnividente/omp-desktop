@@ -50567,7 +50567,7 @@
       "id": "research-transcript-links-performance-8",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -50785,16 +50785,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "17723052583341979353",
         "dispatch_key": "06767595273750d397eba580",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-06767595273750d397eba580",
         "started_at": "2026-09-24T18:31:13.166496Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T19:05:35.674568Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -50968,24 +50968,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T18:59:02.764222Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-24T18:52:26.527276Z",
-          "source": {
-            "activity_id": "sessions/17723052583341979353/activities/f0da97e2f85d44c8bb4dd046c4012c96",
-            "report_sha256": "8ec73090e789341d22b0f8cfcf48844390ce60f66b5efbe357b8bd0cc0fcc1f3",
-            "activity_created_at": "2026-09-24T18:40:11.310989Z",
-            "session_id": "17723052583341979353",
-            "dispatch_key": "06767595273750d397eba580"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T19:05:35.674568Z",
         "report_repair": {
           "at": "2026-09-24T18:52:51.657839Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/17723052583341979353/activities/f0da97e2f85d44c8bb4dd046c4012c96",
             "report_sha256": "8ec73090e789341d22b0f8cfcf48844390ce60f66b5efbe357b8bd0cc0fcc1f3",
@@ -50994,11 +50982,105 @@
             "dispatch_key": "06767595273750d397eba580"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated performance bottlenecks in Transcript rendering and virtual scrolling. Discovered slow Markdown text parsing with dense search matches, but virtual list resizing performance is optimal due to correctly coalescing invalidations.",
+        "observations": [
+          {
+            "scenario": "Rendering highly repetitive 10,000 block text with no line breaks, simulating a dense block, alongside dense search keyword matching inside src/MarkdownContent.tsx.",
+            "evidence": "Tested using Vitest with React Testing Library. A 10,000-word text without breaks takes ~22ms to render. With a dense search match (10,000 matches), it spikes to over 500ms and issues a React missing keys warning. Simulated the rendering loop directly with performance.now() taking ~13ms to process the matches, pointing to DOM construction overhead.",
+            "result": "Establishes a performance bottleneck inside MarkdownContent.tsx: densely packed match results dynamically creating thousands of non-reconciled <mark> DOM nodes per row degrade performance. Also missing key on text fragments."
+          },
+          {
+            "scenario": "Simulated continuous rapid DOM element resize events acting upon useVirtualList with 10,000 rows.",
+            "evidence": "Using a synthetic MockResizeObserver in Vitest firing 100 immediate callbacks. The layout effect correctly bounded work, completing 100 rapid resize callbacks on 10,000 rows in ~2ms. The useVirtualList code correctly defers heavy operations and coalesces updates via React layouts and requestAnimationFrame.",
+            "result": "Establishes that useVirtualList resizing is correctly optimized and not a bottleneck for layout invalidation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if bounding the maximum number of text matches displayed within a single message row can improve dense search performance without hiding matches in other messages.",
+          "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+        ],
+        "proposed_task_ids": [
+          "discovery-87cbf0ae73e75962"
+        ],
+        "completed_at": "2026-09-24T19:05:35.674568Z",
+        "source": {
+          "activity_id": "sessions/17723052583341979353/activities/496616de91bd47319c82354ae16359c8",
+          "report_sha256": "ba1a9fbf57b24d37cdc996caf841608c9e5d668707f113de4d22d00a6a65ef7d",
+          "activity_created_at": "2026-09-24T18:53:53.248510Z",
+          "session_id": "17723052583341979353",
+          "dispatch_key": "06767595273750d397eba580"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17723052583341979353/activities/496616de91bd47319c82354ae16359c8",
+          "report_sha256": "ba1a9fbf57b24d37cdc996caf841608c9e5d668707f113de4d22d00a6a65ef7d",
+          "activity_created_at": "2026-09-24T18:53:53.248510Z",
+          "session_id": "17723052583341979353",
+          "dispatch_key": "06767595273750d397eba580"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-87cbf0ae73e75962"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-87cbf0ae73e75962",
+      "title": "Fix React key warning and optimize dense search match rendering in Markdown content",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-24T19:05:35.674568Z",
+      "acceptance": [
+        "No React key warnings are printed to the console when rendering text nodes containing search matches",
+        "Rendering extremely dense matches does not fail to reconcile correctly"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via synthetic React jsdom rendering test. React requires unique keys for arrays of elements dynamically pushed inside a loop.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Provide a block of Markdown containing repeated instances of the same word.",
+            "Provide an array of text matches covering those occurrences to MarkdownContent.",
+            "Observe the browser console for React warnings."
+          ],
+          "expected": "The matches render without any React console warnings about missing keys.",
+          "actual": "React issues a warning: 'Each child in a list should have a unique key prop' due to the dynamically pushed slice components without key wrappers."
+        }
+      },
+      "target_paths": [
+        "src/MarkdownContent.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-8",
+        "activity_id": "sessions/17723052583341979353/activities/496616de91bd47319c82354ae16359c8",
+        "report_sha256": "ba1a9fbf57b24d37cdc996caf841608c9e5d668707f113de4d22d00a6a65ef7d",
+        "activity_created_at": "2026-09-24T18:53:53.248510Z",
+        "session_id": "17723052583341979353",
+        "dispatch_key": "06767595273750d397eba580"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T18:59:26.828895Z",
+    "last_poll_at": "2026-09-24T19:05:55.658531Z",
     "last_tick_at": "2026-09-24T18:59:31.673623Z",
     "run_id": "36044973263"
   }
