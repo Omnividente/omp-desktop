@@ -46544,7 +46544,8 @@
         "feedback_nudge": {
           "at": "2026-09-24T10:57:20.627133Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-68df74ddbe14ef58f725c766"
       },
       "research_result": {
         "summary": "Verified multiple layout truncation and horizontal overflow issues for long unbroken strings in ModelPicker and SettingsPanel UI elements on narrow viewports.",
