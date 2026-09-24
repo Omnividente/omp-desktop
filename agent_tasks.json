@@ -44945,7 +44945,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T10:14:11.846023Z"
+        "observed_at": "2026-09-24T10:14:11.846023Z",
+        "released_attempt_ref": "autonomous/attempt-ef0c79532ecc9d5bcd9cfdd4"
       },
       "research_result": {
         "summary": "Measured and confirmed optimization opportunity in ModelPicker sorting on large model lists.",
