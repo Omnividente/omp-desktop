@@ -46106,6 +46106,253 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-settings-models-ux-8",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-24T10:37:04Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 8,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that the ModelPicker correctly filters model matches in a case-insensitive manner regardless of whether the input is uppercase or lowercase.",
+            "observations": [
+              {
+                "scenario": "Simulate ModelPicker matchesSelector matching behavior with an uppercase input string on the fallback model selector.",
+                "evidence": "Executed a synthetic Vitest unit test directly invoking matchesSelector from ModelPicker with an uppercase selector 'OPENAI/GPT-4' and comparing it to the 'gpt-4' underlying configuration block. It correctly matches regardless of input casing.",
+                "result": "Establishes that the ModelPicker handles case-insensitivity on model IDs, base names, and selectors robustly, mitigating any hard-coding bugs."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if SettingsPanel properly cleans up or propagates deletion operations when a Custom Provider with long labels is forcibly removed while still partially edited.",
+              "Investigate if model list sorting respects custom provider ordering correctly when numerous identical-prefix custom provider models are available."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-23T11:11:33.128629Z",
+            "source": {
+              "activity_id": "sessions/4035460820517764448/activities/fb272d4b67104bf68c2131ce0f77b5ec",
+              "report_sha256": "f340fa751ef04787b0d674acef8764e174778bf75c51dade8cae0415120606fb",
+              "activity_created_at": "2026-09-23T10:59:00.874867Z",
+              "session_id": "4035460820517764448",
+              "dispatch_key": "651b5bed05b5211f17b33c7b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified multiple text truncation and overflow issues in SettingsRecoveryScreen and SettingsPanel handling unusually long or unbroken translations and file paths.",
+            "observations": [
+              {
+                "scenario": "Rendering the SettingsRecoveryScreen layout with an extremely long unbroken localized string in the description on a narrow viewport.",
+                "evidence": "Using a synthetic Puppeteer HTML test fixture mapping the exact `.settings-recovery-description` styling. A 150+ character unbroken string significantly exceeded the card's width horizontally (e.g. 730px scrollWidth vs 250px element width).",
+                "result": "Establishes that the description lacks word-breaking rules (`overflow-wrap: anywhere`), allowing long content to overflow horizontally."
+              },
+              {
+                "scenario": "Rendering the SettingsRecoveryScreen layout with an excessively long unbroken path in the settings details block.",
+                "evidence": "Using a synthetic Puppeteer HTML test fixture mapping `.settings-recovery-details code` styling. A long path string without spaces forced the `.settings-recovery-details code` to overflow its container (897px scrollWidth inside a 250px container width).",
+                "result": "Establishes that while `white-space: normal` exists, missing `overflow-wrap: anywhere` prevents wrapping unbroken long file paths, leading to horizontal overflow."
+              },
+              {
+                "scenario": "Rendering the SettingsRecoveryScreen action buttons with long localized strings on narrow viewports.",
+                "evidence": "Using a synthetic Puppeteer test applying `.button` and `.settings-recovery-actions .button` styling. The button truncated a long label (332px scrollWidth inside a 250px element) because of fixed height (34px) and `white-space: nowrap`.",
+                "result": "Establishes that action buttons do not expand vertically and truncate translation text on narrow viewports."
+              },
+              {
+                "scenario": "Rendering the SettingsPanel input label with an extremely long unbroken translation string.",
+                "evidence": "Using a synthetic Puppeteer HTML test fixture applying `.settings-control-label` styling. A long unbroken translation label overflowed its container horizontally (435px scrollWidth in a 250px container width).",
+                "result": "Establishes that SettingsPanel labels can cause horizontal layout shifts if they contain very long unbroken strings."
+              },
+              {
+                "scenario": "Rendering the SettingsPanel global error state banner with a very long unbroken error string.",
+                "evidence": "Using a synthetic Puppeteer HTML test fixture applying `.settings-state` styling. The `.settings-state.is-error` element overflowed horizontally for long unbroken strings (714px scrollWidth inside a 250px container) because it lacks word breaking.",
+                "result": "Establishes that long unbroken error strings overflow the SettingsPanel error banner."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `.role-health` labels or model metadata elements on the ModelPicker clip incorrectly on very small resolutions."
+            ],
+            "proposed_task_ids": [
+              "discovery-8932b08cef0bc9ad"
+            ],
+            "completed_at": "2026-09-23T11:45:19.074855Z",
+            "source": {
+              "activity_id": "sessions/2082995580402721676/activities/550c11a9a9754cc189620f505cf0ad96",
+              "report_sha256": "519a93976d3d8d98ad6b3e787a3f70e8942712101dcac475db058bcd3359e895",
+              "activity_created_at": "2026-09-23T11:31:48.949447Z",
+              "session_id": "2082995580402721676",
+              "dispatch_key": "5d4e8a055eae0d809b021bd2"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix horizontal overflow of unbroken strings in SettingsRecoveryScreen description and path details",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1c2ef3e497408198; not established as a duplicate. {\"detail\": \"Measured via a synthetic Puppeteer DOM test capturing `App.css` styles for `.settings-recovery-description` and `.settings-recovery-details code`. A string of 150+ characters without spaces overflows a narrow container horizontally.\", \"reproduction\": {\"actual\": \"The long strings do not wrap, causing the content to overflow the card container horizontally.\", \"expected\": \"The long unbroken strings wrap to new lines, staying within the bounds of the card container.\", \"steps\": [\"Render the SettingsRecoveryScreen using a synthetic very long unbroken string for its description or settings paths (e.g. simulating a long unbroken translation or Windows directory path).\", \"Constrain the viewport width to a narrow mobile size.\", \"Observe the description and code elements relative to the main card container bounds.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.css"
+                ],
+                "acceptance": [
+                  "Unusually long unbroken strings in the recovery screen description and file path elements wrap to new lines and do not overflow their containers horizontally."
+                ]
+              },
+              {
+                "title": "Fix text truncation in SettingsRecoveryScreen action buttons on narrow viewports",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-08ed104590df0edb; not established as a duplicate. {\"detail\": \"Verified via synthetic Puppeteer tests rendering the exact `.settings-recovery-actions .button` CSS on a narrow viewport. The base `.button` styles enforce `height: 34px` and `white-space: nowrap`, causing long translations to overflow.\", \"reproduction\": {\"actual\": \"The text overflows the button container and is truncated, making the button unreadable.\", \"expected\": \"The button height expands automatically and text wraps to the next line.\", \"steps\": [\"Render the SettingsRecoveryScreen action buttons with a very long translation string.\", \"Constrain the viewport width to a narrow mobile size.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.css"
+                ],
+                "acceptance": [
+                  "Long translations in SettingsRecoveryScreen action buttons wrap correctly to multiple lines on narrow viewports without overflowing or truncating."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Measured and confirmed optimization opportunity in ModelPicker sorting on large model lists.",
+            "observations": [
+              {
+                "scenario": "Sorting a list of 10000 model configurations in the browser using the current string interpolation and single-localeCompare technique.",
+                "evidence": "Measured via synthetic Node.js scripts using the exact filtering and sorting logic from src/ModelPicker.tsx. The original implementation takes ~42-54ms to sort 10000 elements. Replacing the interpolated string comparison (`${left.provider}/${left.name}`.localeCompare(...)) with separate string comparisons (`left.provider.localeCompare` then `left.name.localeCompare`) reduced sort time to ~9-10ms (a 75%+ reduction).",
+                "result": "Establishes that the string concatenation in the sorting loop allocates memory and uses CPU unnecessarily. A significant latency improvement can be gained by avoiding it."
+              },
+              {
+                "scenario": "Filtering a list of 10000 model configurations in the browser using the current string interpolation include technique vs separate includes.",
+                "evidence": "Measured via synthetic Node.js scripts. The original implementation takes ~7.6ms. Changing it to `model.name.toLowerCase().includes(normalized) || ...` takes ~6.8ms. Also, the original code evaluates the filter condition even if the normalized query is empty (`if (!normalized) return true` happens after). Evaluating if `normalized` is empty before checking properties reduces empty filter time from 7.7ms to 0.6ms (though note the current codebase already has `if (!normalized) return true`, the string manipulation inside `.sort` is the main target here).",
+                "result": "Establishes that sorting is the primary CPU/memory bottleneck, not filtering."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if model list can be virtualized in the DOM to avoid rendering thousands of unmounted option buttons at once.",
+              "Examine if SettingsPanel rendering can be optimized by debouncing input events."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T10:14:11.846023Z",
+            "source": {
+              "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+              "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+              "activity_created_at": "2026-09-24T10:06:55.988988Z",
+              "session_id": "3001433304691637917",
+              "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+            },
+            "deferred_findings": [
+              {
+                "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.\", \"reproduction\": {\"actual\": \"The sort logic currently concatenates the provider and name strings on every comparison.\", \"expected\": \"The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.\", \"steps\": [\"Run a profiling test with thousands of synthetic models injected into ModelPicker.\", \"Observe the latency of `filteredModels = useMemo(...)` before and after the change.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-37764527ab2ab728\", \"responses\": [{\"decision_context_id\": \"d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02\", \"decision_task_id\": \"discovery-37764527ab2ab728\", \"why_previous_reason_no_longer_explains\": \"The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity.\"}, {\"decision_context_id\": \"12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6\", \"decision_task_id\": \"discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d\", \"why_previous_reason_no_longer_explains\": \"Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+                ],
+                "deferred_id": "0f493ef376fc5f7fc131df7e916b1bb06aaf4f09b4d054a982808dade806d42f",
+                "candidate": {
+                  "task_type": "product_improvement",
+                  "title": "Optimize ModelPicker performance by avoiding string concatenation in sort",
+                  "risk": "low",
+                  "priority": 40,
+                  "focus": [
+                    "perf"
+                  ],
+                  "target_paths": [
+                    "src/ModelPicker.tsx"
+                  ],
+                  "acceptance": [
+                    "ModelPicker sorting is faster by avoiding string interpolation inside the sort callback."
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Isolated performance tests on the sorting logic demonstrated a 75%+ latency reduction when separate string comparisons were used instead of template string interpolation.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Run a profiling test with thousands of synthetic models injected into ModelPicker.",
+                        "Observe the latency of `filteredModels = useMemo(...)` before and after the change."
+                      ],
+                      "expected": "The sort logic should use `left.provider.localeCompare(right.provider)` followed by `left.name.localeCompare(right.name)` instead of concatenating them.",
+                      "actual": "The sort logic currently concatenates the provider and name strings on every comparison."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "This proposal optimizes the sort comparison function itself by removing string interpolation inside the loop, rather than changing the order of filter vs sort (which was already resolved in the past).",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-37764527ab2ab728",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-37764527ab2ab728",
+                          "decision_context_id": "d116373f34a52534cbb5f251e8ff725de900cdae25a85b84c0cdcd15fe005c02",
+                          "why_previous_reason_no_longer_explains": "The previous resolution 'Optimize ModelPicker performance by filtering models before sorting' correctly noted that filtering happens before sorting. This new proposal addresses a different bottleneck in the same component: the string concatenation (`${left.provider}/${left.name}`) happening inside the sort comparator. The synthetic performance tests show this concatenation is a significant source of latency (taking ~45ms for 10000 items) and avoiding it drops latency to ~10ms. Therefore, this is an independent optimization opportunity."
+                        },
+                        {
+                          "decision_task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                          "decision_context_id": "12eef60adc1918f42c320c9e25961b681b9fde253f7921e4dbdbfd46485e90a6",
+                          "why_previous_reason_no_longer_explains": "Same as above. The previous proposal was rejected as a duplicate of filtering before sorting. This is a separate finding about the implementation details of the sorting algorithm itself, not the order of filtering vs sorting."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-06074f62cc26c50dd5ea841a09d5d33d86ea0bbe2bd2c10f874d81592073b81d",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T20:22:17Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-37764527ab2ab728",
+                      "action": "resolve",
+                      "decision_at": "2026-09-19T17:02:13Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-settings-models-performance-8",
+                  "activity_id": "sessions/3001433304691637917/activities/53753d4b22134bb68a61cd090ca8c6bd",
+                  "report_sha256": "d0c1c87ad9d1b2bff04ad0efd118a40565f72b7083e3e85654335e4ec740ca77",
+                  "activity_created_at": "2026-09-24T10:06:55.988988Z",
+                  "session_id": "3001433304691637917",
+                  "dispatch_key": "ef0c79532ecc9d5bcd9cfdd4"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
