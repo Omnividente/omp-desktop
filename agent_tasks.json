@@ -41000,7 +41000,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T06:18:02.949524Z"
+        "observed_at": "2026-09-24T06:18:02.949524Z",
+        "released_attempt_ref": "autonomous/attempt-ab09c6fb23f33dfba8413608"
       },
       "research_result": {
         "summary": "Investigated focus loss when clearing search in the session list, and the behavior of batch import modals upon failure.",
