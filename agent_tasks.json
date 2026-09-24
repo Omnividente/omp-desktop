@@ -39598,7 +39598,7 @@
       "id": "discovery-5f246af60eb16b09",
       "title": "Ensure terminal focus is restored even if fitAddon throws during tab switch",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 75,
       "risk": "low",
       "focus": [
@@ -39634,6 +39634,12 @@
         "activity_created_at": "2026-09-23T23:20:11.560590Z",
         "session_id": "5186752007426495389",
         "dispatch_key": "635e90b6b7a750411960c8d3"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:56:28Z",
+        "note": "Accepted. Implemented locally on fix/jules-triage-20260924: tab activation focuses terminal after fitRef handles fitAddon exceptions; targeted regression passed. Source not pushed, merged or released; no Jules dispatch. Resolve only after source publication."
       }
     },
     {
