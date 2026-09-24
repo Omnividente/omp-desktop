@@ -43578,7 +43578,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-24T08:36:25.702406Z"
+        "observed_at": "2026-09-24T08:36:25.702406Z",
+        "released_attempt_ref": "autonomous/attempt-863e3da08c76f361d67abdcc"
       },
       "research_result": {
         "summary": "Benchmarked and optimized ProjectRail rendering for a large number of workspaces by extracting and memoizing ProjectRailRow.",
