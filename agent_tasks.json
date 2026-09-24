@@ -46540,6 +46540,10 @@
         "research_detached": {
           "at": "2026-09-24T10:57:20.627133Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-24T10:57:20.627133Z",
+          "result": "pending"
         }
       }
     }
