@@ -49366,7 +49366,7 @@
       "id": "research-diagnostics-resources-performance-8",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -49496,16 +49496,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12802717456965488861",
         "dispatch_key": "8bcdee4fb366b196eb7b51db",
         "base_sha": "84ff6fd91cc10a890132b62973784ae0daf17edc",
         "starting_branch": "autonomous/attempt-8bcdee4fb366b196eb7b51db",
         "started_at": "2026-09-24T14:03:13.726903Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T14:30:48.249704Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e28fc7b530b20db3ba635c23548ad62904d8fe02",
@@ -49586,13 +49586,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T14:03:13.726903Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T14:30:48.249704Z"
+      },
+      "research_result": {
+        "summary": "Measured React component rendering latency for resource health and incident center bounds.",
+        "observations": [
+          {
+            "scenario": "Verify React rendering latency for the IncidentCenter component when loaded with 100 max boundary incidents (synthetic payload with lengthy error reasons).",
+            "evidence": "Executed synthetic component render benchmark with 100 distinct incident objects mimicking deep generic API errors. Using JSDOM and a simulated React act() environment, the `IncidentCenter` component required approximately 454 ms for initial rendering and layout, reflecting a moderate but noticeable pause for max capacities on a dense list.",
+            "result": "Establishes a baseline for IncidentCenter component responsiveness limits under severe incident pressure."
+          },
+          {
+            "scenario": "Verify React rendering latency for the ResourceHealthPanel component with a complex snapshot.",
+            "evidence": "Executed synthetic render test rendering a full resource health snapshot with 5 disks (volumes), 2 unavailable volumes, and 20 processes in the active tracking list. The `ResourceHealthPanel` rendered in approximately 82 ms, indicating healthy responsiveness for detailed snapshots.",
+            "result": "Establishes a baseline indicating the ResourceHealthPanel effectively handles complex arrays of resource data without significant rendering lag."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the impact on IncidentCenter transition performance when applying granular CSS containment rules.",
+          "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T14:30:48.249704Z",
+        "source": {
+          "activity_id": "sessions/12802717456965488861/activities/54ebbd0dd5264e7fb50694974048e8e9",
+          "report_sha256": "59be5747494ef87eba91318187bdad5864b5f5c46868a1f63d6b6db571da50a1",
+          "activity_created_at": "2026-09-24T14:21:09.814924Z",
+          "session_id": "12802717456965488861",
+          "dispatch_key": "8bcdee4fb366b196eb7b51db"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T14:24:42.608432Z",
+    "last_poll_at": "2026-09-24T14:31:09.339619Z",
     "last_tick_at": "2026-09-24T14:24:46.524978Z",
     "run_id": "36012515321"
   }
