@@ -41278,7 +41278,7 @@
       "id": "research-terminal-input-performance-8",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -41385,16 +41385,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12695466212818659781",
         "dispatch_key": "5fe2312386168b7687a5f6e3",
         "base_sha": "da94c55110eb9815fc3f2fc7f7ddcfd8ce31f0bb",
         "starting_branch": "autonomous/attempt-5fe2312386168b7687a5f6e3",
         "started_at": "2026-09-24T06:18:02.949524Z",
-        "finished_at": "",
+        "finished_at": "2026-09-24T06:38:45.618846Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0903d15975d8872e81262405226feb8cd75c9588",
@@ -41569,13 +41569,47 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T06:18:02.949524Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-24T06:38:45.618846Z"
+      },
+      "research_result": {
+        "summary": "Investigated performance and resource bounding of terminal input and output operations.",
+        "observations": [
+          {
+            "scenario": "Simulated terminal output batching with `TerminalOutputBatcher` using both many small chunks (500,000 enqueues of 10 bytes) and fewer large chunks (100 enqueues of 100KB) to measure latency and bounding.",
+            "evidence": "Executed synthetic Vitest benchmarks directly on `src/terminalOutputBatcher.ts`. 500,000 enqueues (5MB total) processed in ~55ms. 10MB of 100KB chunks processed in ~11ms. Memory scaling behaves correctly according to the 256KB max threshold, efficiently combining chunks using `Uint8Array.set` without heavy allocations.",
+            "result": "Establishes that terminal output batching handles high-throughput scenarios efficiently with low latency and properly bounded memory retention. No regression found."
+          },
+          {
+            "scenario": "Measured base64 decoding performance using the frontend implementation `decodeBase64` in `src/TerminalView.tsx` with a large payload (1MB string).",
+            "evidence": "Synthetic Vitest benchmark measuring a 1MB base64 string decoded to `Uint8Array` in a `for` loop executing in ~9ms.",
+            "result": "Establishes that the custom frontend string-to-binary fallback decoder operates efficiently for reasonable payload sizes without risk of freezing the UI thread. No regression found."
+          },
+          {
+            "scenario": "Evaluated the regular expression performance of `formatSelectionReply` in `src/terminalInput.ts` against pathological long inputs containing unsafe terminal control characters.",
+            "evidence": "Executed a synthetic Vitest benchmark against `formatSelectionReply` with a 500KB string composed of alternating characters and unsafe characters (`A\\u0000`). The regex replace execution completed in ~27ms. Formatting a normal ~10MB string took ~181ms.",
+            "result": "Establishes that terminal mouse selection formatting is safe against pathological inputs and scales reasonably well even for unexpectedly large selections. No regression found."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection, which could lead to loss of user input.",
+          "Measure if repeated rapid opening and closing of agent tabs causes long-term retention of `TerminalView` DOM listeners or Xterm instances that escape React garbage collection."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-24T06:38:45.618846Z",
+        "source": {
+          "activity_id": "sessions/12695466212818659781/activities/165d7e9997524f2bb7db425d985630ec",
+          "report_sha256": "1e7044002516d435ef6879dd7c90bbd26948336f902911951bbaeb6047dcb91c",
+          "activity_created_at": "2026-09-24T06:26:37.593630Z",
+          "session_id": "12695466212818659781",
+          "dispatch_key": "5fe2312386168b7687a5f6e3"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T06:32:38.814856Z",
+    "last_poll_at": "2026-09-24T06:39:05.943386Z",
     "last_tick_at": "2026-09-24T06:32:41.631891Z",
     "run_id": "35964949655"
   }
