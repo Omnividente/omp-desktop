@@ -35048,7 +35048,7 @@
       "id": "discovery-8932b08cef0bc9ad",
       "title": "Fix horizontal overflow of long unbroken error messages in SettingsPanel banners",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -35081,6 +35081,12 @@
         "activity_created_at": "2026-09-23T11:31:48.949447Z",
         "session_id": "2082995580402721676",
         "dispatch_key": "5d4e8a055eae0d809b021bd2"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-24T07:09:54Z",
+        "note": "Reject: real SettingsPanel save-error banner has App.css .settings-save-error overflow-wrap:anywhere, pre-wrap and bounded scroll; synthetic .settings-state fixture is not the actual unbroken backend error surface."
       }
     },
     {
