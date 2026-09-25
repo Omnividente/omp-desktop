@@ -58789,6 +58789,122 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-settings-models-ux-9",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-25T11:30:04Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Verified horizontal overflow and truncation issues in SettingsPanel provider account UI elements.",
+            "observations": [
+              {
+                "scenario": "Rendering the provider account empty state and status reason with a very long unbroken string.",
+                "evidence": "Measured via synthetic Puppeteer tests applying exact `.provider-account-empty` and `.provider-account-status-reason` CSS from `src/App.css`. An unbroken string overflowed the horizontal bounds (e.g. 501px scrollWidth vs 248px clientWidth) on a 250px mobile viewport.",
+                "result": "Establishes that these provider account elements lack word-breaking rules (`overflow-wrap: anywhere`), causing horizontal layout shifts and overflow on small screens for unbroken localized translations or reasons."
+              },
+              {
+                "scenario": "Rendering the provider credentials base URL with a very long URL.",
+                "evidence": "Measured via synthetic Puppeteer tests applying `.provider-credential` and `.provider-base-url` CSS. An extremely long base URL can exceed the element's client width (e.g. 303px scrollWidth vs 224px clientWidth) and cause horizontal overflow in narrow viewports despite `overflow: hidden` because the grid cell isn't fully constrained by min-width.",
+                "result": "Establishes that the base URL element can cause horizontal overflow in narrow viewports."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if long unbroken text in incident center reasons can cause horizontal layout shifts on narrow viewports."
+            ],
+            "proposed_task_ids": [
+              "discovery-55d95a28b3f55c76",
+              "discovery-a6869bc2e8638f4b"
+            ],
+            "completed_at": "2026-09-24T11:52:30.192374Z",
+            "source": {
+              "activity_id": "sessions/6839265768202341973/activities/49214d73454b4bf9b9546bc4cb996f40",
+              "report_sha256": "274bc6941ac6c3ad4cece2403b454b33f9c25f1d832dd5934a06363c0447f595",
+              "activity_created_at": "2026-09-24T11:41:03.754834Z",
+              "session_id": "6839265768202341973",
+              "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated duplicate backup file generation during failed recovery and defaults operations and backend transaction rollback behavior.",
+            "observations": [
+              {
+                "scenario": "A recovery operation uses `unique_settings_backup` to reserve a filename for backup before attempting to write. If the atomic write fails midway or if a secondary step fails, the backend cleans up its temporary files but `unique_settings_backup` generates a new file name every time it is called.",
+                "evidence": "In `src-tauri/src/settings.rs`, `recover_invalid_settings_with` finds a unique backup name using `unique_settings_backup`. This helper tries up to 16 times to append a random timestamp string and checks if `backup.exists()`. If `backup_write` (using `atomic_write_private_file`) fails before renaming the `.tmp` file, the `.tmp` file is cleaned up, but no persistent duplicate backup is created by that single failed write because the file isn't written until `atomic_write_private_file` successfully finishes. Duplicates only accumulate when multiple recovery or defaults attempts are triggered in succession by the user clicking 'Retry' or 'Start with defaults', each receiving a new random suffix.",
+                "result": "Establishes that duplicate backups are a product of multiple user retry attempts, each resolving to a new timestamped file rather than a leak from a single failed write operation. As per prior context, this is a conservative recovery artifact and not a data-loss bug."
+              },
+              {
+                "scenario": "A failed save settings bundle transaction rolling back concurrent external changes to models.yml.",
+                "evidence": "In `src-tauri/src/omp_bridge.rs`, `save_config` modifies `app_settings` and `models.yml` and pushes `operational_changes`. If `crate::settings::save_settings` fails near the end of the transaction, `resolve_transaction` executes the `rollback()` closures. The `ProviderFileMutation::rollback` implementation correctly restores the original `models.yml` using `atomic_write_private_file`. If `models.yml` was concurrently modified externally between the transaction apply and rollback, `rollback` attempts to restore it back to `original` but first checks `read_optional(&self.path)?.as_deref() != Some(self.updated.as_slice())`. If true, it skips rollback and returns an error: 'models.yml изменился после сохранения и не был перезаписан откатом'.",
+                "result": "Establishes that the backend correctly avoids stomping on external concurrent writes during a failed transaction rollback by checking file state before rollback."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if modifying `ompConfig` operational settings concurrently from multiple windows or external tools causes unrecoverable desynchronization in the React `SettingsPanel` draft state."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T12:46:21.888553Z",
+            "source": {
+              "activity_id": "sessions/6286749172075087999/activities/576ed85135424aabbe225f337ad12c70",
+              "report_sha256": "a2b881beec52a011692db720bf52c4c8d5d21d693e01b1c8e4c870d98e2318ac",
+              "activity_created_at": "2026-09-24T12:37:21.943118Z",
+              "session_id": "6286749172075087999",
+              "dispatch_key": "0719f078b0792818b8d68ed5"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured ModelPicker interaction and rendering performance across large synthetic model datasets.",
+            "observations": [
+              {
+                "scenario": "Rendering and filtering in ModelPicker with varying sizes of synthetic model data (100 to 3000 models).",
+                "evidence": "Measured via a synthetic Vitest jsdom fixture rendering a ModelPicker with an explicit open and closed state, and triggering a filter change. Mount (open) times scaled linearly: ~126ms (100 models), ~324ms (500 models), ~494ms (1500 models), ~1419ms (3000 models). Mount (closed) times were smaller: ~13ms to ~98ms. The input filtering operation utilizing `useMemo` consistently took < 2ms regardless of dataset size (0.62ms for 3000 models).",
+                "result": "Establishes that filtering performance remains exceptionally fast even with thousands of models, but initial dropdown open latency scales linearly and exceeds 1.4 seconds for 3000 models due to full DOM rendering of all option elements."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate virtualizing the ModelPicker dropdown list to improve initial open latency when dealing with large external provider catalogs."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T10:41:51.058205Z",
+            "source": {
+              "activity_id": "sessions/4652845305353483592/activities/9d471249cdc14f92819ec83f09a20596",
+              "report_sha256": "dbfbcce40d14fba088b7ab47d228c6b8e75e52d980f767faf137b5676af6a89c",
+              "activity_created_at": "2026-09-25T10:31:20.565171Z",
+              "session_id": "4652845305353483592",
+              "dispatch_key": "428d35fb121b32a4a372c8c2"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
