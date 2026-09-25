@@ -59184,7 +59184,7 @@
       "id": "research-settings-models-behavior-9",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -59291,16 +59291,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "7938488447222848457",
         "dispatch_key": "f2618dbfed1ff257ac6454c7",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-f2618dbfed1ff257ac6454c7",
         "started_at": "2026-09-25T11:53:26.033771Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T12:20:06.487773Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -59471,24 +59471,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T12:13:49.037068Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-25T12:07:16.356510Z",
-          "source": {
-            "activity_id": "sessions/7938488447222848457/activities/f80e6c7c7861440e8d5abbd2dde5353e",
-            "report_sha256": "ca0c9a821b7ef2035222508b64a6552107d6e7ecd0c3280f81a5237b42d3ad2b",
-            "activity_created_at": "2026-09-25T12:00:15.122383Z",
-            "session_id": "7938488447222848457",
-            "dispatch_key": "f2618dbfed1ff257ac6454c7"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T12:20:06.487773Z",
         "report_repair": {
           "at": "2026-09-25T12:07:37.666204Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/7938488447222848457/activities/f80e6c7c7861440e8d5abbd2dde5353e",
             "report_sha256": "ca0c9a821b7ef2035222508b64a6552107d6e7ecd0c3280f81a5237b42d3ad2b",
@@ -59497,11 +59485,104 @@
             "dispatch_key": "f2618dbfed1ff257ac6454c7"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated ModelPicker fallback auto-selection and combobox accessibility.",
+        "observations": [
+          {
+            "scenario": "Rendering ModelPicker with an explicit fallback value when the configured model is missing from the catalog.",
+            "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker` with `value=\"model3\"` (missing) and `fallback=\"model2\"`. The DOM was inspected for any `aria-live` regions or ARIA attributes announcing the fallback. `container.querySelectorAll('[aria-live]')` returned an empty list.",
+            "result": "Establishes that screen reader users are not explicitly notified when the ModelPicker automatically switches to a fallback model upon initialization."
+          },
+          {
+            "scenario": "Inspecting the ModelPicker trigger button's ARIA roles.",
+            "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker`. The trigger `<button className=\"model-picker-trigger\">` was inspected for its `role` attribute. `button.getAttribute('role')` returned `null`. It has `aria-controls`, `aria-expanded` and `aria-haspopup=\"listbox\"` but relies on the implicit `button` role.",
+            "result": "Establishes that the ModelPicker trigger is missing the `role=\"combobox\"` attribute, which may degrade the screen reader experience by not identifying it properly as a combobox."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if adding a visually hidden aria-live region to announce fallback auto-selections correctly notifies screen readers without interrupting other essential UI feedback."
+        ],
+        "proposed_task_ids": [
+          "discovery-9c8886af63d9bea5"
+        ],
+        "completed_at": "2026-09-25T12:20:06.487773Z",
+        "source": {
+          "activity_id": "sessions/7938488447222848457/activities/32a69f2820334f05a1b46a3d35315919",
+          "report_sha256": "588b1e39b294eec30656e7d708cf6b28cd1f1e8b6f89cccf3098ca9ec669848e",
+          "activity_created_at": "2026-09-25T12:08:31.080945Z",
+          "session_id": "7938488447222848457",
+          "dispatch_key": "f2618dbfed1ff257ac6454c7"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7938488447222848457/activities/32a69f2820334f05a1b46a3d35315919",
+          "report_sha256": "588b1e39b294eec30656e7d708cf6b28cd1f1e8b6f89cccf3098ca9ec669848e",
+          "activity_created_at": "2026-09-25T12:08:31.080945Z",
+          "session_id": "7938488447222848457",
+          "dispatch_key": "f2618dbfed1ff257ac6454c7"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-9c8886af63d9bea5"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-9c8886af63d9bea5",
+      "title": "Improve ModelPicker accessibility with combobox role and fallback announcements",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-25T12:20:06.487773Z",
+      "acceptance": [
+        "The ModelPicker trigger button uses role=\"combobox\"",
+        "Fallback auto-selections are announced to screen readers via an aria-live region"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated synthetic Vitest jsdom environment testing of ModelPicker.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render ModelPicker with a missing `value` but a valid `fallback` model",
+            "Inspect the `.model-picker-trigger` element for its `role` attribute",
+            "Inspect the DOM for `aria-live` elements"
+          ],
+          "expected": "The trigger button has role=\"combobox\" and an aria-live region announces the fallback model.",
+          "actual": "The trigger button lacks an explicit role (defaults to button) and no aria-live region is present."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-9",
+        "activity_id": "sessions/7938488447222848457/activities/32a69f2820334f05a1b46a3d35315919",
+        "report_sha256": "588b1e39b294eec30656e7d708cf6b28cd1f1e8b6f89cccf3098ca9ec669848e",
+        "activity_created_at": "2026-09-25T12:08:31.080945Z",
+        "session_id": "7938488447222848457",
+        "dispatch_key": "f2618dbfed1ff257ac6454c7"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T12:14:11.534423Z",
+    "last_poll_at": "2026-09-25T12:20:29.221848Z",
     "last_tick_at": "2026-09-25T12:14:16.818945Z",
     "run_id": "36133705721"
   }
