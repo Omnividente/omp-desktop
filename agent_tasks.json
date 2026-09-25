@@ -60329,7 +60329,7 @@
       "id": "research-diagnostics-resources-behavior-9",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -60454,16 +60454,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "8577984213211768991",
         "dispatch_key": "dd36168becd7f7c953349094",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-dd36168becd7f7c953349094",
         "started_at": "2026-09-25T13:41:32.875357Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T14:13:42.591511Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -60544,24 +60544,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T14:05:38.471897Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-25T14:02:32.296471Z",
-          "source": {
-            "activity_id": "sessions/8577984213211768991/activities/33f144e2fba6494bb3ad62638d98e0e7",
-            "report_sha256": "a267d2547c09c57e1a75ff88b8e935a4187b5f63f13741aebce2990348eba899",
-            "activity_created_at": "2026-09-25T13:52:40.144700Z",
-            "session_id": "8577984213211768991",
-            "dispatch_key": "dd36168becd7f7c953349094"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T14:13:42.591511Z",
         "report_repair": {
           "at": "2026-09-25T14:02:57.876763Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/8577984213211768991/activities/33f144e2fba6494bb3ad62638d98e0e7",
             "report_sha256": "a267d2547c09c57e1a75ff88b8e935a4187b5f63f13741aebce2990348eba899",
@@ -60569,6 +60557,81 @@
             "session_id": "8577984213211768991",
             "dispatch_key": "dd36168becd7f7c953349094"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the focus trap behavior of modals that manually implement keyboard trapping, specifically IncidentCenter and ResourceHealthPanel, evaluating them against previous assertions about useModalFocus.",
+        "observations": [
+          {
+            "scenario": "Verify whether manually implemented focus loops in IncidentCenter and ResourceHealthPanel properly exclude visually hidden descendants of closed <details> elements during Tab navigation.",
+            "evidence": "Executed isolated React jsdom component tests by injecting a focusable hidden link inside a closed <details> element within IncidentCenter. The inline handleKeyDown logic (src/IncidentCenter.tsx:93-95 and src/ResourceHealthPanel.tsx) uses a basic querySelectorAll and .hidden attribute filter instead of useModalFocus. The test confirmed that these components still erroneously capture focusable descendants of collapsed details elements.",
+            "result": "Establishes that the inline focus loop logic in IncidentCenter and ResourceHealthPanel fails to replicate the correctness of useModalFocus, incorrectly routing focus to hidden elements."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify the impact of the focus loop bug on screen readers encountering dynamically injected content inside collapsed details tags.",
+          "Verify whether migrating IncidentCenter and ResourceHealthPanel to useModalFocus introduces any layout side effects."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T14:13:42.591511Z",
+        "source": {
+          "activity_id": "sessions/8577984213211768991/activities/1ccc1454c24f49438ec66f25a55885fb",
+          "report_sha256": "d71588d439977a6d0a4eb55eab1b55885733b21ffabde29692ff630e709a6575",
+          "activity_created_at": "2026-09-25T14:03:46.646759Z",
+          "session_id": "8577984213211768991",
+          "dispatch_key": "dd36168becd7f7c953349094"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8577984213211768991/activities/1ccc1454c24f49438ec66f25a55885fb",
+          "report_sha256": "d71588d439977a6d0a4eb55eab1b55885733b21ffabde29692ff630e709a6575",
+          "activity_created_at": "2026-09-25T14:03:46.646759Z",
+          "session_id": "8577984213211768991",
+          "dispatch_key": "dd36168becd7f7c953349094"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -60797,7 +60860,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T14:07:32.968717Z",
+    "last_poll_at": "2026-09-25T14:14:07.201625Z",
     "last_tick_at": "2026-09-25T14:07:37.017483Z",
     "run_id": "36145147328"
   }
