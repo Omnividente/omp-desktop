@@ -53735,7 +53735,7 @@
       "id": "research-sessions-persistence-performance-9",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -54141,16 +54141,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1201839062785314206",
         "dispatch_key": "ddbbb095b0f35102f6cdf5ab",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-ddbbb095b0f35102f6cdf5ab",
         "started_at": "2026-09-25T05:58:13.799091Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T06:41:16.547868Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -54333,13 +54333,90 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T05:58:13.799091Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T06:41:16.547868Z"
+      },
+      "research_result": {
+        "summary": "Measured backend latency for scanning and importing 10,000 sessions. Identified a significant performance penalty when retrying failed batch imports due to the UI failing to deselect successful items.",
+        "observations": [
+          {
+            "scenario": "Scanning 10,000 sessions with scan_sessions from cold and hot cache",
+            "evidence": "Executed manual Rust benchmark using `cargo test` on a directory with 10,000 synthetic JSONL sessions. Uncached scan took ~2.27s, cached scan took ~180ms.",
+            "result": "Establishes that the backend session scan is reasonably performant and cache hit rates reduce latency to an acceptable level even for extremely large workspaces."
+          },
+          {
+            "scenario": "Batch importing 10,000 sessions in 'Copy' mode and simulating a UI retry on a partial failure",
+            "evidence": "Executed manual Rust benchmark importing 10,000 files. Initial import took ~21.3s. Retrying the same 10,000 requests in 'Copy' mode took ~19.1s and created 10,000 duplicate files. Code inspection of `src/App.tsx` shows that `importCodexSelected` does not update `codexSelected` on a partial failure.",
+            "result": "Establishes that the lack of automatic deselection in the UI causes massive performance latency and unintended data duplication when the user retries a failed batch import without manually unchecking thousands of successful items."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if memory usage and latency scale linearly or exponentially with transcript size when reading heavily nested session histories."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T06:41:16.547868Z",
+        "source": {
+          "activity_id": "sessions/1201839062785314206/activities/8457e6bdf0a24fa4825458a5ad8b8f63",
+          "report_sha256": "d66ec7e514b5ddd29e6dfb8e9fb80e62fd3a129a5c8371c3b44777f12d87cac8",
+          "activity_created_at": "2026-09-25T06:19:01.010869Z",
+          "session_id": "1201839062785314206",
+          "dispatch_key": "ddbbb095b0f35102f6cdf5ab"
+        },
+        "deferred_findings": [
+          {
+            "title": "Automatically deselect successfully imported sessions from the batch import modal",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-aa3074cd1d181e73; not established as a duplicate. {\"detail\": \"Executed backend import_sessions benchmark in a temporary Rust test with 10,000 synthetic JSONL files. The native Tauri GUI was not exercised; UI state behavior was determined via source code inspection of importCodexSelected in src/App.tsx on the pinned base. Importing 10k sessions takes ~21 seconds. Retrying the same 10k files in Copy mode takes ~19 seconds and creates 10,000 duplicate sessions. The UI currently leaves all items selected after a partial failure, forcing users to manually deselect successful items or suffer a massive performance penalty and duplication on retry. The owner's historical rationale explicitly expected 'сохранением готовых результатов, открытого диалога и остатка выбора' (preserving open dialog and remainder of selection) which the current implementation fails to do because it leaves the entire selection checked.\", \"reproduction\": {\"actual\": \"All items remain selected. A retry processes the successful items again, causing duplicate sessions in Copy mode and wasting significant time.\", \"expected\": \"The successful items from the first attempt should be automatically deselected, leaving only the failed items checked so a retry is fast and does not duplicate data.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial failure (e.g., by locking a file or mocking the backend) and execute the import in Copy mode.\", \"Observe the modal remains open with all files still selected.\", \"Click import again without changing the selection.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Successfully imported sessions are automatically deselected in the batch import modal when a partial failure occurs, preventing accidental duplication on retry"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1201839062785314206/activities/8457e6bdf0a24fa4825458a5ad8b8f63",
+          "report_sha256": "d66ec7e514b5ddd29e6dfb8e9fb80e62fd3a129a5c8371c3b44777f12d87cac8",
+          "activity_created_at": "2026-09-25T06:19:01.010869Z",
+          "session_id": "1201839062785314206",
+          "dispatch_key": "ddbbb095b0f35102f6cdf5ab"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e34ea0b7edfb039e",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-aa3074cd1d181e73"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Automatically deselect successfully imported sessions from the batch import modal",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-aa3074cd1d181e73; not established as a duplicate. {\"detail\": \"Executed backend import_sessions benchmark in a temporary Rust test with 10,000 synthetic JSONL files. The native Tauri GUI was not exercised; UI state behavior was determined via source code inspection of importCodexSelected in src/App.tsx on the pinned base. Importing 10k sessions takes ~21 seconds. Retrying the same 10k files in Copy mode takes ~19 seconds and creates 10,000 duplicate sessions. The UI currently leaves all items selected after a partial failure, forcing users to manually deselect successful items or suffer a massive performance penalty and duplication on retry. The owner's historical rationale explicitly expected 'сохранением готовых результатов, открытого диалога и остатка выбора' (preserving open dialog and remainder of selection) which the current implementation fails to do because it leaves the entire selection checked.\", \"reproduction\": {\"actual\": \"All items remain selected. A retry processes the successful items again, causing duplicate sessions in Copy mode and wasting significant time.\", \"expected\": \"The successful items from the first attempt should be automatically deselected, leaving only the failed items checked so a retry is fast and does not duplicate data.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial failure (e.g., by locking a file or mocking the backend) and execute the import in Copy mode.\", \"Observe the modal remains open with all files still selected.\", \"Click import again without changing the selection.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Successfully imported sessions are automatically deselected in the batch import modal when a partial failure occurs, preventing accidental duplication on retry"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T06:25:10.806170Z",
+    "last_poll_at": "2026-09-25T06:41:40.034092Z",
     "last_tick_at": "2026-09-25T06:25:13.644478Z",
     "run_id": "36102726671"
   }
