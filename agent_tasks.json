@@ -59088,7 +59088,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T11:50:38.474876Z"
+        "observed_at": "2026-09-25T11:50:38.474876Z",
+        "released_attempt_ref": "autonomous/attempt-c1f4a3372956266f51848474"
       },
       "research_result": {
         "summary": "Verified that SettingsRecoveryScreen lacks proper focus management and accessibility alert attributes.",
