@@ -60252,7 +60252,8 @@
             "session_id": "337449242026454856",
             "dispatch_key": "7dc53ff43df6e8c6a8a68413"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-7dc53ff43df6e8c6a8a68413"
       },
       "research_result": {
         "summary": "Investigated failure recovery and concurrency in Transcript loading. Verified that errors are correctly surfaced as toasts or modal states without stranding the UI, and concurrent/cancelled requests correctly ignore stale resolutions without causing unhandled promise rejections.",
