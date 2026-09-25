@@ -57317,7 +57317,7 @@
       "id": "research-workspace-navigation-ux-9",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -57434,16 +57434,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9165825677314368054",
         "dispatch_key": "393d00fb33e418e17f48e8be",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-393d00fb33e418e17f48e8be",
         "started_at": "2026-09-25T10:00:24.624568Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T10:29:04.477307Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -57621,8 +57621,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-25T10:21:12.145650Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T10:29:04.477307Z",
         "research_detached": {
           "at": "2026-09-25T10:21:12.145650Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -57630,6 +57630,53 @@
         "feedback_nudge": {
           "at": "2026-09-25T10:21:12.145650Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Verified that workspace navigation shortcut hints do not localize to the host platform, always displaying 'Ctrl' instead of 'Cmd' on macOS.",
+        "observations": [
+          {
+            "scenario": "Render WorkspaceHome and ProjectRail on macOS platform.",
+            "evidence": "Wrote synthetic vitest scripts that rendered `WorkspaceHome` and `ProjectRail` with `runtime.platform = \"macos\"` and `runtime.platform = \"darwin\"`. Both components assertively returned hardcoded text for 'Ctrl + Shift + O' and 'Ctrl + B', respectively, and failed checks expecting 'Cmd'. Inspection of `src/WorkspaceHome.tsx` and `src/ProjectRail.tsx` confirmed `Ctrl + Shift + O` and `Ctrl + B` are strictly hardcoded into the React DOM output, while `src/i18n.ts` hardcodes `Ctrl` into localized strings like `railModeShortcut`.",
+            "result": "Establishes that macOS users will see incorrect shortcut modifiers for Workspace navigation and Project Rail actions. It does not establish if the underlying key handlers actually require Ctrl or naturally bind to Meta/Cmd on macOS."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal shortcuts documented in `terminalInputHelp` within `src/i18n.ts` (e.g. 'Ctrl+Z', 'Ctrl+C') also need platform-specific dynamic substitution for macOS.",
+          "Investigate if the actual keydown event handlers in `App.tsx` and `ProjectRail.tsx` respect the platform's native modifier (Meta vs Ctrl) for these shortcuts."
+        ],
+        "proposed_task_ids": [
+          "discovery-906a14e4d6bf289b"
+        ],
+        "completed_at": "2026-09-25T10:29:04.477307Z",
+        "source": {
+          "activity_id": "sessions/9165825677314368054/activities/c631d2abd5d24d4e9240deb535aedcec",
+          "report_sha256": "bf19f6dfe3fbd3da1facb68c174e55c4ee0451501491a1bb22e9a8b23c85ce7c",
+          "activity_created_at": "2026-09-25T10:22:40.098494Z",
+          "session_id": "9165825677314368054",
+          "dispatch_key": "393d00fb33e418e17f48e8be"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/9165825677314368054/activities/c631d2abd5d24d4e9240deb535aedcec",
+          "report_sha256": "bf19f6dfe3fbd3da1facb68c174e55c4ee0451501491a1bb22e9a8b23c85ce7c",
+          "activity_created_at": "2026-09-25T10:22:40.098494Z",
+          "session_id": "9165825677314368054",
+          "dispatch_key": "393d00fb33e418e17f48e8be"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-906a14e4d6bf289b"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -58006,10 +58053,55 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-25T10:21:12.145650Z"
       }
+    },
+    {
+      "id": "discovery-906a14e4d6bf289b",
+      "title": "Localize workspace and project rail shortcut hints to the host platform",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "ux",
+        "a11y"
+      ],
+      "created_at": "2026-09-25T10:29:04.477307Z",
+      "acceptance": [
+        "When the application runtime platform is macOS, the empty workspace screen displays 'Cmd + Shift + O' instead of 'Ctrl + Shift + O'.",
+        "When the application runtime platform is macOS, the project rail footer displays 'Cmd + B' instead of 'Ctrl + B'."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed via static analysis and synthetic vitest component tests. The component files explicitly hardcode 'Ctrl' into the markup and localized strings rather than inspecting the `runtime.platform` property provided to them.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application on a macOS host.",
+            "Observe the 'Open project folder' shortcut hint at the bottom of the empty workspace screen.",
+            "Observe the shortcut hint at the bottom of the project sidebar (Project Rail)."
+          ],
+          "expected": "The shortcut hints display 'Cmd' or '⌘' instead of 'Ctrl'.",
+          "actual": "The shortcut hints display 'Ctrl + Shift + O' and 'Ctrl + B'."
+        }
+      },
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/uiUtils.ts",
+        "src/i18n.ts"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-9",
+        "activity_id": "sessions/9165825677314368054/activities/c631d2abd5d24d4e9240deb535aedcec",
+        "report_sha256": "bf19f6dfe3fbd3da1facb68c174e55c4ee0451501491a1bb22e9a8b23c85ce7c",
+        "activity_created_at": "2026-09-25T10:22:40.098494Z",
+        "session_id": "9165825677314368054",
+        "dispatch_key": "393d00fb33e418e17f48e8be"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T10:23:12.884077Z",
+    "last_poll_at": "2026-09-25T10:29:23.762004Z",
     "last_tick_at": "2026-09-25T10:23:16.375238Z",
     "run_id": "36123482520"
   }
