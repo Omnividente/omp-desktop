@@ -60571,6 +60571,134 @@
           }
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-9",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-25T14:05:38Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Investigated the behavior of empty incident arrays in IncidentCenter, the aria-live properties of dynamic incident counts, and the rendering of missing recovery switch actions.",
+            "observations": [
+              {
+                "scenario": "Verify whether the empty incident center fallback message ('incidentNoActiveIncidents') correctly displays when the last active incident is cleared.",
+                "evidence": "Tested synthetic rendering state of IncidentCenter in src/IncidentCenter.tsx. When the incidents array contains only 'resolved' status incidents and no 'active' ones, it correctly renders the translated message 'incidentNoActiveIncidents' (e.g. 'No active runtime incidents') instead of 'incidentNoIncidents'. It only renders 'incidentNoIncidents' if the array is completely empty.",
+                "result": "Establishes that the empty incident fallback message dynamically adapts to correctly distinguish between a lack of active incidents and a total absence of recorded incidents."
+              },
+              {
+                "scenario": "Verify the announcement behavior for screen readers when new incidents populate the active incidents list dynamically.",
+                "evidence": "Observed via synthetic React component testing that IncidentCenter's title header includes a `<small>` tag displaying the active incident count. This element correctly features 'aria-atomic=\"true\"' and 'aria-live=\"polite\"' attributes.",
+                "result": "Establishes that the incident count properly alerts screen reader users in a polite manner when new incidents increment the counter dynamically without forcing focus changes."
+              },
+              {
+                "scenario": "Verify how switchInputRecovery details behave across generic and detailed errors in runtimeIncidents.",
+                "evidence": "Observed via state generation logic in src/runtimeIncidents.ts (upsertDetailedError and applyRuntimeIncidentEvent) and synthetic unit tests that when a generic 'error' activity is followed by a specific 'runtimeError' with a detailed reason for the same terminal, the logic flawlessly substitutes the generic incident with the detailed one, without duplication and without losing the underlying incident count progression. Subsequent generic errors while the detailed error is still active are safely ignored.",
+                "result": "Establishes that detailed runtime errors strictly override generic background errors without duplication, reducing notification fatigue."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the actual rendering behavior of the Workspace layout when collapsing a rail makes a final active workspace tab invisible while still possessing terminal continuity data.",
+              "Verify whether screen readers correctly read the failed send icon message inside SessionControls."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T14:03:13.726903Z",
+            "source": {
+              "activity_id": "sessions/3627934981902297232/activities/8af6a5d49ab8475892a17673418d481a",
+              "report_sha256": "8346ef5ff2f5efe7113bae9097544aa7703851b8a2fd092cc9480bb7b8877c48",
+              "activity_created_at": "2026-09-24T13:54:47.153023Z",
+              "session_id": "3627934981902297232",
+              "dispatch_key": "ae43f620875f22beed60321c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured React component rendering latency for resource health and incident center bounds.",
+            "observations": [
+              {
+                "scenario": "Verify React rendering latency for the IncidentCenter component when loaded with 100 max boundary incidents (synthetic payload with lengthy error reasons).",
+                "evidence": "Executed synthetic component render benchmark with 100 distinct incident objects mimicking deep generic API errors. Using JSDOM and a simulated React act() environment, the `IncidentCenter` component required approximately 454 ms for initial rendering and layout, reflecting a moderate but noticeable pause for max capacities on a dense list.",
+                "result": "Establishes a baseline for IncidentCenter component responsiveness limits under severe incident pressure."
+              },
+              {
+                "scenario": "Verify React rendering latency for the ResourceHealthPanel component with a complex snapshot.",
+                "evidence": "Executed synthetic render test rendering a full resource health snapshot with 5 disks (volumes), 2 unavailable volumes, and 20 processes in the active tracking list. The `ResourceHealthPanel` rendered in approximately 82 ms, indicating healthy responsiveness for detailed snapshots.",
+                "result": "Establishes a baseline indicating the ResourceHealthPanel effectively handles complex arrays of resource data without significant rendering lag."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the impact on IncidentCenter transition performance when applying granular CSS containment rules.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T14:30:48.249704Z",
+            "source": {
+              "activity_id": "sessions/12802717456965488861/activities/54ebbd0dd5264e7fb50694974048e8e9",
+              "report_sha256": "59be5747494ef87eba91318187bdad5864b5f5c46868a1f63d6b6db571da50a1",
+              "activity_created_at": "2026-09-24T14:21:09.814924Z",
+              "session_id": "12802717456965488861",
+              "dispatch_key": "8bcdee4fb366b196eb7b51db"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the empty and error state rendering behaviors of the ResourceHealthPanel.",
+            "observations": [
+              {
+                "scenario": "Verify the rendering behavior of ResourceHealthPanel when initialized with a null snapshot and no error, while loading is false.",
+                "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error=null`, `loading=false`. Instead of rendering an empty dialog or returning null, the component renders a fallback polite live region displaying the localized 'Checking memory and disks...' message with an 'is-ok' (success) icon status.",
+                "result": "Establishes that the panel defaults to a checking state when no data is available yet, ensuring the user sees an active status instead of a blank panel."
+              },
+              {
+                "scenario": "Verify the rendering behavior and localized text display of ResourceHealthPanel when provided an explicit error string.",
+                "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error='Connection refused'`, `loading=false`. The component successfully rendered a dialog with a warning icon ('is-warning' status), a 'Resource metrics are unavailable' header, and a paragraph with class 'resource-error' containing the localized error string 'Connection refused'.",
+                "result": "Establishes that the error state correctly prioritizes the error visual hierarchy over standard data and displays the error securely to the user."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the behavior of useModalFocus controlAvailable when focus is restored after the ResourceHealthPanel unmounts.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T17:12:04.586934Z",
+            "source": {
+              "activity_id": "sessions/12899185073373055573/activities/f40b16aad92a4a5ebd3d2cb18948c487",
+              "report_sha256": "53d9972068f79aacc32366424c92ada883932489ce9d8f2e5b7ccc041b5ba656",
+              "activity_created_at": "2026-09-24T16:59:41.003701Z",
+              "session_id": "12899185073373055573",
+              "dispatch_key": "330d0c2604df2e6e9826bacc"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
