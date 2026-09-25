@@ -54334,7 +54334,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T06:41:16.547868Z"
+        "observed_at": "2026-09-25T06:41:16.547868Z",
+        "released_attempt_ref": "autonomous/attempt-ddbbb095b0f35102f6cdf5ab"
       },
       "research_result": {
         "summary": "Measured backend latency for scanning and importing 10,000 sessions. Identified a significant performance penalty when retrying failed batch imports due to the UI failing to deselect successful items.",
