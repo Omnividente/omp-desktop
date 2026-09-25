@@ -53634,7 +53634,8 @@
             "session_id": "13203199504390123218",
             "dispatch_key": "7033e5e53325929169ff4c49"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-7033e5e53325929169ff4c49"
       },
       "research_result": {
         "summary": "Verified performance regressions during dense search match rendering in MarkdownContent and tested jsdom context menu behavior for external links. Truncating large numbers of consecutive highlighted matches per row significantly improves rendering time. Context menus placed synthetically on links via keyboard shortcut place successfully.",
