@@ -59484,7 +59484,8 @@
             "session_id": "7938488447222848457",
             "dispatch_key": "f2618dbfed1ff257ac6454c7"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-f2618dbfed1ff257ac6454c7"
       },
       "research_result": {
         "summary": "Investigated ModelPicker fallback auto-selection and combobox accessibility.",
