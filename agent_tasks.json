@@ -61106,7 +61106,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T14:46:44.722199Z"
+        "observed_at": "2026-09-25T14:46:44.722199Z",
+        "released_attempt_ref": "autonomous/attempt-cbc6b7258c8dfd075334361c"
       },
       "research_result": {
         "summary": "Investigated the previously reported focus trap bug within manually implemented modals (IncidentCenter, ResourceHealthPanel), confirming its existence.",
