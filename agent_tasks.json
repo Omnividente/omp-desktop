@@ -62644,6 +62644,128 @@
         "session_id": "8323963864401090117",
         "dispatch_key": "1c9139e8213c424769d468bb"
       }
+    },
+    {
+      "id": "research-transcript-links-ux-9",
+      "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-25T22:34:59Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "ux",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Verified performance regressions during dense search match rendering in MarkdownContent and tested jsdom context menu behavior for external links. Truncating large numbers of consecutive highlighted matches per row significantly improves rendering time. Context menus placed synthetically on links via keyboard shortcut place successfully.",
+            "observations": [
+              {
+                "scenario": "Simulated loading 10,000 matches simultaneously in one transcript row versus bounding to 100 matches using Vitest inside a temporary isolated script.",
+                "evidence": "Tested using `render(<MarkdownContent matches={...} />)` in Vitest. 10,000 matches caused rendering to spike to ~700ms because of massive unkeyed DOM node creation for `<mark>` fragments. Bounding the match list passed to `<MarkdownContent>` to a strict limit of 100 per message dropped render time to ~10ms while preserving readability within a reasonable viewport height.",
+                "result": "Establishes a viable and highly effective method for improving dense search performance bottlenecks: simply bounding `matches` parsed during highlighting prevents the CPU and rendering pipeline overload."
+              },
+              {
+                "scenario": "Simulated triggering a 'keyboard' context menu event (Shift+F10) on external content links inside TranscriptModal where `clientX` and `clientY` are natively 0, checking for menu rendering regressions.",
+                "evidence": "Tested locally using Vitest, overriding `link.getBoundingClientRect()` and firing a MouseEvent('contextmenu') with zeroed client/page coordinates on focus. The resulting `ContentActionMenu` was successfully created but appeared positioned at the top-left (e.g., 0,0 or clamped to 8,8) instead of tracking to the focused link's bounds in jsdom.",
+                "result": "Supports the owner's assessment that native coordinate placement provides correct coordinates for keyboard context menus on Windows, but the jsdom test logic shows `TranscriptModal.tsx` strictly blindly uses `event.clientX` and `event.clientY` provided by the event which defaults to (0,0) synthetically unless manually intercepted by custom coordinate offsets."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically.",
+              "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+            ],
+            "proposed_task_ids": [
+              "discovery-132bfd67ef23d9d3"
+            ],
+            "completed_at": "2026-09-25T02:55:19.773576Z",
+            "source": {
+              "activity_id": "sessions/13203199504390123218/activities/ae9d7ee77de540e690e44084d4d1f86e",
+              "report_sha256": "3b47cc3d3f025a2777a088f36fc2de43bebcd3a2e043503c1f1c3db5168c6008",
+              "activity_created_at": "2026-09-25T02:45:02.153883Z",
+              "session_id": "13203199504390123218",
+              "dispatch_key": "7033e5e53325929169ff4c49"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated failure recovery and concurrency in Transcript loading. Verified that errors are correctly surfaced as toasts or modal states without stranding the UI, and concurrent/cancelled requests correctly ignore stale resolutions without causing unhandled promise rejections.",
+            "observations": [
+              {
+                "scenario": "Simulated a failed direct terminal read (`loadTranscriptPath`) followed by a successful retry, and a cancelled modal read (`loadTranscript` -> `closeTranscript`).",
+                "evidence": "Tested using a React test harness built with Vitest. Simulating a backend rejection for `loadTranscriptPath` properly threw the error (caught by `App.tsx` and shown as a toast) while keeping the modal closed (`transcriptSession` remained null). Simulating cancellation via `closeTranscript` gracefully incremented `requestRef`, and when the backend eventually rejected or resolved, the state machine successfully ignored the stale promise without emitting an unhandled promise rejection.",
+                "result": "Establishes that the Transcript state machine in `useTranscript.ts` correctly isolates failures and cancellations without state loss, duplicate rendering, or unhandled promise rejections."
+              },
+              {
+                "scenario": "Simulated a rapid duplicate refresh (re-read) on an already open transcript to check for duplicate state retention.",
+                "evidence": "Observed via the React test harness that calling `loadTranscript(session)` on the same session clears the existing `transcript` to `null` and resets the error flag before setting `transcriptLoading` to `true`. When multiple parallel loads occur, only the response matching the latest `requestRef` resolves successfully.",
+                "result": "Establishes that stale data is strictly hidden during a retry/refresh as intended, and duplicate concurrent requests do not corrupt the final displayed transcript state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if extremely large 100MB+ session files cause memory spikes or freeze the backend API during JSONL parsing.",
+              "Investigate whether searching within a massive transcript can block the main React thread due to unbounded regex execution."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T13:41:32.875357Z",
+            "source": {
+              "activity_id": "sessions/337449242026454856/activities/fcf7c157692d4173844b45b96f0e9c65",
+              "report_sha256": "a6665fc946763b85f82dcbd121ce054edf8a2c03515f5bcae3212bdd7d48d311",
+              "activity_created_at": "2026-09-25T13:30:12.157511Z",
+              "session_id": "337449242026454856",
+              "dispatch_key": "7dc53ff43df6e8c6a8a68413"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified performance regressions in TranscriptModal due to synchronous regex execution on massive strings.",
+            "observations": [
+              {
+                "scenario": "Simulated a massive transcript search by generating a 10MB string with 2,000,000 matchable substrings and measuring the time taken to synchronously execute RegExp.matchAll.",
+                "evidence": "Tested locally using a custom Vitest benchmark isolating the exact `useMemo` search logic from `TranscriptModal.tsx`. The routine took ~1,330ms to synchronously execute `content.text.matchAll(pattern)` and allocate matches into `byEntry` and `occurrences` arrays. Because this loop runs synchronously during React's render phase (inside `useMemo`), the main thread is completely blocked, freezing the UI.",
+                "result": "Establishes that unbounded regex execution and unyielded loops on massive transcripts block the main thread. Limiting the search match allocation or yielding execution is required for large datasets."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically.",
+              "Investigate if extremely large 100MB+ session files cause memory spikes or freeze the backend API during JSONL parsing.",
+              "Investigate if MEASUREMENT_EPSILON of 0.5 in useVirtualList is too small for subpixel rounding jitter on fractional display scales (e.g. 150% zoom where 1 physical pixel = 0.66 CSS pixels)."
+            ],
+            "proposed_task_ids": [
+              "discovery-7ca21f00652b62dd"
+            ],
+            "completed_at": "2026-09-25T19:21:37.853963Z",
+            "source": {
+              "activity_id": "sessions/8323963864401090117/activities/e55881a4462b4f1a804cb7b8bb279139",
+              "report_sha256": "d2bc3943ee159322a070b3ca51348bd34c602ff030bb006a3ea8cdd06843d799",
+              "activity_created_at": "2026-09-25T19:14:14.271524Z",
+              "session_id": "8323963864401090117",
+              "dispatch_key": "1c9139e8213c424769d468bb"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
