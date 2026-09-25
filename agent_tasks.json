@@ -56891,7 +56891,7 @@
         },
         "report_repair": {
           "at": "2026-09-25T09:09:11.884623Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/5228876765825342139/activities/ea3cc91a864247e8acee0f56e12922bb",
