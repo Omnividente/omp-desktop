@@ -59938,7 +59938,7 @@
       "id": "research-transcript-links-reliability-9",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -60056,7 +60056,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "337449242026454856",
         "dispatch_key": "7dc53ff43df6e8c6a8a68413",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
@@ -60064,8 +60064,8 @@
         "started_at": "2026-09-25T13:08:23.093007Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -60239,8 +60239,32 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T13:08:23.093007Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T13:29:23.035350Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-25T13:29:23.035350Z",
+          "source": {
+            "activity_id": "sessions/337449242026454856/activities/6b114315d3194e22bb8bd6ec6af2006d",
+            "report_sha256": "3158571800357cf44f18d0097ad88fb18cce7db8db1c314d5ceb018d3900e058",
+            "activity_created_at": "2026-09-25T13:19:40.662436Z",
+            "session_id": "337449242026454856",
+            "dispatch_key": "7dc53ff43df6e8c6a8a68413"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-25T13:29:43.395225Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/337449242026454856/activities/6b114315d3194e22bb8bd6ec6af2006d",
+            "report_sha256": "3158571800357cf44f18d0097ad88fb18cce7db8db1c314d5ceb018d3900e058",
+            "activity_created_at": "2026-09-25T13:19:40.662436Z",
+            "session_id": "337449242026454856",
+            "dispatch_key": "7dc53ff43df6e8c6a8a68413"
+          }
+        }
       }
     },
     {
@@ -60285,7 +60309,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T13:23:19.677921Z",
+    "last_poll_at": "2026-09-25T13:29:41.976105Z",
     "last_tick_at": "2026-09-25T13:23:30.300431Z",
     "run_id": "36140543794"
   }
