@@ -57630,7 +57630,8 @@
         "feedback_nudge": {
           "at": "2026-09-25T10:21:12.145650Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-393d00fb33e418e17f48e8be"
       },
       "research_result": {
         "summary": "Verified that workspace navigation shortcut hints do not localize to the host platform, always displaying 'Ctrl' instead of 'Cmd' on macOS.",
