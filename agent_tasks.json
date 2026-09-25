@@ -63438,7 +63438,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T23:29:31.727799Z"
+        "observed_at": "2026-09-25T23:29:31.727799Z",
+        "released_attempt_ref": "autonomous/attempt-a89a900701796847c09a6d87"
       },
       "research_result": {
         "summary": "Confirmed that stale terminal output events from older generations corrupt continuity state by resetting the baseline generation backwards.",
