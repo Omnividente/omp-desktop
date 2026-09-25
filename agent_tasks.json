@@ -52021,7 +52021,7 @@
       "id": "research-terminal-input-reliability-9",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -52229,16 +52229,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "6873399134879292254",
         "dispatch_key": "6cfaba1fb49622c193b1d26f",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-6cfaba1fb49622c193b1d26f",
         "started_at": "2026-09-24T23:26:22.469454Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T00:00:51.970105Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: report_absent",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -52411,17 +52411,244 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T23:54:22.466545Z",
-        "report_error": {
-          "code": "report_absent",
-          "detail": "completed discovery has no worker report",
-          "reported_at": "2026-09-24T23:46:38.877843Z"
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T00:00:51.970105Z",
         "report_repair": {
           "at": "2026-09-24T23:46:59.443623Z",
           "result": "sent",
-          "status": "pending"
+          "status": "resolved"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection, which could lead to loss of user input.",
+        "observations": [
+          {
+            "scenario": "Analyzed terminal process state transitions around switch input recovery handling and detachment in `src-tauri/src/terminal.rs`.",
+            "evidence": "Observed that `detach_terminal` does not interact with or clear `process.switch_recovery`. Reconnection uses `attach_terminal` where `lock_terminal_output(&output).attach(&request)` determines continuity but does not wipe pending switch inputs unless there is an exit or a successful switch finish. Existing tests in `src-tauri/src/terminal.rs` cover the preservation of `switch_recovery` across `stale_recovery_identity_does_not_change_private_buffer` and similar edge cases.",
+            "result": "Establishes that switch recovery input is NOT lost during routine detach/re-attach cycles as the process state remains alive and independent of output attachment generations."
+          }
+        ],
+        "next_hypotheses": [
+          "Measure if repeated rapid opening and closing of agent tabs causes long-term retention of `TerminalView` DOM listeners or Xterm instances that escape React garbage collection."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T00:00:51.970105Z",
+        "source": {
+          "activity_id": "sessions/6873399134879292254/activities/2115b3b09257496f9bd693125c8117ec",
+          "report_sha256": "1b7bb858ae326fbe762946ad6621b7128b3b7ecb1d0085a6982263eebe143c48",
+          "activity_created_at": "2026-09-24T23:48:48.212574Z",
+          "session_id": "6873399134879292254",
+          "dispatch_key": "6cfaba1fb49622c193b1d26f"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix continuity state corruption from stale older-generation output events",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Observed in `src/terminalContinuity.ts` that `applyTerminalOutputEvent` indiscriminately accepts generation changes, even if the new event's generation is older than the current baseline. This is verified by analyzing the static code and executing a synthetic test using isolated data.\", \"reproduction\": {\"actual\": \"The stale event is accepted, the generation is updated to 1, and generationChanged is set to true.\", \"expected\": \"The stale event is rejected, the generation is not changed in the decision, and the baseline remains at generation 2.\", \"steps\": [\"Call `applyTerminalAttachment` with generation: 2\", \"Call `applyTerminalOutputEvent` with a stale event of generation: 1\", \"Check the baseline generation and the returned decision\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection stated that continuity is keyed per terminal_id and each spawn allocates a unique terminal_id, making different generations for the same ID a synthetic mock event. However, terminal_id is kept during restart, and the code explicitly handles `attachment.generation` and `event.generation` independently of `terminalId`, meaning multiple generations *do* occur for the same `terminalId`.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"responses\": [{\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rejection states that a new spawn allocates a unique `terminal_id`. While that may be true in some flows, `terminalContinuity.ts` explicitly stores generations inside the state keyed by `terminalId`, and handles `previous.generation !== event.generation`. If generations for a single `terminalId` never changed, `applyTerminalOutputEvent`'s handling of `generationChanged` would be dead code. Furthermore, in `TerminalView.tsx`, the `terminalId` remains constant while re-attaching, and the application *does* experience generation changes as evidenced by the `terminalOutputGenerationChanged` error handling. Also, another rejection (context 3b90d7de) says 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}', but even if true, `applyTerminalOutputEvent`'s logic is explicitly designed to handle generation changes on the same ID, and its current implementation is demonstrably flawed by going backwards.\"}, {\"decision_context_id\": \"3b90d7de3af62e6f2bffbcc817d528b942ed10044c7cbcca434294d90f3767a2\", \"decision_task_id\": \"discovery-76525501421788fc\", \"why_previous_reason_no_longer_explains\": \"This rejection also relies on 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}'. But the `TerminalContinuityDecision` specifically includes a `generationChanged` boolean for when generations change on the *same* `terminalId`.\"}, {\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"This rejection points out that `applyTerminalOutputEvent` returns `accept: true` and `generationChanged: true` without throwing an exception, and that `TerminalView.tsx` shows a diagnostic notification. This is exactly what the newly proposed fix addresses: the bug is not a fatal error, but rather that returning `accept: true` for an *older* generation incorrectly overwrites the baseline with the older generation's state. The fix ensures that if `event.generation < previous.generation`, it should return `accept: false` and NOT update the baseline.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/terminalContinuity.ts"
+            ],
+            "acceptance": [
+              "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without updating the baseline or setting generationChanged to true"
+            ],
+            "deferred_id": "5c7300754ed8b67a00d92698c15c56c7c7190c7aed3e6f8dcb9655a79dc5dd01",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix continuity state corruption from stale older-generation output events",
+              "risk": "low",
+              "priority": 70,
+              "focus": [
+                "bugfix",
+                "quality"
+              ],
+              "target_paths": [
+                "src/terminalContinuity.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without updating the baseline or setting generationChanged to true"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Observed in `src/terminalContinuity.ts` that `applyTerminalOutputEvent` indiscriminately accepts generation changes, even if the new event's generation is older than the current baseline. This is verified by analyzing the static code and executing a synthetic test using isolated data.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Call `applyTerminalAttachment` with generation: 2",
+                    "Call `applyTerminalOutputEvent` with a stale event of generation: 1",
+                    "Check the baseline generation and the returned decision"
+                  ],
+                  "expected": "The stale event is rejected, the generation is not changed in the decision, and the baseline remains at generation 2.",
+                  "actual": "The stale event is accepted, the generation is updated to 1, and generationChanged is set to true."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The previous rejection stated that continuity is keyed per terminal_id and each spawn allocates a unique terminal_id, making different generations for the same ID a synthetic mock event. However, terminal_id is kept during restart, and the code explicitly handles `attachment.generation` and `event.generation` independently of `terminalId`, meaning multiple generations *do* occur for the same `terminalId`.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-ee7a41f1c14f7d31",
+                  "observation_refs": [
+                    0
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                      "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                      "why_previous_reason_no_longer_explains": "The rejection states that a new spawn allocates a unique `terminal_id`. While that may be true in some flows, `terminalContinuity.ts` explicitly stores generations inside the state keyed by `terminalId`, and handles `previous.generation !== event.generation`. If generations for a single `terminalId` never changed, `applyTerminalOutputEvent`'s handling of `generationChanged` would be dead code. Furthermore, in `TerminalView.tsx`, the `terminalId` remains constant while re-attaching, and the application *does* experience generation changes as evidenced by the `terminalOutputGenerationChanged` error handling. Also, another rejection (context 3b90d7de) says 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}', but even if true, `applyTerminalOutputEvent`'s logic is explicitly designed to handle generation changes on the same ID, and its current implementation is demonstrably flawed by going backwards."
+                    },
+                    {
+                      "decision_task_id": "discovery-76525501421788fc",
+                      "decision_context_id": "3b90d7de3af62e6f2bffbcc817d528b942ed10044c7cbcca434294d90f3767a2",
+                      "why_previous_reason_no_longer_explains": "This rejection also relies on 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}'. But the `TerminalContinuityDecision` specifically includes a `generationChanged` boolean for when generations change on the *same* `terminalId`."
+                    },
+                    {
+                      "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                      "why_previous_reason_no_longer_explains": "This rejection points out that `applyTerminalOutputEvent` returns `accept: true` and `generationChanged: true` without throwing an exception, and that `TerminalView.tsx` shows a diagnostic notification. This is exactly what the newly proposed fix addresses: the bug is not a fatal error, but rather that returning `accept: true` for an *older* generation incorrectly overwrites the baseline with the older generation's state. The fix ensures that if `event.generation < previous.generation`, it should return `accept: false` and NOT update the baseline."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-ee7a41f1c14f7d31",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:10:35Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-terminal-input-reliability-9",
+              "activity_id": "sessions/6873399134879292254/activities/2115b3b09257496f9bd693125c8117ec",
+              "report_sha256": "1b7bb858ae326fbe762946ad6621b7128b3b7ecb1d0085a6982263eebe143c48",
+              "activity_created_at": "2026-09-24T23:48:48.212574Z",
+              "session_id": "6873399134879292254",
+              "dispatch_key": "6cfaba1fb49622c193b1d26f"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6873399134879292254/activities/2115b3b09257496f9bd693125c8117ec",
+          "report_sha256": "1b7bb858ae326fbe762946ad6621b7128b3b7ecb1d0085a6982263eebe143c48",
+          "activity_created_at": "2026-09-24T23:48:48.212574Z",
+          "session_id": "6873399134879292254",
+          "dispatch_key": "6cfaba1fb49622c193b1d26f"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-39d9d8f20f630ebc",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-ee7a41f1c14f7d31"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix continuity state corruption from stale older-generation output events",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Observed in `src/terminalContinuity.ts` that `applyTerminalOutputEvent` indiscriminately accepts generation changes, even if the new event's generation is older than the current baseline. This is verified by analyzing the static code and executing a synthetic test using isolated data.\", \"reproduction\": {\"actual\": \"The stale event is accepted, the generation is updated to 1, and generationChanged is set to true.\", \"expected\": \"The stale event is rejected, the generation is not changed in the decision, and the baseline remains at generation 2.\", \"steps\": [\"Call `applyTerminalAttachment` with generation: 2\", \"Call `applyTerminalOutputEvent` with a stale event of generation: 1\", \"Check the baseline generation and the returned decision\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection stated that continuity is keyed per terminal_id and each spawn allocates a unique terminal_id, making different generations for the same ID a synthetic mock event. However, terminal_id is kept during restart, and the code explicitly handles `attachment.generation` and `event.generation` independently of `terminalId`, meaning multiple generations *do* occur for the same `terminalId`.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"responses\": [{\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rejection states that a new spawn allocates a unique `terminal_id`. While that may be true in some flows, `terminalContinuity.ts` explicitly stores generations inside the state keyed by `terminalId`, and handles `previous.generation !== event.generation`. If generations for a single `terminalId` never changed, `applyTerminalOutputEvent`'s handling of `generationChanged` would be dead code. Furthermore, in `TerminalView.tsx`, the `terminalId` remains constant while re-attaching, and the application *does* experience generation changes as evidenced by the `terminalOutputGenerationChanged` error handling. Also, another rejection (context 3b90d7de) says 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}', but even if true, `applyTerminalOutputEvent`'s logic is explicitly designed to handle generation changes on the same ID, and its current implementation is demonstrably flawed by going backwards.\"}, {\"decision_context_id\": \"3b90d7de3af62e6f2bffbcc817d528b942ed10044c7cbcca434294d90f3767a2\", \"decision_task_id\": \"discovery-76525501421788fc\", \"why_previous_reason_no_longer_explains\": \"This rejection also relies on 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}'. But the `TerminalContinuityDecision` specifically includes a `generationChanged` boolean for when generations change on the *same* `terminalId`.\"}, {\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"This rejection points out that `applyTerminalOutputEvent` returns `accept: true` and `generationChanged: true` without throwing an exception, and that `TerminalView.tsx` shows a diagnostic notification. This is exactly what the newly proposed fix addresses: the bug is not a fatal error, but rather that returning `accept: true` for an *older* generation incorrectly overwrites the baseline with the older generation's state. The fix ensures that if `event.generation < previous.generation`, it should return `accept: false` and NOT update the baseline.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/terminalContinuity.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without updating the baseline or setting generationChanged to true"
+              ],
+              "deferred_id": "5c7300754ed8b67a00d92698c15c56c7c7190c7aed3e6f8dcb9655a79dc5dd01",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix continuity state corruption from stale older-generation output events",
+                "risk": "low",
+                "priority": 70,
+                "focus": [
+                  "bugfix",
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/terminalContinuity.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without updating the baseline or setting generationChanged to true"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Observed in `src/terminalContinuity.ts` that `applyTerminalOutputEvent` indiscriminately accepts generation changes, even if the new event's generation is older than the current baseline. This is verified by analyzing the static code and executing a synthetic test using isolated data.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Call `applyTerminalAttachment` with generation: 2",
+                      "Call `applyTerminalOutputEvent` with a stale event of generation: 1",
+                      "Check the baseline generation and the returned decision"
+                    ],
+                    "expected": "The stale event is rejected, the generation is not changed in the decision, and the baseline remains at generation 2.",
+                    "actual": "The stale event is accepted, the generation is updated to 1, and generationChanged is set to true."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The previous rejection stated that continuity is keyed per terminal_id and each spawn allocates a unique terminal_id, making different generations for the same ID a synthetic mock event. However, terminal_id is kept during restart, and the code explicitly handles `attachment.generation` and `event.generation` independently of `terminalId`, meaning multiple generations *do* occur for the same `terminalId`.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-ee7a41f1c14f7d31",
+                    "observation_refs": [
+                      0
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                        "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                        "why_previous_reason_no_longer_explains": "The rejection states that a new spawn allocates a unique `terminal_id`. While that may be true in some flows, `terminalContinuity.ts` explicitly stores generations inside the state keyed by `terminalId`, and handles `previous.generation !== event.generation`. If generations for a single `terminalId` never changed, `applyTerminalOutputEvent`'s handling of `generationChanged` would be dead code. Furthermore, in `TerminalView.tsx`, the `terminalId` remains constant while re-attaching, and the application *does* experience generation changes as evidenced by the `terminalOutputGenerationChanged` error handling. Also, another rejection (context 3b90d7de) says 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}', but even if true, `applyTerminalOutputEvent`'s logic is explicitly designed to handle generation changes on the same ID, and its current implementation is demonstrably flawed by going backwards."
+                      },
+                      {
+                        "decision_task_id": "discovery-76525501421788fc",
+                        "decision_context_id": "3b90d7de3af62e6f2bffbcc817d528b942ed10044c7cbcca434294d90f3767a2",
+                        "why_previous_reason_no_longer_explains": "This rejection also relies on 'every spawn assigns terminal-{pid}-{NEXT_TERMINAL_ID}'. But the `TerminalContinuityDecision` specifically includes a `generationChanged` boolean for when generations change on the *same* `terminalId`."
+                      },
+                      {
+                        "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                        "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                        "why_previous_reason_no_longer_explains": "This rejection points out that `applyTerminalOutputEvent` returns `accept: true` and `generationChanged: true` without throwing an exception, and that `TerminalView.tsx` shows a diagnostic notification. This is exactly what the newly proposed fix addresses: the bug is not a fatal error, but rather that returning `accept: true` for an *older* generation incorrectly overwrites the baseline with the older generation's state. The fix ensures that if `event.generation < previous.generation`, it should return `accept: false` and NOT update the baseline."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-ee7a41f1c14f7d31",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:10:35Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-terminal-input-reliability-9",
+                "activity_id": "sessions/6873399134879292254/activities/2115b3b09257496f9bd693125c8117ec",
+                "report_sha256": "1b7bb858ae326fbe762946ad6621b7128b3b7ecb1d0085a6982263eebe143c48",
+                "activity_created_at": "2026-09-24T23:48:48.212574Z",
+                "session_id": "6873399134879292254",
+                "dispatch_key": "6cfaba1fb49622c193b1d26f"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -52805,7 +53032,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-24T23:54:44.605330Z",
+    "last_poll_at": "2026-09-25T00:01:10.128098Z",
     "last_tick_at": "2026-09-24T23:54:47.414406Z",
     "run_id": "36075001507"
   }
