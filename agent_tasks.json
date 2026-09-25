@@ -56558,6 +56558,126 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-9",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-25T08:17:07Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Benchmarked and optimized ProjectRail rendering for a large number of workspaces by extracting and memoizing ProjectRailRow.",
+            "observations": [
+              {
+                "scenario": "Render performance of ProjectRail with a large number (1000) of workspaces when selection changes.",
+                "evidence": "Wrote synthetic Profiler tests mimicking a React 'act' update to `selectedWorkspace`. Measured mount time at ~1200ms and selection update time at ~450ms. After extracting `ProjectRailRow` and wrapping it in `React.memo`, mount time dropped slightly (1162ms) but selection update time fell to ~350ms, a significant reduction in React reconcile cost across the 1000 sibling components that didn't change state.",
+                "result": "Establishes that memoizing individual workspace rows in `ProjectRail` reduces wasted render cycles and latency during UI interactions (like selecting a different workspace or renaming) without affecting behavior."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if SessionList re-renders can also be further optimized by memoizing SessionRow when selectedSessionId or renamingSessionId changes.",
+              "Investigate large session list loading times in `App.tsx` and if session search filtering can be moved to a web worker or debounced."
+            ],
+            "proposed_task_ids": [
+              "discovery-ecacdd20617a4f68"
+            ],
+            "completed_at": "2026-09-24T08:36:25.702406Z",
+            "source": {
+              "activity_id": "sessions/9638885789936561435/activities/1ec2f13aed8249378921403f2d7a4cd0",
+              "report_sha256": "a8238f4f72786cdb3f27dac2ef61774034a61f362feaa8cf928fc1f92b826d1e",
+              "activity_created_at": "2026-09-24T08:27:46.857262Z",
+              "session_id": "9638885789936561435",
+              "dispatch_key": "863e3da08c76f361d67abdcc"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the lack of synchronization between App.tsx payload state and useTranscript state.",
+            "observations": [
+              {
+                "scenario": "Verify that the transcript modal remains stuck open when its underlying session is deleted in the background.",
+                "evidence": "Inspected `App.tsx` and `useTranscript.ts` statically and created a temporary patch to dynamically close the transcript. Confirmed that `applyPayload` updates `payload` but fails to invoke `closeTranscript` when the session currently tracked by `useTranscript`'s `transcriptSession` disappears from `next.sessions`. Evaluated that this correctly matches the previous post-revisit hypothesis.",
+                "result": "Establishes that the Transcript modal will remain stuck open, displaying stale or missing data, if its underlying session is deleted via a background synchronization event."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the settings modal also leaves unsaved drafts stuck when the workspace configuration is deleted via background synchronization."
+            ],
+            "proposed_task_ids": [
+              "discovery-f0bc3830546ec195"
+            ],
+            "completed_at": "2026-09-24T09:59:24.364732Z",
+            "source": {
+              "activity_id": "sessions/12271884985537538636/activities/1ebfae9936934e789732905de792e139",
+              "report_sha256": "861cff08bf75eac632bda0efaba4e091fa639abfb91f3a96074ac569fef30e46",
+              "activity_created_at": "2026-09-24T09:39:06.725663Z",
+              "session_id": "12271884985537538636",
+              "dispatch_key": "f24864506122d5e983228a85"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of Transcript modal when its underlying session is deleted via a background synchronization event.",
+            "observations": [
+              {
+                "scenario": "Handling transcript modal when its session is deleted from the workspace payload.",
+                "evidence": "Inspected App.tsx and useTranscript.ts. Wrote synthetic patches to verify if calling closeTranscript() during applyPayload or deleteOmpSession resolves the issue. Found that applying closeTranscript() when transcriptSession is missing from the new payload correctly closes the modal, passing all 287 vitest UI tests.",
+                "result": "Establishes that the Transcript modal remains stuck open for deleted sessions because useTranscript.ts isolated state is not cleared when App.tsx payload updates. Confirms that checking payload.sessions against transcriptSession to invoke closeTranscript() is a valid approach."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the settings modal also leaves unsaved drafts stuck when the workspace configuration is deleted via background synchronization."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T01:00:04.123317Z",
+            "source": {
+              "activity_id": "sessions/3924710680678215839/activities/64b8a674a36649c090e2dc4acd3b2b7d",
+              "report_sha256": "6b786ceaca2a18ce578e45bd0d49b9ad6227e582736a8a7b0314906043d48310",
+              "activity_created_at": "2026-09-25T00:29:31.625621Z",
+              "session_id": "3924710680678215839",
+              "dispatch_key": "164e659ab0ca273b5c2e2fa8"
+            },
+            "deferred_findings": [
+              {
+                "title": "Close the transcript modal when its session is deleted in the background",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-f0bc3830546ec195; not established as a duplicate. {\"detail\": \"Observed via static analysis and synthetic test patches. The App.tsx applyPayload function updates the payload but fails to invoke closeTranscript() when the session currently tracked by useTranscript's transcriptSession disappears from next.sessions.\", \"reproduction\": {\"actual\": \"The transcript modal remains stuck open for a non-existent session.\", \"expected\": \"The transcript modal closes automatically.\", \"steps\": [\"Open the transcript modal for a given session.\", \"Trigger a background sync (or external deletion) that removes the session from the payload.\", \"Observe the state of the transcript modal.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejected tasks pertained to the CodexImportModal (import failures where retaining the modal allows user correction/retry). This proposal addresses the TranscriptModal, which displays historical session data. If a session is deleted in the background, its transcript becomes orphaned and stale. There is no user input to correct or retry in the Transcript modal, so it should be closed automatically.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"responses\": [{\"decision_context_id\": \"616624f09919272ef753d104419735331b83d553f4e92e78bb7b6436d275f21c\", \"decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that retaining the import dialog allows correction/retry of failed imports. This does not apply to the TranscriptModal, which does not process imports or require user correction for a deleted session.\"}, {\"decision_context_id\": \"ad830a0fcffaf43767aa34a17ecc195e8ad73dc81510723f7ad6ab206617a1c3\", \"decision_task_id\": \"discovery-39c130be90c4a65e\", \"why_previous_reason_no_longer_explains\": \"The rejection reason addresses an artificial test failure simulating an import JSONL failure, concluding that preserving the import dialog state is intentional. This does not explain why a Transcript viewer should remain open for a deleted session where no user state or retry is relevant.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When a background sync removes the currently viewed transcript session, the transcript modal is automatically closed."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
