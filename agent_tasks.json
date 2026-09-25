@@ -59585,7 +59585,7 @@
       "id": "research-settings-models-reliability-9",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -59694,16 +59694,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8440830932093286634",
         "dispatch_key": "ad1a9623fccb11045ddfc24f",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-ad1a9623fccb11045ddfc24f",
         "started_at": "2026-09-25T12:47:30.162092Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T13:22:51.371298Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -59874,8 +59874,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T13:16:22.352910Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T13:22:51.371298Z",
         "research_detached": {
           "at": "2026-09-25T13:08:23.093007Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -59883,6 +59883,53 @@
         "feedback_nudge": {
           "at": "2026-09-25T13:08:23.093007Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated ModelPicker's input interaction for model selection and backend failure recovery scenarios.",
+        "observations": [
+          {
+            "scenario": "Pressing the 'Enter' key directly inside the ModelPicker's search input while a valid model is auto-selected as active.",
+            "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker` with `open={true}` and a non-empty `models` array, establishing a valid `activeIndex`. Simulated pressing the 'Enter' key on the input element (`<input aria-label=\"searchModels\">`). The event handler `onKeyDown` at `src/ModelPicker.tsx:268` returns early for non-arrow keys, meaning `Enter` is ignored, and the parent listbox handler is never reached because the input is a sibling to the options list. Result: `onChange` was never called.",
+            "result": "Establishes that the user cannot press Enter in the search input to select the currently highlighted model. They are forced to explicitly use arrow keys to focus an option before selecting, causing an unintuitive workflow."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if modifying the `onKeyDown` in the search input to correctly delegate or handle 'Enter' improves user flow without triggering unintentional form submissions.",
+          "Investigate if cancelling the `saveSettings` frontend operation exactly at the moment it is submitted leaves any stale states in `operationDrafts` or `providerEnvDraft`."
+        ],
+        "proposed_task_ids": [
+          "discovery-7f58e586ac2abeec"
+        ],
+        "completed_at": "2026-09-25T13:22:51.371298Z",
+        "source": {
+          "activity_id": "sessions/8440830932093286634/activities/6370ce7cda6e4a3781056b48c309c650",
+          "report_sha256": "f0933f7f5940aaad3248c434ecf9f1f7d1121036534bb3d061ae175ffe91962f",
+          "activity_created_at": "2026-09-25T13:09:23.411620Z",
+          "session_id": "8440830932093286634",
+          "dispatch_key": "ad1a9623fccb11045ddfc24f"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8440830932093286634/activities/6370ce7cda6e4a3781056b48c309c650",
+          "report_sha256": "f0933f7f5940aaad3248c434ecf9f1f7d1121036534bb3d061ae175ffe91962f",
+          "activity_created_at": "2026-09-25T13:09:23.411620Z",
+          "session_id": "8440830932093286634",
+          "dispatch_key": "ad1a9623fccb11045ddfc24f"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7f58e586ac2abeec"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -60194,10 +60241,50 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-25T13:08:23.093007Z"
       }
+    },
+    {
+      "id": "discovery-7f58e586ac2abeec",
+      "title": "Allow selecting the active model with Enter directly from ModelPicker's search input",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "tests"
+      ],
+      "created_at": "2026-09-25T13:22:51.371298Z",
+      "acceptance": [
+        "Pressing Enter in the ModelPicker search input triggers `onChange` for the currently active model."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified using a synthetic Vitest test simulating user input on the ModelPicker component. The current implementation in `src/ModelPicker.tsx` ignores 'Enter' keystrokes inside the search input because it explicitly returns for any key other than 'ArrowDown' or 'ArrowUp', and does not delegate selection handling.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the ModelPicker component with `open={true}` and supply at least one valid model.",
+            "Dispatch a 'keydown' event with `key: \"Enter\"` directly on the search `<input>` element."
+          ],
+          "expected": "The `onChange` callback should be fired with the currently active model's selector, and the picker should close.",
+          "actual": "The `Enter` keypress is ignored, `onChange` is not fired, and the picker remains open."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-reliability-9",
+        "activity_id": "sessions/8440830932093286634/activities/6370ce7cda6e4a3781056b48c309c650",
+        "report_sha256": "f0933f7f5940aaad3248c434ecf9f1f7d1121036534bb3d061ae175ffe91962f",
+        "activity_created_at": "2026-09-25T13:09:23.411620Z",
+        "session_id": "8440830932093286634",
+        "dispatch_key": "ad1a9623fccb11045ddfc24f"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T13:16:50.559987Z",
+    "last_poll_at": "2026-09-25T13:23:13.689352Z",
     "last_tick_at": "2026-09-25T13:16:54.402017Z",
     "run_id": "36139876862"
   }
