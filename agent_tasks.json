@@ -57626,6 +57626,10 @@
         "research_detached": {
           "at": "2026-09-25T10:21:12.145650Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-25T10:21:12.145650Z",
+          "result": "pending"
         }
       }
     }
