@@ -56908,7 +56908,7 @@
       "id": "research-workspace-navigation-performance-9",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -57024,16 +57024,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "671421217975390052",
         "dispatch_key": "6e911cb53ee820b4ab4674a4",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-6e911cb53ee820b4ab4674a4",
         "started_at": "2026-09-25T09:08:46.941970Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T10:08:18.400565Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -57211,8 +57211,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T10:00:24.624568Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T10:08:18.400565Z",
         "research_detached": {
           "at": "2026-09-25T09:23:17.573751Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -57221,22 +57221,10 @@
           "at": "2026-09-25T09:23:17.573751Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-25T09:54:21.425495Z",
-          "source": {
-            "activity_id": "sessions/671421217975390052/activities/40af0ea190c648d4ac241c0a2c263a76",
-            "report_sha256": "57ee3684567a00746dc504dc9627abe8fac323608ace0992598a8cd19020ea23",
-            "activity_created_at": "2026-09-25T09:30:05.719318Z",
-            "session_id": "671421217975390052",
-            "dispatch_key": "6e911cb53ee820b4ab4674a4"
-          }
-        },
         "report_repair": {
           "at": "2026-09-25T09:54:40.472915Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/671421217975390052/activities/40af0ea190c648d4ac241c0a2c263a76",
             "report_sha256": "57ee3684567a00746dc504dc9627abe8fac323608ace0992598a8cd19020ea23",
@@ -57244,6 +57232,83 @@
             "session_id": "671421217975390052",
             "dispatch_key": "6e911cb53ee820b4ab4674a4"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation performance and confirmed the transcript modal background deletion synchronization bug.",
+        "observations": [
+          {
+            "scenario": "SessionList and SessionRow rendering performance with up to 10,000 workspaces and search filtering",
+            "evidence": "Executed synthetic `SessionList` rendering profiles with `@testing-library/react` and `React.Profiler`. Measuring 500 loaded items in a virtual list resulted in a 20-30ms update phase when selecting a new session or renaming. React memoization of `SessionRow` yielded minimal improvements because `useVirtualList` bounds the total number of rendered components. Searching and filtering items in `App.tsx` takes ~10ms for 10k items, rendering it virtually instantaneous.",
+            "result": "Establishes that the current `SessionList` virtualized implementation is sufficiently performant under large loads. Complex optimizations (like extracting items out of App.tsx state or worker-based search) are not necessary."
+          },
+          {
+            "scenario": "Handling transcript modal when its session is deleted from the workspace payload",
+            "evidence": "In `src/App.tsx`, `applyPayload` updates the payload and updates tabs, but does not execute `closeTranscript()`. Meanwhile, `useTranscript.ts` manages `transcriptSession` entirely via localized state. The modal visibility condition is `{transcriptSession && <TranscriptModal ... />}`.",
+            "result": "Establishes that if a user opens the TranscriptModal and its session is deleted externally (or in another client and synced via `payload` update), the transcript modal will remain stuck open for a non-existent session, confirming the previously established hypothesis."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if settings drafts within `SettingsPanel.tsx` also face synchronization issues if global settings are synced from another instance while being edited."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T10:08:18.400565Z",
+        "source": {
+          "activity_id": "sessions/671421217975390052/activities/7662353262ac4df1907ff41a82049a41",
+          "report_sha256": "11277984bd3d1385adece06913a2f7262f060b24cbeb2ddc082e3a6580068035",
+          "activity_created_at": "2026-09-25T09:56:16.747645Z",
+          "session_id": "671421217975390052",
+          "dispatch_key": "6e911cb53ee820b4ab4674a4"
+        },
+        "deferred_findings": [
+          {
+            "title": "Close the transcript modal when its session is deleted in the background",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-f0bc3830546ec195; not established as a duplicate. {\"detail\": \"Observed via static analysis and synthetic tests. The App.tsx applyPayload function updates the payload but fails to close the transcript modal when the session currently tracked by useTranscript's transcriptSession disappears from next.sessions.\", \"reproduction\": {\"actual\": \"The transcript modal remains stuck open for a non-existent session.\", \"expected\": \"The transcript modal closes automatically.\", \"steps\": [\"Open the transcript modal for a given session.\", \"Trigger a background sync or manually invoke a payload update that removes the viewed session from the payload.\", \"Observe the state of the transcript modal.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejected tasks pertained to the CodexImportModal (import failures where retaining the modal allows user correction/retry). This proposal addresses the TranscriptModal, which displays historical session data. If a session is deleted in the background, its transcript becomes orphaned and stale. There is no user input to correct or retry in the Transcript modal, so it should be closed automatically.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"responses\": [{\"decision_context_id\": \"616624f09919272ef753d104419735331b83d553f4e92e78bb7b6436d275f21c\", \"decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that retaining the import dialog allows correction/retry of failed imports. This does not apply to the TranscriptModal, which does not process imports or require user correction for a deleted session.\"}, {\"decision_context_id\": \"ad830a0fcffaf43767aa34a17ecc195e8ad73dc81510723f7ad6ab206617a1c3\", \"decision_task_id\": \"discovery-39c130be90c4a65e\", \"why_previous_reason_no_longer_explains\": \"The rejection reason addresses an artificial test failure simulating an import JSONL failure, concluding that preserving the import dialog state is intentional. This does not explain why a Transcript viewer should remain open for a deleted session where no user state or retry is relevant.\"}, {\"decision_context_id\": \"247e8de53c92a920785affea70f2fc32124c31dfd7ea89e65ffdad8521559e81\", \"decision_task_id\": \"discovery-d3e1fcb6e79f4693\", \"why_previous_reason_no_longer_explains\": \"The rejection reason repeats the same logic for import failures (that the context is for correction, not a hang). Again, the Transcript Modal is read-only and displays a specific session; once deleted, keeping it open serves no user benefit.\"}, {\"decision_context_id\": \"6acc712fed6e0fcac675768b29f11b2444d725e7c9c029f3b8915bf493454320\", \"decision_task_id\": \"discovery-70ce486d68ca18b9\", \"why_previous_reason_no_longer_explains\": \"This is another rejection pointing out that import failure dialogs permit correction and retry. A deleted session in the background has no input state to correct.\"}]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "When a background sync removes the currently viewed transcript session, the transcript modal is automatically closed."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/671421217975390052/activities/7662353262ac4df1907ff41a82049a41",
+          "report_sha256": "11277984bd3d1385adece06913a2f7262f060b24cbeb2ddc082e3a6580068035",
+          "activity_created_at": "2026-09-25T09:56:16.747645Z",
+          "session_id": "671421217975390052",
+          "dispatch_key": "6e911cb53ee820b4ab4674a4"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-f0bc3830546ec195",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-f0bc3830546ec195"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Close the transcript modal when its session is deleted in the background",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-f0bc3830546ec195; not established as a duplicate. {\"detail\": \"Observed via static analysis and synthetic tests. The App.tsx applyPayload function updates the payload but fails to close the transcript modal when the session currently tracked by useTranscript's transcriptSession disappears from next.sessions.\", \"reproduction\": {\"actual\": \"The transcript modal remains stuck open for a non-existent session.\", \"expected\": \"The transcript modal closes automatically.\", \"steps\": [\"Open the transcript modal for a given session.\", \"Trigger a background sync or manually invoke a payload update that removes the viewed session from the payload.\", \"Observe the state of the transcript modal.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejected tasks pertained to the CodexImportModal (import failures where retaining the modal allows user correction/retry). This proposal addresses the TranscriptModal, which displays historical session data. If a session is deleted in the background, its transcript becomes orphaned and stale. There is no user input to correct or retry in the Transcript modal, so it should be closed automatically.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"responses\": [{\"decision_context_id\": \"616624f09919272ef753d104419735331b83d553f4e92e78bb7b6436d275f21c\", \"decision_task_id\": \"discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that retaining the import dialog allows correction/retry of failed imports. This does not apply to the TranscriptModal, which does not process imports or require user correction for a deleted session.\"}, {\"decision_context_id\": \"ad830a0fcffaf43767aa34a17ecc195e8ad73dc81510723f7ad6ab206617a1c3\", \"decision_task_id\": \"discovery-39c130be90c4a65e\", \"why_previous_reason_no_longer_explains\": \"The rejection reason addresses an artificial test failure simulating an import JSONL failure, concluding that preserving the import dialog state is intentional. This does not explain why a Transcript viewer should remain open for a deleted session where no user state or retry is relevant.\"}, {\"decision_context_id\": \"247e8de53c92a920785affea70f2fc32124c31dfd7ea89e65ffdad8521559e81\", \"decision_task_id\": \"discovery-d3e1fcb6e79f4693\", \"why_previous_reason_no_longer_explains\": \"The rejection reason repeats the same logic for import failures (that the context is for correction, not a hang). Again, the Transcript Modal is read-only and displays a specific session; once deleted, keeping it open serves no user benefit.\"}, {\"decision_context_id\": \"6acc712fed6e0fcac675768b29f11b2444d725e7c9c029f3b8915bf493454320\", \"decision_task_id\": \"discovery-70ce486d68ca18b9\", \"why_previous_reason_no_longer_explains\": \"This is another rejection pointing out that import failure dialogs permit correction and retry. A deleted session in the background has no input state to correct.\"}]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "When a background sync removes the currently viewed transcript session, the transcript modal is automatically closed."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -57561,7 +57626,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T10:02:19.129502Z",
+    "last_poll_at": "2026-09-25T10:08:37.304017Z",
     "last_tick_at": "2026-09-25T10:02:22.813054Z",
     "run_id": "36121552615"
   }
