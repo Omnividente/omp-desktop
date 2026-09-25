@@ -59885,6 +59885,127 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-reliability-9",
+      "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-25T13:08:23Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "reliability",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Investigated performance bottlenecks in Transcript rendering and virtual scrolling. Discovered slow Markdown text parsing with dense search matches, but virtual list resizing performance is optimal due to correctly coalescing invalidations.",
+            "observations": [
+              {
+                "scenario": "Rendering highly repetitive 10,000 block text with no line breaks, simulating a dense block, alongside dense search keyword matching inside src/MarkdownContent.tsx.",
+                "evidence": "Tested using Vitest with React Testing Library. A 10,000-word text without breaks takes ~22ms to render. With a dense search match (10,000 matches), it spikes to over 500ms and issues a React missing keys warning. Simulated the rendering loop directly with performance.now() taking ~13ms to process the matches, pointing to DOM construction overhead.",
+                "result": "Establishes a performance bottleneck inside MarkdownContent.tsx: densely packed match results dynamically creating thousands of non-reconciled <mark> DOM nodes per row degrade performance. Also missing key on text fragments."
+              },
+              {
+                "scenario": "Simulated continuous rapid DOM element resize events acting upon useVirtualList with 10,000 rows.",
+                "evidence": "Using a synthetic MockResizeObserver in Vitest firing 100 immediate callbacks. The layout effect correctly bounded work, completing 100 rapid resize callbacks on 10,000 rows in ~2ms. The useVirtualList code correctly defers heavy operations and coalesces updates via React layouts and requestAnimationFrame.",
+                "result": "Establishes that useVirtualList resizing is correctly optimized and not a bottleneck for layout invalidation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if bounding the maximum number of text matches displayed within a single message row can improve dense search performance without hiding matches in other messages.",
+              "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+            ],
+            "proposed_task_ids": [
+              "discovery-87cbf0ae73e75962"
+            ],
+            "completed_at": "2026-09-24T19:05:35.674568Z",
+            "source": {
+              "activity_id": "sessions/17723052583341979353/activities/496616de91bd47319c82354ae16359c8",
+              "report_sha256": "ba1a9fbf57b24d37cdc996caf841608c9e5d668707f113de4d22d00a6a65ef7d",
+              "activity_created_at": "2026-09-24T18:53:53.248510Z",
+              "session_id": "17723052583341979353",
+              "dispatch_key": "06767595273750d397eba580"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified focus behavior on empty transcript states such as clear search, and read owner rejections on existing hypotheses. Focus safely returns to the active panel or input during error/empty states.",
+            "observations": [
+              {
+                "scenario": "Simulated an empty transcript state in TranscriptModal due to search filtering, then triggered the 'Clear search' interaction.",
+                "evidence": "Tested locally using Vitest and React Testing Library on TranscriptModal. When `clearSearch` is invoked, it correctly calls `searchRef.current?.focus({ preventScroll: true })`. If the search input unmounts or cannot catch focus, the underlying `useModalFocus` effect kicks in: it verifies that `activeElement === document.body` or is hidden/disabled, and successfully focuses `panelRef.current` preventing focus from leaking outside the modal.",
+                "result": "Establishes that the focus drop on clearing search or recovering from empty states is gracefully handled by `useModalFocus`, meaning a hardcoded focus loop is unnecessary."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if bounding the maximum number of text matches displayed within a single message row can improve dense search performance without hiding matches in other messages.",
+              "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T22:34:06.152542Z",
+            "source": {
+              "activity_id": "sessions/10972959674729685142/activities/287ba4379c554bda8120e2d5d1c73bc5",
+              "report_sha256": "eeb0ec6ec340d92c4da4143d3c439710ee63ccac326e9a40b6a210867947006d",
+              "activity_created_at": "2026-09-24T22:22:21.011659Z",
+              "session_id": "10972959674729685142",
+              "dispatch_key": "f64959df2d9fdeed20f54e37"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified performance regressions during dense search match rendering in MarkdownContent and tested jsdom context menu behavior for external links. Truncating large numbers of consecutive highlighted matches per row significantly improves rendering time. Context menus placed synthetically on links via keyboard shortcut place successfully.",
+            "observations": [
+              {
+                "scenario": "Simulated loading 10,000 matches simultaneously in one transcript row versus bounding to 100 matches using Vitest inside a temporary isolated script.",
+                "evidence": "Tested using `render(<MarkdownContent matches={...} />)` in Vitest. 10,000 matches caused rendering to spike to ~700ms because of massive unkeyed DOM node creation for `<mark>` fragments. Bounding the match list passed to `<MarkdownContent>` to a strict limit of 100 per message dropped render time to ~10ms while preserving readability within a reasonable viewport height.",
+                "result": "Establishes a viable and highly effective method for improving dense search performance bottlenecks: simply bounding `matches` parsed during highlighting prevents the CPU and rendering pipeline overload."
+              },
+              {
+                "scenario": "Simulated triggering a 'keyboard' context menu event (Shift+F10) on external content links inside TranscriptModal where `clientX` and `clientY` are natively 0, checking for menu rendering regressions.",
+                "evidence": "Tested locally using Vitest, overriding `link.getBoundingClientRect()` and firing a MouseEvent('contextmenu') with zeroed client/page coordinates on focus. The resulting `ContentActionMenu` was successfully created but appeared positioned at the top-left (e.g., 0,0 or clamped to 8,8) instead of tracking to the focused link's bounds in jsdom.",
+                "result": "Supports the owner's assessment that native coordinate placement provides correct coordinates for keyboard context menus on Windows, but the jsdom test logic shows `TranscriptModal.tsx` strictly blindly uses `event.clientX` and `event.clientY` provided by the event which defaults to (0,0) synthetically unless manually intercepted by custom coordinate offsets."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically.",
+              "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+            ],
+            "proposed_task_ids": [
+              "discovery-132bfd67ef23d9d3"
+            ],
+            "completed_at": "2026-09-25T02:55:19.773576Z",
+            "source": {
+              "activity_id": "sessions/13203199504390123218/activities/ae9d7ee77de540e690e44084d4d1f86e",
+              "report_sha256": "3b47cc3d3f025a2777a088f36fc2de43bebcd3a2e043503c1f1c3db5168c6008",
+              "activity_created_at": "2026-09-25T02:45:02.153883Z",
+              "session_id": "13203199504390123218",
+              "dispatch_key": "7033e5e53325929169ff4c49"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
