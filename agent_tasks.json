@@ -57232,7 +57232,8 @@
             "session_id": "671421217975390052",
             "dispatch_key": "6e911cb53ee820b4ab4674a4"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-6e911cb53ee820b4ab4674a4"
       },
       "research_result": {
         "summary": "Investigated workspace navigation performance and confirmed the transcript modal background deletion synchronization bug.",
