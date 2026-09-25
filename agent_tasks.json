@@ -60557,7 +60557,8 @@
             "session_id": "8577984213211768991",
             "dispatch_key": "dd36168becd7f7c953349094"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-dd36168becd7f7c953349094"
       },
       "research_result": {
         "summary": "Investigated the focus trap behavior of modals that manually implement keyboard trapping, specifically IncidentCenter and ResourceHealthPanel, evaluating them against previous assertions about useModalFocus.",
