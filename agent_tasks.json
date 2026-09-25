@@ -61185,6 +61185,145 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-9",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-25T17:13:02Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Investigated the empty and error state rendering behaviors of the ResourceHealthPanel.",
+            "observations": [
+              {
+                "scenario": "Verify the rendering behavior of ResourceHealthPanel when initialized with a null snapshot and no error, while loading is false.",
+                "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error=null`, `loading=false`. Instead of rendering an empty dialog or returning null, the component renders a fallback polite live region displaying the localized 'Checking memory and disks...' message with an 'is-ok' (success) icon status.",
+                "result": "Establishes that the panel defaults to a checking state when no data is available yet, ensuring the user sees an active status instead of a blank panel."
+              },
+              {
+                "scenario": "Verify the rendering behavior and localized text display of ResourceHealthPanel when provided an explicit error string.",
+                "evidence": "Tested synthetic React rendering state using JSDOM for ResourceHealthPanel. Supplied props: `snapshot=null`, `error='Connection refused'`, `loading=false`. The component successfully rendered a dialog with a warning icon ('is-warning' status), a 'Resource metrics are unavailable' header, and a paragraph with class 'resource-error' containing the localized error string 'Connection refused'.",
+                "result": "Establishes that the error state correctly prioritizes the error visual hierarchy over standard data and displays the error securely to the user."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the behavior of useModalFocus controlAvailable when focus is restored after the ResourceHealthPanel unmounts.",
+              "Verify the rendering behavior when a terminal switch recovery encounters a failedSend state while the panel is collapsed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-24T17:12:04.586934Z",
+            "source": {
+              "activity_id": "sessions/12899185073373055573/activities/f40b16aad92a4a5ebd3d2cb18948c487",
+              "report_sha256": "53d9972068f79aacc32366424c92ada883932489ce9d8f2e5b7ccc041b5ba656",
+              "activity_created_at": "2026-09-24T16:59:41.003701Z",
+              "session_id": "12899185073373055573",
+              "dispatch_key": "330d0c2604df2e6e9826bacc"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the focus trap behavior of modals that manually implement keyboard trapping, specifically IncidentCenter and ResourceHealthPanel, evaluating them against previous assertions about useModalFocus.",
+            "observations": [
+              {
+                "scenario": "Verify whether manually implemented focus loops in IncidentCenter and ResourceHealthPanel properly exclude visually hidden descendants of closed <details> elements during Tab navigation.",
+                "evidence": "Executed isolated React jsdom component tests by injecting a focusable hidden link inside a closed <details> element within IncidentCenter. The inline handleKeyDown logic (src/IncidentCenter.tsx:93-95 and src/ResourceHealthPanel.tsx) uses a basic querySelectorAll and .hidden attribute filter instead of useModalFocus. The test confirmed that these components still erroneously capture focusable descendants of collapsed details elements.",
+                "result": "Establishes that the inline focus loop logic in IncidentCenter and ResourceHealthPanel fails to replicate the correctness of useModalFocus, incorrectly routing focus to hidden elements."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify the impact of the focus loop bug on screen readers encountering dynamically injected content inside collapsed details tags.",
+              "Verify whether migrating IncidentCenter and ResourceHealthPanel to useModalFocus introduces any layout side effects."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T14:13:42.591511Z",
+            "source": {
+              "activity_id": "sessions/8577984213211768991/activities/1ccc1454c24f49438ec66f25a55885fb",
+              "report_sha256": "d71588d439977a6d0a4eb55eab1b55885733b21ffabde29692ff630e709a6575",
+              "activity_created_at": "2026-09-25T14:03:46.646759Z",
+              "session_id": "8577984213211768991",
+              "dispatch_key": "dd36168becd7f7c953349094"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the previously reported focus trap bug within manually implemented modals (IncidentCenter, ResourceHealthPanel), confirming its existence.",
+            "observations": [
+              {
+                "scenario": "Review the inline handleKeyDown code for the IncidentCenter and ResourceHealthPanel components to determine why they fail to exclude elements hidden within closed details tags.",
+                "evidence": "Observed in src/IncidentCenter.tsx:94-95 and src/ResourceHealthPanel.tsx:71-72 that both components use `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR).filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden)` to compute the focusable bounds, rather than utilizing the robust `controlAvailable` logic found in `src/useModalFocus.ts`.",
+                "result": "Establishes that the custom focus logic simply checks for the `disabled` and `hidden` attributes, inherently failing to ignore descendants of unexpanded `details` tags, rendering the bug actionable without migrating the entire hooks to useModalFocus."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify whether migrating IncidentCenter and ResourceHealthPanel entirely to useModalFocus introduces any layout or cleanup regressions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T14:46:44.722199Z",
+            "source": {
+              "activity_id": "sessions/18261356735317369775/activities/8a1fae665b804177bffc85ffdc03004a",
+              "report_sha256": "6a7de5d23b393cfcab7aefd109173ac76cec5d3c36152d96c06ff01d563dade4",
+              "activity_created_at": "2026-09-25T14:38:25.095160Z",
+              "session_id": "18261356735317369775",
+              "dispatch_key": "cbc6b7258c8dfd075334361c"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx",
+                  "src/useModalFocus.ts"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
