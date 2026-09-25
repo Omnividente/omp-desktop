@@ -55621,7 +55621,8 @@
           "at": "2026-09-25T07:10:30.383398Z",
           "result": "sent",
           "status": "resolved"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-891c1c7c603bec06f80a2455"
       },
       "research_result": {
         "summary": "Investigated the batch import modal failure state and the session search clear focus restoration.",
