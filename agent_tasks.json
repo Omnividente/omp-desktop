@@ -57685,7 +57685,7 @@
       "id": "research-settings-models-performance-9",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -57871,16 +57871,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4652845305353483592",
         "dispatch_key": "428d35fb121b32a4a372c8c2",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-428d35fb121b32a4a372c8c2",
         "started_at": "2026-09-25T10:21:12.145650Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T10:41:51.058205Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -58051,8 +58051,31 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T10:21:12.145650Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T10:41:51.058205Z"
+      },
+      "research_result": {
+        "summary": "Measured ModelPicker interaction and rendering performance across large synthetic model datasets.",
+        "observations": [
+          {
+            "scenario": "Rendering and filtering in ModelPicker with varying sizes of synthetic model data (100 to 3000 models).",
+            "evidence": "Measured via a synthetic Vitest jsdom fixture rendering a ModelPicker with an explicit open and closed state, and triggering a filter change. Mount (open) times scaled linearly: ~126ms (100 models), ~324ms (500 models), ~494ms (1500 models), ~1419ms (3000 models). Mount (closed) times were smaller: ~13ms to ~98ms. The input filtering operation utilizing `useMemo` consistently took < 2ms regardless of dataset size (0.62ms for 3000 models).",
+            "result": "Establishes that filtering performance remains exceptionally fast even with thousands of models, but initial dropdown open latency scales linearly and exceeds 1.4 seconds for 3000 models due to full DOM rendering of all option elements."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate virtualizing the ModelPicker dropdown list to improve initial open latency when dealing with large external provider catalogs."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T10:41:51.058205Z",
+        "source": {
+          "activity_id": "sessions/4652845305353483592/activities/9d471249cdc14f92819ec83f09a20596",
+          "report_sha256": "dbfbcce40d14fba088b7ab47d228c6b8e75e52d980f767faf137b5676af6a89c",
+          "activity_created_at": "2026-09-25T10:31:20.565171Z",
+          "session_id": "4652845305353483592",
+          "dispatch_key": "428d35fb121b32a4a372c8c2"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -58102,7 +58125,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T10:35:49.755340Z",
+    "last_poll_at": "2026-09-25T10:42:11.690810Z",
     "last_tick_at": "2026-09-25T10:35:53.426443Z",
     "run_id": "36124776270"
   }
