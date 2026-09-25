@@ -56319,7 +56319,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T07:50:08.107014Z"
+        "observed_at": "2026-09-25T07:50:08.107014Z",
+        "released_attempt_ref": "autonomous/attempt-49a93d39293d589e73f14185"
       },
       "research_result": {
         "summary": "Confirmed that `applyTerminalOutputEvent` indiscriminately accepts generation changes from older events.",
