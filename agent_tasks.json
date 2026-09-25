@@ -58794,7 +58794,7 @@
       "id": "research-settings-models-ux-9",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -58907,16 +58907,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14960237597908095051",
         "dispatch_key": "c1f4a3372956266f51848474",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-c1f4a3372956266f51848474",
         "started_at": "2026-09-25T11:30:04.036381Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T11:50:38.474876Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -59087,13 +59087,101 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T11:30:04.036381Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T11:50:38.474876Z"
+      },
+      "research_result": {
+        "summary": "Verified that SettingsRecoveryScreen lacks proper focus management and accessibility alert attributes.",
+        "observations": [
+          {
+            "scenario": "Rendering SettingsRecoveryScreen on startup when settings recovery is needed.",
+            "evidence": "Tested using synthetic jsdom environment tests targeting SettingsRecoveryScreen. The `document.activeElement` remains the `BODY` upon mount, and the `.settings-recovery-screen` `<main>` element does not contain a `role=\"alert\"` or `role=\"alertdialog\"` attribute, nor are focus traps utilized.",
+            "result": "Establishes that during critical settings recovery failures, the screen does not grab keyboard focus and relies on visual signaling instead of screen-reader compatible alerts, making it poorly accessible."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if model auto-selection in ModelPicker announces changes correctly for screen reader users when a fallback model is applied."
+        ],
+        "proposed_task_ids": [
+          "discovery-ab7a935a0deafa44"
+        ],
+        "completed_at": "2026-09-25T11:50:38.474876Z",
+        "source": {
+          "activity_id": "sessions/14960237597908095051/activities/6effd1f420ae405e90536a9761a613d9",
+          "report_sha256": "3984da920748b2df72687566acda6ea271fcc3d26c6e68d7d2465f60d9913eae",
+          "activity_created_at": "2026-09-25T11:44:01.959735Z",
+          "session_id": "14960237597908095051",
+          "dispatch_key": "c1f4a3372956266f51848474"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14960237597908095051/activities/6effd1f420ae405e90536a9761a613d9",
+          "report_sha256": "3984da920748b2df72687566acda6ea271fcc3d26c6e68d7d2465f60d9913eae",
+          "activity_created_at": "2026-09-25T11:44:01.959735Z",
+          "session_id": "14960237597908095051",
+          "dispatch_key": "c1f4a3372956266f51848474"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-ab7a935a0deafa44"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-ab7a935a0deafa44",
+      "title": "Improve accessibility of SettingsRecoveryScreen with focus management and alert roles",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-25T11:50:38.474876Z",
+      "acceptance": [
+        "SettingsRecoveryScreen uses role='alert' or 'alertdialog' for screen readers",
+        "SettingsRecoveryScreen autofocuses its container or primary action when mounted"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Observed in a jsdom test environment rendering the `<SettingsRecoveryScreen>` component. Focus is not shifted to the modal element or its action buttons (like 'Start with defaults' or 'Retry'), and the container `<main>` does not have an alert role.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `<SettingsRecoveryScreen>`",
+            "Inspect `document.activeElement` after mount",
+            "Inspect the rendered DOM for `role=\"alert\"` or `role=\"alertdialog\"`"
+          ],
+          "expected": "Focus should move to the recovery screen or primary button, and it should have an alert role for accessibility.",
+          "actual": "Focus remains on the BODY and no alert role is present."
+        }
+      },
+      "target_paths": [
+        "src/SettingsRecoveryScreen.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-9",
+        "activity_id": "sessions/14960237597908095051/activities/6effd1f420ae405e90536a9761a613d9",
+        "report_sha256": "3984da920748b2df72687566acda6ea271fcc3d26c6e68d7d2465f60d9913eae",
+        "activity_created_at": "2026-09-25T11:44:01.959735Z",
+        "session_id": "14960237597908095051",
+        "dispatch_key": "c1f4a3372956266f51848474"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T11:44:31.478579Z",
+    "last_poll_at": "2026-09-25T11:50:59.959064Z",
     "last_tick_at": "2026-09-25T11:44:34.750700Z",
     "run_id": "36130993238"
   }
