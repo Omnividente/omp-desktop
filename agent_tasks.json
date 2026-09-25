@@ -55111,7 +55111,7 @@
       "id": "research-sessions-persistence-ux-9",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -55422,7 +55422,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "6266974031360146021",
         "dispatch_key": "891c1c7c603bec06f80a2455",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
@@ -55430,8 +55430,8 @@
         "started_at": "2026-09-25T06:55:41.233570Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: report_absent",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -55614,13 +55614,23 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T07:03:35.723605Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T07:09:59.787469Z",
+        "report_error": {
+          "code": "report_absent",
+          "detail": "completed discovery has no worker report",
+          "reported_at": "2026-09-25T07:09:59.787469Z"
+        },
+        "report_repair": {
+          "at": "2026-09-25T07:10:30.383398Z",
+          "result": "pending",
+          "status": "pending"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T07:10:23.252382Z",
+    "last_poll_at": "2026-09-25T07:10:28.781179Z",
     "last_tick_at": "2026-09-25T07:04:05.550475Z",
     "run_id": "36105730475"
   }
