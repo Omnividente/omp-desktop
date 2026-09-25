@@ -58052,7 +58052,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T10:41:51.058205Z"
+        "observed_at": "2026-09-25T10:41:51.058205Z",
+        "released_attempt_ref": "autonomous/attempt-428d35fb121b32a4a372c8c2"
       },
       "research_result": {
         "summary": "Measured ModelPicker interaction and rendering performance across large synthetic model datasets.",
