@@ -53028,7 +53028,8 @@
           ]
         },
         "session_state": "FAILED",
-        "observed_at": "2026-09-25T00:07:25.201030Z"
+        "observed_at": "2026-09-25T00:07:25.201030Z",
+        "released_attempt_ref": "autonomous/attempt-313a252f23ea3c9ad5c4f6e8"
       }
     }
   ],
