@@ -61417,7 +61417,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T17:28:10.026792Z"
+        "observed_at": "2026-09-25T17:28:10.026792Z",
+        "released_attempt_ref": "autonomous/attempt-c7e959c2b4e55aaab8b4a352"
       },
       "research_result": {
         "summary": "Investigated the focus trap behavior in IncidentCenter and ResourceHealthPanel, specifically focusing on how it handles visually hidden descendants of closed <details> elements.",
