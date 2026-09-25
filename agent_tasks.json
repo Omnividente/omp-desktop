@@ -59938,7 +59938,7 @@
       "id": "research-transcript-links-reliability-9",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -60056,16 +60056,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "337449242026454856",
         "dispatch_key": "7dc53ff43df6e8c6a8a68413",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-7dc53ff43df6e8c6a8a68413",
         "started_at": "2026-09-25T13:08:23.093007Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T13:41:32.875357Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -60239,24 +60239,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T13:36:01.749309Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-25T13:29:23.035350Z",
-          "source": {
-            "activity_id": "sessions/337449242026454856/activities/6b114315d3194e22bb8bd6ec6af2006d",
-            "report_sha256": "3158571800357cf44f18d0097ad88fb18cce7db8db1c314d5ceb018d3900e058",
-            "activity_created_at": "2026-09-25T13:19:40.662436Z",
-            "session_id": "337449242026454856",
-            "dispatch_key": "7dc53ff43df6e8c6a8a68413"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T13:41:32.875357Z",
         "report_repair": {
           "at": "2026-09-25T13:29:43.395225Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/337449242026454856/activities/6b114315d3194e22bb8bd6ec6af2006d",
             "report_sha256": "3158571800357cf44f18d0097ad88fb18cce7db8db1c314d5ceb018d3900e058",
@@ -60265,6 +60253,35 @@
             "dispatch_key": "7dc53ff43df6e8c6a8a68413"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated failure recovery and concurrency in Transcript loading. Verified that errors are correctly surfaced as toasts or modal states without stranding the UI, and concurrent/cancelled requests correctly ignore stale resolutions without causing unhandled promise rejections.",
+        "observations": [
+          {
+            "scenario": "Simulated a failed direct terminal read (`loadTranscriptPath`) followed by a successful retry, and a cancelled modal read (`loadTranscript` -> `closeTranscript`).",
+            "evidence": "Tested using a React test harness built with Vitest. Simulating a backend rejection for `loadTranscriptPath` properly threw the error (caught by `App.tsx` and shown as a toast) while keeping the modal closed (`transcriptSession` remained null). Simulating cancellation via `closeTranscript` gracefully incremented `requestRef`, and when the backend eventually rejected or resolved, the state machine successfully ignored the stale promise without emitting an unhandled promise rejection.",
+            "result": "Establishes that the Transcript state machine in `useTranscript.ts` correctly isolates failures and cancellations without state loss, duplicate rendering, or unhandled promise rejections."
+          },
+          {
+            "scenario": "Simulated a rapid duplicate refresh (re-read) on an already open transcript to check for duplicate state retention.",
+            "evidence": "Observed via the React test harness that calling `loadTranscript(session)` on the same session clears the existing `transcript` to `null` and resets the error flag before setting `transcriptLoading` to `true`. When multiple parallel loads occur, only the response matching the latest `requestRef` resolves successfully.",
+            "result": "Establishes that stale data is strictly hidden during a retry/refresh as intended, and duplicate concurrent requests do not corrupt the final displayed transcript state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if extremely large 100MB+ session files cause memory spikes or freeze the backend API during JSONL parsing.",
+          "Investigate whether searching within a massive transcript can block the main React thread due to unbounded regex execution."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T13:41:32.875357Z",
+        "source": {
+          "activity_id": "sessions/337449242026454856/activities/fcf7c157692d4173844b45b96f0e9c65",
+          "report_sha256": "a6665fc946763b85f82dcbd121ce054edf8a2c03515f5bcae3212bdd7d48d311",
+          "activity_created_at": "2026-09-25T13:30:12.157511Z",
+          "session_id": "337449242026454856",
+          "dispatch_key": "7dc53ff43df6e8c6a8a68413"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -60309,7 +60326,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T13:36:25.216551Z",
+    "last_poll_at": "2026-09-25T13:41:55.379807Z",
     "last_tick_at": "2026-09-25T13:36:30.254622Z",
     "run_id": "36141942601"
   }
