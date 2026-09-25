@@ -62551,7 +62551,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T19:21:37.853963Z"
+        "observed_at": "2026-09-25T19:21:37.853963Z",
+        "released_attempt_ref": "autonomous/attempt-1c9139e8213c424769d468bb"
       },
       "research_result": {
         "summary": "Verified performance regressions in TranscriptModal due to synchronous regex execution on massive strings.",
