@@ -52657,7 +52657,7 @@
       "id": "research-workspace-navigation-behavior-9",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "todo",
       "focus": [
         "quality",
         "bugfix",
@@ -52840,16 +52840,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "retry",
         "session_id": "4731607518249005419",
         "dispatch_key": "313a252f23ea3c9ad5c4f6e8",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-313a252f23ea3c9ad5c4f6e8",
         "started_at": "2026-09-24T23:46:38.877843Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T00:07:25.201030Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "failed",
+        "note": "Jules reported a terminal failure",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -53027,13 +53027,13 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-24T23:46:38.877843Z"
+        "session_state": "FAILED",
+        "observed_at": "2026-09-25T00:07:25.201030Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T00:01:15.300360Z",
+    "last_poll_at": "2026-09-25T00:07:43.365922Z",
     "last_tick_at": "2026-09-25T00:01:23.212310Z",
     "run_id": "36075502570"
   }
