@@ -52417,7 +52417,8 @@
           "at": "2026-09-24T23:46:59.443623Z",
           "result": "sent",
           "status": "resolved"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-6cfaba1fb49622c193b1d26f"
       },
       "research_result": {
         "summary": "Investigated if switch input recovery state (`switch_recovery`) is correctly maintained or inappropriately discarded during concurrent `TerminalDetachRequest` and `TerminalAttachmentRequest` events during reconnection, which could lead to loss of user input.",
