@@ -62252,7 +62252,7 @@
       "id": "research-transcript-links-performance-9",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -62367,16 +62367,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8323963864401090117",
         "dispatch_key": "1c9139e8213c424769d468bb",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-1c9139e8213c424769d468bb",
         "started_at": "2026-09-25T19:06:44.341794Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T19:21:37.853963Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -62550,13 +62550,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T19:06:44.341794Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T19:21:37.853963Z"
+      },
+      "research_result": {
+        "summary": "Verified performance regressions in TranscriptModal due to synchronous regex execution on massive strings.",
+        "observations": [
+          {
+            "scenario": "Simulated a massive transcript search by generating a 10MB string with 2,000,000 matchable substrings and measuring the time taken to synchronously execute RegExp.matchAll.",
+            "evidence": "Tested locally using a custom Vitest benchmark isolating the exact `useMemo` search logic from `TranscriptModal.tsx`. The routine took ~1,330ms to synchronously execute `content.text.matchAll(pattern)` and allocate matches into `byEntry` and `occurrences` arrays. Because this loop runs synchronously during React's render phase (inside `useMemo`), the main thread is completely blocked, freezing the UI.",
+            "result": "Establishes that unbounded regex execution and unyielded loops on massive transcripts block the main thread. Limiting the search match allocation or yielding execution is required for large datasets."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically.",
+          "Investigate if extremely large 100MB+ session files cause memory spikes or freeze the backend API during JSONL parsing.",
+          "Investigate if MEASUREMENT_EPSILON of 0.5 in useVirtualList is too small for subpixel rounding jitter on fractional display scales (e.g. 150% zoom where 1 physical pixel = 0.66 CSS pixels)."
+        ],
+        "proposed_task_ids": [
+          "discovery-7ca21f00652b62dd"
+        ],
+        "completed_at": "2026-09-25T19:21:37.853963Z",
+        "source": {
+          "activity_id": "sessions/8323963864401090117/activities/e55881a4462b4f1a804cb7b8bb279139",
+          "report_sha256": "d2bc3943ee159322a070b3ca51348bd34c602ff030bb006a3ea8cdd06843d799",
+          "activity_created_at": "2026-09-25T19:14:14.271524Z",
+          "session_id": "8323963864401090117",
+          "dispatch_key": "1c9139e8213c424769d468bb"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8323963864401090117/activities/e55881a4462b4f1a804cb7b8bb279139",
+          "report_sha256": "d2bc3943ee159322a070b3ca51348bd34c602ff030bb006a3ea8cdd06843d799",
+          "activity_created_at": "2026-09-25T19:14:14.271524Z",
+          "session_id": "8323963864401090117",
+          "dispatch_key": "1c9139e8213c424769d468bb"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7ca21f00652b62dd"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-7ca21f00652b62dd",
+      "title": "Prevent main thread block on massive transcript regex search",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-09-25T19:21:37.853963Z",
+      "acceptance": [
+        "Searching massive transcripts does not completely freeze the UI for multiple seconds",
+        "Transcript search bounds the maximum number of matches or safely yields execution to prevent main thread blocking"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Measured synchronous search time for a massive 10MB transcript matching millions of occurrences. The synchronous `useMemo` loop blocks the main thread.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Generate a synthetic test simulating a single 10MB transcript entry with a repeating query string.",
+            "Run the exact search logic from `TranscriptModal.tsx` synchronously (e.g. `Array.from(content.text.matchAll(pattern))`).",
+            "Observe the execution time block the main thread for over 1.3 seconds without yielding."
+          ],
+          "expected": "The main thread should remain responsive, either by capping the maximum allowed matches globally or yielding to the event loop.",
+          "actual": "The main thread is completely blocked until all regex matches are evaluated and allocated."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-9",
+        "activity_id": "sessions/8323963864401090117/activities/e55881a4462b4f1a804cb7b8bb279139",
+        "report_sha256": "d2bc3943ee159322a070b3ca51348bd34c602ff030bb006a3ea8cdd06843d799",
+        "activity_created_at": "2026-09-25T19:14:14.271524Z",
+        "session_id": "8323963864401090117",
+        "dispatch_key": "1c9139e8213c424769d468bb"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T19:15:32.356985Z",
+    "last_poll_at": "2026-09-25T19:21:58.277441Z",
     "last_tick_at": "2026-09-25T19:15:36.347818Z",
     "run_id": "36178492226"
   }
