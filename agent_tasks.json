@@ -59883,7 +59883,8 @@
         "feedback_nudge": {
           "at": "2026-09-25T13:08:23.093007Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-ad1a9623fccb11045ddfc24f"
       },
       "research_result": {
         "summary": "Investigated ModelPicker's input interaction for model selection and backend failure recovery scenarios.",
