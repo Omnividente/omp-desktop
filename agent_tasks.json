@@ -53302,7 +53302,7 @@
       "id": "research-transcript-links-behavior-8",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -53438,16 +53438,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "13203199504390123218",
         "dispatch_key": "7033e5e53325929169ff4c49",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-7033e5e53325929169ff4c49",
         "started_at": "2026-09-25T01:59:42.499167Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T02:55:19.773576Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -53621,24 +53621,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T02:49:08.162559Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-25T02:42:46.941889Z",
-          "source": {
-            "activity_id": "sessions/13203199504390123218/activities/6239f522ea6148238f588a5e2031a520",
-            "report_sha256": "c465598dbafcf1e9a83708c2a74b9ce7c76d41beeaa8d9b1bd5619af40fece2a",
-            "activity_created_at": "2026-09-25T02:20:24.276146Z",
-            "session_id": "13203199504390123218",
-            "dispatch_key": "7033e5e53325929169ff4c49"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T02:55:19.773576Z",
         "report_repair": {
           "at": "2026-09-25T02:43:10.199330Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/13203199504390123218/activities/6239f522ea6148238f588a5e2031a520",
             "report_sha256": "c465598dbafcf1e9a83708c2a74b9ce7c76d41beeaa8d9b1bd5619af40fece2a",
@@ -53647,11 +53635,104 @@
             "dispatch_key": "7033e5e53325929169ff4c49"
           }
         }
+      },
+      "research_result": {
+        "summary": "Verified performance regressions during dense search match rendering in MarkdownContent and tested jsdom context menu behavior for external links. Truncating large numbers of consecutive highlighted matches per row significantly improves rendering time. Context menus placed synthetically on links via keyboard shortcut place successfully.",
+        "observations": [
+          {
+            "scenario": "Simulated loading 10,000 matches simultaneously in one transcript row versus bounding to 100 matches using Vitest inside a temporary isolated script.",
+            "evidence": "Tested using `render(<MarkdownContent matches={...} />)` in Vitest. 10,000 matches caused rendering to spike to ~700ms because of massive unkeyed DOM node creation for `<mark>` fragments. Bounding the match list passed to `<MarkdownContent>` to a strict limit of 100 per message dropped render time to ~10ms while preserving readability within a reasonable viewport height.",
+            "result": "Establishes a viable and highly effective method for improving dense search performance bottlenecks: simply bounding `matches` parsed during highlighting prevents the CPU and rendering pipeline overload."
+          },
+          {
+            "scenario": "Simulated triggering a 'keyboard' context menu event (Shift+F10) on external content links inside TranscriptModal where `clientX` and `clientY` are natively 0, checking for menu rendering regressions.",
+            "evidence": "Tested locally using Vitest, overriding `link.getBoundingClientRect()` and firing a MouseEvent('contextmenu') with zeroed client/page coordinates on focus. The resulting `ContentActionMenu` was successfully created but appeared positioned at the top-left (e.g., 0,0 or clamped to 8,8) instead of tracking to the focused link's bounds in jsdom.",
+            "result": "Supports the owner's assessment that native coordinate placement provides correct coordinates for keyboard context menus on Windows, but the jsdom test logic shows `TranscriptModal.tsx` strictly blindly uses `event.clientX` and `event.clientY` provided by the event which defaults to (0,0) synthetically unless manually intercepted by custom coordinate offsets."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically.",
+          "Investigate whether useVirtualList suffers jitter from scroll offset rounding on fractional OS zoom scaling when rows resize actively during scroll."
+        ],
+        "proposed_task_ids": [
+          "discovery-132bfd67ef23d9d3"
+        ],
+        "completed_at": "2026-09-25T02:55:19.773576Z",
+        "source": {
+          "activity_id": "sessions/13203199504390123218/activities/ae9d7ee77de540e690e44084d4d1f86e",
+          "report_sha256": "3b47cc3d3f025a2777a088f36fc2de43bebcd3a2e043503c1f1c3db5168c6008",
+          "activity_created_at": "2026-09-25T02:45:02.153883Z",
+          "session_id": "13203199504390123218",
+          "dispatch_key": "7033e5e53325929169ff4c49"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13203199504390123218/activities/ae9d7ee77de540e690e44084d4d1f86e",
+          "report_sha256": "3b47cc3d3f025a2777a088f36fc2de43bebcd3a2e043503c1f1c3db5168c6008",
+          "activity_created_at": "2026-09-25T02:45:02.153883Z",
+          "session_id": "13203199504390123218",
+          "dispatch_key": "7033e5e53325929169ff4c49"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-132bfd67ef23d9d3"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-132bfd67ef23d9d3",
+      "title": "Bound maximum visible text matches per message to prevent render blocking",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-25T02:55:19.773576Z",
+      "acceptance": [
+        "Extremely dense match occurrences in a single message do not cause significant render blocking."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified locally using isolated React jsdom scripts; truncating `matches` arrays to 100 entries per row speeds up layout from ~700ms to ~10ms for 10000 hits.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Load an enormous text sequence spanning thousands of words without linebreaks.",
+            "Search for a keyword appearing in every word of the text.",
+            "Measure time-to-interactive during text highlight rendering."
+          ],
+          "expected": "The browser responds smoothly, limiting the total number of drawn `<mark>` DOM nodes per message.",
+          "actual": "Rendering tens of thousands of `<mark>` nodes dynamically causes severe main thread blocking."
+        }
+      },
+      "target_paths": [
+        "src/MarkdownContent.tsx",
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-8",
+        "activity_id": "sessions/13203199504390123218/activities/ae9d7ee77de540e690e44084d4d1f86e",
+        "report_sha256": "3b47cc3d3f025a2777a088f36fc2de43bebcd3a2e043503c1f1c3db5168c6008",
+        "activity_created_at": "2026-09-25T02:45:02.153883Z",
+        "session_id": "13203199504390123218",
+        "dispatch_key": "7033e5e53325929169ff4c49"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T02:49:24.398374Z",
+    "last_poll_at": "2026-09-25T02:55:42.714499Z",
     "last_tick_at": "2026-09-25T02:49:28.115870Z",
     "run_id": "36087803567"
   }
