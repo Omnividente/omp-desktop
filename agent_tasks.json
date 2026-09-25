@@ -55623,7 +55623,7 @@
         },
         "report_repair": {
           "at": "2026-09-25T07:10:30.383398Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending"
         }
       }
