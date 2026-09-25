@@ -59580,6 +59580,118 @@
         "session_id": "7938488447222848457",
         "dispatch_key": "f2618dbfed1ff257ac6454c7"
       }
+    },
+    {
+      "id": "research-settings-models-reliability-9",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-25T12:47:30Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 9,
+        "previous_reports": [
+          {
+            "summary": "Measured ModelPicker interaction and rendering performance across large synthetic model datasets.",
+            "observations": [
+              {
+                "scenario": "Rendering and filtering in ModelPicker with varying sizes of synthetic model data (100 to 3000 models).",
+                "evidence": "Measured via a synthetic Vitest jsdom fixture rendering a ModelPicker with an explicit open and closed state, and triggering a filter change. Mount (open) times scaled linearly: ~126ms (100 models), ~324ms (500 models), ~494ms (1500 models), ~1419ms (3000 models). Mount (closed) times were smaller: ~13ms to ~98ms. The input filtering operation utilizing `useMemo` consistently took < 2ms regardless of dataset size (0.62ms for 3000 models).",
+                "result": "Establishes that filtering performance remains exceptionally fast even with thousands of models, but initial dropdown open latency scales linearly and exceeds 1.4 seconds for 3000 models due to full DOM rendering of all option elements."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate virtualizing the ModelPicker dropdown list to improve initial open latency when dealing with large external provider catalogs."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T10:41:51.058205Z",
+            "source": {
+              "activity_id": "sessions/4652845305353483592/activities/9d471249cdc14f92819ec83f09a20596",
+              "report_sha256": "dbfbcce40d14fba088b7ab47d228c6b8e75e52d980f767faf137b5676af6a89c",
+              "activity_created_at": "2026-09-25T10:31:20.565171Z",
+              "session_id": "4652845305353483592",
+              "dispatch_key": "428d35fb121b32a4a372c8c2"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that SettingsRecoveryScreen lacks proper focus management and accessibility alert attributes.",
+            "observations": [
+              {
+                "scenario": "Rendering SettingsRecoveryScreen on startup when settings recovery is needed.",
+                "evidence": "Tested using synthetic jsdom environment tests targeting SettingsRecoveryScreen. The `document.activeElement` remains the `BODY` upon mount, and the `.settings-recovery-screen` `<main>` element does not contain a `role=\"alert\"` or `role=\"alertdialog\"` attribute, nor are focus traps utilized.",
+                "result": "Establishes that during critical settings recovery failures, the screen does not grab keyboard focus and relies on visual signaling instead of screen-reader compatible alerts, making it poorly accessible."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if model auto-selection in ModelPicker announces changes correctly for screen reader users when a fallback model is applied."
+            ],
+            "proposed_task_ids": [
+              "discovery-ab7a935a0deafa44"
+            ],
+            "completed_at": "2026-09-25T11:50:38.474876Z",
+            "source": {
+              "activity_id": "sessions/14960237597908095051/activities/6effd1f420ae405e90536a9761a613d9",
+              "report_sha256": "3984da920748b2df72687566acda6ea271fcc3d26c6e68d7d2465f60d9913eae",
+              "activity_created_at": "2026-09-25T11:44:01.959735Z",
+              "session_id": "14960237597908095051",
+              "dispatch_key": "c1f4a3372956266f51848474"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated ModelPicker fallback auto-selection and combobox accessibility.",
+            "observations": [
+              {
+                "scenario": "Rendering ModelPicker with an explicit fallback value when the configured model is missing from the catalog.",
+                "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker` with `value=\"model3\"` (missing) and `fallback=\"model2\"`. The DOM was inspected for any `aria-live` regions or ARIA attributes announcing the fallback. `container.querySelectorAll('[aria-live]')` returned an empty list.",
+                "result": "Establishes that screen reader users are not explicitly notified when the ModelPicker automatically switches to a fallback model upon initialization."
+              },
+              {
+                "scenario": "Inspecting the ModelPicker trigger button's ARIA roles.",
+                "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker`. The trigger `<button className=\"model-picker-trigger\">` was inspected for its `role` attribute. `button.getAttribute('role')` returned `null`. It has `aria-controls`, `aria-expanded` and `aria-haspopup=\"listbox\"` but relies on the implicit `button` role.",
+                "result": "Establishes that the ModelPicker trigger is missing the `role=\"combobox\"` attribute, which may degrade the screen reader experience by not identifying it properly as a combobox."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if adding a visually hidden aria-live region to announce fallback auto-selections correctly notifies screen readers without interrupting other essential UI feedback."
+            ],
+            "proposed_task_ids": [
+              "discovery-9c8886af63d9bea5"
+            ],
+            "completed_at": "2026-09-25T12:20:06.487773Z",
+            "source": {
+              "activity_id": "sessions/7938488447222848457/activities/32a69f2820334f05a1b46a3d35315919",
+              "report_sha256": "588b1e39b294eec30656e7d708cf6b28cd1f1e8b6f89cccf3098ca9ec669848e",
+              "activity_created_at": "2026-09-25T12:08:31.080945Z",
+              "session_id": "7938488447222848457",
+              "dispatch_key": "f2618dbfed1ff257ac6454c7"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
