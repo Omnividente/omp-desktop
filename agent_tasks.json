@@ -53028,7 +53028,7 @@
           ]
         },
         "observed_at": "2026-09-25T01:00:04.123317Z",
-        "released_attempt_ref": "autonomous/attempt-313a252f23ea3c9ad5c4f6e8",
+        "released_attempt_ref": "autonomous/attempt-164e659ab0ca273b5c2e2fa8",
         "research_request_history": [
           {
             "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
