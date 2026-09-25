@@ -62952,7 +62952,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T23:02:00.086527Z"
+        "observed_at": "2026-09-25T23:02:00.086527Z",
+        "released_attempt_ref": "autonomous/attempt-0862baca7c27cbccb0e23f92"
       },
       "research_result": {
         "summary": "Verified useVirtualList correctly handles horizontal subpixel rendering rounding and scroll jitter on fractional display scales via MEASUREMENT_EPSILON. Also confirmed that the empty transcript state has no active live region or role for screen readers.",
