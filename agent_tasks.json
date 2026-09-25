@@ -62006,7 +62006,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-25T18:25:50.135618Z"
+        "observed_at": "2026-09-25T18:25:50.135618Z",
+        "released_attempt_ref": "autonomous/attempt-ea3e328618dbdbe5e8713dac"
       },
       "research_result": {
         "summary": "Confirmed that the batch import modals (Codex and OMP) remain open with the full original selection after partial or complete import failures.",
