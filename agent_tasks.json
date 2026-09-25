@@ -62649,7 +62649,7 @@
       "id": "research-transcript-links-ux-9",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -62768,16 +62768,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16511537307343292069",
         "dispatch_key": "0862baca7c27cbccb0e23f92",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-0862baca7c27cbccb0e23f92",
         "started_at": "2026-09-25T22:34:59.835120Z",
-        "finished_at": "",
+        "finished_at": "2026-09-25T23:02:00.086527Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -62951,13 +62951,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-25T22:34:59.835120Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-25T23:02:00.086527Z"
+      },
+      "research_result": {
+        "summary": "Verified useVirtualList correctly handles horizontal subpixel rendering rounding and scroll jitter on fractional display scales via MEASUREMENT_EPSILON. Also confirmed that the empty transcript state has no active live region or role for screen readers.",
+        "observations": [
+          {
+            "scenario": "Simulated rounding errors on horizontal window resizing inside useVirtualList via mocked ResizeObserver where clientWidth jitter is under 0.5px.",
+            "evidence": "Tested using `renderHook` and a mocked ResizeObserver firing with small horizontal fractional differences (e.g. `1000px` to `1000.4px`). Found that `MEASUREMENT_EPSILON = 0.5` is actively applied in `updateMeasurements` and `scheduleMetrics` which effectively prevents subpixel rounding jitter on fractional scaling screens from invalidating measurement revisions or anchor state.",
+            "result": "Establishes that `MEASUREMENT_EPSILON` of 0.5 behaves correctly to debounce fractional layout invalidations on zoomed OS displays."
+          },
+          {
+            "scenario": "Verified if empty transcript states announce correctly for accessibility, explicitly tracking the previous rejected finding for \"empty transcript states\".",
+            "evidence": "Rendered `TranscriptModal` using Vitest with an empty session string (`transcript.entries.length === 0`). The resulting empty state (`<div className=\"transcript-state\">`) outputs `<strong>There are no transcript entries yet</strong>` but lacks `role=\"status\"` or `aria-live=\"polite\"`. In contrast, the `transcriptLoading` state outputs `<div aria-live=\"polite\" className=\"transcript-state\">`.",
+            "result": "Establishes that while loading states announce changes automatically, the terminal state of an empty session does not immediately announce. However, per the previous rejection finding context, this static check doesn't prove it disrupts screen readers in practice if the dialog itself announces or focuses correctly, hence not proposed as a defect."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether the transcript virtual layout causes rendering flicker when continuously jumping between far apart search matches using Next/Prev navigation.",
+          "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-25T23:02:00.086527Z",
+        "source": {
+          "activity_id": "sessions/16511537307343292069/activities/865e284f8a894d7f824840bcc2308fb6",
+          "report_sha256": "6ba65bb677b330af27784f4fc899286a092631699718b6ea9f880f9095a6dc6c",
+          "activity_created_at": "2026-09-25T22:52:51.359676Z",
+          "session_id": "16511537307343292069",
+          "dispatch_key": "0862baca7c27cbccb0e23f92"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-25T22:56:09.686717Z",
+    "last_poll_at": "2026-09-25T23:02:21.021631Z",
     "last_tick_at": "2026-09-25T22:56:13.331928Z",
     "run_id": "36198921280"
   }
