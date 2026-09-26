@@ -71488,7 +71488,7 @@
       "id": "research-diagnostics-resources-reliability-10",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -71631,16 +71631,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6760170981285128318",
         "dispatch_key": "52448076746bb4f12a95a929",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-52448076746bb4f12a95a929",
         "started_at": "2026-09-26T14:06:38.053772Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T14:34:33.059140Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -71721,13 +71721,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T14:06:38.053772Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T14:34:33.059140Z"
+      },
+      "research_result": {
+        "summary": "Investigated the failure recovery and persistence logic in `runtimeIncidents.ts`, specifically examining how fallback incidents are resolved when the primary model recovers.",
+        "observations": [
+          {
+            "scenario": "Verify that an active fallback incident is properly resolved when a `modelChange` event signals the recovery of the primary model (`resolvedModelIsFallback: false`).",
+            "evidence": "Ran isolated tests on `applyRuntimeIncidentEvent` by creating a `retryFallbackApplied` incident with `fallbackRole: \"secondary\"`. Then applied a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`. In `src/runtimeIncidents.ts:199`, the logic evaluates `event.fallbackRole ?? event.modelRole` as `\"primary\"` and calls `resolveFallbacks` with this role. `resolveFallbacks` checks if the incident's role matches `\"primary\"`, but the active incident's role is `\"secondary\"`. As a result, the fallback incident is left unresolved.",
+            "result": "Establishes a logical bug in failure recovery where returning to the primary model fails to clear an active secondary fallback incident because it incorrectly filters by the newly recovered `modelRole` instead of broadly clearing active fallbacks for the terminal."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if multiple concurrent fallbacks across different roles can cause `enforceIncidentBound` to mistakenly drop unresolved primary fallback issues when limits are reached.",
+          "Verify whether a missing or unmounted volume during `sample_resource_health` correctly persists its unavailability status across backend restart loops."
+        ],
+        "proposed_task_ids": [
+          "discovery-aa17322b78e9eae9"
+        ],
+        "completed_at": "2026-09-26T14:34:33.059140Z",
+        "source": {
+          "activity_id": "sessions/6760170981285128318/activities/f2a8735f9fa64558acd6562ebe0f7642",
+          "report_sha256": "f11660d9c931d6421ae1b54db873fc01252c5263be162f85ce528e0cc444cc32",
+          "activity_created_at": "2026-09-26T14:22:28.328436Z",
+          "session_id": "6760170981285128318",
+          "dispatch_key": "52448076746bb4f12a95a929"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6760170981285128318/activities/f2a8735f9fa64558acd6562ebe0f7642",
+          "report_sha256": "f11660d9c931d6421ae1b54db873fc01252c5263be162f85ce528e0cc444cc32",
+          "activity_created_at": "2026-09-26T14:22:28.328436Z",
+          "session_id": "6760170981285128318",
+          "dispatch_key": "52448076746bb4f12a95a929"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-aa17322b78e9eae9"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-aa17322b78e9eae9",
+      "title": "Fix failure to resolve active fallbacks when primary model recovers",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests"
+      ],
+      "created_at": "2026-09-26T14:34:33.059140Z",
+      "acceptance": [
+        "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', regardless of their specific fallback role."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a new `RuntimeIncidentState` via `createRuntimeIncidentState`.",
+            "Apply a `retryFallbackApplied` event for `term-1` with `modelRole: \"primary\"` and `fallbackRole: \"secondary\"`.",
+            "Apply a `modelChange` event for `term-1` with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`.",
+            "Inspect the active incidents list in the resulting state."
+          ],
+          "expected": "The fallback incident created for `term-1` is transitioned to `status: \"resolved\"` with `resolutionReason: \"primaryRestored\"`.",
+          "actual": "The fallback incident remains in `status: \"active\"` because `resolveFallbacks` filters by the `'primary'` role, failing to match the `'secondary'` incident role."
+        }
+      },
+      "target_paths": [
+        "src/runtimeIncidents.ts"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-reliability-10",
+        "activity_id": "sessions/6760170981285128318/activities/f2a8735f9fa64558acd6562ebe0f7642",
+        "report_sha256": "f11660d9c931d6421ae1b54db873fc01252c5263be162f85ce528e0cc444cc32",
+        "activity_created_at": "2026-09-26T14:22:28.328436Z",
+        "session_id": "6760170981285128318",
+        "dispatch_key": "52448076746bb4f12a95a929"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T14:28:28.995957Z",
+    "last_poll_at": "2026-09-26T14:34:48.280041Z",
     "last_tick_at": "2026-09-26T14:28:32.907668Z",
     "run_id": "36248580080"
   }
