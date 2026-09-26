@@ -67464,7 +67464,7 @@
       "id": "research-workspace-navigation-reliability-10",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -67600,16 +67600,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "4570065288463513648",
         "dispatch_key": "94bd299ceae417dc2f6f2744",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-94bd299ceae417dc2f6f2744",
         "started_at": "2026-09-26T08:18:04.082863Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T08:58:17.182880Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -67787,24 +67787,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T08:52:01.829738Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-26T08:45:41.814361Z",
-          "source": {
-            "activity_id": "sessions/4570065288463513648/activities/ded708b1fed64e198ec8576aaa9b08a1",
-            "report_sha256": "44803538b1f7a72001326ad48bf52e0b7df564898715b7febfb89559167f0a07",
-            "activity_created_at": "2026-09-26T08:35:08.010441Z",
-            "session_id": "4570065288463513648",
-            "dispatch_key": "94bd299ceae417dc2f6f2744"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T08:58:17.182880Z",
         "report_repair": {
           "at": "2026-09-26T08:46:00.993056Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/4570065288463513648/activities/ded708b1fed64e198ec8576aaa9b08a1",
             "report_sha256": "44803538b1f7a72001326ad48bf52e0b7df564898715b7febfb89559167f0a07",
@@ -67813,11 +67801,189 @@
             "dispatch_key": "94bd299ceae417dc2f6f2744"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated workspace reconciliation failure during concurrent single-instance dispatches",
+        "observations": [
+          {
+            "scenario": "Multiple single-instance IPC messages causing overlapped workspace additions, followed by an out-of-order failure of one request.",
+            "evidence": "Wrote a synthetic component test (`src/WorkspaceReconcile.test.tsx`) that triggered multiple concurrent `single-instance` events. By blocking the first promise and letting the second resolve, `latestRequest` in `App.tsx` became greater than the first request's index. When the first promise rejected, the catch block failed to set `needsReconcile = true` because it strictly checks `request === latestRequest`. The `finally` block therefore didn't trigger `refresh()`, leaving the UI state un-reconciled.",
+            "result": "Establishes that out-of-order failures in single-instance handling prevent state reconciliation, which can cause the UI state to diverge from the backend state (as invalidated bootstrap reads are missed)."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if identical out-of-order failure modes exist in other IPC payload handlers relying on `latestRequest` increment checks without broad catch block reconciliation."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T08:58:17.182880Z",
+        "source": {
+          "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+          "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+          "activity_created_at": "2026-09-26T08:47:41.887308Z",
+          "session_id": "4570065288463513648",
+          "dispatch_key": "94bd299ceae417dc2f6f2744"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.\", \"reproduction\": {\"actual\": \"The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh\", \"expected\": \"The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state\", \"steps\": [\"Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)\", \"Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`\", \"Let the delayed first request fail and observe if the frontend state performs a refresh\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+            ],
+            "deferred_id": "66cae8fad4759c42d09fbdb0d880abf1ee2d2b1e732d649a30f78f26e5ee3d91",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+              "risk": "medium",
+              "priority": 70,
+              "focus": [
+                "quality",
+                "bugfix"
+              ],
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)",
+                    "Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`",
+                    "Let the delayed first request fail and observe if the frontend state performs a refresh"
+                  ],
+                  "expected": "The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state",
+                  "actual": "The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh"
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-a6a63bbab9e7a7e3",
+                  "action": "resolve",
+                  "decision_at": "2026-09-19T05:40:33Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-workspace-navigation-reliability-10",
+              "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+              "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+              "activity_created_at": "2026-09-26T08:47:41.887308Z",
+              "session_id": "4570065288463513648",
+              "dispatch_key": "94bd299ceae417dc2f6f2744"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+          "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+          "activity_created_at": "2026-09-26T08:47:41.887308Z",
+          "session_id": "4570065288463513648",
+          "dispatch_key": "94bd299ceae417dc2f6f2744"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-ea7a6a192112e626",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-a6a63bbab9e7a7e3"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.\", \"reproduction\": {\"actual\": \"The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh\", \"expected\": \"The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state\", \"steps\": [\"Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)\", \"Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`\", \"Let the delayed first request fail and observe if the frontend state performs a refresh\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+              ],
+              "deferred_id": "66cae8fad4759c42d09fbdb0d880abf1ee2d2b1e732d649a30f78f26e5ee3d91",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+                "risk": "medium",
+                "priority": 70,
+                "focus": [
+                  "quality",
+                  "bugfix"
+                ],
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)",
+                      "Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`",
+                      "Let the delayed first request fail and observe if the frontend state performs a refresh"
+                    ],
+                    "expected": "The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state",
+                    "actual": "The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh"
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-a6a63bbab9e7a7e3",
+                    "action": "resolve",
+                    "decision_at": "2026-09-19T05:40:33Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-workspace-navigation-reliability-10",
+                "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+                "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+                "activity_created_at": "2026-09-26T08:47:41.887308Z",
+                "session_id": "4570065288463513648",
+                "dispatch_key": "94bd299ceae417dc2f6f2744"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T08:52:19.325258Z",
+    "last_poll_at": "2026-09-26T08:58:39.026414Z",
     "last_tick_at": "2026-09-26T08:52:23.759517Z",
     "run_id": "36231047828"
   }
