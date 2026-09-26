@@ -67800,7 +67800,8 @@
             "session_id": "4570065288463513648",
             "dispatch_key": "94bd299ceae417dc2f6f2744"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-94bd299ceae417dc2f6f2744"
       },
       "research_result": {
         "summary": "Investigated workspace reconciliation failure during concurrent single-instance dispatches",
