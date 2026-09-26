@@ -68831,7 +68831,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T10:58:22.218770Z"
+        "observed_at": "2026-09-26T10:58:22.218770Z",
+        "released_attempt_ref": "autonomous/attempt-e4cfcd1b075d779202765d59"
       },
       "research_result": {
         "summary": "Investigated workspace navigation keyboard shortcuts on macOS and confirmed hardcoded visual modifiers do not match functional runtime bindings.",
