@@ -67328,7 +67328,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T08:13:28.080302Z"
+        "observed_at": "2026-09-26T08:13:28.080302Z",
+        "released_attempt_ref": "autonomous/attempt-3b2115ab21f7fa21a3671eb0"
       },
       "research_result": {
         "summary": "Investigated `createMouseSelectionEdit` character counting for multiline edits and emoji.",
