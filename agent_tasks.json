@@ -69245,7 +69245,7 @@
       "id": "research-sessions-persistence-behavior-11",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -69450,16 +69450,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "3512087580058234043",
         "dispatch_key": "acd2b542296a8b620f56a3b2",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-acd2b542296a8b620f56a3b2",
         "started_at": "2026-09-26T11:19:50.848274Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T11:59:55.932159Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -69642,24 +69642,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T11:51:30.477429Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-26T11:47:25.367204Z",
-          "source": {
-            "activity_id": "sessions/3512087580058234043/activities/87420bda32c148acad58f89d93bf9d5b",
-            "report_sha256": "d22738808579205a360bc9136ebb9ded9e02b1e9c366ed400ad26867fb2f7f20",
-            "activity_created_at": "2026-09-26T11:36:11.275266Z",
-            "session_id": "3512087580058234043",
-            "dispatch_key": "acd2b542296a8b620f56a3b2"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T11:59:55.932159Z",
         "report_repair": {
           "at": "2026-09-26T11:47:47.925464Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/3512087580058234043/activities/87420bda32c148acad58f89d93bf9d5b",
             "report_sha256": "d22738808579205a360bc9136ebb9ded9e02b1e9c366ed400ad26867fb2f7f20",
@@ -69667,6 +69655,60 @@
             "session_id": "3512087580058234043",
             "dispatch_key": "acd2b542296a8b620f56a3b2"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified that fixing the seriously invalid nested interactive structure in SessionRow and duplicate banner/contentinfo landmarks in CodexImportModal/ImportSessionModal resolves the reported axe-core accessibility violations.",
+        "observations": [
+          {
+            "scenario": "Simulating accessibility checks on a SessionRow component while it is in the 'renaming' state with and without the nested-interactive fix.",
+            "evidence": "Ran axe-core on a jsdom test rendering SessionRow. By default, it reported a 'nested-interactive' serious violation because the <input> element is a focusable descendant of <div className='session-select' role='button' tabIndex={0}>, and a 'label' critical violation. Changing the parent to `role='presentation'` and removing its `tabIndex` when `renaming=true` resolved the nested-interactive violation. Adding `aria-label=t(lang, 'editFixedTitle')` to the input resolved the label violation.",
+            "result": "Establishes that the UI creates an invalid nested interactive element structure during session rename. Converting role='button' to role='presentation' and dropping tabIndex=0 on the parent when renaming=true resolves the violation and properly exposes the input."
+          },
+          {
+            "scenario": "Simulating accessibility checks on the app's modals to observe duplicate banner and contentinfo landmarks.",
+            "evidence": "Ran axe-core on a mocked DOM containing CodexImportModal and ImportSessionModal side-by-side or within a surrounding layout. It flagged 'landmark-no-duplicate-banner', 'landmark-no-duplicate-contentinfo', and 'landmark-unique' moderate violations because the modals use raw <header> and <footer> tags inside their <section role='dialog'> wrappers, which aren't fully sequestered from the global document context when mounted.",
+            "result": "Establishes that using <header> and <footer> directly inside role='dialog' modals causes duplicate semantic landmarks if multiple are mounted or they conflict with the main application shell. Changing these to <div className='settings-header'> and <div className='settings-actions'> preserves visual layout without polluting global accessibility landmarks."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items, despite the lack of user workload evidence so far.",
+          "Investigate the memory consumption limit of large OMP import sessions when the file contains heavily fragmented chunks."
+        ],
+        "proposed_task_ids": [
+          "discovery-fd9640fc9f4e2b85",
+          "discovery-d8231b85a1326e2c"
+        ],
+        "completed_at": "2026-09-26T11:59:55.932159Z",
+        "source": {
+          "activity_id": "sessions/3512087580058234043/activities/cd8b96b3e68e4740a4add87ed1f6c601",
+          "report_sha256": "3e38208263486aa1778e295f974bf47335e6b6663de4df97ce8d05e6e06f0070",
+          "activity_created_at": "2026-09-26T11:48:29.104964Z",
+          "session_id": "3512087580058234043",
+          "dispatch_key": "acd2b542296a8b620f56a3b2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3512087580058234043/activities/cd8b96b3e68e4740a4add87ed1f6c601",
+          "report_sha256": "3e38208263486aa1778e295f974bf47335e6b6663de4df97ce8d05e6e06f0070",
+          "activity_created_at": "2026-09-26T11:48:29.104964Z",
+          "session_id": "3512087580058234043",
+          "dispatch_key": "acd2b542296a8b620f56a3b2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-fd9640fc9f4e2b85",
+            "discovery-d8231b85a1326e2c"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -69969,10 +70011,93 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-26T11:51:30.477429Z"
       }
+    },
+    {
+      "id": "discovery-fd9640fc9f4e2b85",
+      "title": "Resolve nested interactive element and missing label violations in SessionRow during rename",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "accessibility"
+      ],
+      "created_at": "2026-09-26T11:59:55.932159Z",
+      "acceptance": [
+        "When a session is being renamed, the parent '.session-select' div switches to role='presentation' and loses its tabIndex, preventing the serious nested-interactive accessibility violation.",
+        "The rename <input> element has an explicit aria-label ('editFixedTitle' translation) attached to it."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via axe-core analysis in a jsdom test on the exact pinned base.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render SessionRow in a testing environment with renaming=true.",
+            "Run an axe-core accessibility audit on the rendered container."
+          ],
+          "expected": "The audit passes without any nested-interactive or missing label violations.",
+          "actual": "Axe-core reports a serious 'nested-interactive' violation because the <input> is inside a <div role='button' tabIndex={0}>, and a critical 'label' violation for the input itself."
+        }
+      },
+      "target_paths": [
+        "src/SessionRow.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-11",
+        "activity_id": "sessions/3512087580058234043/activities/cd8b96b3e68e4740a4add87ed1f6c601",
+        "report_sha256": "3e38208263486aa1778e295f974bf47335e6b6663de4df97ce8d05e6e06f0070",
+        "activity_created_at": "2026-09-26T11:48:29.104964Z",
+        "session_id": "3512087580058234043",
+        "dispatch_key": "acd2b542296a8b620f56a3b2"
+      }
+    },
+    {
+      "id": "discovery-d8231b85a1326e2c",
+      "title": "Remove duplicate banner and contentinfo landmarks from import modals",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "accessibility"
+      ],
+      "created_at": "2026-09-26T11:59:55.932159Z",
+      "acceptance": [
+        "The <header> and <footer> tags in CodexImportModal and ImportSessionModal are replaced with <div> tags utilizing the same CSS classes.",
+        "Axe-core scans of the rendered modals no longer report 'landmark-no-duplicate-banner', 'landmark-no-duplicate-contentinfo', or 'landmark-unique' violations."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via axe-core analysis in a jsdom test on the exact pinned base when rendering the modals.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render CodexImportModal and ImportSessionModal in a testing environment.",
+            "Run an axe-core accessibility audit on the rendered container."
+          ],
+          "expected": "The audit passes without any duplicate landmark violations.",
+          "actual": "Axe-core reports moderate violations for 'landmark-no-duplicate-banner', 'landmark-no-duplicate-contentinfo', and 'landmark-unique' because the raw <header> and <footer> tags bleed out of the dialog role in certain DOM configurations."
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx",
+        "src/ImportSessionModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-11",
+        "activity_id": "sessions/3512087580058234043/activities/cd8b96b3e68e4740a4add87ed1f6c601",
+        "report_sha256": "3e38208263486aa1778e295f974bf47335e6b6663de4df97ce8d05e6e06f0070",
+        "activity_created_at": "2026-09-26T11:48:29.104964Z",
+        "session_id": "3512087580058234043",
+        "dispatch_key": "acd2b542296a8b620f56a3b2"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T11:53:53.349110Z",
+    "last_poll_at": "2026-09-26T12:00:15.555869Z",
     "last_tick_at": "2026-09-26T11:53:56.437067Z",
     "run_id": "36240108649"
   }
