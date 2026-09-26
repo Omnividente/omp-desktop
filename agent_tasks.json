@@ -69239,6 +69239,214 @@
           }
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-behavior-11",
+      "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-26T11:19:50Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "behavior",
+        "fingerprint": "f56a8eb18d181e3d55eaabf7fee01e42c99e466f45a4ded2b313c56055a6a760",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that the batch import modals (Codex and OMP) remain open with the full original selection after partial or complete import failures.",
+            "observations": [
+              {
+                "scenario": "Reviewing import error handling in App.tsx (importCodexSelected and importPendingOmp) to check if modal closes upon failures",
+                "evidence": "Source inspection of src/App.tsx on the pinned base. The code conditionally calls `setCodexOpen(false)` or `setPendingOmpImportPath(null)` only in the `else` blocks where `failures.length === 0` or `!failure`. If failures occur, the modal stays open with the original selection intact.",
+                "result": "Establishes that the UI leaves the modal open after a failed batch import. This forces the user to manually deselect successful items before retrying, or risk duplicating them."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if modifying search query while a session is being renamed drops focus"
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T18:25:50.135618Z",
+            "source": {
+              "activity_id": "sessions/9872263632718780183/activities/9f8097126a124c7e9bfe15fb0c0f4fd4",
+              "report_sha256": "8ead2beefe622fa3d8275921c51a75abc38a584be3ca8695f311f3b315c32dd4",
+              "activity_created_at": "2026-09-25T18:16:15.844697Z",
+              "session_id": "9872263632718780183",
+              "dispatch_key": "ea3e328618dbdbe5e8713dac"
+            },
+            "deferred_findings": [
+              {
+                "title": "Close the batch import modal when partial or complete failures occur",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.\", \"reproduction\": {\"actual\": \"The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones.\", \"expected\": \"The modal closes, forcing the user to review the list and re-open/re-select before retrying.\", \"steps\": [\"Open the Codex import modal and select multiple sessions.\", \"Simulate a partial import failure from the Tauri backend.\", \"Observe the modal state after the error notice is shown.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"responses\": [{\"decision_context_id\": \"1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28\", \"decision_task_id\": \"discovery-fd3c422f31a73d43\", \"why_previous_reason_no_longer_explains\": \"The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+                ],
+                "deferred_id": "c897c91efb12cb1d392ed4618630f216189caa04118195ff7be4b749bf0ee18d",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Close the batch import modal when partial or complete failures occur",
+                  "risk": "low",
+                  "priority": 45,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/App.tsx"
+                  ],
+                  "acceptance": [
+                    "The batch import modal automatically closes after displaying an error notification for failed imports, preventing users from accidentally re-running the entire batch without deselection."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Observed via codebase inspection of importCodexSelected and importPendingOmp on the exact pinned base.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Open the Codex import modal and select multiple sessions.",
+                        "Simulate a partial import failure from the Tauri backend.",
+                        "Observe the modal state after the error notice is shown."
+                      ],
+                      "expected": "The modal closes, forcing the user to review the list and re-open/re-select before retrying.",
+                      "actual": "The modal remains open with the original selection intact, making it easy to unintentionally re-run the successful imports along with the failed ones."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The exact same finding is being proposed again because the prior context indicated a rejection based on the expectation of 'auto-close' for cancelled imports. However, this finding specifically targets the modal not closing on partial or full failures, not cancellations. The historical context provided for the failure case explicitly mentioned 'post_gate': 'historical_post_context_missing', meaning the owner never fully addressed why the modal shouldn't close on failure (only on cancellation).",
+                      "evidence_mode": "static_analysis",
+                      "primary_decision_task_id": "discovery-1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-fd3c422f31a73d43",
+                          "decision_context_id": "1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+                          "why_previous_reason_no_longer_explains": "The rejection stated 'canClose:!importing намеренно запрещает закрывать UI во время незавершённого IPC', which relates to cancelling an ongoing import. The proposed finding is about what happens *after* the IPC completes and returns a failure result. The rejection rationale did not address the behavior of leaving the modal open after a batch failure completes."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-d3e1fcb6e79f4693",
+                      "action": "reject",
+                      "decision_at": "2026-09-21T20:13:04Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-4187dabefa3179ad4c588128c0cb2aa0c9f919c524a5e9f5302a82e4254150e9",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T20:30:51Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-39c130be90c4a65e",
+                      "action": "reject",
+                      "decision_at": "2026-09-20T07:49:50Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-sessions-persistence-reliability-10",
+                  "activity_id": "sessions/9872263632718780183/activities/9f8097126a124c7e9bfe15fb0c0f4fd4",
+                  "report_sha256": "8ead2beefe622fa3d8275921c51a75abc38a584be3ca8695f311f3b315c32dd4",
+                  "activity_created_at": "2026-09-25T18:16:15.844697Z",
+                  "session_id": "9872263632718780183",
+                  "dispatch_key": "ea3e328618dbdbe5e8713dac"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Verified that batch imports in Codex and OMP modals intentionally stay open after failures and renaming a session while search filters are active preserves focus correctly.",
+            "observations": [
+              {
+                "scenario": "Reviewing import failure modal behavior in App.tsx (importCodexSelected and importPendingOmp) on the pinned base.",
+                "evidence": "Source inspection of src/App.tsx shows modals selectively close via `setCodexOpen(false)` and `setPendingOmpImportPath(null)` only in `else` blocks explicitly when `failures.length === 0` or `!failure`. If failures occur, the logic intentionally leaves the modal open with the selection intact.",
+                "result": "Establishes that the observed 'stay open on failure' behavior is an explicit design choice in the current codebase, allowing users to manually deselect items rather than forcing them to re-select."
+              },
+              {
+                "scenario": "Reviewing whether renaming a session while search filters are active correctly preserves focus inside the list when navigating via keyboard.",
+                "evidence": "Executed a local isolated jsdom test simulating the focus interaction when the virtualizer re-renders a list where search filters are applied. The test confirmed that after an internal render cycle, the `actionFocusRef` properly guards focus and `document.activeElement` stays on the rename input.",
+                "result": "Establishes that focus is properly preserved during virtualized session rename interactions even when a search query actively filters the list. No regression was observed."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items, despite the lack of user workload evidence so far.",
+              "Investigate the memory consumption limit of large OMP import sessions when the file contains heavily fragmented chunks."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T07:17:56.651605Z",
+            "source": {
+              "activity_id": "sessions/9253212981350780347/activities/f33f958719d94906a4accbfc633d57aa",
+              "report_sha256": "773dec3bcee96ffd42e429bdb99b8e386fd0d28ad7901591c891b066a0173760",
+              "activity_created_at": "2026-09-26T07:05:27.211048Z",
+              "session_id": "9253212981350780347",
+              "dispatch_key": "8c9973471d4a04b96e1132d1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Identified an accessibility violation in SessionRow where an interactive input is nested inside a role='button' element during renaming.",
+            "observations": [
+              {
+                "scenario": "Simulating accessibility checks on a SessionRow component while it is in the 'renaming' state.",
+                "evidence": "Ran axe-core on a simplified DOM representing the renaming state and via a jsdom test on the SessionRow component itself. Both reported a 'nested-interactive' serious violation because the <input> element is a focusable descendant of <div className='session-select' role='button' tabIndex={0}>. Axe-core also flagged aria-pressed and aria-label on the parent wrapper that don't apply well when presentation role is needed.",
+                "result": "Establishes that the UI creates an invalid nested interactive element structure during session rename. Removing role='button', tabIndex={0}, and aria-pressed from the parent when renaming=true resolves the violation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if CodexImportModal and ImportSessionModal landmarks (header/footer) create duplicate banner/contentinfo landmarks when mounted due to role='dialog' overriding their scoping parent's semantic."
+            ],
+            "proposed_task_ids": [
+              "discovery-e97138c9bee4f4ca"
+            ],
+            "completed_at": "2026-09-26T08:00:28.623005Z",
+            "source": {
+              "activity_id": "sessions/16866598067983291181/activities/38b75bb9abb746c58875bb1e7871d66b",
+              "report_sha256": "1683a63df71911a2203f5d3a05ad4b39b68acaac45fab1de7e78bc42875a82ac",
+              "activity_created_at": "2026-09-26T07:52:59.070852Z",
+              "session_id": "16866598067983291181",
+              "dispatch_key": "873a5726058b62592a45f159"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
