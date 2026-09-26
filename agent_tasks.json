@@ -70378,8 +70378,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "16135313784260871552",
         "dispatch_key": "49cbca281804a06d1d70ddb1",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-49cbca281804a06d1d70ddb1",
