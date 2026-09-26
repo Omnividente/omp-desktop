@@ -66797,7 +66797,8 @@
             "session_id": "16866598067983291181",
             "dispatch_key": "873a5726058b62592a45f159"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-873a5726058b62592a45f159"
       },
       "research_result": {
         "summary": "Identified an accessibility violation in SessionRow where an interactive input is nested inside a role='button' element during renaming.",
