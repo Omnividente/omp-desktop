@@ -67986,7 +67986,7 @@
       "id": "research-workspace-navigation-performance-10",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -68169,16 +68169,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16123023964864118526",
         "dispatch_key": "4b505c0275d47baeaf1aa4b2",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-4b505c0275d47baeaf1aa4b2",
         "started_at": "2026-09-26T10:09:17.719195Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T10:36:50.505686Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -68355,13 +68355,105 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T10:17:56.733473Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T10:36:50.505686Z"
+      },
+      "research_result": {
+        "summary": "Verified that ProjectRail mapping overhead blocks the UI with many workspaces due to unmemoized rendering",
+        "observations": [
+          {
+            "scenario": "Simulate rendering ProjectRail with 500 workspaces and update unrelated props (like session search) and selectedWorkspace.",
+            "evidence": "Wrote synthetic vitest benchmarking scripts (workspace-perf.test.tsx) which verified that `ProjectRail.tsx` re-evaluates `workspaces.map` on every render. Because the mapping isn't isolated into a memoized list component, rendering 500 workspaces takes ~170-180ms when changing `selectedWorkspace` or even unrelated props, while changing `sessionList` takes ~30ms in isolation. In comparison, `WorkspaceHome.tsx` renders 500 workspaces in ~1ms because it limits its rendering.",
+            "result": "Establishes that O(N) inline rendering of workspaces within `ProjectRail.tsx` causes severe UI blocking (~180ms per update) when scaled to large arrays of workspaces, independent of terminal updates."
+          },
+          {
+            "scenario": "Simulate rendering TerminalWorkspace tab switching with active sessions.",
+            "evidence": "Wrote synthetic vitest benchmarking scripts that simulated rapid tab switching among 50 terminal tabs. Re-rendering TerminalWorkspace with mocked terminal instances took ~26-44ms per update on average.",
+            "result": "Establishes that TerminalWorkspace has acceptable latency under heavy tab count load relative to ProjectRail, but still scales linearly."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `flattenSessionTree` in `SessionList.tsx` scales poorly with deeply nested file trees beyond 500 sessions."
+        ],
+        "proposed_task_ids": [
+          "discovery-014bf8452df52335"
+        ],
+        "completed_at": "2026-09-26T10:36:50.505686Z",
+        "source": {
+          "activity_id": "sessions/16123023964864118526/activities/82a88add19ee4ed68188daee374a06d2",
+          "report_sha256": "10c153b3a90b6f75beb10f8dc927a31a1f5ab0d0bc6f14604e80650a6c0b4a7d",
+          "activity_created_at": "2026-09-26T10:29:48.802055Z",
+          "session_id": "16123023964864118526",
+          "dispatch_key": "4b505c0275d47baeaf1aa4b2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16123023964864118526/activities/82a88add19ee4ed68188daee374a06d2",
+          "report_sha256": "10c153b3a90b6f75beb10f8dc927a31a1f5ab0d0bc6f14604e80650a6c0b4a7d",
+          "activity_created_at": "2026-09-26T10:29:48.802055Z",
+          "session_id": "16123023964864118526",
+          "dispatch_key": "4b505c0275d47baeaf1aa4b2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-014bf8452df52335"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-014bf8452df52335",
+      "title": "Optimize ProjectRail workspaces iteration rendering to resolve scaling performance issue with large numbers of workspaces",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-26T10:36:50.505686Z",
+      "acceptance": [
+        "Updating unrelated props in ProjectRail causes only necessary rows to re-render, avoiding an O(N) penalty that causes ~170-180ms latency per update on large workspaces (N=500)."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native desktop observation supported by a synthetic React benchmark mapping ProjectRail rendering times. When ProjectRail renders an array of workspaces, the inline `workspaces.map` operation evaluates every workspace row element on every render. Because `ProjectRail` does not memoize the individual workspace rows or list sections, any update to `selectedWorkspace`, `sessionList`, or other unrelated props forces a complete re-evaluation of all N workspace elements. For N=500 workspaces, the latency reaches 170-180ms on average per React render iteration, which blocks the main UI thread during navigation. Moving the workspace item mapping into a separate memoized component or `useMemo` block allows React to bail out of rendering unaffected workspace DOM nodes.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and simulate or load an environment with 500 workspaces in the rail.",
+            "Interact with the rail by selecting different workspaces or allowing the App to re-render due to background terminal state updates.",
+            "Measure the re-render response latency of ProjectRail during these state transitions."
+          ],
+          "expected": "ProjectRail re-renders complete within 16ms, only updating the state of changed rows (e.g. active states), keeping the UI responsive.",
+          "actual": "ProjectRail evaluates all 500 workspace DOM nodes per render inline, causing ~170-180ms latency blocks per frame due to O(N) evaluation."
+        }
+      },
+      "target_paths": [
+        "src/ProjectRail.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-performance-10",
+        "activity_id": "sessions/16123023964864118526/activities/82a88add19ee4ed68188daee374a06d2",
+        "report_sha256": "10c153b3a90b6f75beb10f8dc927a31a1f5ab0d0bc6f14604e80650a6c0b4a7d",
+        "activity_created_at": "2026-09-26T10:29:48.802055Z",
+        "session_id": "16123023964864118526",
+        "dispatch_key": "4b505c0275d47baeaf1aa4b2"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T10:30:54.952819Z",
+    "last_poll_at": "2026-09-26T10:37:08.146981Z",
     "last_tick_at": "2026-09-26T10:30:58.112185Z",
     "run_id": "36235986547"
   }
