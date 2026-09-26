@@ -73255,6 +73255,121 @@
         "session_id": "1589541749085042845",
         "dispatch_key": "04ff46f6c31f773e45f44937"
       }
+    },
+    {
+      "id": "research-transcript-links-performance-10",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-26T19:22:39Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 10,
+        "previous_reports": [
+          {
+            "summary": "Verified useVirtualList correctly handles horizontal subpixel rendering rounding and scroll jitter on fractional display scales via MEASUREMENT_EPSILON. Also confirmed that the empty transcript state has no active live region or role for screen readers.",
+            "observations": [
+              {
+                "scenario": "Simulated rounding errors on horizontal window resizing inside useVirtualList via mocked ResizeObserver where clientWidth jitter is under 0.5px.",
+                "evidence": "Tested using `renderHook` and a mocked ResizeObserver firing with small horizontal fractional differences (e.g. `1000px` to `1000.4px`). Found that `MEASUREMENT_EPSILON = 0.5` is actively applied in `updateMeasurements` and `scheduleMetrics` which effectively prevents subpixel rounding jitter on fractional scaling screens from invalidating measurement revisions or anchor state.",
+                "result": "Establishes that `MEASUREMENT_EPSILON` of 0.5 behaves correctly to debounce fractional layout invalidations on zoomed OS displays."
+              },
+              {
+                "scenario": "Verified if empty transcript states announce correctly for accessibility, explicitly tracking the previous rejected finding for \"empty transcript states\".",
+                "evidence": "Rendered `TranscriptModal` using Vitest with an empty session string (`transcript.entries.length === 0`). The resulting empty state (`<div className=\"transcript-state\">`) outputs `<strong>There are no transcript entries yet</strong>` but lacks `role=\"status\"` or `aria-live=\"polite\"`. In contrast, the `transcriptLoading` state outputs `<div aria-live=\"polite\" className=\"transcript-state\">`.",
+                "result": "Establishes that while loading states announce changes automatically, the terminal state of an empty session does not immediately announce. However, per the previous rejection finding context, this static check doesn't prove it disrupts screen readers in practice if the dialog itself announces or focuses correctly, hence not proposed as a defect."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate whether the transcript virtual layout causes rendering flicker when continuously jumping between far apart search matches using Next/Prev navigation.",
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-25T23:02:00.086527Z",
+            "source": {
+              "activity_id": "sessions/16511537307343292069/activities/865e284f8a894d7f824840bcc2308fb6",
+              "report_sha256": "6ba65bb677b330af27784f4fc899286a092631699718b6ea9f880f9095a6dc6c",
+              "activity_created_at": "2026-09-25T22:52:51.359676Z",
+              "session_id": "16511537307343292069",
+              "dispatch_key": "0862baca7c27cbccb0e23f92"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated content links parsing, desktop routing boundaries, and context menu behaviors in TranscriptModal. Verified that frontend boundary logic correctly filters out non-content paths and delegates complex URLs (like percent-encoded mailto) to a safe backend processor. Further verified that the context menu hierarchy gracefully yields link actions to user text selections.",
+            "observations": [
+              {
+                "scenario": "Evaluated the boundary rules for identifying content links on the frontend versus the backend processor, specifically focusing on malformed percent encoding and line selectors.",
+                "evidence": "Traced the `isContentLink` matching logic in `contentLinks.ts` and constructed isolated synthetic tests with `npx tsx`. Confirmed that scheme-less generic words with line selectors (e.g., `report:1-5`) are correctly rejected by the frontend, while valid project files (`report.md:1-5` or `folder/:1-5`) are allowed. Read `resolve_content_link` in `src-tauri/src/content_links.rs` and confirmed that the backend securely handles percent-encoding on `mailto:` strings (throwing safe unhandled text errors instead of panicking on malformed URLs) and effectively strips valid line selectors before file validation.",
+                "result": "Establishes that the frontend and backend share an aligned, secure contract for content link identification, successfully protecting the application from unsafe URL schemes and out-of-bounds traversal without silently hiding format errors."
+              },
+              {
+                "scenario": "Evaluated the visual interaction and context menu routing when right-clicking external links, local files, and selected text in the TranscriptModal.",
+                "evidence": "Traced `TranscriptModal.tsx` and `MarkdownContent.tsx`. Observed that external HTTP/HTTPS links correctly suppress the application's internal link context menu, yielding to the native browser-level right-click menu. Observed that when a user selects a range of text that spans across an internal file link, `onLinkContextMenu` checks `selection.isCollapsed` and safely bails out, allowing the event to bubble to the scroll container's `onContextMenu`, which correctly presents the 'Copy Selection' menu.",
+                "result": "Establishes that the context menu hierarchy intentionally and correctly prioritizes user clipboard actions over link reveal actions, and segregates external versus internal link functionality."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if focusing the content action menu immediately after changing a transcript view mode disrupts screen reader announcements for the new view state.",
+              "Investigate the accessibility of the `MarkdownContent` code block copy buttons when navigating strictly by keyboard."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T03:39:30.715305Z",
+            "source": {
+              "activity_id": "sessions/13676960704070784598/activities/1a99105c32e948c6840d5a60e85f0589",
+              "report_sha256": "9e5cb803f298c6c002d7d2ad52992b587ea155997e653f40eb29ed90e2e841af",
+              "activity_created_at": "2026-09-26T03:17:44.778242Z",
+              "session_id": "13676960704070784598",
+              "dispatch_key": "716dabcf73b096f01de5b6ab"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that `useTranscript` handles cancellation, error recovery, and state isolation correctly under concurrent loads.",
+            "observations": [
+              {
+                "scenario": "Simulated concurrent calls to `loadTranscript` and `loadTranscriptPath` using isolated vitest hooks where promises resolve or reject in different orders.",
+                "evidence": "Traced the `requestRef.current` cancellation logic in `useTranscript.ts`. Tested by invoking multiple loads and selectively rejecting out-of-order responses. The state gracefully discarded outdated responses without losing the ability to cleanly retry on the current session, correctly swallowing the old rejected promise without unhandled rejections or throwing stray errors.",
+                "result": "Establishes that the transcript frontend correctly handles interruption, dropping stale backend state safely and resolving concurrent load operations."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T13:59:37.525866Z",
+            "source": {
+              "activity_id": "sessions/11018766429300823408/activities/a1196173ae4d46cc8e70fde09b9c11af",
+              "report_sha256": "75056b8961db9bd9c8b3f02fed9d3d2dc61b4b0eb3739b1b6b0f0bf12a8dad6c",
+              "activity_created_at": "2026-09-26T13:52:26.606605Z",
+              "session_id": "11018766429300823408",
+              "dispatch_key": "5cbc616a815e624bfb6a74fa"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
