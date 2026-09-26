@@ -71156,7 +71156,7 @@
       "id": "research-transcript-links-reliability-10",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -71273,16 +71273,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11018766429300823408",
         "dispatch_key": "5cbc616a815e624bfb6a74fa",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-5cbc616a815e624bfb6a74fa",
         "started_at": "2026-09-26T13:44:50.616941Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T13:59:37.525866Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -71456,13 +71456,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T13:44:50.616941Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T13:59:37.525866Z"
+      },
+      "research_result": {
+        "summary": "Verified that `useTranscript` handles cancellation, error recovery, and state isolation correctly under concurrent loads.",
+        "observations": [
+          {
+            "scenario": "Simulated concurrent calls to `loadTranscript` and `loadTranscriptPath` using isolated vitest hooks where promises resolve or reject in different orders.",
+            "evidence": "Traced the `requestRef.current` cancellation logic in `useTranscript.ts`. Tested by invoking multiple loads and selectively rejecting out-of-order responses. The state gracefully discarded outdated responses without losing the ability to cleanly retry on the current session, correctly swallowing the old rejected promise without unhandled rejections or throwing stray errors.",
+            "result": "Establishes that the transcript frontend correctly handles interruption, dropping stale backend state safely and resolving concurrent load operations."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T13:59:37.525866Z",
+        "source": {
+          "activity_id": "sessions/11018766429300823408/activities/a1196173ae4d46cc8e70fde09b9c11af",
+          "report_sha256": "75056b8961db9bd9c8b3f02fed9d3d2dc61b4b0eb3739b1b6b0f0bf12a8dad6c",
+          "activity_created_at": "2026-09-26T13:52:26.606605Z",
+          "session_id": "11018766429300823408",
+          "dispatch_key": "5cbc616a815e624bfb6a74fa"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T13:53:36.909246Z",
+    "last_poll_at": "2026-09-26T14:00:00.210029Z",
     "last_tick_at": "2026-09-26T13:53:41.145989Z",
     "run_id": "36246629285"
   }
