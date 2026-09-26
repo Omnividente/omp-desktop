@@ -65716,7 +65716,7 @@
         },
         "report_repair": {
           "at": "2026-09-26T07:03:47.176559Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending"
         }
       }
