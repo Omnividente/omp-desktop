@@ -72836,7 +72836,7 @@
       "id": "research-sessions-persistence-reliability-11",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -72955,16 +72955,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1589541749085042845",
         "dispatch_key": "04ff46f6c31f773e45f44937",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-04ff46f6c31f773e45f44937",
         "started_at": "2026-09-26T18:26:55.586894Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T18:42:08.158814Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -73147,13 +73147,117 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T18:26:55.586894Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T18:42:08.158814Z"
+      },
+      "research_result": {
+        "summary": "Verified that a crash during session import leaves state inconsistent across restarts, requiring a recovery protocol.",
+        "observations": [
+          {
+            "scenario": "Simulating a hard process crash during `commit_import_with` after swapping artifact directories but before the JSONL write completes.",
+            "evidence": "A custom Rust script testing the atomic boundaries of `commit_import_with` revealed that crashing right before `write_session` leaves the original (old) `session.jsonl` intact while the `session/` directory holds the newly imported artifacts. The old artifacts are isolated in `session-artifacts-backup/`. On restarting, `scan_sessions` ignores the backup and pairs the old transcript with the new, incorrect artifacts.",
+            "result": "Establishes that the current import transactional boundaries are susceptible to crash inconsistency, leaving mismatched session transcripts and artifacts on disk. The previously rejected cleanup proposal noted this backup is a 'recovery copy', indicating a missing recovery step during scan."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming the JSONL to a temporary file before swapping artifacts, rather than attempting to recover on restart, provides a safer transactional boundary."
+        ],
+        "proposed_task_ids": [
+          "discovery-7989342c9cac8ddd"
+        ],
+        "completed_at": "2026-09-26T18:42:08.158814Z",
+        "source": {
+          "activity_id": "sessions/1589541749085042845/activities/7141f7770c374e2886bcc406666e2247",
+          "report_sha256": "e19567bd0f2d47e7a4298d628a2bb36ba00097ac09cee2accad9b77b9bbf6f9a",
+          "activity_created_at": "2026-09-26T18:33:50.762233Z",
+          "session_id": "1589541749085042845",
+          "dispatch_key": "04ff46f6c31f773e45f44937"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1589541749085042845/activities/7141f7770c374e2886bcc406666e2247",
+          "report_sha256": "e19567bd0f2d47e7a4298d628a2bb36ba00097ac09cee2accad9b77b9bbf6f9a",
+          "activity_created_at": "2026-09-26T18:33:50.762233Z",
+          "session_id": "1589541749085042845",
+          "dispatch_key": "04ff46f6c31f773e45f44937"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7989342c9cac8ddd"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-7989342c9cac8ddd",
+      "title": "Implement recovery protocol for interrupted session imports",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "medium",
+      "focus": [
+        "reliability",
+        "bugfix"
+      ],
+      "created_at": "2026-09-26T18:42:08.158814Z",
+      "acceptance": [
+        "During session scan, if an interrupted import is detected via an orphaned artifacts backup, the system restores the backup to ensure consistency between the session transcript and its artifacts."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated synthetic Rust test simulating a hard process abort during `commit_import_with` on the pinned base. The test isolated the file system state across a crash boundary.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a synthetic session with artifacts (e.g. `session.jsonl` and `session/old.log`).",
+            "Simulate an import that replaces this session, and forcibly exit (crash) the process inside `commit_import_with` after the directory swaps (`session-artifacts-backup/` created) but before the new JSONL is written.",
+            "Restart the process and run `scan_sessions`, observing the files associated with the session."
+          ],
+          "expected": "The system detects the interrupted transaction on restart (via the orphaned backup) and restores `session/` from `session-artifacts-backup/` to match the old `session.jsonl`, keeping state consistent.",
+          "actual": "The system ignores `session-artifacts-backup/`, leaving the old `session.jsonl` paired with new, mismatched artifacts in `session/`."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "The previous task proposed blindly deleting orphaned artifacts, which was rejected because those backups are the only recovery copies after a crash. This new task addresses that exact gap by proposing the missing recovery protocol to *restore* those backups, effectively utilizing the recovery copies as intended instead of deleting them.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6",
+              "decision_context_id": "b5dd298d2604086e445c01b27d48e3b5d32cf66da610247409f82d3bc2b86447",
+              "why_previous_reason_no_longer_explains": "The rationale for rejection was that deleting backups removes the only recovery copy without a proven recovery protocol. This proposal provides that proven recovery protocol by actively restoring the backup during scan, fulfilling the requirement stated in the rejection rationale."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-11",
+        "activity_id": "sessions/1589541749085042845/activities/7141f7770c374e2886bcc406666e2247",
+        "report_sha256": "e19567bd0f2d47e7a4298d628a2bb36ba00097ac09cee2accad9b77b9bbf6f9a",
+        "activity_created_at": "2026-09-26T18:33:50.762233Z",
+        "session_id": "1589541749085042845",
+        "dispatch_key": "04ff46f6c31f773e45f44937"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T18:36:02.641625Z",
+    "last_poll_at": "2026-09-26T18:42:32.803213Z",
     "last_tick_at": "2026-09-26T18:36:08.042156Z",
     "run_id": "36263056746"
   }
