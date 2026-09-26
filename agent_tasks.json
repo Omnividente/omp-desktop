@@ -66800,7 +66800,7 @@
         },
         "report_repair": {
           "at": "2026-09-26T07:52:15.162426Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/16866598067983291181/activities/2d56bc169bfd4a4e86a5688deebd3b5d",
