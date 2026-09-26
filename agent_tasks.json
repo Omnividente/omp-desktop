@@ -73556,7 +73556,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T19:44:49.501437Z"
+        "observed_at": "2026-09-26T19:44:49.501437Z",
+        "released_attempt_ref": "autonomous/attempt-cb8ae3281b16d0fb65d3a415"
       },
       "research_result": {
         "summary": "Verified that virtual scrolling handles continuous wheel scrolling and large scroll jumps across drastically varied row heights without introducing unhandled jitter or layout flickers.",
