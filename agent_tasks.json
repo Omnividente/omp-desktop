@@ -72063,7 +72063,8 @@
             "session_id": "5858986872392413199",
             "dispatch_key": "8fc0d77fc5d155fc3702e86d"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8fc0d77fc5d155fc3702e86d"
       },
       "research_result": {
         "summary": "Investigated runtime incident state bounds dropping active fallbacks, the resource health unmount path resolving behavior, and the focus trap logic in modals.",
