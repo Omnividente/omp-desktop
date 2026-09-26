@@ -65750,7 +65750,7 @@
       "id": "research-terminal-input-performance-10",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -66017,16 +66017,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14802823996220433509",
         "dispatch_key": "8c032d4c3150dfbcac43898b",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-8c032d4c3150dfbcac43898b",
         "started_at": "2026-09-26T07:10:01.298764Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T07:24:18.777393Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -66199,13 +66199,99 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T07:10:01.298764Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T07:24:18.777393Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input formatting performance. Confirmed that formatSelectionReply is significantly slow when processing large selections with many empty lines due to Array.prototype.shift() being called repeatedly in a loop.",
+        "observations": [
+          {
+            "scenario": "Measured formatSelectionReply performance with a large input text containing many empty lines at the beginning.",
+            "evidence": "Executed an isolated node script generating text with 50,000 empty lines at the start, 50,000 lines of text, and 50,000 empty lines at the end. The original formatSelectionReply took ~1489ms to process this string.",
+            "result": "This establishes that the current implementation of formatSelectionReply suffers from O(N^2) time complexity for empty line removal due to shift() moving array elements on each call. It can be easily optimized to O(N) by replacing shift() and pop() loops with index tracking and slice()."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the clipboard paste functionality suffers from a similar performance issue when handling large pasted texts containing many empty lines.",
+          "Examine if the same shift()/pop() pattern is used elsewhere in the terminal input handling code."
+        ],
+        "proposed_task_ids": [
+          "discovery-48f2557385bb78b9"
+        ],
+        "completed_at": "2026-09-26T07:24:18.777393Z",
+        "source": {
+          "activity_id": "sessions/14802823996220433509/activities/2962673e21d743a59fffc9d558c88e19",
+          "report_sha256": "f21e68315b73fb4dcd5daf9fb6ac638f2234d18470b7c83c50686a19899d5455",
+          "activity_created_at": "2026-09-26T07:14:35.425820Z",
+          "session_id": "14802823996220433509",
+          "dispatch_key": "8c032d4c3150dfbcac43898b"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14802823996220433509/activities/2962673e21d743a59fffc9d558c88e19",
+          "report_sha256": "f21e68315b73fb4dcd5daf9fb6ac638f2234d18470b7c83c50686a19899d5455",
+          "activity_created_at": "2026-09-26T07:14:35.425820Z",
+          "session_id": "14802823996220433509",
+          "dispatch_key": "8c032d4c3150dfbcac43898b"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-48f2557385bb78b9"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-48f2557385bb78b9",
+      "title": "Optimize terminal input selection formatting to prevent performance degradation with large selections",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-26T07:24:18.777393Z",
+      "acceptance": [
+        "formatSelectionReply processes selections with many empty lines without O(N^2) time complexity, typically executing in under 100ms for large texts"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native node execution isolated on src/terminalInput.ts. Measured the execution time of formatSelectionReply on a 150,000 line text string with 100,000 empty lines. Replaced shift/pop loops with start/end index tracking and slice to fix.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a string with 50,000 empty lines, followed by some text, and 50,000 empty lines.",
+            "Call formatSelectionReply with this string."
+          ],
+          "expected": "The function returns the formatted reply quickly, without noticeable freezing.",
+          "actual": "The function execution takes over 1400ms due to repeated array shift() operations."
+        }
+      },
+      "target_paths": [
+        "src/terminalInput.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-performance-10",
+        "activity_id": "sessions/14802823996220433509/activities/2962673e21d743a59fffc9d558c88e19",
+        "report_sha256": "f21e68315b73fb4dcd5daf9fb6ac638f2234d18470b7c83c50686a19899d5455",
+        "activity_created_at": "2026-09-26T07:14:35.425820Z",
+        "session_id": "14802823996220433509",
+        "dispatch_key": "8c032d4c3150dfbcac43898b"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T07:18:17.623187Z",
+    "last_poll_at": "2026-09-26T07:24:34.952381Z",
     "last_tick_at": "2026-09-26T07:18:25.803887Z",
     "run_id": "36226335941"
   }
