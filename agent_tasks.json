@@ -64786,7 +64786,7 @@
       "id": "research-transcript-links-behavior-9",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -64903,16 +64903,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13676960704070784598",
         "dispatch_key": "716dabcf73b096f01de5b6ab",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-716dabcf73b096f01de5b6ab",
         "started_at": "2026-09-26T02:56:03.506457Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T03:39:30.715305Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -65086,13 +65086,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T02:56:03.506457Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T03:39:30.715305Z"
+      },
+      "research_result": {
+        "summary": "Investigated content links parsing, desktop routing boundaries, and context menu behaviors in TranscriptModal. Verified that frontend boundary logic correctly filters out non-content paths and delegates complex URLs (like percent-encoded mailto) to a safe backend processor. Further verified that the context menu hierarchy gracefully yields link actions to user text selections.",
+        "observations": [
+          {
+            "scenario": "Evaluated the boundary rules for identifying content links on the frontend versus the backend processor, specifically focusing on malformed percent encoding and line selectors.",
+            "evidence": "Traced the `isContentLink` matching logic in `contentLinks.ts` and constructed isolated synthetic tests with `npx tsx`. Confirmed that scheme-less generic words with line selectors (e.g., `report:1-5`) are correctly rejected by the frontend, while valid project files (`report.md:1-5` or `folder/:1-5`) are allowed. Read `resolve_content_link` in `src-tauri/src/content_links.rs` and confirmed that the backend securely handles percent-encoding on `mailto:` strings (throwing safe unhandled text errors instead of panicking on malformed URLs) and effectively strips valid line selectors before file validation.",
+            "result": "Establishes that the frontend and backend share an aligned, secure contract for content link identification, successfully protecting the application from unsafe URL schemes and out-of-bounds traversal without silently hiding format errors."
+          },
+          {
+            "scenario": "Evaluated the visual interaction and context menu routing when right-clicking external links, local files, and selected text in the TranscriptModal.",
+            "evidence": "Traced `TranscriptModal.tsx` and `MarkdownContent.tsx`. Observed that external HTTP/HTTPS links correctly suppress the application's internal link context menu, yielding to the native browser-level right-click menu. Observed that when a user selects a range of text that spans across an internal file link, `onLinkContextMenu` checks `selection.isCollapsed` and safely bails out, allowing the event to bubble to the scroll container's `onContextMenu`, which correctly presents the 'Copy Selection' menu.",
+            "result": "Establishes that the context menu hierarchy intentionally and correctly prioritizes user clipboard actions over link reveal actions, and segregates external versus internal link functionality."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if focusing the content action menu immediately after changing a transcript view mode disrupts screen reader announcements for the new view state.",
+          "Investigate the accessibility of the `MarkdownContent` code block copy buttons when navigating strictly by keyboard."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T03:39:30.715305Z",
+        "source": {
+          "activity_id": "sessions/13676960704070784598/activities/1a99105c32e948c6840d5a60e85f0589",
+          "report_sha256": "9e5cb803f298c6c002d7d2ad52992b587ea155997e653f40eb29ed90e2e841af",
+          "activity_created_at": "2026-09-26T03:17:44.778242Z",
+          "session_id": "13676960704070784598",
+          "dispatch_key": "716dabcf73b096f01de5b6ab"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T03:23:41.531387Z",
+    "last_poll_at": "2026-09-26T03:39:53.601408Z",
     "last_tick_at": "2026-09-26T03:23:45.340425Z",
     "run_id": "36214632996"
   }
