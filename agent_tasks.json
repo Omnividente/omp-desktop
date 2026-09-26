@@ -65124,7 +65124,7 @@
       "id": "research-sessions-persistence-performance-10",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -65515,7 +65515,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "9253212981350780347",
         "dispatch_key": "8c9973471d4a04b96e1132d1",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
@@ -65523,8 +65523,8 @@
         "started_at": "2026-09-26T06:42:05.318339Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: report_absent",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -65707,13 +65707,23 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T06:42:05.318339Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T07:03:29.423569Z",
+        "report_error": {
+          "code": "report_absent",
+          "detail": "completed discovery has no worker report",
+          "reported_at": "2026-09-26T07:03:29.423569Z"
+        },
+        "report_repair": {
+          "at": "2026-09-26T07:03:47.176559Z",
+          "result": "pending",
+          "status": "pending"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T06:57:00.928016Z",
+    "last_poll_at": "2026-09-26T07:03:45.309301Z",
     "last_tick_at": "2026-09-26T06:57:04.872499Z",
     "run_id": "36225247753"
   }
