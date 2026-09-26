@@ -73890,7 +73890,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T23:31:08.398999Z"
+        "observed_at": "2026-09-26T23:31:08.398999Z",
+        "released_attempt_ref": "autonomous/attempt-a46c6dad5d6ae86a5f28afe8"
       },
       "research_result": {
         "summary": "Investigated keyboard accessibility and screen reader support for copy buttons, transcript state containers, and mode toggles in the TranscriptModal.",
