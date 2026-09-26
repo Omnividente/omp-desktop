@@ -73260,7 +73260,7 @@
       "id": "research-transcript-links-performance-10",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -73372,16 +73372,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16344873185575184943",
         "dispatch_key": "cb8ae3281b16d0fb65d3a415",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-cb8ae3281b16d0fb65d3a415",
         "started_at": "2026-09-26T19:22:39.290289Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T19:44:49.501437Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -73555,13 +73555,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T19:22:39.290289Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T19:44:49.501437Z"
+      },
+      "research_result": {
+        "summary": "Verified that virtual scrolling handles continuous wheel scrolling and large scroll jumps across drastically varied row heights without introducing unhandled jitter or layout flickers.",
+        "observations": [
+          {
+            "scenario": "Continuous mouse-wheel scrolling in `useVirtualList` with drastically varying row heights (alternating between 50px and 2000px).",
+            "evidence": "Isolated test rendering `useVirtualList` directly, artificially updating scroll bounds simulating wheel events with drastically different mocked heights. Verified via observed internal `scrollTop` events and resulting `virtualItems` that `useVirtualList` accurately anchors and updates offset locations without entering cyclic scroll position adjustments.",
+            "result": "Establishes that the virtual list handles severe row height variations smoothly during continuous scroll interactions without layout artifacts or scroll jitter."
+          },
+          {
+            "scenario": "Jumping between far apart search matches in `TranscriptModal` using Next/Prev navigation when target rows are offscreen and have different heights.",
+            "evidence": "Tested `TranscriptModal` component via `jsdom` with mock elements configured to report bounding clients far apart. Clicking the Next Match button successfully caused `scrollToIndex` to mount the offscreen virtual row and subsequently `requestAnimationFrame` adjusted the intra-element `scrollTop` correctly using the new target bounds, avoiding visual flicker.",
+            "result": "Establishes that `TranscriptModal` accurately reconciles layout constraints and smoothly lands on the target matches even when they require complex layout invalidation from unmeasured elements."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if focusing the content action menu immediately after changing a transcript view mode disrupts screen reader announcements for the new view state.",
+          "Investigate the accessibility of the `MarkdownContent` code block copy buttons when navigating strictly by keyboard."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T19:44:49.501437Z",
+        "source": {
+          "activity_id": "sessions/16344873185575184943/activities/265ce4600b8542d6afdba86d39c3d8c1",
+          "report_sha256": "e2d3dba606b4279588c5e25ad687a1e87e1d40e0c9a759532ab09c6a6dda0886",
+          "activity_created_at": "2026-09-26T19:32:32.996025Z",
+          "session_id": "16344873185575184943",
+          "dispatch_key": "cb8ae3281b16d0fb65d3a415"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T19:38:43.418865Z",
+    "last_poll_at": "2026-09-26T19:45:07.835241Z",
     "last_tick_at": "2026-09-26T19:38:47.483442Z",
     "run_id": "36266720415"
   }
