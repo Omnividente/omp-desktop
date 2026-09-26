@@ -67981,6 +67981,192 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-10",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-26T10:09:17Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 10,
+        "previous_reports": [
+          {
+            "summary": "Verified that workspace navigation shortcut hints do not localize to the host platform, always displaying 'Ctrl' instead of 'Cmd' on macOS.",
+            "observations": [
+              {
+                "scenario": "Render WorkspaceHome and ProjectRail on macOS platform.",
+                "evidence": "Wrote synthetic vitest scripts that rendered `WorkspaceHome` and `ProjectRail` with `runtime.platform = \"macos\"` and `runtime.platform = \"darwin\"`. Both components assertively returned hardcoded text for 'Ctrl + Shift + O' and 'Ctrl + B', respectively, and failed checks expecting 'Cmd'. Inspection of `src/WorkspaceHome.tsx` and `src/ProjectRail.tsx` confirmed `Ctrl + Shift + O` and `Ctrl + B` are strictly hardcoded into the React DOM output, while `src/i18n.ts` hardcodes `Ctrl` into localized strings like `railModeShortcut`.",
+                "result": "Establishes that macOS users will see incorrect shortcut modifiers for Workspace navigation and Project Rail actions. It does not establish if the underlying key handlers actually require Ctrl or naturally bind to Meta/Cmd on macOS."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal shortcuts documented in `terminalInputHelp` within `src/i18n.ts` (e.g. 'Ctrl+Z', 'Ctrl+C') also need platform-specific dynamic substitution for macOS.",
+              "Investigate if the actual keydown event handlers in `App.tsx` and `ProjectRail.tsx` respect the platform's native modifier (Meta vs Ctrl) for these shortcuts."
+            ],
+            "proposed_task_ids": [
+              "discovery-906a14e4d6bf289b"
+            ],
+            "completed_at": "2026-09-25T10:29:04.477307Z",
+            "source": {
+              "activity_id": "sessions/9165825677314368054/activities/c631d2abd5d24d4e9240deb535aedcec",
+              "report_sha256": "bf19f6dfe3fbd3da1facb68c174e55c4ee0451501491a1bb22e9a8b23c85ce7c",
+              "activity_created_at": "2026-09-25T10:22:40.098494Z",
+              "session_id": "9165825677314368054",
+              "dispatch_key": "393d00fb33e418e17f48e8be"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation keyboard shortcuts on macOS and confirmed hardcoded visual modifiers do not match functional runtime bindings.",
+            "observations": [
+              {
+                "scenario": "Observing displayed and handled shortcut keys for Workspace navigation actions (Ctrl+Shift+O, Ctrl+B, Undo/Ctrl+Z) on macOS.",
+                "evidence": "Synthetic DOM rendering of WorkspaceHome/ProjectRail components statically rendered \"Ctrl+Shift+O\" and \"Ctrl+B\" respectively, regardless of the `runtime.platform` prop. Reviewing `terminalShortcuts.ts` and `App.tsx` event handlers confirms that functional implementation permits `metaKey` (Cmd) to fire these actions cleanly.",
+                "result": "Establishes that macOS users can correctly use native Cmd+ bindings to trigger workspace navigation, but the UI falsely instructs them to use Ctrl+."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if Context Menu and Terminal Selection hint strings also miss dynamic MacOS 'Cmd' translations in production view states."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T01:22:07.015597Z",
+            "source": {
+              "activity_id": "sessions/86987778513239044/activities/a993ec3f5d5e4b32878fd679b897ef64",
+              "report_sha256": "2c921070dbd3f6b96aa34149e34f23957da6c30ae324a3452ce11138db3b08f1",
+              "activity_created_at": "2026-09-26T01:12:52.308243Z",
+              "session_id": "86987778513239044",
+              "dispatch_key": "5eba3acf366ca7e112c3890c"
+            },
+            "deferred_findings": [
+              {
+                "title": "Substitute 'Ctrl' with 'Cmd' in shortcut hints dynamically for macOS",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-906a14e4d6bf289b; not established as a duplicate. {\"detail\": \"Observed via synthetic React component testing with a macOS runtime payload and static code analysis of App.tsx keydown handlers.\", \"reproduction\": {\"actual\": \"The visual hint incorrectly hardcodes 'Ctrl + Shift + O' and 'Ctrl + B' despite recognizing the Cmd key press natively\", \"expected\": \"The visual hint displays 'Cmd + Shift + O' and 'Cmd + B'\", \"steps\": [\"Start the desktop application on macOS\", \"Observe the shortcut text hint inside the open folder button in the Workspace home view\", \"Observe the shortcut text hint in the ProjectRail sidebar footer\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/WorkspaceHome.tsx",
+                  "src/ProjectRail.tsx",
+                  "src/TerminalView.tsx",
+                  "src/uiUtils.ts"
+                ],
+                "acceptance": [
+                  "On a macOS runtime platform, the UI dynamically renders Cmd + Shift + O, Cmd + B, and Cmd+Z instead of Ctrl",
+                  "On non-macOS platforms, the UI retains Ctrl as the modifier key"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated workspace reconciliation failure during concurrent single-instance dispatches",
+            "observations": [
+              {
+                "scenario": "Multiple single-instance IPC messages causing overlapped workspace additions, followed by an out-of-order failure of one request.",
+                "evidence": "Wrote a synthetic component test (`src/WorkspaceReconcile.test.tsx`) that triggered multiple concurrent `single-instance` events. By blocking the first promise and letting the second resolve, `latestRequest` in `App.tsx` became greater than the first request's index. When the first promise rejected, the catch block failed to set `needsReconcile = true` because it strictly checks `request === latestRequest`. The `finally` block therefore didn't trigger `refresh()`, leaving the UI state un-reconciled.",
+                "result": "Establishes that out-of-order failures in single-instance handling prevent state reconciliation, which can cause the UI state to diverge from the backend state (as invalidated bootstrap reads are missed)."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if identical out-of-order failure modes exist in other IPC payload handlers relying on `latestRequest` increment checks without broad catch block reconciliation."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T08:58:17.182880Z",
+            "source": {
+              "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+              "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+              "activity_created_at": "2026-09-26T08:47:41.887308Z",
+              "session_id": "4570065288463513648",
+              "dispatch_key": "94bd299ceae417dc2f6f2744"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.\", \"reproduction\": {\"actual\": \"The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh\", \"expected\": \"The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state\", \"steps\": [\"Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)\", \"Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`\", \"Let the delayed first request fail and observe if the frontend state performs a refresh\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+                ],
+                "deferred_id": "66cae8fad4759c42d09fbdb0d880abf1ee2d2b1e732d649a30f78f26e5ee3d91",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix workspace single-instance reconcile condition on out-of-order failures",
+                  "risk": "medium",
+                  "priority": 70,
+                  "focus": [
+                    "quality",
+                    "bugfix"
+                  ],
+                  "target_paths": [
+                    "src/App.tsx"
+                  ],
+                  "acceptance": [
+                    "When multiple single-instance addition requests overlap and an older request fails, the application still forces a reconciliation refresh to restore a consistent payload state"
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Observed via synthetic testing that `needsReconcile` is intentionally set for older out-of-order successes, but skipped for older out-of-order failures.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Dispatch two rapid single-instance events (e.g. from multiple rapid file associations or restarts)",
+                        "Delay the first backend `addWorkspace` request and let the second succeed, updating `latestRequest`",
+                        "Let the delayed first request fail and observe if the frontend state performs a refresh"
+                      ],
+                      "expected": "The failed request still sets `needsReconcile = true` so the `finally` block runs a clean `refresh()` of the backend state",
+                      "actual": "The failed request ignores `needsReconcile` because it is no longer the `latestRequest`, leaving potential stale reads without a reconciliation refresh"
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-a6a63bbab9e7a7e3",
+                      "action": "resolve",
+                      "decision_at": "2026-09-19T05:40:33Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-workspace-navigation-reliability-10",
+                  "activity_id": "sessions/4570065288463513648/activities/05bddfcae3f94f70b586896176b9709c",
+                  "report_sha256": "b980b71980539722b81a5ca64f6ab7f7a24d99c15dde6de2ec514ab70bab67b5",
+                  "activity_created_at": "2026-09-26T08:47:41.887308Z",
+                  "session_id": "4570065288463513648",
+                  "dispatch_key": "94bd299ceae417dc2f6f2744"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
