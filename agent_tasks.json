@@ -69717,7 +69717,7 @@
       "id": "research-settings-models-ux-10",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -69829,16 +69829,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "365047915194315078",
         "dispatch_key": "c09b237c1f20d577dcebee0c",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-c09b237c1f20d577dcebee0c",
         "started_at": "2026-09-26T11:51:30.477429Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T12:21:17.924906Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -70009,24 +70009,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T12:19:21.505584Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-26T12:12:41.337271Z",
-          "source": {
-            "activity_id": "sessions/365047915194315078/activities/274a5e6b90ad40fbbe29556a9440bf7d",
-            "report_sha256": "dbe4187a91ca845e437f19992c8ee38950a9a23ce9ac2a355ca9b29e83b6c8e5",
-            "activity_created_at": "2026-09-26T12:00:39.023915Z",
-            "session_id": "365047915194315078",
-            "dispatch_key": "c09b237c1f20d577dcebee0c"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T12:21:17.924906Z",
         "report_repair": {
           "at": "2026-09-26T12:13:05.170078Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/365047915194315078/activities/274a5e6b90ad40fbbe29556a9440bf7d",
             "report_sha256": "dbe4187a91ca845e437f19992c8ee38950a9a23ce9ac2a355ca9b29e83b6c8e5",
@@ -70034,6 +70022,65 @@
             "session_id": "365047915194315078",
             "dispatch_key": "c09b237c1f20d577dcebee0c"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Confirmed UX and accessibility limitations in ModelPicker and SettingsRecoveryScreen components.",
+        "observations": [
+          {
+            "scenario": "Pressing the 'Enter' key in the ModelPicker's search input.",
+            "evidence": "Tested rendering ModelPicker in a Vitest jsdom environment. Dispatched a 'keydown' event with key 'Enter' on the search input element. The 'onChange' callback was not triggered because the input's 'onKeyDown' handler ignores the Enter key.",
+            "result": "Establishes that users cannot select the currently highlighted model by pressing Enter while focused in the search input; they must explicitly use arrow keys to shift focus to the listbox or use the mouse."
+          },
+          {
+            "scenario": "Mounting the SettingsRecoveryScreen and checking accessibility properties.",
+            "evidence": "Tested rendering SettingsRecoveryScreen in a Vitest jsdom environment. After mounting, `document.activeElement` remained `document.body`. Inspected the `<main>` element and verified it lacked `role=\"alert\"` or `role=\"alertdialog\"` attributes.",
+            "result": "Establishes that the recovery screen fails to capture focus upon appearance and does not correctly identify itself to screen readers as a critical dialog or alert."
+          },
+          {
+            "scenario": "Inspecting the ModelPicker trigger button for combobox roles.",
+            "evidence": "Tested rendering ModelPicker with `open={false}` in a Vitest jsdom environment. The trigger `.model-picker-trigger` element had its `role` queried via `getAttribute('role')`, which returned `null`.",
+            "result": "Establishes that the trigger button relies on its implicit role and is not explicitly identified as a combobox, potentially reducing clarity for screen reader users."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if cancelling the `saveSettings` frontend operation exactly at the moment it is submitted leaves any stale states in `operationDrafts` or `providerEnvDraft`.",
+          "Investigate whether providing a visually hidden aria-live region to announce fallback auto-selections correctly notifies screen readers without interrupting other essential UI feedback."
+        ],
+        "proposed_task_ids": [
+          "discovery-0c583de39dbc3da5",
+          "discovery-cbfe3edf59fe6627"
+        ],
+        "completed_at": "2026-09-26T12:21:17.924906Z",
+        "source": {
+          "activity_id": "sessions/365047915194315078/activities/6fc623ea389f468a804c1715d7b294ed",
+          "report_sha256": "14836fa2fc487bc570a76aa4bc8d7fe20362d84047d5e867b902b0674fb0378e",
+          "activity_created_at": "2026-09-26T12:14:04.031233Z",
+          "session_id": "365047915194315078",
+          "dispatch_key": "c09b237c1f20d577dcebee0c"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/365047915194315078/activities/6fc623ea389f468a804c1715d7b294ed",
+          "report_sha256": "14836fa2fc487bc570a76aa4bc8d7fe20362d84047d5e867b902b0674fb0378e",
+          "activity_created_at": "2026-09-26T12:14:04.031233Z",
+          "session_id": "365047915194315078",
+          "dispatch_key": "c09b237c1f20d577dcebee0c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-0c583de39dbc3da5",
+            "discovery-cbfe3edf59fe6627"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -70119,10 +70166,92 @@
         "session_id": "3512087580058234043",
         "dispatch_key": "acd2b542296a8b620f56a3b2"
       }
+    },
+    {
+      "id": "discovery-0c583de39dbc3da5",
+      "title": "Fix ModelPicker to select the active model when pressing Enter in the search input",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 75,
+      "risk": "low",
+      "focus": [
+        "ux",
+        "bugfix"
+      ],
+      "created_at": "2026-09-26T12:21:17.924906Z",
+      "acceptance": [
+        "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via isolated component testing using Vitest and jsdom. Simulating the Enter key on the search input did not trigger model selection.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the ModelPicker dropdown",
+            "Type a query in the search input to filter and highlight a model",
+            "Press the Enter key while focus is still on the search input"
+          ],
+          "expected": "The highlighted model is selected and the picker closes",
+          "actual": "Nothing happens; the user is forced to manually press ArrowDown to focus the option before pressing Enter"
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-10",
+        "activity_id": "sessions/365047915194315078/activities/6fc623ea389f468a804c1715d7b294ed",
+        "report_sha256": "14836fa2fc487bc570a76aa4bc8d7fe20362d84047d5e867b902b0674fb0378e",
+        "activity_created_at": "2026-09-26T12:14:04.031233Z",
+        "session_id": "365047915194315078",
+        "dispatch_key": "c09b237c1f20d577dcebee0c"
+      }
+    },
+    {
+      "id": "discovery-cbfe3edf59fe6627",
+      "title": "Improve SettingsRecoveryScreen accessibility by adding alertdialog role and focusing on mount",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "a11y"
+      ],
+      "created_at": "2026-09-26T12:21:17.924906Z",
+      "acceptance": [
+        "SettingsRecoveryScreen announces itself as an alertdialog to screen readers",
+        "Initial focus is moved to the SettingsRecoveryScreen main container upon rendering"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via isolated component testing using Vitest and jsdom. Focus remained on the body and no ARIA alert roles were present.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a settings load failure to display the SettingsRecoveryScreen",
+            "Inspect the DOM for ARIA roles on the main container",
+            "Check the document's activeElement immediately after rendering"
+          ],
+          "expected": "The main container has role='alertdialog' or 'alert' and receives keyboard focus automatically",
+          "actual": "The main container lacks alert roles and the activeElement remains the document body"
+        }
+      },
+      "target_paths": [
+        "src/SettingsRecoveryScreen.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-ux-10",
+        "activity_id": "sessions/365047915194315078/activities/6fc623ea389f468a804c1715d7b294ed",
+        "report_sha256": "14836fa2fc487bc570a76aa4bc8d7fe20362d84047d5e867b902b0674fb0378e",
+        "activity_created_at": "2026-09-26T12:14:04.031233Z",
+        "session_id": "365047915194315078",
+        "dispatch_key": "c09b237c1f20d577dcebee0c"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T12:19:41.478165Z",
+    "last_poll_at": "2026-09-26T12:21:39.415882Z",
     "last_tick_at": "2026-09-26T12:19:46.728720Z",
     "run_id": "36241528369"
   }
