@@ -72476,7 +72476,7 @@
       "id": "research-diagnostics-resources-ux-10",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -72618,16 +72618,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7343725914341508827",
         "dispatch_key": "30d23f9f3307bc819622ff4b",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-30d23f9f3307bc819622ff4b",
         "started_at": "2026-09-26T17:29:10.884560Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T18:22:08.789485Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -72708,8 +72708,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-26T17:50:10.593968Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T18:22:08.789485Z",
         "research_detached": {
           "at": "2026-09-26T17:50:10.593968Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -72718,11 +72718,122 @@
           "at": "2026-09-26T17:50:10.593968Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the runtime incidents failure recovery and state bounding logic, reproducing bugs where active fallbacks are prematurely dropped under high error volume, and secondary fallbacks fail to resolve when the primary model recovers.",
+        "observations": [
+          {
+            "scenario": "Verify if `enforceIncidentBound` mistakenly drops unresolved primary fallback issues under a high volume of errors on the same terminal.",
+            "evidence": "Ran isolated tests on `enforceIncidentBound` by adding a fallback incident for `term1`, then generating 110 unique errors for the same terminal. Because `candidates` first filters by terminals with `> 1` active incidents before falling back to all active incidents, it selects the 100+ active errors on `term1` alongside the active fallback. The `reduce` step evicts the oldest incident, which is the still-active fallback. Wait, it drops it even when it's unresolved.",
+            "result": "Establishes a logical bug (hypothesis discovery-940b5f71f3979b02) where an active fallback is dropped from state if its terminal continuously emits errors. This hides the fallback health status from the UI."
+          },
+          {
+            "scenario": "Verify if `resolveFallbacks` correctly resolves a secondary fallback on primary model recovery.",
+            "evidence": "Tested `applyRuntimeIncidentEvent` by creating a `retryFallbackApplied` incident with `fallbackRole: \"secondary\"`. Then fired a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`. `resolveFallbacks` checks `role === null ? incident.role === null : incident.role === role || incident.role === null`. Because the passed role is `\"primary\"` but the incident role is `\"secondary\"`, the active incident is skipped and remains active.",
+            "result": "Establishes a logical bug (hypothesis discovery-aa17322b78e9eae9) where returning to the primary model fails to clear an active secondary fallback incident. I verified this natively in vitest. Expanding the filter to `role === null ? true : incident.role === role || incident.role === null` broke unrelated tests by clearing unrelated roles like 'review', but modifying the default recovery logic (`role ?? \"default\"`) to target the specific target fallback roles correctly clears it."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the interaction between `fallbackRole`, `modelRole`, and the `resolveFallbacks` criteria when a review fallback overlaps with a primary fallback.",
+          "Verify the behavior of `IncidentCenter` when navigating through an arbitrary sequence of nested `<details>` elements containing errors, as `DIALOG_FOCUSABLE_SELECTOR` may skip focus boundaries incorrectly."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T18:22:08.789485Z",
+        "source": {
+          "activity_id": "sessions/7343725914341508827/activities/811b1bc7d98b4cf096bd5519071dd357",
+          "report_sha256": "6a53318e8aeb94796aeab5a4c45bd6b036ddb636428b65b09cc8005673ace507",
+          "activity_created_at": "2026-09-26T17:51:33.526571Z",
+          "session_id": "7343725914341508827",
+          "dispatch_key": "30d23f9f3307bc819622ff4b"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix failure to resolve active fallbacks when primary model recovers",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using vitest.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have successfully recreated the scenario using a native test in vitest.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": []}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts",
+              "src/runtimeIncidents.test.ts"
+            ],
+            "acceptance": [
+              "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks.",
+              "Unrelated fallback roles like 'review' remain active when a primary model recovers."
+            ]
+          },
+          {
+            "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have verified the boundary logic bug in vitest by flooding errors on a single terminal.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": []}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts",
+              "src/runtimeIncidents.test.ts"
+            ],
+            "acceptance": [
+              "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7343725914341508827/activities/811b1bc7d98b4cf096bd5519071dd357",
+          "report_sha256": "6a53318e8aeb94796aeab5a4c45bd6b036ddb636428b65b09cc8005673ace507",
+          "activity_created_at": "2026-09-26T17:51:33.526571Z",
+          "session_id": "7343725914341508827",
+          "dispatch_key": "30d23f9f3307bc819622ff4b"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-aa17322b78e9eae9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-aa17322b78e9eae9"
+            },
+            {
+              "id": "discovery-940b5f71f3979b02",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-940b5f71f3979b02"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using vitest.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have successfully recreated the scenario using a native test in vitest.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": []}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts",
+                "src/runtimeIncidents.test.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks.",
+                "Unrelated fallback roles like 'review' remain active when a primary model recovers."
+              ]
+            },
+            {
+              "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have verified the boundary logic bug in vitest by flooding errors on a single terminal.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": []}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts",
+                "src/runtimeIncidents.test.ts"
+              ],
+              "acceptance": [
+                "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T17:50:33.640731Z",
+    "last_poll_at": "2026-09-26T18:22:31.289087Z",
     "last_tick_at": "2026-09-26T17:50:50.093354Z",
     "run_id": "36260403579"
   }
