@@ -74412,7 +74412,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T23:52:16.268145Z"
+        "observed_at": "2026-09-26T23:52:16.268145Z",
+        "released_attempt_ref": "autonomous/attempt-236b2950b36d6a5ba9304ce7"
       },
       "research_result": {
         "summary": "Investigated the terminal continuity generation baseline corruption and terminal output batcher immediate trailing flush behavior.",
