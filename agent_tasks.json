@@ -64378,7 +64378,7 @@
       "id": "research-workspace-navigation-behavior-10",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -64510,16 +64510,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "86987778513239044",
         "dispatch_key": "5eba3acf366ca7e112c3890c",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-5eba3acf366ca7e112c3890c",
         "started_at": "2026-09-26T01:01:03.454320Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T01:22:07.015597Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -64697,13 +64697,93 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T01:09:21.345969Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T01:22:07.015597Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation keyboard shortcuts on macOS and confirmed hardcoded visual modifiers do not match functional runtime bindings.",
+        "observations": [
+          {
+            "scenario": "Observing displayed and handled shortcut keys for Workspace navigation actions (Ctrl+Shift+O, Ctrl+B, Undo/Ctrl+Z) on macOS.",
+            "evidence": "Synthetic DOM rendering of WorkspaceHome/ProjectRail components statically rendered \"Ctrl+Shift+O\" and \"Ctrl+B\" respectively, regardless of the `runtime.platform` prop. Reviewing `terminalShortcuts.ts` and `App.tsx` event handlers confirms that functional implementation permits `metaKey` (Cmd) to fire these actions cleanly.",
+            "result": "Establishes that macOS users can correctly use native Cmd+ bindings to trigger workspace navigation, but the UI falsely instructs them to use Ctrl+."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if Context Menu and Terminal Selection hint strings also miss dynamic MacOS 'Cmd' translations in production view states."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T01:22:07.015597Z",
+        "source": {
+          "activity_id": "sessions/86987778513239044/activities/a993ec3f5d5e4b32878fd679b897ef64",
+          "report_sha256": "2c921070dbd3f6b96aa34149e34f23957da6c30ae324a3452ce11138db3b08f1",
+          "activity_created_at": "2026-09-26T01:12:52.308243Z",
+          "session_id": "86987778513239044",
+          "dispatch_key": "5eba3acf366ca7e112c3890c"
+        },
+        "deferred_findings": [
+          {
+            "title": "Substitute 'Ctrl' with 'Cmd' in shortcut hints dynamically for macOS",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-906a14e4d6bf289b; not established as a duplicate. {\"detail\": \"Observed via synthetic React component testing with a macOS runtime payload and static code analysis of App.tsx keydown handlers.\", \"reproduction\": {\"actual\": \"The visual hint incorrectly hardcodes 'Ctrl + Shift + O' and 'Ctrl + B' despite recognizing the Cmd key press natively\", \"expected\": \"The visual hint displays 'Cmd + Shift + O' and 'Cmd + B'\", \"steps\": [\"Start the desktop application on macOS\", \"Observe the shortcut text hint inside the open folder button in the Workspace home view\", \"Observe the shortcut text hint in the ProjectRail sidebar footer\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/WorkspaceHome.tsx",
+              "src/ProjectRail.tsx",
+              "src/TerminalView.tsx",
+              "src/uiUtils.ts"
+            ],
+            "acceptance": [
+              "On a macOS runtime platform, the UI dynamically renders Cmd + Shift + O, Cmd + B, and Cmd+Z instead of Ctrl",
+              "On non-macOS platforms, the UI retains Ctrl as the modifier key"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/86987778513239044/activities/a993ec3f5d5e4b32878fd679b897ef64",
+          "report_sha256": "2c921070dbd3f6b96aa34149e34f23957da6c30ae324a3452ce11138db3b08f1",
+          "activity_created_at": "2026-09-26T01:12:52.308243Z",
+          "session_id": "86987778513239044",
+          "dispatch_key": "5eba3acf366ca7e112c3890c"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-1d200bcb31adaae6",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-906a14e4d6bf289b"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Substitute 'Ctrl' with 'Cmd' in shortcut hints dynamically for macOS",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-906a14e4d6bf289b; not established as a duplicate. {\"detail\": \"Observed via synthetic React component testing with a macOS runtime payload and static code analysis of App.tsx keydown handlers.\", \"reproduction\": {\"actual\": \"The visual hint incorrectly hardcodes 'Ctrl + Shift + O' and 'Ctrl + B' despite recognizing the Cmd key press natively\", \"expected\": \"The visual hint displays 'Cmd + Shift + O' and 'Cmd + B'\", \"steps\": [\"Start the desktop application on macOS\", \"Observe the shortcut text hint inside the open folder button in the Workspace home view\", \"Observe the shortcut text hint in the ProjectRail sidebar footer\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/WorkspaceHome.tsx",
+                "src/ProjectRail.tsx",
+                "src/TerminalView.tsx",
+                "src/uiUtils.ts"
+              ],
+              "acceptance": [
+                "On a macOS runtime platform, the UI dynamically renders Cmd + Shift + O, Cmd + B, and Cmd+Z instead of Ctrl",
+                "On non-macOS platforms, the UI retains Ctrl as the modifier key"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T01:16:01.096804Z",
+    "last_poll_at": "2026-09-26T01:22:24.930733Z",
     "last_tick_at": "2026-09-26T01:16:05.002303Z",
     "run_id": "36207804058"
   }
