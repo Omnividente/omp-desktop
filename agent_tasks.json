@@ -65087,7 +65087,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T03:39:30.715305Z"
+        "observed_at": "2026-09-26T03:39:30.715305Z",
+        "released_attempt_ref": "autonomous/attempt-716dabcf73b096f01de5b6ab"
       },
       "research_result": {
         "summary": "Investigated content links parsing, desktop routing boundaries, and context menu behaviors in TranscriptModal. Verified that frontend boundary logic correctly filters out non-content paths and delegates complex URLs (like percent-encoded mailto) to a safe backend processor. Further verified that the context menu hierarchy gracefully yields link actions to user text selections.",
