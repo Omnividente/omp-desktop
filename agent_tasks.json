@@ -69669,6 +69669,121 @@
           }
         }
       }
+    },
+    {
+      "id": "research-settings-models-ux-10",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-26T11:51:30Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "c08234c532e278a037de3be226f3909030ecb172660da4776c77fb33abd94bbb",
+        "cycle": 10,
+        "previous_reports": [
+          {
+            "summary": "Verified that SettingsRecoveryScreen lacks proper focus management and accessibility alert attributes.",
+            "observations": [
+              {
+                "scenario": "Rendering SettingsRecoveryScreen on startup when settings recovery is needed.",
+                "evidence": "Tested using synthetic jsdom environment tests targeting SettingsRecoveryScreen. The `document.activeElement` remains the `BODY` upon mount, and the `.settings-recovery-screen` `<main>` element does not contain a `role=\"alert\"` or `role=\"alertdialog\"` attribute, nor are focus traps utilized.",
+                "result": "Establishes that during critical settings recovery failures, the screen does not grab keyboard focus and relies on visual signaling instead of screen-reader compatible alerts, making it poorly accessible."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if model auto-selection in ModelPicker announces changes correctly for screen reader users when a fallback model is applied."
+            ],
+            "proposed_task_ids": [
+              "discovery-ab7a935a0deafa44"
+            ],
+            "completed_at": "2026-09-25T11:50:38.474876Z",
+            "source": {
+              "activity_id": "sessions/14960237597908095051/activities/6effd1f420ae405e90536a9761a613d9",
+              "report_sha256": "3984da920748b2df72687566acda6ea271fcc3d26c6e68d7d2465f60d9913eae",
+              "activity_created_at": "2026-09-25T11:44:01.959735Z",
+              "session_id": "14960237597908095051",
+              "dispatch_key": "c1f4a3372956266f51848474"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated ModelPicker fallback auto-selection and combobox accessibility.",
+            "observations": [
+              {
+                "scenario": "Rendering ModelPicker with an explicit fallback value when the configured model is missing from the catalog.",
+                "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker` with `value=\"model3\"` (missing) and `fallback=\"model2\"`. The DOM was inspected for any `aria-live` regions or ARIA attributes announcing the fallback. `container.querySelectorAll('[aria-live]')` returned an empty list.",
+                "result": "Establishes that screen reader users are not explicitly notified when the ModelPicker automatically switches to a fallback model upon initialization."
+              },
+              {
+                "scenario": "Inspecting the ModelPicker trigger button's ARIA roles.",
+                "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker`. The trigger `<button className=\"model-picker-trigger\">` was inspected for its `role` attribute. `button.getAttribute('role')` returned `null`. It has `aria-controls`, `aria-expanded` and `aria-haspopup=\"listbox\"` but relies on the implicit `button` role.",
+                "result": "Establishes that the ModelPicker trigger is missing the `role=\"combobox\"` attribute, which may degrade the screen reader experience by not identifying it properly as a combobox."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if adding a visually hidden aria-live region to announce fallback auto-selections correctly notifies screen readers without interrupting other essential UI feedback."
+            ],
+            "proposed_task_ids": [
+              "discovery-9c8886af63d9bea5"
+            ],
+            "completed_at": "2026-09-25T12:20:06.487773Z",
+            "source": {
+              "activity_id": "sessions/7938488447222848457/activities/32a69f2820334f05a1b46a3d35315919",
+              "report_sha256": "588b1e39b294eec30656e7d708cf6b28cd1f1e8b6f89cccf3098ca9ec669848e",
+              "activity_created_at": "2026-09-25T12:08:31.080945Z",
+              "session_id": "7938488447222848457",
+              "dispatch_key": "f2618dbfed1ff257ac6454c7"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated ModelPicker's input interaction for model selection and backend failure recovery scenarios.",
+            "observations": [
+              {
+                "scenario": "Pressing the 'Enter' key directly inside the ModelPicker's search input while a valid model is auto-selected as active.",
+                "evidence": "A synthetic Vitest jsdom fixture rendered `ModelPicker` with `open={true}` and a non-empty `models` array, establishing a valid `activeIndex`. Simulated pressing the 'Enter' key on the input element (`<input aria-label=\"searchModels\">`). The event handler `onKeyDown` at `src/ModelPicker.tsx:268` returns early for non-arrow keys, meaning `Enter` is ignored, and the parent listbox handler is never reached because the input is a sibling to the options list. Result: `onChange` was never called.",
+                "result": "Establishes that the user cannot press Enter in the search input to select the currently highlighted model. They are forced to explicitly use arrow keys to focus an option before selecting, causing an unintuitive workflow."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if modifying the `onKeyDown` in the search input to correctly delegate or handle 'Enter' improves user flow without triggering unintentional form submissions.",
+              "Investigate if cancelling the `saveSettings` frontend operation exactly at the moment it is submitted leaves any stale states in `operationDrafts` or `providerEnvDraft`."
+            ],
+            "proposed_task_ids": [
+              "discovery-7f58e586ac2abeec"
+            ],
+            "completed_at": "2026-09-25T13:22:51.371298Z",
+            "source": {
+              "activity_id": "sessions/8440830932093286634/activities/6370ce7cda6e4a3781056b48c309c650",
+              "report_sha256": "f0933f7f5940aaad3248c434ecf9f1f7d1121036534bb3d061ae175ffe91962f",
+              "activity_created_at": "2026-09-25T13:09:23.411620Z",
+              "session_id": "8440830932093286634",
+              "dispatch_key": "ad1a9623fccb11045ddfc24f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
