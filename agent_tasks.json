@@ -70701,7 +70701,7 @@
       "id": "research-settings-models-reliability-10",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -70863,16 +70863,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16451907942430329028",
         "dispatch_key": "579728b7f1764cc3716116f0",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-579728b7f1764cc3716116f0",
         "started_at": "2026-09-26T13:23:44.308133Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T13:44:50.616941Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -71043,13 +71043,117 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T13:23:44.308133Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T13:44:50.616941Z"
+      },
+      "research_result": {
+        "summary": "Verified deferred product improvement hypotheses for ModelPicker key handling and SettingsRecoveryScreen accessibility.",
+        "observations": [
+          {
+            "scenario": "Handling the Enter key within the ModelPicker search input to select the currently active listbox option.",
+            "evidence": "Locally modified `src/ModelPicker.tsx` to handle `event.key === \"Enter\"` inside the `input`'s `onKeyDown` and dispatched synthetic `Enter` events in `src/ModelPickerEnterHypothesis.test.tsx` (Vitest/jsdom).",
+            "result": "Establishes that intercepting the Enter key inside the search input, calling `onChange` with the currently active `activeIndex`, and then `closePicker()` correctly selects the model without unintentional side effects."
+          },
+          {
+            "scenario": "Applying standard ARIA roles and auto-focusing the primary action button on the SettingsRecoveryScreen.",
+            "evidence": "Locally modified `src/SettingsRecoveryScreen.tsx` to apply `role=\"alertdialog\"` to the `<main>` container and added a `useEffect` and `useRef` to `focus()` the primary `.button.primary` element on mount. Tested behavior in `src/SettingsRecoveryAccess.test.tsx` (Vitest/jsdom).",
+            "result": "Establishes that the recovery screen can successfully act as an alert dialog and capture focus to the primary recovery action upon appearance, significantly improving screen reader context and keyboard flow."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T13:44:50.616941Z",
+        "source": {
+          "activity_id": "sessions/16451907942430329028/activities/9804dd0f448e473fb281d560969754c3",
+          "report_sha256": "669439aae9647dfd50705ec78808e53157f5f4d9cfcc731e3716cc8902e5108c",
+          "activity_created_at": "2026-09-26T13:37:16.362087Z",
+          "session_id": "16451907942430329028",
+          "dispatch_key": "579728b7f1764cc3716116f0"
+        },
+        "deferred_findings": [
+          {
+            "title": "Allow model selection by pressing Enter in the ModelPicker search input",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7f58e586ac2abeec; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom validation of the key handling logic. Tested adding the 'Enter' key case in the search input's onKeyDown handler.\", \"reproduction\": {\"actual\": \"The Enter key event is ignored and no selection occurs\", \"expected\": \"The currently highlighted model is selected and onChange is called\", \"steps\": [\"Render ModelPicker with open={true} and valid model options\", \"Focus the search input and press the 'Enter' key\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker"
+            ]
+          },
+          {
+            "title": "Improve SettingsRecoveryScreen accessibility with focus management and ARIA roles",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-ab7a935a0deafa44; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom validation of SettingsRecoveryScreen DOM elements and component mount lifecycle.\", \"reproduction\": {\"actual\": \"Focus remains on the document body and the main container has no explicit role attribute\", \"expected\": \"Focus is moved to the primary action button, and the container has role=\\\"alertdialog\\\"\", \"steps\": [\"Mount the SettingsRecoveryScreen component with synthetic recovery details\", \"Check document.activeElement and the role attribute of the main container\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/SettingsRecoveryScreen.tsx"
+            ],
+            "acceptance": [
+              "The recovery screen container has role=\"alertdialog\"",
+              "Focus is captured automatically by the primary 'Start with defaults' button when the recovery screen appears"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16451907942430329028/activities/9804dd0f448e473fb281d560969754c3",
+          "report_sha256": "669439aae9647dfd50705ec78808e53157f5f4d9cfcc731e3716cc8902e5108c",
+          "activity_created_at": "2026-09-26T13:37:16.362087Z",
+          "session_id": "16451907942430329028",
+          "dispatch_key": "579728b7f1764cc3716116f0"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-7c6fb9f2bde11455",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7f58e586ac2abeec"
+            },
+            {
+              "id": "discovery-97236f94f142435d",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-ab7a935a0deafa44"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Allow model selection by pressing Enter in the ModelPicker search input",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7f58e586ac2abeec; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom validation of the key handling logic. Tested adding the 'Enter' key case in the search input's onKeyDown handler.\", \"reproduction\": {\"actual\": \"The Enter key event is ignored and no selection occurs\", \"expected\": \"The currently highlighted model is selected and onChange is called\", \"steps\": [\"Render ModelPicker with open={true} and valid model options\", \"Focus the search input and press the 'Enter' key\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker"
+              ]
+            },
+            {
+              "title": "Improve SettingsRecoveryScreen accessibility with focus management and ARIA roles",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-ab7a935a0deafa44; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom validation of SettingsRecoveryScreen DOM elements and component mount lifecycle.\", \"reproduction\": {\"actual\": \"Focus remains on the document body and the main container has no explicit role attribute\", \"expected\": \"Focus is moved to the primary action button, and the container has role=\\\"alertdialog\\\"\", \"steps\": [\"Mount the SettingsRecoveryScreen component with synthetic recovery details\", \"Check document.activeElement and the role attribute of the main container\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/SettingsRecoveryScreen.tsx"
+              ],
+              "acceptance": [
+                "The recovery screen container has role=\"alertdialog\"",
+                "Focus is captured automatically by the primary 'Start with defaults' button when the recovery screen appears"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T13:38:44.414541Z",
+    "last_poll_at": "2026-09-26T13:45:12.944510Z",
     "last_tick_at": "2026-09-26T13:38:48.538480Z",
     "run_id": "36245815013"
   }
