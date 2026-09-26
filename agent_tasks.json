@@ -70571,7 +70571,8 @@
             "session_id": "16135313784260871552",
             "dispatch_key": "49cbca281804a06d1d70ddb1"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-49cbca281804a06d1d70ddb1"
       },
       "research_result": {
         "summary": "Investigated ModelPicker and SettingsRecoveryScreen interactions and accessibility, as well as SettingsPanel draft preservation.",
