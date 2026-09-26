@@ -68356,7 +68356,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T10:36:50.505686Z"
+        "observed_at": "2026-09-26T10:36:50.505686Z",
+        "released_attempt_ref": "autonomous/attempt-4b505c0275d47baeaf1aa4b2"
       },
       "research_result": {
         "summary": "Verified that ProjectRail mapping overhead blocks the UI with many workspaces due to unmemoized rendering",
