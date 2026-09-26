@@ -66200,7 +66200,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T07:24:18.777393Z"
+        "observed_at": "2026-09-26T07:24:18.777393Z",
+        "released_attempt_ref": "autonomous/attempt-8c032d4c3150dfbcac43898b"
       },
       "research_result": {
         "summary": "Investigated terminal input formatting performance. Confirmed that formatSelectionReply is significantly slow when processing large selections with many empty lines due to Array.prototype.shift() being called repeatedly in a loop.",
