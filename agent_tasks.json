@@ -72831,6 +72831,128 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-11",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-26T18:26:55Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "f56a8eb18d181e3d55eaabf7fee01e42c99e466f45a4ded2b313c56055a6a760",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Verified that batch imports in Codex and OMP modals intentionally stay open after failures and renaming a session while search filters are active preserves focus correctly.",
+            "observations": [
+              {
+                "scenario": "Reviewing import failure modal behavior in App.tsx (importCodexSelected and importPendingOmp) on the pinned base.",
+                "evidence": "Source inspection of src/App.tsx shows modals selectively close via `setCodexOpen(false)` and `setPendingOmpImportPath(null)` only in `else` blocks explicitly when `failures.length === 0` or `!failure`. If failures occur, the logic intentionally leaves the modal open with the selection intact.",
+                "result": "Establishes that the observed 'stay open on failure' behavior is an explicit design choice in the current codebase, allowing users to manually deselect items rather than forcing them to re-select."
+              },
+              {
+                "scenario": "Reviewing whether renaming a session while search filters are active correctly preserves focus inside the list when navigating via keyboard.",
+                "evidence": "Executed a local isolated jsdom test simulating the focus interaction when the virtualizer re-renders a list where search filters are applied. The test confirmed that after an internal render cycle, the `actionFocusRef` properly guards focus and `document.activeElement` stays on the rename input.",
+                "result": "Establishes that focus is properly preserved during virtualized session rename interactions even when a search query actively filters the list. No regression was observed."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items, despite the lack of user workload evidence so far.",
+              "Investigate the memory consumption limit of large OMP import sessions when the file contains heavily fragmented chunks."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T07:17:56.651605Z",
+            "source": {
+              "activity_id": "sessions/9253212981350780347/activities/f33f958719d94906a4accbfc633d57aa",
+              "report_sha256": "773dec3bcee96ffd42e429bdb99b8e386fd0d28ad7901591c891b066a0173760",
+              "activity_created_at": "2026-09-26T07:05:27.211048Z",
+              "session_id": "9253212981350780347",
+              "dispatch_key": "8c9973471d4a04b96e1132d1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Identified an accessibility violation in SessionRow where an interactive input is nested inside a role='button' element during renaming.",
+            "observations": [
+              {
+                "scenario": "Simulating accessibility checks on a SessionRow component while it is in the 'renaming' state.",
+                "evidence": "Ran axe-core on a simplified DOM representing the renaming state and via a jsdom test on the SessionRow component itself. Both reported a 'nested-interactive' serious violation because the <input> element is a focusable descendant of <div className='session-select' role='button' tabIndex={0}>. Axe-core also flagged aria-pressed and aria-label on the parent wrapper that don't apply well when presentation role is needed.",
+                "result": "Establishes that the UI creates an invalid nested interactive element structure during session rename. Removing role='button', tabIndex={0}, and aria-pressed from the parent when renaming=true resolves the violation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if CodexImportModal and ImportSessionModal landmarks (header/footer) create duplicate banner/contentinfo landmarks when mounted due to role='dialog' overriding their scoping parent's semantic."
+            ],
+            "proposed_task_ids": [
+              "discovery-e97138c9bee4f4ca"
+            ],
+            "completed_at": "2026-09-26T08:00:28.623005Z",
+            "source": {
+              "activity_id": "sessions/16866598067983291181/activities/38b75bb9abb746c58875bb1e7871d66b",
+              "report_sha256": "1683a63df71911a2203f5d3a05ad4b39b68acaac45fab1de7e78bc42875a82ac",
+              "activity_created_at": "2026-09-26T07:52:59.070852Z",
+              "session_id": "16866598067983291181",
+              "dispatch_key": "873a5726058b62592a45f159"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that fixing the seriously invalid nested interactive structure in SessionRow and duplicate banner/contentinfo landmarks in CodexImportModal/ImportSessionModal resolves the reported axe-core accessibility violations.",
+            "observations": [
+              {
+                "scenario": "Simulating accessibility checks on a SessionRow component while it is in the 'renaming' state with and without the nested-interactive fix.",
+                "evidence": "Ran axe-core on a jsdom test rendering SessionRow. By default, it reported a 'nested-interactive' serious violation because the <input> element is a focusable descendant of <div className='session-select' role='button' tabIndex={0}>, and a 'label' critical violation. Changing the parent to `role='presentation'` and removing its `tabIndex` when `renaming=true` resolved the nested-interactive violation. Adding `aria-label=t(lang, 'editFixedTitle')` to the input resolved the label violation.",
+                "result": "Establishes that the UI creates an invalid nested interactive element structure during session rename. Converting role='button' to role='presentation' and dropping tabIndex=0 on the parent when renaming=true resolves the violation and properly exposes the input."
+              },
+              {
+                "scenario": "Simulating accessibility checks on the app's modals to observe duplicate banner and contentinfo landmarks.",
+                "evidence": "Ran axe-core on a mocked DOM containing CodexImportModal and ImportSessionModal side-by-side or within a surrounding layout. It flagged 'landmark-no-duplicate-banner', 'landmark-no-duplicate-contentinfo', and 'landmark-unique' moderate violations because the modals use raw <header> and <footer> tags inside their <section role='dialog'> wrappers, which aren't fully sequestered from the global document context when mounted.",
+                "result": "Establishes that using <header> and <footer> directly inside role='dialog' modals causes duplicate semantic landmarks if multiple are mounted or they conflict with the main application shell. Changing these to <div className='settings-header'> and <div className='settings-actions'> preserves visual layout without polluting global accessibility landmarks."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items, despite the lack of user workload evidence so far.",
+              "Investigate the memory consumption limit of large OMP import sessions when the file contains heavily fragmented chunks."
+            ],
+            "proposed_task_ids": [
+              "discovery-fd9640fc9f4e2b85",
+              "discovery-d8231b85a1326e2c"
+            ],
+            "completed_at": "2026-09-26T11:59:55.932159Z",
+            "source": {
+              "activity_id": "sessions/3512087580058234043/activities/cd8b96b3e68e4740a4add87ed1f6c601",
+              "report_sha256": "3e38208263486aa1778e295f974bf47335e6b6663de4df97ce8d05e6e06f0070",
+              "activity_created_at": "2026-09-26T11:48:29.104964Z",
+              "session_id": "3512087580058234043",
+              "dispatch_key": "acd2b542296a8b620f56a3b2"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
