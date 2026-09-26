@@ -72471,6 +72471,151 @@
         "session_id": "5858986872392413199",
         "dispatch_key": "8fc0d77fc5d155fc3702e86d"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-10",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-26T17:29:10Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 10,
+        "previous_reports": [
+          {
+            "summary": "Investigated the failure recovery and persistence logic in `runtimeIncidents.ts`, specifically examining how fallback incidents are resolved when the primary model recovers.",
+            "observations": [
+              {
+                "scenario": "Verify that an active fallback incident is properly resolved when a `modelChange` event signals the recovery of the primary model (`resolvedModelIsFallback: false`).",
+                "evidence": "Ran isolated tests on `applyRuntimeIncidentEvent` by creating a `retryFallbackApplied` incident with `fallbackRole: \"secondary\"`. Then applied a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`. In `src/runtimeIncidents.ts:199`, the logic evaluates `event.fallbackRole ?? event.modelRole` as `\"primary\"` and calls `resolveFallbacks` with this role. `resolveFallbacks` checks if the incident's role matches `\"primary\"`, but the active incident's role is `\"secondary\"`. As a result, the fallback incident is left unresolved.",
+                "result": "Establishes a logical bug in failure recovery where returning to the primary model fails to clear an active secondary fallback incident because it incorrectly filters by the newly recovered `modelRole` instead of broadly clearing active fallbacks for the terminal."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if multiple concurrent fallbacks across different roles can cause `enforceIncidentBound` to mistakenly drop unresolved primary fallback issues when limits are reached.",
+              "Verify whether a missing or unmounted volume during `sample_resource_health` correctly persists its unavailability status across backend restart loops."
+            ],
+            "proposed_task_ids": [
+              "discovery-aa17322b78e9eae9"
+            ],
+            "completed_at": "2026-09-26T14:34:33.059140Z",
+            "source": {
+              "activity_id": "sessions/6760170981285128318/activities/f2a8735f9fa64558acd6562ebe0f7642",
+              "report_sha256": "f11660d9c931d6421ae1b54db873fc01252c5263be162f85ce528e0cc444cc32",
+              "activity_created_at": "2026-09-26T14:22:28.328436Z",
+              "session_id": "6760170981285128318",
+              "dispatch_key": "52448076746bb4f12a95a929"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated runtime incident state bounds dropping active fallbacks, the resource health unmount path resolving behavior, and the focus trap logic in modals.",
+            "observations": [
+              {
+                "scenario": "Verify if multiple concurrent fallbacks across different roles can cause `enforceIncidentBound` to mistakenly drop unresolved primary fallback issues when limits are reached.",
+                "evidence": "Ran isolated tests on `enforceIncidentBound`. When `terminal-1` activates a fallback, and then emits `MAX_RUNTIME_INCIDENTS` errors (e.g. from retries under the fallback model), the limit is hit. Since there are no resolved incidents to evict, `enforceIncidentBound` evicts the oldest active incident for `terminal-1`. Because the fallback activation happened before the errors, the fallback incident is dropped while it's still unresolved. This causes `runtimeHealthStatus` to lose track of the fallback state.",
+                "result": "Establishes a logical bug where an active fallback is dropped from state if the terminal continues to hit errors, hiding the fallback status from the user interface."
+              },
+              {
+                "scenario": "Verify whether a missing or unmounted volume during `sample_resource_health` correctly persists its unavailability status across backend restart loops.",
+                "evidence": "Tested the `existing_resource_path` function by creating a directory, running the function, deleting the directory, and running it again. It returns an error when the directory is deleted (simulating an unmounted volume). In `sample_resource_health`, this error adds an entry to `unavailable_volumes` with the corresponding `ResourcePath`. Since the list of `paths` is provided from the frontend/configuration, and `existing_resource_path` correctly detects absence on every pass, the unavailability status will persist across loops as long as the resource paths are checked.",
+                "result": "Establishes that unmounted volumes correctly report their unavailability consistently, behaving as expected without a bug."
+              },
+              {
+                "scenario": "Fix focus trap bound calculation for elements hidden inside collapsed details tags.",
+                "evidence": "Created a jsdom test to verify if elements inside collapsed `<details>` tags are ignored by the inline `DIALOG_FOCUSABLE_SELECTOR` query. The `.filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden)` check in `IncidentCenter` and `ResourceHealthPanel` does not exclude them, leading to broken Tab traversal.",
+                "result": "Establishes that the inline query must explicitly check for `element.closest('details:not([open])')` while retaining `<summary>` tags to correctly replicate the `useModalFocus` behavior."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `runtimeEventsDedupeKey` fails to coalesce rapid identical error events, exacerbating the bound exhaustion bug.",
+              "Determine how `resolveFallbacks` can correctly clear secondary fallbacks on primary model recovery without violating the rule that unrelated fallback roles (like 'review') should remain active."
+            ],
+            "proposed_task_ids": [
+              "discovery-940b5f71f3979b02"
+            ],
+            "completed_at": "2026-09-26T15:29:47.061543Z",
+            "source": {
+              "activity_id": "sessions/5858986872392413199/activities/100c6b2b1dcb4c03a871fe1fd9cc7620",
+              "report_sha256": "29eb0d5d3cc0dbc8b7083ad65e88d03c85ac3d8e2934393d9d00807fbeea27e2",
+              "activity_created_at": "2026-09-26T15:18:25.221562Z",
+              "session_id": "5858986872392413199",
+              "dispatch_key": "8fc0d77fc5d155fc3702e86d"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Measured performance of incident bounding, diagnostics text redaction, and resource health sampling; no severe regressions or bottlenecks found.",
+            "observations": [
+              {
+                "scenario": "Continuous terminal state updates exceeding the MAX_RUNTIME_INCIDENTS limit, forcing `enforceIncidentBound` to continuously drop the oldest unique terminal event.",
+                "evidence": "Executed an isolated synthetic TypeScript benchmark with 10,000 incident insertions across 100+ unique terminals to force worst-case limit scaling. The O(N) array filtering and reduction to drop the oldest incident processed 10,000 boundary evictions in ~300ms (~0.03ms per event).",
+                "result": "Establishes that the incident limit tracking is well bounded in execution time and memory; the O(N) eviction behavior is not a measurable bottleneck due to the small N=100 hard limit."
+              },
+              {
+                "scenario": "Resource-intensive text redaction over large chunks of textual data during diagnostics collection (`redact_text`).",
+                "evidence": "Wrote a native Rust benchmark `benchmark_redact_text` for `omp_desktop_lib::diagnostics::redact_text` simulating processing of 100,000 lines (2.5MB) containing secrets. Redaction completed in ~838ms.",
+                "result": "Establishes that `redact_text` is appropriately bounded; while line-by-line token splitting over millions of lines induces some latency, realistic diagnostic log sizes remain within acceptable sub-second limits."
+              },
+              {
+                "scenario": "Live `sample_resource_health` retrieval performance.",
+                "evidence": "Wrote a native Rust benchmark `benchmark_resource_health` for `omp_desktop_lib::resource_health::sample_resource_health`. 10 successive live system resource samples completed in ~8.3ms.",
+                "result": "Establishes that continuous system telemetry retrieval executes efficiently (~0.8ms per sample) and does not incur expensive filesystem IO blocking."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if concurrent high-throughput terminal outputs can cause overlapping `redact_text` invocations to block the Tauri IPC event loop when retrieving extremely large diagnostics logs.",
+              "Investigate the memory allocations required when serializing 100 active runtime incidents over the IPC bridge during intense terminal activity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T15:43:01.833872Z",
+            "source": {
+              "activity_id": "sessions/11191604720444279127/activities/11f3ae7b050442beaa6618867fcdd029",
+              "report_sha256": "d12dac7cef76834b5feeff429f221ca63b98837f72efa0c6a9b1790746bd5a13",
+              "activity_created_at": "2026-09-26T15:32:16.416792Z",
+              "session_id": "11191604720444279127",
+              "dispatch_key": "a70e959bd559bf69bd0a7f3c"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
