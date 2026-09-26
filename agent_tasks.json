@@ -65124,7 +65124,7 @@
       "id": "research-sessions-persistence-performance-10",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -65515,16 +65515,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "9253212981350780347",
         "dispatch_key": "8c9973471d4a04b96e1132d1",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-8c9973471d4a04b96e1132d1",
         "started_at": "2026-09-26T06:42:05.318339Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T07:17:56.651605Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: report_absent",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -65707,18 +65707,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T07:10:01.298764Z",
-        "report_error": {
-          "code": "report_absent",
-          "detail": "completed discovery has no worker report",
-          "reported_at": "2026-09-26T07:03:29.423569Z"
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T07:17:56.651605Z",
         "report_repair": {
           "at": "2026-09-26T07:03:47.176559Z",
           "result": "sent",
-          "status": "pending"
+          "status": "resolved"
         }
+      },
+      "research_result": {
+        "summary": "Verified that batch imports in Codex and OMP modals intentionally stay open after failures and renaming a session while search filters are active preserves focus correctly.",
+        "observations": [
+          {
+            "scenario": "Reviewing import failure modal behavior in App.tsx (importCodexSelected and importPendingOmp) on the pinned base.",
+            "evidence": "Source inspection of src/App.tsx shows modals selectively close via `setCodexOpen(false)` and `setPendingOmpImportPath(null)` only in `else` blocks explicitly when `failures.length === 0` or `!failure`. If failures occur, the logic intentionally leaves the modal open with the selection intact.",
+            "result": "Establishes that the observed 'stay open on failure' behavior is an explicit design choice in the current codebase, allowing users to manually deselect items rather than forcing them to re-select."
+          },
+          {
+            "scenario": "Reviewing whether renaming a session while search filters are active correctly preserves focus inside the list when navigating via keyboard.",
+            "evidence": "Executed a local isolated jsdom test simulating the focus interaction when the virtualizer re-renders a list where search filters are applied. The test confirmed that after an internal render cycle, the `actionFocusRef` properly guards focus and `document.activeElement` stays on the rename input.",
+            "result": "Establishes that focus is properly preserved during virtualized session rename interactions even when a search query actively filters the list. No regression was observed."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items, despite the lack of user workload evidence so far.",
+          "Investigate the memory consumption limit of large OMP import sessions when the file contains heavily fragmented chunks."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T07:17:56.651605Z",
+        "source": {
+          "activity_id": "sessions/9253212981350780347/activities/f33f958719d94906a4accbfc633d57aa",
+          "report_sha256": "773dec3bcee96ffd42e429bdb99b8e386fd0d28ad7901591c891b066a0173760",
+          "activity_created_at": "2026-09-26T07:05:27.211048Z",
+          "session_id": "9253212981350780347",
+          "dispatch_key": "8c9973471d4a04b96e1132d1"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -66180,7 +66204,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T07:11:54.582377Z",
+    "last_poll_at": "2026-09-26T07:18:12.111627Z",
     "last_tick_at": "2026-09-26T07:11:57.964416Z",
     "run_id": "36225927994"
   }
