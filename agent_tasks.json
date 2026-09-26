@@ -71820,7 +71820,7 @@
       "id": "research-diagnostics-resources-behavior-10",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -71952,16 +71952,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "5858986872392413199",
         "dispatch_key": "8fc0d77fc5d155fc3702e86d",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-8fc0d77fc5d155fc3702e86d",
         "started_at": "2026-09-26T14:34:33.059140Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T15:29:47.061543Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -72042,8 +72042,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T15:23:21.526667Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T15:29:47.061543Z",
         "research_detached": {
           "at": "2026-09-26T15:01:46.224472Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -72052,22 +72052,10 @@
           "at": "2026-09-26T15:01:46.224472Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-26T15:16:46.734254Z",
-          "source": {
-            "activity_id": "sessions/5858986872392413199/activities/eb463f7a42604fd3ba7ac35493fa1ce8",
-            "report_sha256": "8c2857f179678d776db099fda0a56090f8c39f50579556c945aa6d1ca34aeafb",
-            "activity_created_at": "2026-09-26T15:04:46.837968Z",
-            "session_id": "5858986872392413199",
-            "dispatch_key": "8fc0d77fc5d155fc3702e86d"
-          }
-        },
         "report_repair": {
           "at": "2026-09-26T15:17:07.713386Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/5858986872392413199/activities/eb463f7a42604fd3ba7ac35493fa1ce8",
             "report_sha256": "8c2857f179678d776db099fda0a56090f8c39f50579556c945aa6d1ca34aeafb",
@@ -72075,6 +72063,95 @@
             "session_id": "5858986872392413199",
             "dispatch_key": "8fc0d77fc5d155fc3702e86d"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated runtime incident state bounds dropping active fallbacks, the resource health unmount path resolving behavior, and the focus trap logic in modals.",
+        "observations": [
+          {
+            "scenario": "Verify if multiple concurrent fallbacks across different roles can cause `enforceIncidentBound` to mistakenly drop unresolved primary fallback issues when limits are reached.",
+            "evidence": "Ran isolated tests on `enforceIncidentBound`. When `terminal-1` activates a fallback, and then emits `MAX_RUNTIME_INCIDENTS` errors (e.g. from retries under the fallback model), the limit is hit. Since there are no resolved incidents to evict, `enforceIncidentBound` evicts the oldest active incident for `terminal-1`. Because the fallback activation happened before the errors, the fallback incident is dropped while it's still unresolved. This causes `runtimeHealthStatus` to lose track of the fallback state.",
+            "result": "Establishes a logical bug where an active fallback is dropped from state if the terminal continues to hit errors, hiding the fallback status from the user interface."
+          },
+          {
+            "scenario": "Verify whether a missing or unmounted volume during `sample_resource_health` correctly persists its unavailability status across backend restart loops.",
+            "evidence": "Tested the `existing_resource_path` function by creating a directory, running the function, deleting the directory, and running it again. It returns an error when the directory is deleted (simulating an unmounted volume). In `sample_resource_health`, this error adds an entry to `unavailable_volumes` with the corresponding `ResourcePath`. Since the list of `paths` is provided from the frontend/configuration, and `existing_resource_path` correctly detects absence on every pass, the unavailability status will persist across loops as long as the resource paths are checked.",
+            "result": "Establishes that unmounted volumes correctly report their unavailability consistently, behaving as expected without a bug."
+          },
+          {
+            "scenario": "Fix focus trap bound calculation for elements hidden inside collapsed details tags.",
+            "evidence": "Created a jsdom test to verify if elements inside collapsed `<details>` tags are ignored by the inline `DIALOG_FOCUSABLE_SELECTOR` query. The `.filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden)` check in `IncidentCenter` and `ResourceHealthPanel` does not exclude them, leading to broken Tab traversal.",
+            "result": "Establishes that the inline query must explicitly check for `element.closest('details:not([open])')` while retaining `<summary>` tags to correctly replicate the `useModalFocus` behavior."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `runtimeEventsDedupeKey` fails to coalesce rapid identical error events, exacerbating the bound exhaustion bug.",
+          "Determine how `resolveFallbacks` can correctly clear secondary fallbacks on primary model recovery without violating the rule that unrelated fallback roles (like 'review') should remain active."
+        ],
+        "proposed_task_ids": [
+          "discovery-940b5f71f3979b02"
+        ],
+        "completed_at": "2026-09-26T15:29:47.061543Z",
+        "source": {
+          "activity_id": "sessions/5858986872392413199/activities/100c6b2b1dcb4c03a871fe1fd9cc7620",
+          "report_sha256": "29eb0d5d3cc0dbc8b7083ad65e88d03c85ac3d8e2934393d9d00807fbeea27e2",
+          "activity_created_at": "2026-09-26T15:18:25.221562Z",
+          "session_id": "5858986872392413199",
+          "dispatch_key": "8fc0d77fc5d155fc3702e86d"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5858986872392413199/activities/100c6b2b1dcb4c03a871fe1fd9cc7620",
+          "report_sha256": "29eb0d5d3cc0dbc8b7083ad65e88d03c85ac3d8e2934393d9d00807fbeea27e2",
+          "activity_created_at": "2026-09-26T15:18:25.221562Z",
+          "session_id": "5858986872392413199",
+          "dispatch_key": "8fc0d77fc5d155fc3702e86d"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-940b5f71f3979b02"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -72306,10 +72383,50 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-26T15:01:46.224472Z"
       }
+    },
+    {
+      "id": "discovery-940b5f71f3979b02",
+      "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "medium",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-26T15:29:47.061543Z",
+      "acceptance": [
+        "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Apply a `retryFallbackApplied` incident for `terminal-1`.",
+            "Apply 100 sequential `modelError` incidents for `terminal-1`."
+          ],
+          "expected": "The fallback incident remains active so `runtimeHealthStatus` can return `fallback` or `error` accurately.",
+          "actual": "The active fallback incident is evicted because it is the oldest incident for `terminal-1`, completely hiding the fallback state from the UI."
+        }
+      },
+      "target_paths": [
+        "src/runtimeIncidents.ts"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-10",
+        "activity_id": "sessions/5858986872392413199/activities/100c6b2b1dcb4c03a871fe1fd9cc7620",
+        "report_sha256": "29eb0d5d3cc0dbc8b7083ad65e88d03c85ac3d8e2934393d9d00807fbeea27e2",
+        "activity_created_at": "2026-09-26T15:18:25.221562Z",
+        "session_id": "5858986872392413199",
+        "dispatch_key": "8fc0d77fc5d155fc3702e86d"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T15:23:44.657692Z",
+    "last_poll_at": "2026-09-26T15:30:04.020861Z",
     "last_tick_at": "2026-09-26T15:23:48.451381Z",
     "run_id": "36251736752"
   }
