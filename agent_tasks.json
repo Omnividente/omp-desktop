@@ -70022,7 +70022,8 @@
             "session_id": "365047915194315078",
             "dispatch_key": "c09b237c1f20d577dcebee0c"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-c09b237c1f20d577dcebee0c"
       },
       "research_result": {
         "summary": "Confirmed UX and accessibility limitations in ModelPicker and SettingsRecoveryScreen components.",
