@@ -73148,7 +73148,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T18:42:08.158814Z"
+        "observed_at": "2026-09-26T18:42:08.158814Z",
+        "released_attempt_ref": "autonomous/attempt-04ff46f6c31f773e45f44937"
       },
       "research_result": {
         "summary": "Verified that a crash during session import leaves state inconsistent across restarts, requiring a recovery protocol.",
