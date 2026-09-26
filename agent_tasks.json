@@ -64133,7 +64133,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-26T00:23:01.928928Z"
+        "observed_at": "2026-09-26T00:23:01.928928Z",
+        "released_attempt_ref": "autonomous/attempt-7ac85257038a2d68fe6c941b"
       },
       "research_result": {
         "summary": "Verified that terminal continuity improperly accepts output events from older generations, corrupting the baseline state.",
