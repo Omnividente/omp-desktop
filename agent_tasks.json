@@ -72708,13 +72708,17 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T17:37:25.496381Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-26T17:50:10.593968Z",
+        "research_detached": {
+          "at": "2026-09-26T17:50:10.593968Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T17:44:11.090688Z",
+    "last_poll_at": "2026-09-26T17:50:33.640731Z",
     "last_tick_at": "2026-09-26T17:44:15.884964Z",
     "run_id": "36260030728"
   }
