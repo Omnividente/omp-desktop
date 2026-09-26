@@ -65713,7 +65713,8 @@
           "at": "2026-09-26T07:03:47.176559Z",
           "result": "sent",
           "status": "resolved"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-8c9973471d4a04b96e1132d1"
       },
       "research_result": {
         "summary": "Verified that batch imports in Codex and OMP modals intentionally stay open after failures and renaming a session while search filters are active preserves focus correctly.",
