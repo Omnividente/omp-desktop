@@ -69655,7 +69655,8 @@
             "session_id": "3512087580058234043",
             "dispatch_key": "acd2b542296a8b620f56a3b2"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-acd2b542296a8b620f56a3b2"
       },
       "research_result": {
         "summary": "Verified that fixing the seriously invalid nested interactive structure in SessionRow and duplicate banner/contentinfo landmarks in CodexImportModal/ImportSessionModal resolves the reported axe-core accessibility violations.",
