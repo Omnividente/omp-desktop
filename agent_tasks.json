@@ -72717,7 +72717,8 @@
         "feedback_nudge": {
           "at": "2026-09-26T17:50:10.593968Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-30d23f9f3307bc819622ff4b"
       },
       "research_result": {
         "summary": "Investigated the runtime incidents failure recovery and state bounding logic, reproducing bugs where active fallbacks are prematurely dropped under high error volume, and secondary fallbacks fail to resolve when the primary model recovers.",
