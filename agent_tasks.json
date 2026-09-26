@@ -70254,7 +70254,7 @@
       "id": "research-settings-models-behavior-10",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -70378,16 +70378,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "16135313784260871552",
         "dispatch_key": "49cbca281804a06d1d70ddb1",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-49cbca281804a06d1d70ddb1",
         "started_at": "2026-09-26T12:21:17.924906Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T12:55:39.118650Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -70558,24 +70558,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T12:49:14.251020Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-26T12:42:44.040404Z",
-          "source": {
-            "activity_id": "sessions/16135313784260871552/activities/28b6154217ab4bcbab584c892b27ebca",
-            "report_sha256": "88bd77f38d510f96af0f8d6023ba7823c2c44a27ba5fd32bb93453e34233a1c8",
-            "activity_created_at": "2026-09-26T12:33:59.108642Z",
-            "session_id": "16135313784260871552",
-            "dispatch_key": "49cbca281804a06d1d70ddb1"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T12:55:39.118650Z",
         "report_repair": {
           "at": "2026-09-26T12:43:06.482148Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/16135313784260871552/activities/28b6154217ab4bcbab584c892b27ebca",
             "report_sha256": "88bd77f38d510f96af0f8d6023ba7823c2c44a27ba5fd32bb93453e34233a1c8",
@@ -70584,11 +70572,133 @@
             "dispatch_key": "49cbca281804a06d1d70ddb1"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated ModelPicker and SettingsRecoveryScreen interactions and accessibility, as well as SettingsPanel draft preservation.",
+        "observations": [
+          {
+            "scenario": "Pressing the 'Enter' key in the ModelPicker's search input",
+            "evidence": "Tested rendering ModelPicker in a Vitest jsdom environment. Dispatched a 'keydown' event with key 'Enter' on the search input element. The 'onChange' callback was not triggered.",
+            "result": "Establishes that users cannot select the currently highlighted model by pressing Enter while focused in the search input; they must explicitly use arrow keys to shift focus to the listbox."
+          },
+          {
+            "scenario": "Mounting the SettingsRecoveryScreen and checking accessibility properties",
+            "evidence": "Tested rendering SettingsRecoveryScreen in a Vitest jsdom environment. After mounting, `document.activeElement` remained `document.body`. Inspected the `<main>` element and verified it lacked an explicit `role` attribute.",
+            "result": "Establishes that the recovery screen fails to capture focus upon appearance and does not identify itself to screen readers as a critical dialog or alert."
+          },
+          {
+            "scenario": "Inspecting the ModelPicker trigger button for combobox roles",
+            "evidence": "Tested rendering ModelPicker with `open={false}` in a Vitest jsdom environment. The trigger `.model-picker-trigger` element had its `role` attribute queried, which returned `null`.",
+            "result": "Establishes that the trigger button relies on its implicit role and is not explicitly identified as a combobox."
+          },
+          {
+            "scenario": "Rendering ModelPicker with an explicit fallback auto-selection",
+            "evidence": "Rendered ModelPicker in Vitest jsdom with `value=\"m1\"` (missing) and `fallback=\"m2\"`. Queried `container.querySelectorAll('[aria-live]')` which returned an empty NodeList.",
+            "result": "Establishes that there is no `aria-live` region to explicitly notify screen reader users when a fallback model is automatically selected."
+          },
+          {
+            "scenario": "Modifying operational drafts and failing the save operation in SettingsPanel",
+            "evidence": "Rendered SettingsPanel in Vitest jsdom. Modified the `agent.maxAttempts` input to '5'. Mocked `saveSettingsBundle` to reject with an error and clicked Save. The input value remained '5' after the operation failed.",
+            "result": "Establishes that operational settings drafts are correctly preserved after an IPC save error, confirming the previous owner's assertion that no draft data is lost on graceful save failures."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if delegating the 'Enter' key from the search input to the currently active descendant in the listbox provides a safe and intuitive model selection mechanism.",
+          "Investigate if assigning `role=\"alertdialog\"` and auto-focusing the primary action in SettingsRecoveryScreen improves accessibility without disrupting screen reader flow."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-26T12:55:39.118650Z",
+        "source": {
+          "activity_id": "sessions/16135313784260871552/activities/3a1eaa6e24514c249d039f17bc860e0a",
+          "report_sha256": "d722ba41ee88da8b070b9076bd699263854904befc03a5684fb790162fb3fcba",
+          "activity_created_at": "2026-09-26T12:44:31.012711Z",
+          "session_id": "16135313784260871552",
+          "dispatch_key": "49cbca281804a06d1d70ddb1"
+        },
+        "deferred_findings": [
+          {
+            "title": "Allow model selection by pressing Enter in the ModelPicker search input",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7f58e586ac2abeec; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom observation using synthetic model data. Tested keyboard events on the search input.\", \"reproduction\": {\"actual\": \"The Enter key event is ignored and no selection occurs\", \"expected\": \"The currently highlighted model is selected and onChange is called\", \"steps\": [\"Render ModelPicker with open={true} and valid model options\", \"Focus the search input and press the 'Enter' key\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker"
+            ]
+          },
+          {
+            "title": "Improve SettingsRecoveryScreen accessibility with focus management and ARIA roles",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-ab7a935a0deafa44; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom observation of the SettingsRecoveryScreen component state after mounting.\", \"reproduction\": {\"actual\": \"Focus remains on the document body and the main container has no explicit role attribute\", \"expected\": \"Focus is moved to the recovery screen or a primary action, and the container has role=\\\"alert\\\" or role=\\\"alertdialog\\\"\", \"steps\": [\"Mount the SettingsRecoveryScreen component with synthetic recovery details\", \"Check document.activeElement and the role attribute of the main container\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/SettingsRecoveryScreen.tsx"
+            ],
+            "acceptance": [
+              "The recovery screen container has an appropriate role (e.g., alert or alertdialog)",
+              "Focus is captured automatically when the recovery screen appears"
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16135313784260871552/activities/3a1eaa6e24514c249d039f17bc860e0a",
+          "report_sha256": "d722ba41ee88da8b070b9076bd699263854904befc03a5684fb790162fb3fcba",
+          "activity_created_at": "2026-09-26T12:44:31.012711Z",
+          "session_id": "16135313784260871552",
+          "dispatch_key": "49cbca281804a06d1d70ddb1"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-7c6fb9f2bde11455",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7f58e586ac2abeec"
+            },
+            {
+              "id": "discovery-97236f94f142435d",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-ab7a935a0deafa44"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Allow model selection by pressing Enter in the ModelPicker search input",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7f58e586ac2abeec; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom observation using synthetic model data. Tested keyboard events on the search input.\", \"reproduction\": {\"actual\": \"The Enter key event is ignored and no selection occurs\", \"expected\": \"The currently highlighted model is selected and onChange is called\", \"steps\": [\"Render ModelPicker with open={true} and valid model options\", \"Focus the search input and press the 'Enter' key\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker"
+              ]
+            },
+            {
+              "title": "Improve SettingsRecoveryScreen accessibility with focus management and ARIA roles",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-ab7a935a0deafa44; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom observation of the SettingsRecoveryScreen component state after mounting.\", \"reproduction\": {\"actual\": \"Focus remains on the document body and the main container has no explicit role attribute\", \"expected\": \"Focus is moved to the recovery screen or a primary action, and the container has role=\\\"alert\\\" or role=\\\"alertdialog\\\"\", \"steps\": [\"Mount the SettingsRecoveryScreen component with synthetic recovery details\", \"Check document.activeElement and the role attribute of the main container\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/SettingsRecoveryScreen.tsx"
+              ],
+              "acceptance": [
+                "The recovery screen container has an appropriate role (e.g., alert or alertdialog)",
+                "Focus is captured automatically when the recovery screen appears"
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T12:49:34.172268Z",
+    "last_poll_at": "2026-09-26T12:55:56.743605Z",
     "last_tick_at": "2026-09-26T12:49:39.243920Z",
     "run_id": "36243108427"
   }
