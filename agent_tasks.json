@@ -73593,7 +73593,7 @@
       "id": "research-transcript-links-ux-10",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -73706,16 +73706,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2680805311560206796",
         "dispatch_key": "a46c6dad5d6ae86a5f28afe8",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-a46c6dad5d6ae86a5f28afe8",
         "started_at": "2026-09-26T23:03:08.410589Z",
-        "finished_at": "",
+        "finished_at": "2026-09-26T23:31:08.398999Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -73889,13 +73889,143 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-26T23:03:08.410589Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-26T23:31:08.398999Z"
+      },
+      "research_result": {
+        "summary": "Investigated keyboard accessibility and screen reader support for copy buttons, transcript state containers, and mode toggles in the TranscriptModal.",
+        "observations": [
+          {
+            "scenario": "Navigating to code block copy buttons via keyboard and screen reader.",
+            "evidence": "Ran isolated jsdom Vitest checks on `MarkdownContent` containing code blocks. The `.markdown-copy-button` button renders correctly in tab order (tabIndex=0 by default for `<button>`), and has explicit `aria-label=\"Copy code\"` with `title=\"Copy code\"` (or `aria-label=\"Copy text\"` for general messages). When clicked, the inner span successfully dynamically updates with `role=\"status\"` and `aria-live=\"polite\"` via React state.",
+            "result": "Establishes that code block copy buttons and general message copy buttons are fully keyboard accessible and correctly announce copied state changes dynamically without losing focus."
+          },
+          {
+            "scenario": "Changing transcript view mode via the transcript filter buttons.",
+            "evidence": "Ran isolated jsdom Vitest checks simulating a click on the 'Dialogue + service' button while focused. The active focus remains on the clicked mode button, correctly retaining its layout in the toolbar without dropping focus back to `document.body`.",
+            "result": "Establishes that changing transcript view modes does not disrupt keyboard navigation state or drop focus."
+          },
+          {
+            "scenario": "Evaluating empty/error/no-match transcript state screen reader announcements.",
+            "evidence": "Ran isolated jsdom Vitest checks capturing the HTML of `.transcript-state` containers under different conditions. Observed that the 'Error' and 'Loading' states correctly include `role=\"alert\"` and `aria-live=\"polite\"` respectively. However, the 'Empty' state (`<div className=\"transcript-state\">`) and 'No Matches' state (`<div className=\"transcript-state\">`) lack `role=\"status\"` and `aria-live=\"polite\"` attributes entirely in `TranscriptModal.tsx`.",
+            "result": "Establishes that while errors and loading states announce properly, screen reader users might miss changes if a transcript is successfully emptied or a search yields zero matches, because the state block acts as a standard static `div`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if long external links within inline text elements are fully readable to screen readers without excessive unpronounceable token reading.",
+          "Investigate the accessibility of keyboard focus flow when pressing `Escape` to close the `ContentActionMenu` from an internal link context menu."
+        ],
+        "proposed_task_ids": [
+          "discovery-f9463c9e29083930"
+        ],
+        "completed_at": "2026-09-26T23:31:08.398999Z",
+        "source": {
+          "activity_id": "sessions/2680805311560206796/activities/8e86d253c40043d584928529a7ec86c8",
+          "report_sha256": "dc42822bfc51878cdc6a8ce1f7e5fb805bbc501b49a6dc19e73fa0f48aeec3ae",
+          "activity_created_at": "2026-09-26T23:19:33.591730Z",
+          "session_id": "2680805311560206796",
+          "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2680805311560206796/activities/8e86d253c40043d584928529a7ec86c8",
+          "report_sha256": "dc42822bfc51878cdc6a8ce1f7e5fb805bbc501b49a6dc19e73fa0f48aeec3ae",
+          "activity_created_at": "2026-09-26T23:19:33.591730Z",
+          "session_id": "2680805311560206796",
+          "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f9463c9e29083930"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f9463c9e29083930",
+      "title": "Add screen reader status announcements for empty and no-match transcript states",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y"
+      ],
+      "created_at": "2026-09-26T23:31:08.398999Z",
+      "acceptance": [
+        "The empty transcript state container includes role='status' and aria-live='polite'",
+        "The 'no matches' transcript state container includes role='status' and aria-live='polite'"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Native desktop observation using isolated jsdom Vitest tests. Confirmed that while error states use role='alert', the 'no entries' and 'no matches' generic .transcript-state containers omit screen-reader accessible status roles.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a transcript session with no existing entries",
+            "Inspect the resulting '.transcript-state' container displaying the empty history icon",
+            "Open a populated transcript and perform a search that yields zero matches",
+            "Inspect the resulting '.transcript-state' container displaying the search icon"
+          ],
+          "expected": "Both state containers have an explicit 'role=\"status\"' (or similar aria-live attribute) so a screen reader announces the transition to an empty/no-match list.",
+          "actual": "Both containers render as a plain <div> without a role or aria-live attribute."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "The previous rejection noted that the 'absence of role/status on another container' wasn't proven to be a failure because a live-region counter handles non-empty searches. This new finding isolates the specific case where a search returns ZERO matches or the transcript itself is entirely empty, completely replacing the virtual list container and counter with a static `<div className=\"transcript-state\">` block that has no live region properties.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-47b68bc64b47ba91",
+          "observation_refs": [
+            2
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-47b68bc64b47ba91",
+              "decision_context_id": "e0e3e527b3ebc6a6d5fd6a3ddda99fa55cda8e206029c134521958eba36cf771",
+              "why_previous_reason_no_longer_explains": "The previous rationale (e0e3e527) correctly noted that main 7fdbf311 has a live-region counter for 'non-empty' transcripts. However, the exact DOM output captured in test-status-role-announcements.test.tsx proves that when visibleEntries is empty (either empty transcript or 0 search matches), the entire `.transcript-entries` block (and its containing UI) is replaced by `.transcript-state`, and there is no longer a live-region counter present on the screen to announce the change in state."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-47b68bc64b47ba91",
+            "action": "reject",
+            "decision_at": "2026-09-21T20:12:02Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-transcript-links-ux-10",
+        "activity_id": "sessions/2680805311560206796/activities/8e86d253c40043d584928529a7ec86c8",
+        "report_sha256": "dc42822bfc51878cdc6a8ce1f7e5fb805bbc501b49a6dc19e73fa0f48aeec3ae",
+        "activity_created_at": "2026-09-26T23:19:33.591730Z",
+        "session_id": "2680805311560206796",
+        "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-26T23:24:52.995487Z",
+    "last_poll_at": "2026-09-26T23:31:31.257757Z",
     "last_tick_at": "2026-09-26T23:24:56.995930Z",
     "run_id": "36279322041"
   }
