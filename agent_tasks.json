@@ -84347,7 +84347,7 @@
       "id": "discovery-0c6175b6cf6f1642",
       "title": "Prevent concurrent deletion from destroying newly imported artifacts",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -84383,6 +84383,12 @@
         "activity_created_at": "2026-09-27T19:12:56.789359Z",
         "session_id": "17545297632891352198",
         "dispatch_key": "dc019ebafbc554b3fdcb8477"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:19:32Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): sessions.rs serializes import and delete under one guard. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
