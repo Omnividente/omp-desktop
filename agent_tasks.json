@@ -77004,7 +77004,7 @@
       "id": "research-sessions-persistence-ux-11",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -77124,16 +77124,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2174094185288808990",
         "dispatch_key": "b4ca7af6aeca924469f2229e",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-b4ca7af6aeca924469f2229e",
         "started_at": "2026-09-27T08:14:30.888767Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T08:48:57.924073Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -77316,13 +77316,105 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T08:23:10.898308Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T08:48:57.924073Z"
+      },
+      "research_result": {
+        "summary": "Verified that pressing Tab in a dialog with thousands of items (like CodexImportModal) causes a severe UI freeze because `useModalFocus` evaluates `window.getComputedStyle` on every focusable element to find the first and last bounds.",
+        "observations": [
+          {
+            "scenario": "Simulating a keyboard Tab press in CodexImportModal loaded with 10,000 synthetic sessions.",
+            "evidence": "Ran a jsdom test firing a `Tab` keyDown event on the modal. `useModalFocus` uses `Array.prototype.filter` to check `controlAvailable` (which calls `window.getComputedStyle` on the element and its ancestors) for every single focusable node, taking over 10 seconds and freezing the thread.",
+            "result": "Establishes that modal focus trapping causes extreme latency for keyboard users in large lists. The previously rejected virtualization proposal correctly noted the lack of native layout bottleneck, but this reveals a distinct, severe O(N) accessibility trapping bottleneck."
+          },
+          {
+            "scenario": "Simulating the same Tab press with an optimized `useModalFocus` using short-circuiting array methods.",
+            "evidence": "Ran the same jsdom test but modified the hook to use `.find()` for the first element and `.findLast()` for the last element instead of `.filter()`. This short-circuits the expensive `getComputedStyle` loop, reducing the Tab handling time from ~10.2 seconds to ~0.58 seconds for 10,000 items.",
+            "result": "Establishes that the keyboard freeze can be eliminated simply by changing array methods, improving performance drastically without introducing the layout complexity of virtualization."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `controlAvailable` can be further optimized by memoizing the `getComputedStyle` results of common ancestor elements during the `find` pass.",
+          "Investigate the atomic file writes to ensure session files aren't zeroed out if the OS hard crashes during the `rename` syscall."
+        ],
+        "proposed_task_ids": [
+          "discovery-a0ddd02fb5e25ad0"
+        ],
+        "completed_at": "2026-09-27T08:48:57.924073Z",
+        "source": {
+          "activity_id": "sessions/2174094185288808990/activities/9a0e8b3a52a64c459c6602e86e965f20",
+          "report_sha256": "4654c2196734462be975e42b7ab714d8b9699620ac2ca39dc4552f145674da54",
+          "activity_created_at": "2026-09-27T08:39:37.643627Z",
+          "session_id": "2174094185288808990",
+          "dispatch_key": "b4ca7af6aeca924469f2229e"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2174094185288808990/activities/9a0e8b3a52a64c459c6602e86e965f20",
+          "report_sha256": "4654c2196734462be975e42b7ab714d8b9699620ac2ca39dc4552f145674da54",
+          "activity_created_at": "2026-09-27T08:39:37.643627Z",
+          "session_id": "2174094185288808990",
+          "dispatch_key": "b4ca7af6aeca924469f2229e"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-a0ddd02fb5e25ad0"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-a0ddd02fb5e25ad0",
+      "title": "Eliminate UI freeze during modal Tab navigation by short-circuiting style computations",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-27T08:48:57.924073Z",
+      "acceptance": [
+        "Pressing Tab in a dialog with many items (e.g. CodexImportModal) processes instantly without freezing the thread"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Simulated a keyboard Tab event on a dialog containing 10,000 input elements. The default `useModalFocus` implementation evaluates `getComputedStyle` for every single element, freezing the thread for ~10 seconds.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open CodexImportModal with thousands of items",
+            "Press the Tab key to navigate focus"
+          ],
+          "expected": "Focus moves to the next element instantly",
+          "actual": "The UI completely freezes for several seconds while evaluating `getComputedStyle` on all descendant elements"
+        }
+      },
+      "target_paths": [
+        "src/useModalFocus.ts"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-11",
+        "activity_id": "sessions/2174094185288808990/activities/9a0e8b3a52a64c459c6602e86e965f20",
+        "report_sha256": "4654c2196734462be975e42b7ab714d8b9699620ac2ca39dc4552f145674da54",
+        "activity_created_at": "2026-09-27T08:39:37.643627Z",
+        "session_id": "2174094185288808990",
+        "dispatch_key": "b4ca7af6aeca924469f2229e"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T08:42:53.424631Z",
+    "last_poll_at": "2026-09-27T08:49:19.511612Z",
     "last_tick_at": "2026-09-27T08:42:57.070521Z",
     "run_id": "36307028080"
   }
