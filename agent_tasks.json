@@ -79643,7 +79643,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T11:48:51.998459Z"
+        "observed_at": "2026-09-27T11:48:51.998459Z",
+        "released_attempt_ref": "autonomous/attempt-9d88d15578be7e4000ef2af3"
       },
       "research_result": {
         "summary": "Measured ModelPicker rendering and filtering performance with a large model set. Identified significant latency in query updates and selection mapping.",
