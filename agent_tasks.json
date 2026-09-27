@@ -78535,6 +78535,133 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-11",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-27T10:37:57Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation keyboard shortcuts on macOS and confirmed hardcoded visual modifiers do not match functional runtime bindings.",
+            "observations": [
+              {
+                "scenario": "Observing displayed and handled shortcut keys for Workspace navigation actions (Ctrl+Shift+O, Ctrl+B, Undo/Ctrl+Z) on macOS.",
+                "evidence": "Synthetic DOM rendering of WorkspaceHome/ProjectRail components in a `macos` runtime mock statically rendered \"Ctrl+Shift+O\" and \"Ctrl+B\" instead of 'Cmd'. The `t(lang, \"terminalInputHelp\")` text string also returns \"Ctrl\" on all platforms.",
+                "result": "Establishes that macOS users correctly use native Cmd+ bindings to trigger actions, but the UI statically and falsely instructs them to use Ctrl+."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if tooltip hint texts missed dynamic MacOS 'Cmd' translations in production view states."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T10:58:22.218770Z",
+            "source": {
+              "activity_id": "sessions/13668651144037350431/activities/74d1b6072f2f4511b6cbb0fdb46550e9",
+              "report_sha256": "91c9a01cfbf8ae06d3869982e7417d6d4caf64838b035bc56abe0bc57553129d",
+              "activity_created_at": "2026-09-26T10:46:46.171413Z",
+              "session_id": "13668651144037350431",
+              "dispatch_key": "e4cfcd1b075d779202765d59"
+            },
+            "deferred_findings": [
+              {
+                "title": "Substitute 'Ctrl' with 'Cmd' in shortcut hints dynamically for macOS",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-906a14e4d6bf289b; not established as a duplicate. {\"detail\": \"Observed via synthetic React component testing with a macOS runtime payload.\", \"reproduction\": {\"actual\": \"The visual hint incorrectly hardcodes 'Ctrl + Shift + O' and 'Ctrl + B' despite recognizing the Cmd key press natively\", \"expected\": \"The visual hint displays 'Cmd + Shift + O' and 'Cmd + B'\", \"steps\": [\"Start the desktop application on macOS\", \"Observe the shortcut text hint inside the open folder button in the Workspace home view\", \"Observe the shortcut text hint in the ProjectRail sidebar footer\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/WorkspaceHome.tsx",
+                  "src/ProjectRail.tsx",
+                  "src/TerminalView.tsx",
+                  "src/uiUtils.ts",
+                  "src/i18n.ts"
+                ],
+                "acceptance": [
+                  "On a macOS runtime platform, the UI dynamically renders Cmd + Shift + O, Cmd + B, and Cmd+Z instead of Ctrl",
+                  "On non-macOS platforms, the UI retains Ctrl as the modifier key"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated `flattenSessionTree`, `sessionAncestorIds`, and `sessionGroupExpansionIds` scaling poorly with deeply nested file trees",
+            "observations": [
+              {
+                "scenario": "Simulate rendering deeply nested session trees in flattenSessionTree, sessionAncestorIds, and sessionGroupExpansionIds functions",
+                "evidence": "Wrote synthetic vitest benchmarking scripts testing `flattenSessionTree`, `sessionAncestorIds`, `sessionGroupExpansionIds`, and `filterSessionTree` in `src/uiUtils.ts` with a deeply nested session tree (depth 5000). The recursive implementations resulted in a 'Maximum call stack size exceeded' RangeError because JavaScript's call stack is typically limited to around 10,000 frames, but heavily depends on engine and frame size, causing crashes with deep folder hierarchies. Wrote alternative iterative algorithms and demonstrated that they scale to depth 5000+ without crashing.",
+                "result": "Establishes that recursive tree traversal functions in `uiUtils.ts` (`flattenSessionTree`, `sessionAncestorIds`, `sessionGroupExpansionIds`, `filterSessionTree`) fail on deeply nested trees and need to be refactored to iterative DFS algorithms using an explicit stack."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal tab matching logic or nested path resolutions elsewhere in the codebase suffer from recursive stack limits.",
+              "Investigate if backend session building logic (e.g., recursive directory traversal or tree generation in Rust) faces similar limits when dealing with deeply nested trees."
+            ],
+            "proposed_task_ids": [
+              "discovery-66325acabe5d5044"
+            ],
+            "completed_at": "2026-09-27T01:44:02.407772Z",
+            "source": {
+              "activity_id": "sessions/15763891562670590720/activities/34e3645a827d4239a324f04d46a64467",
+              "report_sha256": "3ec57cec94c57a6aab12335de963514f3a7d87f7fe9bd8de321d16cdc0d6cb4f",
+              "activity_created_at": "2026-09-27T01:31:32.075609Z",
+              "session_id": "15763891562670590720",
+              "dispatch_key": "025ea842b8773cad60c6fe92"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified robust failure recovery and state preservation during workspace addition and removal.",
+            "observations": [
+              {
+                "scenario": "Simulate failure during openFolder (addWorkspace) and removeWorkspace operations.",
+                "evidence": "Wrote synthetic vitest scripts in a jsdom environment mocking `api.addWorkspace` and `api.removeWorkspaceFromList` to return promise rejections. Checked calls to `api.saveWorkspaceSelection` and `api.showError`.",
+                "result": "Establishes that the UI successfully catches add/remove rejections. It reports errors via `showError`, clears busy states in `finally` blocks (e.g., `workspaceBusyKey`), and does not persist unverified or failed workspace selections to disk."
+              },
+              {
+                "scenario": "Simulate concurrent or failed workspace loading via single-instance events.",
+                "evidence": "Triggered concurrent single-instance events in synthetic React tests with `addWorkspace` mocked to fail. Observed the `request === latestRequest` and `pendingRequests` tracking.",
+                "result": "Establishes that the application safely unwinds failed single-instance operations without crashing, gracefully invalidates in-flight responses if a newer request supersedes them, and signals a `needsReconcile` refresh."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity (e.g. `sendRecoveredSwitchInput`) correctly handles scenarios where the underlying PTY session unexpectedly dies or returns failures during workspace navigation."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T10:09:50.271684Z",
+            "source": {
+              "activity_id": "sessions/3124282261021344998/activities/354d221cb1084bba963a558718ec58a0",
+              "report_sha256": "47a542fd61811025aed6c1f236e92bc1fa1a0397ea811953dc9b5b13465c4400",
+              "activity_created_at": "2026-09-27T09:38:49.359783Z",
+              "session_id": "3124282261021344998",
+              "dispatch_key": "d0c4c36d14627caa46d7c944"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
