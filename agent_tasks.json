@@ -83736,7 +83736,7 @@
       "id": "research-sessions-persistence-reliability-12",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -83865,16 +83865,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17545297632891352198",
         "dispatch_key": "dc019ebafbc554b3fdcb8477",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-dc019ebafbc554b3fdcb8477",
         "started_at": "2026-09-27T18:45:04.835398Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T19:36:55.641913Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -84057,13 +84057,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T18:53:48.833394Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T19:36:55.641913Z"
+      },
+      "research_result": {
+        "summary": "Verified that a concurrent deletion during session import (commit_import_with) creates a race condition that leaves a session.jsonl file without its corresponding artifact directory.",
+        "observations": [
+          {
+            "scenario": "Simulating a concurrent session deletion during the `commit_import_with` operation, specifically after the artifact swap but before the JSONL file atomic write finishes.",
+            "evidence": "Ran a synthetic Rust fixture `test_concurrent_delete_during_import_leaves_orphaned_jsonl` simulating the scenario by invoking `delete_session` within the `write_session` closure of `commit_import_with`. Observed that `delete_session` successfully removed the newly swapped artifact directory and the old `.jsonl` file. However, the suspended `atomic_write_file` operation then continued, successfully placing the new `.jsonl` file. The final state showed an orphaned `.jsonl` file with no corresponding artifact directory.",
+            "result": "Establishes a race condition (TOCTOU) between `commit_import_with` and `delete_session` which can lead to data loss (silent artifact deletion) for an actively imported session, corrupting its state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the list in CodexImportModal improves initial render and memory footprint sufficiently to justify the layout complexity.",
+          "Investigate if synchronization (e.g., locking) is required for other session mutations (such as title updates) to prevent concurrent overwrites."
+        ],
+        "proposed_task_ids": [
+          "discovery-0c6175b6cf6f1642"
+        ],
+        "completed_at": "2026-09-27T19:36:55.641913Z",
+        "source": {
+          "activity_id": "sessions/17545297632891352198/activities/8eb97563e7d14c849013b763d6e2ba24",
+          "report_sha256": "54f534c3a9f50782faf609806d12835063c616bedfa1399a79382c7726f2d88b",
+          "activity_created_at": "2026-09-27T19:12:56.789359Z",
+          "session_id": "17545297632891352198",
+          "dispatch_key": "dc019ebafbc554b3fdcb8477"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17545297632891352198/activities/8eb97563e7d14c849013b763d6e2ba24",
+          "report_sha256": "54f534c3a9f50782faf609806d12835063c616bedfa1399a79382c7726f2d88b",
+          "activity_created_at": "2026-09-27T19:12:56.789359Z",
+          "session_id": "17545297632891352198",
+          "dispatch_key": "dc019ebafbc554b3fdcb8477"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-0c6175b6cf6f1642"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-0c6175b6cf6f1642",
+      "title": "Prevent concurrent deletion from destroying newly imported artifacts",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "reliability",
+        "bugfix"
+      ],
+      "created_at": "2026-09-27T19:36:55.641913Z",
+      "acceptance": [
+        "Concurrent session deletions block or fail cleanly during import, without leaving an orphaned JSONL or missing artifacts"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native backend observation with an isolated synthetic concurrent fixture on the pinned base. The race condition deletes the swapped artifact directory before the atomic write of the JSONL finishes.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Start an import operation for an existing session.",
+            "Pause the operation right after the artifacts directory has been swapped.",
+            "Call `delete_session` on the same session.",
+            "Resume the import operation allowing `atomic_write_file` to finish writing the `.jsonl` file."
+          ],
+          "expected": "The import fails cleanly or the deletion is blocked, leaving the session state consistent.",
+          "actual": "The `.jsonl` file is written successfully but the artifact directory is permanently deleted, corrupting the session."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-12",
+        "activity_id": "sessions/17545297632891352198/activities/8eb97563e7d14c849013b763d6e2ba24",
+        "report_sha256": "54f534c3a9f50782faf609806d12835063c616bedfa1399a79382c7726f2d88b",
+        "activity_created_at": "2026-09-27T19:12:56.789359Z",
+        "session_id": "17545297632891352198",
+        "dispatch_key": "dc019ebafbc554b3fdcb8477"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T19:20:51.619615Z",
+    "last_poll_at": "2026-09-27T19:37:15.627618Z",
     "last_tick_at": "2026-09-27T19:20:55.551514Z",
     "run_id": "36343967880"
   }
