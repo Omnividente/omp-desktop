@@ -76491,7 +76491,7 @@
       "id": "discovery-2233a7e0d3fe0cf2",
       "title": "Use a temporary JSONL write to secure session import transaction boundaries",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -76550,6 +76550,12 @@
         "activity_created_at": "2026-09-27T07:37:20.000510Z",
         "session_id": "12667378728246795614",
         "dispatch_key": "ab0ade579b7ca18df10d346a"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:15:47Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): sessions.rs stages JSONL before artifact swap, then publishes it atomically. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
