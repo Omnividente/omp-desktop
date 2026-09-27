@@ -80100,7 +80100,8 @@
             "session_id": "17140218297233858439",
             "dispatch_key": "e60e2e1728937a508ccd18a4"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-e60e2e1728937a508ccd18a4"
       },
       "research_result": {
         "summary": "Verified that tab navigation in large lists causes a severe latency bottleneck due to O(N) DOM style evaluation in useModalFocus, and established a short-circuiting alternative.",
