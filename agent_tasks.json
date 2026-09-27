@@ -59609,7 +59609,7 @@
       "id": "discovery-9c8886af63d9bea5",
       "title": "Improve ModelPicker accessibility with combobox role and fallback announcements",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -59645,6 +59645,12 @@
         "activity_created_at": "2026-09-25T12:08:31.080945Z",
         "session_id": "7938488447222848457",
         "dispatch_key": "f2618dbfed1ff257ac6454c7"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:06:26Z",
+        "note": "Sep 27 review: current picker exposes searchable input, listbox/options and visible model status; adding a combobox role without the complete combobox keyboard/ARIA contract would mislead assistive tech."
       }
     },
     {
