@@ -59232,7 +59232,7 @@
       "id": "discovery-ab7a935a0deafa44",
       "title": "Improve accessibility of SettingsRecoveryScreen with focus management and alert roles",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -59268,6 +59268,12 @@
         "activity_created_at": "2026-09-25T11:44:01.959735Z",
         "session_id": "14960237597908095051",
         "dispatch_key": "c1f4a3372956266f51848474"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:09:13Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): SettingsRecoveryScreen.tsx mounts a labelled alertdialog and focuses it. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
