@@ -75084,7 +75084,8 @@
         "feedback_nudge": {
           "at": "2026-09-27T00:39:12.234044Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-1d3bd6d0bef8f8c27e20d929"
       },
       "research_result": {
         "summary": "Investigated terminal input buffering during model switching and generation continuity.",
