@@ -82653,7 +82653,8 @@
             "session_id": "4074783962332442627",
             "dispatch_key": "24c30b4e48b1883e1803dc79"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-24c30b4e48b1883e1803dc79"
       },
       "research_result": {
         "summary": "Verified focus trap bound calculation bug in IncidentCenter/ResourceHealthPanel and reproduced edge cases where unresolved fallbacks are dropped and secondary fallbacks fail to resolve.",
