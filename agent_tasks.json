@@ -78500,6 +78500,10 @@
         "research_detached": {
           "at": "2026-09-27T09:37:55.056968Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-27T09:37:55.056968Z",
+          "result": "pending"
         }
       }
     }
