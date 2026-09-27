@@ -83244,7 +83244,7 @@
       "id": "research-diagnostics-resources-ux-11",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -83487,16 +83487,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "10966172769377705217",
         "dispatch_key": "60d281e2dd96d41b1ca2824b",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-60d281e2dd96d41b1ca2824b",
         "started_at": "2026-09-27T18:23:14.801736Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T18:53:48.833394Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -83579,22 +83579,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-09-27T18:45:04.835398Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-27T18:45:04.835398Z",
-          "source": {
-            "activity_id": "sessions/10966172769377705217/activities/8a53e256a3f6441d9c560cdd5b53c03e",
-            "report_sha256": "000072a3dc9fdd4916e84c257a29f6e2df4be2dd24a91a997aa6c1c644f778be",
-            "activity_created_at": "2026-09-27T18:34:12.731122Z",
-            "session_id": "10966172769377705217",
-            "dispatch_key": "60d281e2dd96d41b1ca2824b"
-          }
-        },
         "report_repair": {
           "at": "2026-09-27T18:45:25.207562Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/10966172769377705217/activities/8a53e256a3f6441d9c560cdd5b53c03e",
             "report_sha256": "000072a3dc9fdd4916e84c257a29f6e2df4be2dd24a91a997aa6c1c644f778be",
@@ -83602,6 +83590,144 @@
             "session_id": "10966172769377705217",
             "dispatch_key": "60d281e2dd96d41b1ca2824b"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified three runtime diagnostics bugs: focus traps failing inside closed details, secondary fallbacks failing to resolve on primary recovery, and active fallbacks incorrectly evicted under high error volume.",
+        "observations": [
+          {
+            "scenario": "Verify focus trap logic for elements hidden inside closed details tags in IncidentCenter and ResourceHealthPanel.",
+            "evidence": "Executed isolated tests using `@testing-library/react` and `jsdom` that rendered both components with a mock `<details>` block (closed by default) and an injected button inside its `<pre>` block. Simulating a Tab press moved focus to the internal button.",
+            "result": "Establishes that the custom `DIALOG_FOCUSABLE_SELECTOR` in both components misses descendants of closed details elements. They must explicitly reject elements matched by `.closest('details:not([open])')` unless they are within the `<summary>`."
+          },
+          {
+            "scenario": "Verify if secondary fallback incidents fail to resolve when the primary model recovers.",
+            "evidence": "Executed an isolated state machine test script against `applyRuntimeIncidentEvent` generating a `retryFallbackApplied` with `fallbackRole: 'secondary'`, then a `modelChange` with `modelRole: 'primary'` and `resolvedModelIsFallback: false`.",
+            "result": "Establishes a logical bug where `resolveFallbacks` filters by exact role match, skipping secondary fallbacks when the event role is primary. The secondary fallback incorrectly remains active."
+          },
+          {
+            "scenario": "Verify if `enforceIncidentBound` drops unresolved primary fallbacks under high error volume on the same terminal.",
+            "evidence": "Executed an isolated state machine test script against `applyRuntimeIncidentEvent` by creating a fallback incident for `terminal-1`, then simulating 110 unique error events for `terminal-1`.",
+            "result": "Establishes a logical bug where `enforceIncidentBound` drops the oldest incident (the unresolved fallback) to stay within `MAX_RUNTIME_INCIDENTS`, causing the terminal health status to mistakenly switch to `error`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether `runtimeFeedbackDedupeKey` fails to coalesce identical fallback edge error messages that arrive via different providers, creating duplicate toasts."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T18:53:48.833394Z",
+        "source": {
+          "activity_id": "sessions/10966172769377705217/activities/90bf7350b02b41718572e643cd34ff05",
+          "report_sha256": "7a53db5825a83c245a05de74400271c175e19c1e45f44bf586d8ff39903a9eda",
+          "activity_created_at": "2026-09-27T18:46:30.737853Z",
+          "session_id": "10966172769377705217",
+          "dispatch_key": "60d281e2dd96d41b1ca2824b"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ]
+          },
+          {
+            "title": "Fix failure to resolve active fallbacks when primary model recovers",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+            ]
+          },
+          {
+            "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/10966172769377705217/activities/90bf7350b02b41718572e643cd34ff05",
+          "report_sha256": "7a53db5825a83c245a05de74400271c175e19c1e45f44bf586d8ff39903a9eda",
+          "activity_created_at": "2026-09-27T18:46:30.737853Z",
+          "session_id": "10966172769377705217",
+          "dispatch_key": "60d281e2dd96d41b1ca2824b"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            },
+            {
+              "id": "discovery-aa17322b78e9eae9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-aa17322b78e9eae9"
+            },
+            {
+              "id": "discovery-940b5f71f3979b02",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-940b5f71f3979b02"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ]
+            },
+            {
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+              ]
+            },
+            {
+              "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
         }
       }
     },
@@ -83936,7 +84062,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T18:47:36.530212Z",
+    "last_poll_at": "2026-09-27T18:54:11.525708Z",
     "last_tick_at": "2026-09-27T18:47:40.105608Z",
     "run_id": "36341772172"
   }
