@@ -81603,7 +81603,7 @@
       "id": "research-transcript-links-reliability-11",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -81723,16 +81723,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4932807549407875854",
         "dispatch_key": "66596e33b2ecdfb2dad07640",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-66596e33b2ecdfb2dad07640",
         "started_at": "2026-09-27T14:06:56.905163Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T14:28:38.859887Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -81906,13 +81906,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T14:15:32.544778Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T14:28:38.859887Z"
+      },
+      "research_result": {
+        "summary": "Verified via isolated rendering tests and static analysis that Transcript load operations correctly tolerate concurrency, cancellation, and simulated failures without dropping state or producing duplicate side-effects.",
+        "observations": [
+          {
+            "scenario": "Concurrent overlapping invocations of `loadTranscript` and `loadTranscriptPath` with mock data.",
+            "evidence": "Ran an isolated jsdom test simulating simultaneous load requests by mocking the underlying backend API. Tracked internal synchronization counters (`requestRef`) in `useTranscript.ts`. Observed that earlier simulated backend responses arriving out-of-order are safely ignored, preventing race conditions or interleaved data; only the latest requested session correctly renders.",
+            "result": "Establishes that the UI cleanly handles concurrent reloading and navigation without duplicate UI updates or invalid view state. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Simulated failure of a transcript backend read, followed by manual retry.",
+            "evidence": "Inspected `useTranscript` and `TranscriptModal` fallback loops. Verified that throwing a mock read error clears the rendering area but keeps `transcriptSearch` and `transcriptMode` fully intact. When clicking 'Retry', the invocation triggers `preservePosition` which correctly bypasses empty states, guarding the cached LRU position dictionary, ensuring no scroll data is overwritten with empty bounds. Upon subsequent success, layout parameters are faithfully restored.",
+            "result": "Establishes that failure boundaries during transcript refreshes maintain recoverability, preventing the loss of user view context and scrolling progress without creating duplicate request side-effects. (Evidence mode: static_analysis, mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the interaction between content link selection boundaries and virtual scrolling performance when dragging a text selection across multiple unloaded virtual list boundaries."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T14:28:38.859887Z",
+        "source": {
+          "activity_id": "sessions/4932807549407875854/activities/bb2e755863b8456f93f0e4523ec8916e",
+          "report_sha256": "48f900833909b9dddda1caef30e4ac2912bf13a85eeebdb81ed06a723554f137",
+          "activity_created_at": "2026-09-27T14:16:47.680361Z",
+          "session_id": "4932807549407875854",
+          "dispatch_key": "66596e33b2ecdfb2dad07640"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T14:22:30.588511Z",
+    "last_poll_at": "2026-09-27T14:28:57.275880Z",
     "last_tick_at": "2026-09-27T14:22:35.091786Z",
     "run_id": "36325627502"
   }
