@@ -70322,7 +70322,7 @@
       "id": "discovery-0c583de39dbc3da5",
       "title": "Fix ModelPicker to select the active model when pressing Enter in the search input",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 75,
       "risk": "low",
       "focus": [
@@ -70357,6 +70357,12 @@
         "activity_created_at": "2026-09-26T12:14:04.031233Z",
         "session_id": "365047915194315078",
         "dispatch_key": "c09b237c1f20d577dcebee0c"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:12:45Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): ModelPicker.tsx accepts the active search result on Enter. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
