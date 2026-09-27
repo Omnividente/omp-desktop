@@ -83590,7 +83590,8 @@
             "session_id": "10966172769377705217",
             "dispatch_key": "60d281e2dd96d41b1ca2824b"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-60d281e2dd96d41b1ca2824b"
       },
       "research_result": {
         "summary": "Verified three runtime diagnostics bugs: focus traps failing inside closed details, secondary fallbacks failing to resolve on primary recovery, and active fallbacks incorrectly evicted under high error volume.",
