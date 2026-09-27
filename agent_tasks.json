@@ -81043,7 +81043,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T13:17:27.342872Z"
+        "observed_at": "2026-09-27T13:17:27.342872Z",
+        "released_attempt_ref": "autonomous/attempt-d0b4ff7ea76da9be74f0bc74"
       },
       "research_result": {
         "summary": "Verified hypotheses for ModelPicker keyboard handling, SettingsRecoveryScreen ARIA/focus, and ModelPicker performance latency.",
