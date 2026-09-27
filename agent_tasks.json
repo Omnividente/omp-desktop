@@ -47403,7 +47403,7 @@
       "id": "discovery-a6869bc2e8638f4b",
       "title": "Fix text overflow in SettingsPanel provider credentials base URL",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -47439,6 +47439,12 @@
         "activity_created_at": "2026-09-24T11:41:03.754834Z",
         "session_id": "6839265768202341973",
         "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:01:44Z",
+        "note": "Sep 27 review: provider credential base URL already has constrained truncation/wrapping on current SettingsPanel; synthetic overflow does not reproduce a visible defect."
       }
     },
     {
