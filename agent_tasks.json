@@ -81572,7 +81572,8 @@
         "feedback_nudge": {
           "at": "2026-09-27T14:06:56.905163Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-730c7bdd57fb6a27a9b9c79e"
       },
       "research_result": {
         "summary": "Investigated Settings recovery and model selection failure modes. Reviewed recovery behavior during write failures and confirmed that the existing atomic write and backup mechanisms correctly preserve state.",
