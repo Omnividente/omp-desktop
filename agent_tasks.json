@@ -53748,7 +53748,7 @@
       "id": "discovery-132bfd67ef23d9d3",
       "title": "Bound maximum visible text matches per message to prevent render blocking",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -53783,6 +53783,12 @@
         "activity_created_at": "2026-09-25T02:45:02.153883Z",
         "session_id": "13203199504390123218",
         "dispatch_key": "7033e5e53325929169ff4c49"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:05:19Z",
+        "note": "Sep 27 review: capping per-message visible matches would make occurrence count and next/previous search navigation silently disagree with loaded text. Keep complete search semantics."
       }
     },
     {
