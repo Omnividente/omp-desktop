@@ -84749,7 +84749,7 @@
       "id": "discovery-7fc2347695f1836c",
       "title": "Fix content menu context blocking on multi-node virtual boundaries",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -84783,6 +84783,12 @@
         "activity_created_at": "2026-09-27T19:57:50.394349Z",
         "session_id": "2420551994585731412",
         "dispatch_key": "aefa7be5c35610c02a73144e"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:20:08Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): TranscriptModal.tsx preserves copy-selection context menu across virtual nodes. Windows/Linux quality gates and targeted regression checks passed."
       }
     }
   ],
