@@ -75902,7 +75902,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T04:01:38.424858Z"
+        "observed_at": "2026-09-27T04:01:38.424858Z",
+        "released_attempt_ref": "autonomous/attempt-b51c570c609e98c58dcd5b36"
       },
       "research_result": {
         "summary": "Verified that pressing Escape to close the ContentActionMenu restores keyboard focus correctly when triggered from an internal link context menu.",
