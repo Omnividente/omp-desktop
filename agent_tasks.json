@@ -78851,7 +78851,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T11:05:50.657606Z"
+        "observed_at": "2026-09-27T11:05:50.657606Z",
+        "released_attempt_ref": "autonomous/attempt-e8ebf6f71c60c0619b1da990"
       },
       "research_result": {
         "summary": "Verified that Rust backend recursion has maximum depth parameters but OS path length limits prevent recursive stack overflows in the backend before reaching those limits.",
