@@ -83097,7 +83097,8 @@
             "session_id": "7019002382032644555",
             "dispatch_key": "67e73ddda372f1681810656a"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-67e73ddda372f1681810656a"
       },
       "research_result": {
         "summary": "Investigated the runtime incidents failure recovery state machine and focus trap bounds logic, verifying three separate bugs isolated under simulated test environments regarding unbounded fallback dropping, secondary fallback resolution failure, and ignored element attributes in focus queries.",
