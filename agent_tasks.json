@@ -75593,6 +75593,129 @@
         "session_id": "15763891562670590720",
         "dispatch_key": "025ea842b8773cad60c6fe92"
       }
+    },
+    {
+      "id": "research-transcript-links-behavior-10",
+      "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-27T03:40:34Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "behavior",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 10,
+        "previous_reports": [
+          {
+            "summary": "Verified that `useTranscript` handles cancellation, error recovery, and state isolation correctly under concurrent loads.",
+            "observations": [
+              {
+                "scenario": "Simulated concurrent calls to `loadTranscript` and `loadTranscriptPath` using isolated vitest hooks where promises resolve or reject in different orders.",
+                "evidence": "Traced the `requestRef.current` cancellation logic in `useTranscript.ts`. Tested by invoking multiple loads and selectively rejecting out-of-order responses. The state gracefully discarded outdated responses without losing the ability to cleanly retry on the current session, correctly swallowing the old rejected promise without unhandled rejections or throwing stray errors.",
+                "result": "Establishes that the transcript frontend correctly handles interruption, dropping stale backend state safely and resolving concurrent load operations."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtual scrolling introduces jitter on continuous mouse-wheel scrolling when row heights vary drastically."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T13:59:37.525866Z",
+            "source": {
+              "activity_id": "sessions/11018766429300823408/activities/a1196173ae4d46cc8e70fde09b9c11af",
+              "report_sha256": "75056b8961db9bd9c8b3f02fed9d3d2dc61b4b0eb3739b1b6b0f0bf12a8dad6c",
+              "activity_created_at": "2026-09-26T13:52:26.606605Z",
+              "session_id": "11018766429300823408",
+              "dispatch_key": "5cbc616a815e624bfb6a74fa"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that virtual scrolling handles continuous wheel scrolling and large scroll jumps across drastically varied row heights without introducing unhandled jitter or layout flickers.",
+            "observations": [
+              {
+                "scenario": "Continuous mouse-wheel scrolling in `useVirtualList` with drastically varying row heights (alternating between 50px and 2000px).",
+                "evidence": "Isolated test rendering `useVirtualList` directly, artificially updating scroll bounds simulating wheel events with drastically different mocked heights. Verified via observed internal `scrollTop` events and resulting `virtualItems` that `useVirtualList` accurately anchors and updates offset locations without entering cyclic scroll position adjustments.",
+                "result": "Establishes that the virtual list handles severe row height variations smoothly during continuous scroll interactions without layout artifacts or scroll jitter."
+              },
+              {
+                "scenario": "Jumping between far apart search matches in `TranscriptModal` using Next/Prev navigation when target rows are offscreen and have different heights.",
+                "evidence": "Tested `TranscriptModal` component via `jsdom` with mock elements configured to report bounding clients far apart. Clicking the Next Match button successfully caused `scrollToIndex` to mount the offscreen virtual row and subsequently `requestAnimationFrame` adjusted the intra-element `scrollTop` correctly using the new target bounds, avoiding visual flicker.",
+                "result": "Establishes that `TranscriptModal` accurately reconciles layout constraints and smoothly lands on the target matches even when they require complex layout invalidation from unmeasured elements."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if focusing the content action menu immediately after changing a transcript view mode disrupts screen reader announcements for the new view state.",
+              "Investigate the accessibility of the `MarkdownContent` code block copy buttons when navigating strictly by keyboard."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T19:44:49.501437Z",
+            "source": {
+              "activity_id": "sessions/16344873185575184943/activities/265ce4600b8542d6afdba86d39c3d8c1",
+              "report_sha256": "e2d3dba606b4279588c5e25ad687a1e87e1d40e0c9a759532ab09c6a6dda0886",
+              "activity_created_at": "2026-09-26T19:32:32.996025Z",
+              "session_id": "16344873185575184943",
+              "dispatch_key": "cb8ae3281b16d0fb65d3a415"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated keyboard accessibility and screen reader support for copy buttons, transcript state containers, and mode toggles in the TranscriptModal.",
+            "observations": [
+              {
+                "scenario": "Navigating to code block copy buttons via keyboard and screen reader.",
+                "evidence": "Ran isolated jsdom Vitest checks on `MarkdownContent` containing code blocks. The `.markdown-copy-button` button renders correctly in tab order (tabIndex=0 by default for `<button>`), and has explicit `aria-label=\"Copy code\"` with `title=\"Copy code\"` (or `aria-label=\"Copy text\"` for general messages). When clicked, the inner span successfully dynamically updates with `role=\"status\"` and `aria-live=\"polite\"` via React state.",
+                "result": "Establishes that code block copy buttons and general message copy buttons are fully keyboard accessible and correctly announce copied state changes dynamically without losing focus."
+              },
+              {
+                "scenario": "Changing transcript view mode via the transcript filter buttons.",
+                "evidence": "Ran isolated jsdom Vitest checks simulating a click on the 'Dialogue + service' button while focused. The active focus remains on the clicked mode button, correctly retaining its layout in the toolbar without dropping focus back to `document.body`.",
+                "result": "Establishes that changing transcript view modes does not disrupt keyboard navigation state or drop focus."
+              },
+              {
+                "scenario": "Evaluating empty/error/no-match transcript state screen reader announcements.",
+                "evidence": "Ran isolated jsdom Vitest checks capturing the HTML of `.transcript-state` containers under different conditions. Observed that the 'Error' and 'Loading' states correctly include `role=\"alert\"` and `aria-live=\"polite\"` respectively. However, the 'Empty' state (`<div className=\"transcript-state\">`) and 'No Matches' state (`<div className=\"transcript-state\">`) lack `role=\"status\"` and `aria-live=\"polite\"` attributes entirely in `TranscriptModal.tsx`.",
+                "result": "Establishes that while errors and loading states announce properly, screen reader users might miss changes if a transcript is successfully emptied or a search yields zero matches, because the state block acts as a standard static `div`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if long external links within inline text elements are fully readable to screen readers without excessive unpronounceable token reading.",
+              "Investigate the accessibility of keyboard focus flow when pressing `Escape` to close the `ContentActionMenu` from an internal link context menu."
+            ],
+            "proposed_task_ids": [
+              "discovery-f9463c9e29083930"
+            ],
+            "completed_at": "2026-09-26T23:31:08.398999Z",
+            "source": {
+              "activity_id": "sessions/2680805311560206796/activities/8e86d253c40043d584928529a7ec86c8",
+              "report_sha256": "dc42822bfc51878cdc6a8ce1f7e5fb805bbc501b49a6dc19e73fa0f48aeec3ae",
+              "activity_created_at": "2026-09-26T23:19:33.591730Z",
+              "session_id": "2680805311560206796",
+              "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
