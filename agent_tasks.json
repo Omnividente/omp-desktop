@@ -78182,7 +78182,7 @@
       "id": "research-workspace-navigation-reliability-11",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -78309,16 +78309,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3124282261021344998",
         "dispatch_key": "d0c4c36d14627caa46d7c944",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-d0c4c36d14627caa46d7c944",
         "started_at": "2026-09-27T09:16:36.339276Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T10:09:50.271684Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -78495,8 +78495,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-27T09:37:55.056968Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T10:09:50.271684Z",
         "research_detached": {
           "at": "2026-09-27T09:37:55.056968Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -78505,11 +78505,39 @@
           "at": "2026-09-27T09:37:55.056968Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified robust failure recovery and state preservation during workspace addition and removal.",
+        "observations": [
+          {
+            "scenario": "Simulate failure during openFolder (addWorkspace) and removeWorkspace operations.",
+            "evidence": "Wrote synthetic vitest scripts in a jsdom environment mocking `api.addWorkspace` and `api.removeWorkspaceFromList` to return promise rejections. Checked calls to `api.saveWorkspaceSelection` and `api.showError`.",
+            "result": "Establishes that the UI successfully catches add/remove rejections. It reports errors via `showError`, clears busy states in `finally` blocks (e.g., `workspaceBusyKey`), and does not persist unverified or failed workspace selections to disk."
+          },
+          {
+            "scenario": "Simulate concurrent or failed workspace loading via single-instance events.",
+            "evidence": "Triggered concurrent single-instance events in synthetic React tests with `addWorkspace` mocked to fail. Observed the `request === latestRequest` and `pendingRequests` tracking.",
+            "result": "Establishes that the application safely unwinds failed single-instance operations without crashing, gracefully invalidates in-flight responses if a newer request supersedes them, and signals a `needsReconcile` refresh."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal continuity (e.g. `sendRecoveredSwitchInput`) correctly handles scenarios where the underlying PTY session unexpectedly dies or returns failures during workspace navigation."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T10:09:50.271684Z",
+        "source": {
+          "activity_id": "sessions/3124282261021344998/activities/354d221cb1084bba963a558718ec58a0",
+          "report_sha256": "47a542fd61811025aed6c1f236e92bc1fa1a0397ea811953dc9b5b13465c4400",
+          "activity_created_at": "2026-09-27T09:38:49.359783Z",
+          "session_id": "3124282261021344998",
+          "dispatch_key": "d0c4c36d14627caa46d7c944"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T09:38:14.683256Z",
+    "last_poll_at": "2026-09-27T10:10:08.722396Z",
     "last_tick_at": "2026-09-27T09:38:29.333460Z",
     "run_id": "36309962578"
   }
