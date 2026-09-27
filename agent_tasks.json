@@ -79277,7 +79277,7 @@
       "id": "research-settings-models-performance-11",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -79462,16 +79462,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9801198822842906070",
         "dispatch_key": "9d88d15578be7e4000ef2af3",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-9d88d15578be7e4000ef2af3",
         "started_at": "2026-09-27T11:27:31.949189Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T11:48:51.998459Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -79642,13 +79642,138 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T11:27:31.949189Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T11:48:51.998459Z"
+      },
+      "research_result": {
+        "summary": "Measured ModelPicker rendering and filtering performance with a large model set. Identified significant latency in query updates and selection mapping.",
+        "observations": [
+          {
+            "scenario": "Filtering and rendering a synthetic payload of 5000 models in the ModelPicker.",
+            "evidence": "Tested rendering ModelPicker in a Vitest jsdom environment with 5000 models. Changing the query from an empty string to 'Model 499' timed out tests configured at default thresholds. Isolated benchmarking of the `filteredModels` useMemo block and the `matchesSelector` check inside the render loop showed that repeatedly splitting and joining strings (`[model.name, model.provider, model.id, model.selector].join(' ').toLowerCase()`) and recalculating `splitSelector` takes ~218ms and ~110ms respectively.",
+            "result": "Establishes that string allocations during filtering and selection mapping introduce noticeable latency, which can be optimized by caching search terms and hoisting the `splitSelector` calculation out of the map."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the listbox options using `react-window` or `react-virtuoso` further reduces DOM layout thrashing."
+        ],
+        "proposed_task_ids": [
+          "discovery-4e31ca514a6d0c68",
+          "discovery-78db0befaaa31778"
+        ],
+        "completed_at": "2026-09-27T11:48:51.998459Z",
+        "source": {
+          "activity_id": "sessions/9801198822842906070/activities/75d32211189b442aa73a46fc28bcaf1a",
+          "report_sha256": "e5022e549b865fcc74545976bc1fd82405e7be6fff530c5b922adde87f1d8fb9",
+          "activity_created_at": "2026-09-27T11:39:01.369840Z",
+          "session_id": "9801198822842906070",
+          "dispatch_key": "9d88d15578be7e4000ef2af3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/9801198822842906070/activities/75d32211189b442aa73a46fc28bcaf1a",
+          "report_sha256": "e5022e549b865fcc74545976bc1fd82405e7be6fff530c5b922adde87f1d8fb9",
+          "activity_created_at": "2026-09-27T11:39:01.369840Z",
+          "session_id": "9801198822842906070",
+          "dispatch_key": "9d88d15578be7e4000ef2af3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4e31ca514a6d0c68",
+            "discovery-78db0befaaa31778"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4e31ca514a6d0c68",
+      "title": "Optimize ModelPicker query filtering by reducing string allocations",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-27T11:48:51.998459Z",
+      "acceptance": [
+        "Filtering options reduces garbage collection overhead and executes faster for large lists"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Frontend Vitest jsdom observation using a synthetic dataset of 5000 models. Changing the query timed out due to excessive string allocations in the useMemo filter logic.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render ModelPicker with open={true} and an array of 5000 valid model options",
+            "Focus the search input and fire a change event for a query string"
+          ],
+          "expected": "The query update processes under 50ms without excessive timeouts",
+          "actual": "The query update spends ~200ms building new string instances for the entire array before yielding"
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-11",
+        "activity_id": "sessions/9801198822842906070/activities/75d32211189b442aa73a46fc28bcaf1a",
+        "report_sha256": "e5022e549b865fcc74545976bc1fd82405e7be6fff530c5b922adde87f1d8fb9",
+        "activity_created_at": "2026-09-27T11:39:01.369840Z",
+        "session_id": "9801198822842906070",
+        "dispatch_key": "9d88d15578be7e4000ef2af3"
+      }
+    },
+    {
+      "id": "discovery-78db0befaaa31778",
+      "title": "Optimize ModelPicker selection mapping by hoisting splitSelector",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-27T11:48:51.998459Z",
+      "acceptance": [
+        "matchesSelector is invoked more efficiently or splitSelector is hoisted out of the render map"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Frontend Vitest jsdom observation on the rendering mapping logic inside the listbox.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render ModelPicker with open={true} and an array of 5000 valid model options"
+          ],
+          "expected": "The currently selected value is parsed once to determine the base string for matching against all options",
+          "actual": "The currently selected value is split iteratively on every single mapped option, adding up to ~110ms of redundant work"
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-11",
+        "activity_id": "sessions/9801198822842906070/activities/75d32211189b442aa73a46fc28bcaf1a",
+        "report_sha256": "e5022e549b865fcc74545976bc1fd82405e7be6fff530c5b922adde87f1d8fb9",
+        "activity_created_at": "2026-09-27T11:39:01.369840Z",
+        "session_id": "9801198822842906070",
+        "dispatch_key": "9d88d15578be7e4000ef2af3"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T11:42:58.813194Z",
+    "last_poll_at": "2026-09-27T11:49:11.430423Z",
     "last_tick_at": "2026-09-27T11:43:02.910384Z",
     "run_id": "36316591981"
   }
