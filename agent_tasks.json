@@ -79776,7 +79776,7 @@
       "id": "research-sessions-persistence-behavior-12",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -79895,16 +79895,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "17140218297233858439",
         "dispatch_key": "e60e2e1728937a508ccd18a4",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-e60e2e1728937a508ccd18a4",
         "started_at": "2026-09-27T12:01:08.635478Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T12:30:32.110293Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -80089,22 +80089,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-09-27T12:21:57.761824Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-27T12:21:57.761824Z",
-          "source": {
-            "activity_id": "sessions/17140218297233858439/activities/fe53061836e34a56a3e711a31f417275",
-            "report_sha256": "e005b0d22ee0de910cc0d6608e86166ff9bc215bcc6c154bcaccf6850d9fddd4",
-            "activity_created_at": "2026-09-27T12:09:38.290959Z",
-            "session_id": "17140218297233858439",
-            "dispatch_key": "e60e2e1728937a508ccd18a4"
-          }
-        },
         "report_repair": {
           "at": "2026-09-27T12:22:20.194190Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/17140218297233858439/activities/fe53061836e34a56a3e711a31f417275",
             "report_sha256": "e005b0d22ee0de910cc0d6608e86166ff9bc215bcc6c154bcaccf6850d9fddd4",
@@ -80112,6 +80100,62 @@
             "session_id": "17140218297233858439",
             "dispatch_key": "e60e2e1728937a508ccd18a4"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified that tab navigation in large lists causes a severe latency bottleneck due to O(N) DOM style evaluation in useModalFocus, and established a short-circuiting alternative.",
+        "observations": [
+          {
+            "scenario": "Simulating a keyboard Tab press in a dialog containing 10,000 focusable elements, mimicking CodexImportModal under heavy load.",
+            "evidence": "Ran a synthetic jsdom benchmark firing a 'Tab' keyDown event. The current useModalFocus uses Array.prototype.filter to check controlAvailable (which calls window.getComputedStyle) on every single focusable node, causing the operation to take over 400ms in jsdom and forcing synchronous layout calculations on thousands of elements.",
+            "result": "Establishes that the keyboard focus trap causes severe latency for keyboard users in large lists, confirming a distinct accessibility trapping bottleneck."
+          },
+          {
+            "scenario": "Evaluating an optimized useModalFocus using short-circuiting array methods.",
+            "evidence": "Ran the same jsdom test modified to use .find() for the first element and .findLast() for the last element, bypassing the full .filter() pass. This reduced the number of getComputedStyle calls from 10,000 to 12, reducing the Tab handling time from ~417ms to ~194ms (largely jsdom overhead) and eliminating O(N) style computations.",
+            "result": "Establishes that the O(N) focus freeze can be mitigated by using short-circuiting array methods without modifying the list layout."
+          },
+          {
+            "scenario": "Inspecting atomic file write durability on Windows to ensure session files aren't zeroed out if the OS hard crashes during the rename syscall.",
+            "evidence": "Examined replace_file_atomically in src-tauri/src/sessions.rs. For Windows, it calls MoveFileExW with MOVEFILE_WRITE_THROUGH which instructs the OS to write through the cache directly to disk.",
+            "result": "Establishes that the native implementation mitigates file zeroing on crash by using write-through flushing, removing the need for additional syncs in the rename step."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the list in CodexImportModal improves initial render and memory footprint sufficiently to justify the layout complexity."
+        ],
+        "proposed_task_ids": [
+          "discovery-3713ec52cc3c27b8"
+        ],
+        "completed_at": "2026-09-27T12:30:32.110293Z",
+        "source": {
+          "activity_id": "sessions/17140218297233858439/activities/eb335485a03e46bdaf4cf583b477e21d",
+          "report_sha256": "06e9e4c02e5f33fd6704ebaf63446f6a02331230dbdb7a0f7ef0126c16ef6636",
+          "activity_created_at": "2026-09-27T12:23:33.618822Z",
+          "session_id": "17140218297233858439",
+          "dispatch_key": "e60e2e1728937a508ccd18a4"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17140218297233858439/activities/eb335485a03e46bdaf4cf583b477e21d",
+          "report_sha256": "06e9e4c02e5f33fd6704ebaf63446f6a02331230dbdb7a0f7ef0126c16ef6636",
+          "activity_created_at": "2026-09-27T12:23:33.618822Z",
+          "session_id": "17140218297233858439",
+          "dispatch_key": "e60e2e1728937a508ccd18a4"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-3713ec52cc3c27b8"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -80477,10 +80521,70 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-27T12:21:57.761824Z"
       }
+    },
+    {
+      "id": "discovery-3713ec52cc3c27b8",
+      "title": "Optimize useModalFocus to prevent UI freeze during Tab navigation in large lists",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "accessibility"
+      ],
+      "created_at": "2026-09-27T12:30:32.110293Z",
+      "acceptance": [
+        "Pressing Tab in a modal with thousands of items evaluates style for only a few elements, not all of them",
+        "Focus correctly cycles between the first and last available focusable elements",
+        "Shift+Tab correctly navigates backwards from the first element to the last element"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured performance of useModalFocus using a jsdom synthetic test with 10,000 items. The current implementation iterates through all items, calling window.getComputedStyle on each. Switching to short-circuiting array methods (.find and .findLast) significantly reduces style computations from 10,000 to a constant number depending on visibility.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the Codex import modal and load a list with thousands of items",
+            "Press the Tab key to cycle focus"
+          ],
+          "expected": "Focus moves to the next focusable element quickly, avoiding O(N) synchronous style computations",
+          "actual": "The UI performs O(N) style computations, causing a noticeable UI freeze during keyboard navigation"
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "The previous proposal sought to virtualize the entire list, introducing significant layout complexity to address a rendering stress case. This new proposal targets a completely distinct algorithmic bottleneck: an O(N) loop of synchronous getComputedStyle layout queries during keyboard navigation (Tab), which is resolved with a simple array method change (.find vs .findLast) without altering the layout.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-3b7e4020aa434589",
+          "observation_refs": [
+            0,
+            1
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-3b7e4020aa434589",
+              "decision_context_id": "c16c39e4332320bc54496515fc9df8b702c8b33ed35df8a73b7a472b1d0d2523",
+              "why_previous_reason_no_longer_explains": "The rejection highlighted the layout complexity of virtualization and the lack of native-user lag for rendering. This new proposal does not virtualize the list or change any layout logic, thus avoiding the layout complexity entirely. It exclusively optimizes an O(N) keyboard event handler to use short-circuiting, a minimal algorithmic change."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/useModalFocus.ts"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-behavior-12",
+        "activity_id": "sessions/17140218297233858439/activities/eb335485a03e46bdaf4cf583b477e21d",
+        "report_sha256": "06e9e4c02e5f33fd6704ebaf63446f6a02331230dbdb7a0f7ef0126c16ef6636",
+        "activity_created_at": "2026-09-27T12:23:33.618822Z",
+        "session_id": "17140218297233858439",
+        "dispatch_key": "e60e2e1728937a508ccd18a4"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T12:24:19.858965Z",
+    "last_poll_at": "2026-09-27T12:30:48.066696Z",
     "last_tick_at": "2026-09-27T12:24:24.039577Z",
     "run_id": "36318715500"
   }
