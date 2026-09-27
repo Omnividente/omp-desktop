@@ -78540,7 +78540,7 @@
       "id": "research-workspace-navigation-performance-11",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -78664,16 +78664,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9276732955616322391",
         "dispatch_key": "e8ebf6f71c60c0619b1da990",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-e8ebf6f71c60c0619b1da990",
         "started_at": "2026-09-27T10:37:57.826759Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T11:05:50.657606Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -78850,13 +78850,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T10:37:57.826759Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T11:05:50.657606Z"
+      },
+      "research_result": {
+        "summary": "Verified that Rust backend recursion has maximum depth parameters but OS path length limits prevent recursive stack overflows in the backend before reaching those limits.",
+        "observations": [
+          {
+            "scenario": "Review the backend session scanning logic (`collect_jsonl_files` in `src-tauri/src/sessions.rs`) to determine if it has similar stack limits to the frontend.",
+            "evidence": "Inspected `collect_jsonl_files`, which is a recursive function. Executed a Rust test script creating deeply nested directories to test it. The script failed to create depth >100 due to the OS 'File name too long' error before the recursion limit of 10 (`max_depth`) was hit, effectively preventing a stack overflow from recursive calls natively. The maximum `depth` in the production function is explicitly constrained by `max_depth` to 10.",
+            "result": "Establishes that the backend does not suffer from a deep recursion stack overflow since `max_depth` explicitly truncates the call graph and the OS limits nested paths before deep recursion is reached."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session search filtering (e.g., `useSearchTree`) experiences performance issues or re-renders repeatedly with large datasets.",
+          "Investigate the maximum size threshold where `buildSessionTreeIterative` begins to impact frame rates and if web workers should handle parsing."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T11:05:50.657606Z",
+        "source": {
+          "activity_id": "sessions/9276732955616322391/activities/9c4384dfba604beaa2b520b726080a1b",
+          "report_sha256": "92ed105afafe0bbb7955592eb06e91b6364d79c26e792d5f61dce0e9df738659",
+          "activity_created_at": "2026-09-27T10:57:56.079668Z",
+          "session_id": "9276732955616322391",
+          "dispatch_key": "e8ebf6f71c60c0619b1da990"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T10:59:45.863541Z",
+    "last_poll_at": "2026-09-27T11:06:14.492525Z",
     "last_tick_at": "2026-09-27T10:59:49.679909Z",
     "run_id": "36314259161"
   }
