@@ -82205,7 +82205,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T14:50:49.754837Z"
+        "observed_at": "2026-09-27T14:50:49.754837Z",
+        "released_attempt_ref": "autonomous/attempt-cf3a35bc490d3f5248e18e56"
       },
       "research_result": {
         "summary": "Investigated the runtime incidents failure recovery and state bounding logic, verifying bugs where active fallbacks are prematurely dropped under high error volume, and secondary fallbacks fail to resolve when the primary model recovers. Also investigated focus trap bounds for nested details tags.",
