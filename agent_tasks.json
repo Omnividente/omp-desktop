@@ -78878,6 +78878,118 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-11",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-27T11:05:50Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "ce8685159bd59090c4fb59df86b81a9b32b2c1968d5c64de049a4a80943ab889",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Investigated `flattenSessionTree`, `sessionAncestorIds`, and `sessionGroupExpansionIds` scaling poorly with deeply nested file trees",
+            "observations": [
+              {
+                "scenario": "Simulate rendering deeply nested session trees in flattenSessionTree, sessionAncestorIds, and sessionGroupExpansionIds functions",
+                "evidence": "Wrote synthetic vitest benchmarking scripts testing `flattenSessionTree`, `sessionAncestorIds`, `sessionGroupExpansionIds`, and `filterSessionTree` in `src/uiUtils.ts` with a deeply nested session tree (depth 5000). The recursive implementations resulted in a 'Maximum call stack size exceeded' RangeError because JavaScript's call stack is typically limited to around 10,000 frames, but heavily depends on engine and frame size, causing crashes with deep folder hierarchies. Wrote alternative iterative algorithms and demonstrated that they scale to depth 5000+ without crashing.",
+                "result": "Establishes that recursive tree traversal functions in `uiUtils.ts` (`flattenSessionTree`, `sessionAncestorIds`, `sessionGroupExpansionIds`, `filterSessionTree`) fail on deeply nested trees and need to be refactored to iterative DFS algorithms using an explicit stack."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal tab matching logic or nested path resolutions elsewhere in the codebase suffer from recursive stack limits.",
+              "Investigate if backend session building logic (e.g., recursive directory traversal or tree generation in Rust) faces similar limits when dealing with deeply nested trees."
+            ],
+            "proposed_task_ids": [
+              "discovery-66325acabe5d5044"
+            ],
+            "completed_at": "2026-09-27T01:44:02.407772Z",
+            "source": {
+              "activity_id": "sessions/15763891562670590720/activities/34e3645a827d4239a324f04d46a64467",
+              "report_sha256": "3ec57cec94c57a6aab12335de963514f3a7d87f7fe9bd8de321d16cdc0d6cb4f",
+              "activity_created_at": "2026-09-27T01:31:32.075609Z",
+              "session_id": "15763891562670590720",
+              "dispatch_key": "025ea842b8773cad60c6fe92"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified robust failure recovery and state preservation during workspace addition and removal.",
+            "observations": [
+              {
+                "scenario": "Simulate failure during openFolder (addWorkspace) and removeWorkspace operations.",
+                "evidence": "Wrote synthetic vitest scripts in a jsdom environment mocking `api.addWorkspace` and `api.removeWorkspaceFromList` to return promise rejections. Checked calls to `api.saveWorkspaceSelection` and `api.showError`.",
+                "result": "Establishes that the UI successfully catches add/remove rejections. It reports errors via `showError`, clears busy states in `finally` blocks (e.g., `workspaceBusyKey`), and does not persist unverified or failed workspace selections to disk."
+              },
+              {
+                "scenario": "Simulate concurrent or failed workspace loading via single-instance events.",
+                "evidence": "Triggered concurrent single-instance events in synthetic React tests with `addWorkspace` mocked to fail. Observed the `request === latestRequest` and `pendingRequests` tracking.",
+                "result": "Establishes that the application safely unwinds failed single-instance operations without crashing, gracefully invalidates in-flight responses if a newer request supersedes them, and signals a `needsReconcile` refresh."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity (e.g. `sendRecoveredSwitchInput`) correctly handles scenarios where the underlying PTY session unexpectedly dies or returns failures during workspace navigation."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T10:09:50.271684Z",
+            "source": {
+              "activity_id": "sessions/3124282261021344998/activities/354d221cb1084bba963a558718ec58a0",
+              "report_sha256": "47a542fd61811025aed6c1f236e92bc1fa1a0397ea811953dc9b5b13465c4400",
+              "activity_created_at": "2026-09-27T09:38:49.359783Z",
+              "session_id": "3124282261021344998",
+              "dispatch_key": "d0c4c36d14627caa46d7c944"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that Rust backend recursion has maximum depth parameters but OS path length limits prevent recursive stack overflows in the backend before reaching those limits.",
+            "observations": [
+              {
+                "scenario": "Review the backend session scanning logic (`collect_jsonl_files` in `src-tauri/src/sessions.rs`) to determine if it has similar stack limits to the frontend.",
+                "evidence": "Inspected `collect_jsonl_files`, which is a recursive function. Executed a Rust test script creating deeply nested directories to test it. The script failed to create depth >100 due to the OS 'File name too long' error before the recursion limit of 10 (`max_depth`) was hit, effectively preventing a stack overflow from recursive calls natively. The maximum `depth` in the production function is explicitly constrained by `max_depth` to 10.",
+                "result": "Establishes that the backend does not suffer from a deep recursion stack overflow since `max_depth` explicitly truncates the call graph and the OS limits nested paths before deep recursion is reached."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session search filtering (e.g., `useSearchTree`) experiences performance issues or re-renders repeatedly with large datasets.",
+              "Investigate the maximum size threshold where `buildSessionTreeIterative` begins to impact frame rates and if web workers should handle parsing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T11:05:50.657606Z",
+            "source": {
+              "activity_id": "sessions/9276732955616322391/activities/9c4384dfba604beaa2b520b726080a1b",
+              "report_sha256": "92ed105afafe0bbb7955592eb06e91b6364d79c26e792d5f61dce0e9df738659",
+              "activity_created_at": "2026-09-27T10:57:56.079668Z",
+              "session_id": "9276732955616322391",
+              "dispatch_key": "e8ebf6f71c60c0619b1da990"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
