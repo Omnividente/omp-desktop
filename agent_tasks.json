@@ -77575,7 +77575,7 @@
       "id": "discovery-a0ddd02fb5e25ad0",
       "title": "Eliminate UI freeze during modal Tab navigation by short-circuiting style computations",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -77609,6 +77609,12 @@
         "activity_created_at": "2026-09-27T08:39:37.643627Z",
         "session_id": "2174094185288808990",
         "dispatch_key": "b4ca7af6aeca924469f2229e"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:16:27Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): useModalFocus.ts short-circuits focus checks in large dialogs. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
