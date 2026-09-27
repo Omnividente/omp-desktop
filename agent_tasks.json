@@ -75502,7 +75502,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T01:44:02.407772Z"
+        "observed_at": "2026-09-27T01:44:02.407772Z",
+        "released_attempt_ref": "autonomous/attempt-025ea842b8773cad60c6fe92"
       },
       "research_result": {
         "summary": "Investigated `flattenSessionTree`, `sessionAncestorIds`, and `sessionGroupExpansionIds` scaling poorly with deeply nested file trees",
