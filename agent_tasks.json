@@ -47367,7 +47367,7 @@
       "id": "discovery-55d95a28b3f55c76",
       "title": "Fix text overflow in provider account reason and empty limits",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -47403,6 +47403,12 @@
         "activity_created_at": "2026-09-24T11:41:03.754834Z",
         "session_id": "6839265768202341973",
         "dispatch_key": "53e0d8582e4ac9ddfc57785b"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:07:24Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): App.css constrains long provider reason and empty-limit text. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
