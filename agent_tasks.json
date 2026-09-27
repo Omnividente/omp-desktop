@@ -75080,6 +75080,10 @@
         "research_detached": {
           "at": "2026-09-27T00:39:12.234044Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-27T00:39:12.234044Z",
+          "result": "pending"
         }
       }
     }
