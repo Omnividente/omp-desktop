@@ -48642,7 +48642,7 @@
       "id": "discovery-1cb87c08b6fe1690",
       "title": "Fix virtual layout cache discard on mode switch",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -48708,6 +48708,12 @@
         "activity_created_at": "2026-09-24T12:40:24.814025Z",
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:03:33Z",
+        "note": "Sep 27 review: virtual layout cache is intentionally invalidated when the content mode changes because row heights differ; reuse would risk incorrect anchors."
       }
     },
     {
