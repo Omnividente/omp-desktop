@@ -81905,13 +81905,13 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-27T14:06:56.905163Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-27T14:15:32.544778Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T14:15:50.843698Z",
+    "last_poll_at": "2026-09-27T14:15:56.384735Z",
     "last_tick_at": "2026-09-27T14:09:28.074966Z",
     "run_id": "36324725583"
   }
