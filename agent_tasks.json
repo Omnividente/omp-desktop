@@ -74135,7 +74135,7 @@
       "id": "discovery-f9463c9e29083930",
       "title": "Add screen reader status announcements for empty and no-match transcript states",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -74202,6 +74202,12 @@
         "activity_created_at": "2026-09-26T23:19:33.591730Z",
         "session_id": "2680805311560206796",
         "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:15:11Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): TranscriptModal.tsx announces empty/no-match transcript states. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
