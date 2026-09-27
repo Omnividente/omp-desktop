@@ -44518,7 +44518,7 @@
       "id": "discovery-f0bc3830546ec195",
       "title": "Close the transcript modal when its session is deleted in the background",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -44596,6 +44596,12 @@
         "activity_created_at": "2026-09-24T09:39:06.725663Z",
         "session_id": "12271884985537538636",
         "dispatch_key": "f24864506122d5e983228a85"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:06:46Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): App.tsx closes a transcript whose session disappears on refresh. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
