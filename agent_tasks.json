@@ -80861,7 +80861,7 @@
       "id": "discovery-3713ec52cc3c27b8",
       "title": "Optimize useModalFocus to prevent UI freeze during Tab navigation in large lists",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -80915,6 +80915,12 @@
         "activity_created_at": "2026-09-27T12:23:33.618822Z",
         "session_id": "17140218297233858439",
         "dispatch_key": "e60e2e1728937a508ccd18a4"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:18:12Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): useModalFocus.ts avoids per-Tab full-control style computations. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
