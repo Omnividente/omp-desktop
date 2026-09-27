@@ -46754,7 +46754,7 @@
       "id": "discovery-3f11bfdcf7c691a7",
       "title": "Fix layout truncation of long text in ModelPicker metadata and role health",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -46790,6 +46790,12 @@
         "activity_created_at": "2026-09-24T10:58:52.093059Z",
         "session_id": "6823166216163542621",
         "dispatch_key": "68df74ddbe14ef58f725c766"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:01:08Z",
+        "note": "Sep 27 review: proposed .model-picker-option-meta selector does not exist on current UI; no observable clipping of model or role-health text to fix."
       }
     },
     {
