@@ -85224,7 +85224,7 @@
       "id": "research-terminal-input-behavior-12",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -85537,16 +85537,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17959923304857814379",
         "dispatch_key": "8282f98546681492b9a09dea",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-8282f98546681492b9a09dea",
         "started_at": "2026-09-27T23:32:07.332572Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T23:46:55.439875Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -85719,13 +85719,99 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T23:32:07.332572Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T23:46:55.439875Z"
+      },
+      "research_result": {
+        "summary": "Investigated the specific behavior and latency of terminal mouse selection edit extraction on multi-line text blocks with extreme lengths.",
+        "observations": [
+          {
+            "scenario": "Simulated terminal UI right-clicking with a very large (extreme length) text selection to trigger `createMouseSelectionEdit`.",
+            "evidence": "Executed an isolated node script passing a 3,000,000-character string to `createMouseSelectionEdit`. The script measured roughly 800ms of synchronous execution time on the main thread.",
+            "result": "Establishes that the unconditional string extraction `Array.from(text.replace(/[\\r\\n]/g, \"\")).length` block synchronously before early returning `null` via `cursorMoveInput`. A huge selection from terminal scrollback freezes the UI on right click."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if writeTerminal correctly limits concurrent IPC messages to prevent webview lockups on rapid output.",
+          "Investigate if terminal continuity correctly handles multiple transient IPC errors without dropping events."
+        ],
+        "proposed_task_ids": [
+          "discovery-4ba740d357eb631f"
+        ],
+        "completed_at": "2026-09-27T23:46:55.439875Z",
+        "source": {
+          "activity_id": "sessions/17959923304857814379/activities/f810a0b1782645a683cbc74d72d83ae4",
+          "report_sha256": "8c26b13a8d554b946732973ad77fc57df9306b312081c53f021eccc991c81605",
+          "activity_created_at": "2026-09-27T23:39:20.371256Z",
+          "session_id": "17959923304857814379",
+          "dispatch_key": "8282f98546681492b9a09dea"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17959923304857814379/activities/f810a0b1782645a683cbc74d72d83ae4",
+          "report_sha256": "8c26b13a8d554b946732973ad77fc57df9306b312081c53f021eccc991c81605",
+          "activity_created_at": "2026-09-27T23:39:20.371256Z",
+          "session_id": "17959923304857814379",
+          "dispatch_key": "8282f98546681492b9a09dea"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4ba740d357eb631f"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4ba740d357eb631f",
+      "title": "Fix terminal UI freezing when right-clicking on huge mouse selections",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-27T23:46:55.439875Z",
+      "acceptance": [
+        "createMouseSelectionEdit quickly evaluates and rejects huge text selections by checking cursorMoveInput and fast length bounds before performing expensive Array.from length calculations"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native runtime script simulating createMouseSelectionEdit performance with an extremely large text payload (3,000,000 chars). The O(N) Array.from(text.replace) step executes unconditionally before the much cheaper O(1) cursorMoveInput early exits, causing synchronous blocking.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Execute an isolated node script that provides an extremely long string (e.g., 3,000,000 characters) as the text parameter for createMouseSelectionEdit, simulating a full buffer selection.",
+            "Measure the synchronous execution time of the function."
+          ],
+          "expected": "The function evaluates the fast, positional rules via cursorMoveInput or a raw string length bound first, quickly returning null (e.g. in <1ms).",
+          "actual": "The function computes the exact string grapheme length unconditionally, blocking the main thread for over ~800ms before eventually returning null."
+        }
+      },
+      "target_paths": [
+        "src/terminalInput.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-behavior-12",
+        "activity_id": "sessions/17959923304857814379/activities/f810a0b1782645a683cbc74d72d83ae4",
+        "report_sha256": "8c26b13a8d554b946732973ad77fc57df9306b312081c53f021eccc991c81605",
+        "activity_created_at": "2026-09-27T23:39:20.371256Z",
+        "session_id": "17959923304857814379",
+        "dispatch_key": "8282f98546681492b9a09dea"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T23:40:45.880330Z",
+    "last_poll_at": "2026-09-27T23:47:12.701524Z",
     "last_tick_at": "2026-09-27T23:40:49.832854Z",
     "run_id": "36359458711"
   }
