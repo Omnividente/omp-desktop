@@ -80520,7 +80520,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T12:37:09.169823Z"
+        "observed_at": "2026-09-27T12:37:09.169823Z",
+        "released_attempt_ref": "autonomous/attempt-b824abe752b512442f8ddfb9"
       },
       "research_result": {
         "summary": "Verified deferred product improvement hypotheses for ModelPicker key handling and SettingsRecoveryScreen accessibility.",
