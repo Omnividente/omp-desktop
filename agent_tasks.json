@@ -85083,7 +85083,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T23:18:47.373028Z"
+        "observed_at": "2026-09-27T23:18:47.373028Z",
+        "released_attempt_ref": "autonomous/attempt-937e365fd538093960ada9ee"
       },
       "research_result": {
         "summary": "Investigated the transcript search interaction and external link accessibility. Identified a UX flaw where pressing Escape in the search input abruptly closes the modal, and confirmed that long auto-linked external URLs lack accessible labels, causing disruptive screen reader readouts.",
