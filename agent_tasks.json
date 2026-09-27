@@ -82352,6 +82352,202 @@
           "detail": "3 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-11",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-27T15:30:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "45afbcad986829c1e74d663b1c6ee19d2569483ff2a7687cc96ba3e0a468b211",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Measured performance of incident bounding, diagnostics text redaction, and resource health sampling; no severe regressions or bottlenecks found.",
+            "observations": [
+              {
+                "scenario": "Continuous terminal state updates exceeding the MAX_RUNTIME_INCIDENTS limit, forcing `enforceIncidentBound` to continuously drop the oldest unique terminal event.",
+                "evidence": "Executed an isolated synthetic TypeScript benchmark with 10,000 incident insertions across 100+ unique terminals to force worst-case limit scaling. The O(N) array filtering and reduction to drop the oldest incident processed 10,000 boundary evictions in ~300ms (~0.03ms per event).",
+                "result": "Establishes that the incident limit tracking is well bounded in execution time and memory; the O(N) eviction behavior is not a measurable bottleneck due to the small N=100 hard limit."
+              },
+              {
+                "scenario": "Resource-intensive text redaction over large chunks of textual data during diagnostics collection (`redact_text`).",
+                "evidence": "Wrote a native Rust benchmark `benchmark_redact_text` for `omp_desktop_lib::diagnostics::redact_text` simulating processing of 100,000 lines (2.5MB) containing secrets. Redaction completed in ~838ms.",
+                "result": "Establishes that `redact_text` is appropriately bounded; while line-by-line token splitting over millions of lines induces some latency, realistic diagnostic log sizes remain within acceptable sub-second limits."
+              },
+              {
+                "scenario": "Live `sample_resource_health` retrieval performance.",
+                "evidence": "Wrote a native Rust benchmark `benchmark_resource_health` for `omp_desktop_lib::resource_health::sample_resource_health`. 10 successive live system resource samples completed in ~8.3ms.",
+                "result": "Establishes that continuous system telemetry retrieval executes efficiently (~0.8ms per sample) and does not incur expensive filesystem IO blocking."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if concurrent high-throughput terminal outputs can cause overlapping `redact_text` invocations to block the Tauri IPC event loop when retrieving extremely large diagnostics logs.",
+              "Investigate the memory allocations required when serializing 100 active runtime incidents over the IPC bridge during intense terminal activity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T15:43:01.833872Z",
+            "source": {
+              "activity_id": "sessions/11191604720444279127/activities/11f3ae7b050442beaa6618867fcdd029",
+              "report_sha256": "d12dac7cef76834b5feeff429f221ca63b98837f72efa0c6a9b1790746bd5a13",
+              "activity_created_at": "2026-09-26T15:32:16.416792Z",
+              "session_id": "11191604720444279127",
+              "dispatch_key": "a70e959bd559bf69bd0a7f3c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the runtime incidents failure recovery and state bounding logic, reproducing bugs where active fallbacks are prematurely dropped under high error volume, and secondary fallbacks fail to resolve when the primary model recovers.",
+            "observations": [
+              {
+                "scenario": "Verify if `enforceIncidentBound` mistakenly drops unresolved primary fallback issues under a high volume of errors on the same terminal.",
+                "evidence": "Ran isolated tests on `enforceIncidentBound` by adding a fallback incident for `term1`, then generating 110 unique errors for the same terminal. Because `candidates` first filters by terminals with `> 1` active incidents before falling back to all active incidents, it selects the 100+ active errors on `term1` alongside the active fallback. The `reduce` step evicts the oldest incident, which is the still-active fallback. Wait, it drops it even when it's unresolved.",
+                "result": "Establishes a logical bug (hypothesis discovery-940b5f71f3979b02) where an active fallback is dropped from state if its terminal continuously emits errors. This hides the fallback health status from the UI."
+              },
+              {
+                "scenario": "Verify if `resolveFallbacks` correctly resolves a secondary fallback on primary model recovery.",
+                "evidence": "Tested `applyRuntimeIncidentEvent` by creating a `retryFallbackApplied` incident with `fallbackRole: \"secondary\"`. Then fired a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`. `resolveFallbacks` checks `role === null ? incident.role === null : incident.role === role || incident.role === null`. Because the passed role is `\"primary\"` but the incident role is `\"secondary\"`, the active incident is skipped and remains active.",
+                "result": "Establishes a logical bug (hypothesis discovery-aa17322b78e9eae9) where returning to the primary model fails to clear an active secondary fallback incident. I verified this natively in vitest. Expanding the filter to `role === null ? true : incident.role === role || incident.role === null` broke unrelated tests by clearing unrelated roles like 'review', but modifying the default recovery logic (`role ?? \"default\"`) to target the specific target fallback roles correctly clears it."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the interaction between `fallbackRole`, `modelRole`, and the `resolveFallbacks` criteria when a review fallback overlaps with a primary fallback.",
+              "Verify the behavior of `IncidentCenter` when navigating through an arbitrary sequence of nested `<details>` elements containing errors, as `DIALOG_FOCUSABLE_SELECTOR` may skip focus boundaries incorrectly."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T18:22:08.789485Z",
+            "source": {
+              "activity_id": "sessions/7343725914341508827/activities/811b1bc7d98b4cf096bd5519071dd357",
+              "report_sha256": "6a53318e8aeb94796aeab5a4c45bd6b036ddb636428b65b09cc8005673ace507",
+              "activity_created_at": "2026-09-26T17:51:33.526571Z",
+              "session_id": "7343725914341508827",
+              "dispatch_key": "30d23f9f3307bc819622ff4b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using vitest.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have successfully recreated the scenario using a native test in vitest.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": []}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks.",
+                  "Unrelated fallback roles like 'review' remain active when a primary model recovers."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have verified the boundary logic bug in vitest by flooding errors on a single terminal.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": []}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the runtime incidents failure recovery and state bounding logic, verifying bugs where active fallbacks are prematurely dropped under high error volume, and secondary fallbacks fail to resolve when the primary model recovers. Also investigated focus trap bounds for nested details tags.",
+            "observations": [
+              {
+                "scenario": "Verify if `enforceIncidentBound` mistakenly drops unresolved primary fallback issues under a high volume of errors on the same terminal.",
+                "evidence": "Ran isolated tests on `enforceIncidentBound` by adding a fallback incident for `term1`, then generating 110 unique errors for the same terminal. Because `candidates` first filters by terminals with `> 1` active incidents before falling back to all active incidents, it selects the 100+ active errors on `term1` alongside the active fallback. The `reduce` step evicts the oldest incident, which is the still-active fallback. This was reproduced via a custom tsx script.",
+                "result": "Establishes a logical bug (hypothesis discovery-940b5f71f3979b02) where an active fallback is dropped from state if its terminal continuously emits errors. This hides the fallback health status from the UI."
+              },
+              {
+                "scenario": "Verify if `resolveFallbacks` correctly resolves a secondary fallback on primary model recovery.",
+                "evidence": "Tested `applyRuntimeIncidentEvent` via a custom tsx script by creating a `retryFallbackApplied` incident with `fallbackRole: \"secondary\"`. Then fired a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`. `resolveFallbacks` checks `role === null ? incident.role === null : incident.role === role || incident.role === null`. Because the passed role is `\"primary\"` but the incident role is `\"secondary\"`, the active incident is skipped and remains active.",
+                "result": "Establishes a logical bug (hypothesis discovery-aa17322b78e9eae9) where returning to the primary model fails to clear an active secondary fallback incident."
+              },
+              {
+                "scenario": "Fix focus trap bound calculation for elements hidden inside collapsed details tags.",
+                "evidence": "Created a jsdom test to verify if elements inside collapsed `<details>` tags are ignored by the inline `DIALOG_FOCUSABLE_SELECTOR` query. The `.filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden)` check in `IncidentCenter` and `ResourceHealthPanel` does not exclude them, leading to broken Tab traversal.",
+                "result": "Establishes that the inline query must explicitly check for `!element.closest('details:not([open])')` while retaining `<summary>` tags to correctly replicate the `useModalFocus` behavior."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `runtimeEventsDedupeKey` fails to coalesce rapid identical error events, exacerbating the bound exhaustion bug."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T14:50:49.754837Z",
+            "source": {
+              "activity_id": "sessions/9502153900622099853/activities/b84323cd693240e582395a19eb6f6f8b",
+              "report_sha256": "c43fddf77c33ca4b696d1530de093fb955114fa7f3928af2bab2ad593676cfe7",
+              "activity_created_at": "2026-09-27T14:45:11.293564Z",
+              "session_id": "9502153900622099853",
+              "dispatch_key": "cf3a35bc490d3f5248e18e56"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in a local TS script.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have successfully recreated the scenario using a native test script by flooding errors on a single terminal.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": []}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+                ]
+              },
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using a local TS script.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"I have verified this behavior using a local TS script.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": []}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks.",
+                  "Unrelated fallback roles like 'review' remain active when a primary model recovers."
+                ]
+              },
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. <a href>).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
