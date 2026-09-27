@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, createElement, useState } from "react"
+import { act, createElement, useRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -13,6 +13,7 @@ import {
   thinkingOptionsForModel,
 } from "./ModelPicker"
 import type { OmpModelInfo } from "./types"
+import { useModalFocus } from "./useModalFocus"
 
 const model: OmpModelInfo = {
   provider: "anthropic",
@@ -151,6 +152,43 @@ describe("ModelPicker model changes", () => {
     })
   }
 
+  function ModalPicker() {
+    const panelRef = useRef<HTMLElement>(null)
+    const onKeyDown = useModalFocus(panelRef, vi.fn())
+    return createElement(
+      "section",
+      { ref: panelRef, onKeyDown, role: "dialog", tabIndex: -1 },
+      createElement("button", { disabled: true }, "Disabled first"),
+      createElement(
+        "fieldset",
+        { disabled: true },
+        createElement("button", null, "Disabled child"),
+      ),
+      createElement("div", { hidden: true }, createElement("button", null, "Hidden")),
+      createElement("div", { inert: true }, createElement("button", null, "Inert")),
+      createElement(
+        "div",
+        { style: { display: "none" } },
+        createElement("button", null, "No display"),
+      ),
+      createElement("button", { style: { visibility: "hidden" } }, "No visibility"),
+      createElement(
+        "details",
+        null,
+        createElement("summary", { id: "modal-first" }, "Closed details"),
+        createElement("button", null, "Closed details content"),
+      ),
+      createElement(Picker, { initial: model.selector, target: taggedModel, initiallyOpen: false }),
+      createElement(
+        "details",
+        { open: true },
+        createElement("summary", { id: "modal-last-summary" }, "Open details"),
+        createElement("button", { id: "modal-last" }, "Open details content"),
+      ),
+      createElement("button", { disabled: true }, "Disabled last"),
+    )
+  }
+
   beforeEach(() => {
     container = document.createElement("div")
     document.body.appendChild(container)
@@ -255,7 +293,7 @@ describe("ModelPicker model changes", () => {
       search.dispatchEvent(new Event("input", { bubbles: true }))
     })
     expect(container.querySelectorAll("[role='option']")).toHaveLength(1)
-    for (const key of ["Home", "End", " ", "Enter"]) {
+    for (const key of ["Home", "End", " "]) {
       const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
       act(() => search.dispatchEvent(event))
       expect(event.defaultPrevented).toBe(false)
@@ -272,6 +310,154 @@ describe("ModelPicker model changes", () => {
     )
     expect(container.querySelector(".model-picker-panel")).toBeNull()
     expect(document.activeElement).toBe(trigger)
+  })
+
+  it.each(["initial selection", "filtered selection", "hovered selection"])(
+    "selects the highlighted model with Enter in search: %s",
+    (scenario) => {
+      act(() => {
+        root.render(
+          createElement(Picker, { initial: `${model.selector}:off`, target: taggedModel }),
+        )
+      })
+      const search = container.querySelector<HTMLInputElement>(".model-picker-search input")!
+      if (scenario === "filtered selection") {
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+            search,
+            "LLAMA",
+          )
+          search.dispatchEvent(new Event("input", { bubbles: true }))
+        })
+      } else if (scenario === "hovered selection") {
+        const option = [...container.querySelectorAll<HTMLButtonElement>("[role='option']")].find(
+          (button) => button.querySelector("small")?.textContent === taggedModel.selector,
+        )!
+        act(() => option.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
+      }
+      expect(document.activeElement).toBe(search)
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => search.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(true)
+      expect(container.querySelector(".model-picker-copy small")?.textContent).toBe(
+        `${scenario === "initial selection" ? model.selector : taggedModel.selector}:off`,
+      )
+      expect(container.querySelector(".model-picker-panel")).toBeNull()
+      expect(document.activeElement).toBe(container.querySelector(".model-picker-trigger"))
+    },
+  )
+
+  it.each([{ isComposing: true }, { keyCode: 229 }, { noResults: true }])(
+    "does not select a model from search during composition or without results: %j",
+    (guard) => {
+      act(() => {
+        root.render(createElement(Picker, { initial: model.selector, target: taggedModel }))
+      })
+      const search = container.querySelector<HTMLInputElement>(".model-picker-search input")!
+      if ("noResults" in guard) {
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+            search,
+            "no-such-model",
+          )
+          search.dispatchEvent(new Event("input", { bubbles: true }))
+        })
+        expect(container.querySelector("[role='option']")).toBeNull()
+      }
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        ...guard,
+      })
+      act(() => search.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(container.querySelector(".model-picker-copy small")?.textContent).toBe(model.selector)
+      expect(container.querySelector(".model-picker-panel")).not.toBeNull()
+      expect(document.activeElement).toBe(search)
+    },
+  )
+
+  it("preserves search field boundaries, availability order, stable ties, and selector aliases", () => {
+    const unavailable = {
+      ...model,
+      name: "Alias Sonnet 4",
+      selector: "unavailable",
+      available: false,
+    }
+    const tied = { ...model, selector: "tied" }
+    act(() => {
+      root.render(
+        createElement(ModelPicker, {
+          language: "en",
+          models: [unavailable, taggedModel, model, tied],
+          onChange: vi.fn(),
+          onOpenChange: vi.fn(),
+          open: true,
+          role: "default",
+          value: "ANTHROPIC/CLAUDE-SONNET-4-20250514:HIGH",
+        }),
+      )
+    })
+    const selectors = () =>
+      [...container.querySelectorAll("[role='option'] small")].map((node) => node.textContent)
+    expect(selectors()).toEqual([
+      model.selector,
+      tied.selector,
+      taggedModel.selector,
+      unavailable.selector,
+    ])
+    expect(container.querySelector(".model-picker-copy strong")?.textContent).toBe(unavailable.name)
+    const search = container.querySelector<HTMLInputElement>(".model-picker-search input")!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "  4 ANTHROPIC  ",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(selectors()).toEqual([model.selector, tied.selector, unavailable.selector])
+    expect(container.querySelectorAll("[role='option'][aria-selected='true']")).toHaveLength(3)
+  })
+
+  it("wraps modal focus around a picker and skips unavailable or collapsed controls", () => {
+    act(() => root.render(createElement(ModalPicker)))
+    const panel = container.querySelector<HTMLElement>("[role='dialog']")!
+    const first = container.querySelector<HTMLElement>("#modal-first")!
+    const last = container.querySelector<HTMLElement>("#modal-last")!
+    const trigger = container.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+    const pressTab = (target: HTMLElement, shiftKey = false) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      return event
+    }
+    expect(document.activeElement).toBe(panel)
+    expect(pressTab(panel).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(first)
+    pressTab(first, true)
+    expect(document.activeElement).toBe(last)
+    pressTab(last)
+    expect(document.activeElement).toBe(first)
+    expect(pressTab(first).defaultPrevented).toBe(false)
+    act(() => trigger.focus())
+    expect(pressTab(trigger).defaultPrevented).toBe(false)
+    expect(pressTab(trigger, true).defaultPrevented).toBe(false)
+    act(() => panel.focus())
+    pressTab(panel, true)
+    expect(document.activeElement).toBe(last)
+    last.closest("details")!.open = false
+    act(() => first.focus())
+    pressTab(first, true)
+    expect(document.activeElement).toBe(container.querySelector("#modal-last-summary"))
   })
 
   it.each(["Escape", "Done", "model click"])("returns focus on explicit close via %s", (action) => {

@@ -47,6 +47,7 @@ struct CachedSessionSummary {
 
 static SESSION_SUMMARY_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedSessionSummary>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static IMPORT_TRANSACTION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn session_summary_cache() -> &'static Mutex<HashMap<PathBuf, CachedSessionSummary>> {
     &SESSION_SUMMARY_CACHE
@@ -343,10 +344,6 @@ where
             destination.display()
         )
     })?;
-    let file_name = destination
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("session.jsonl");
     let permissions = (mode == AtomicWriteMode::Regular)
         .then(|| {
             fs::metadata(destination)
@@ -373,7 +370,7 @@ where
     let mut temporary = None;
     for _ in 0..16 {
         let candidate = parent.join(format!(
-            ".{file_name}.{}.{}.tmp",
+            ".atomic-{}-{}.tmp",
             std::process::id(),
             rand::random::<u64>()
         ));
@@ -873,7 +870,23 @@ pub fn validated_session_file(path: &str, session_root: &Path) -> Result<PathBuf
 }
 
 pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
+    let _import_guard = IMPORT_TRANSACTION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let file = validated_session_file(path, session_root)?;
+    let mut warnings = Vec::new();
+    let mut blocked = HashSet::new();
+    recover_imports_in_directory(
+        file.parent().unwrap_or(session_root),
+        &mut warnings,
+        &mut blocked,
+    );
+    if blocked.contains(&file) {
+        return Err(format!(
+            "Незавершённый импорт {}: восстановление не удалось",
+            file.display()
+        ));
+    }
 
     let artifact_dir = file.with_extension("");
     if let Ok(metadata) = fs::symlink_metadata(&artifact_dir) {
@@ -923,6 +936,22 @@ fn import_session(
     let target = canonical_project_path(request.target_cwd.trim())?;
     let target_cwd = target.to_string_lossy().into_owned();
     let bytes = read_bounded_import_source(&source)?;
+    let _import_guard = IMPORT_TRANSACTION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut recovery_warnings = Vec::new();
+    let mut blocked = HashSet::new();
+    recover_imports_in_directory(
+        &session_root.join(encode_session_dir_name(&target_cwd)),
+        &mut recovery_warnings,
+        &mut blocked,
+    );
+    if let Some(warning) = recovery_warnings.first() {
+        return Err(format!(
+            "Не удалось восстановить прерванный импорт: {}",
+            warning.message
+        ));
+    }
     let text = String::from_utf8_lossy(&bytes);
     let imported = if looks_like_codex_session(&text) {
         import_codex_session(
@@ -1966,14 +1995,12 @@ where
     let Some(staging) = staged_artifacts else {
         return write_session(destination, body);
     };
-    // Swap artifacts under reversible sibling names, then commit the JSONL last. Every failure
-    // before the JSONL write restores the prior artifact directory or reports the rollback path.
     let target_artifacts = destination.with_extension("");
     let existing_metadata = match fs::symlink_metadata(&target_artifacts) {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => {
-            let _ = fs::remove_dir_all(&staging);
+            let _ = remove_import_artifacts(&staging);
             return Err(format!(
                 "Не удалось проверить артефакты {}: {error}",
                 target_artifacts.display()
@@ -1984,81 +2011,360 @@ where
         .as_ref()
         .is_some_and(|metadata| metadata.file_type().is_symlink() || !metadata.is_dir())
     {
-        let _ = fs::remove_dir_all(&staging);
+        let _ = remove_import_artifacts(&staging);
         return Err(format!(
             "Нельзя заменить посторонний объект на пути артефактов {}",
             target_artifacts.display()
         ));
     }
 
-    let backup = if existing_metadata.is_some() {
-        let backup = match unique_import_sidecar_path(destination, "artifacts-backup") {
-            Ok(backup) => backup,
-            Err(error) => {
-                let _ = fs::remove_dir_all(&staging);
-                return Err(error);
-            }
-        };
-        if let Err(error) = rename(&target_artifacts, &backup) {
-            let _ = fs::remove_dir_all(&staging);
+    let prepare = (|| -> Result<(PathBuf, PathBuf, ImportTransaction), String> {
+        let session_stage = unique_import_sidecar_path(destination, "jsonl-stage")?;
+        let marker = unique_import_sidecar_path(destination, "import-txn")?;
+        let backup = existing_metadata
+            .as_ref()
+            .map(|_| unique_import_sidecar_path(destination, "artifacts-backup"))
+            .transpose()?;
+        if let Err(error) = write_session(&session_stage, body) {
+            let _ = fs::remove_file(&session_stage);
             return Err(error);
         }
-        Some(backup)
-    } else {
-        None
-    };
-
-    if let Err(error) = rename(&staging, &target_artifacts) {
-        let mut rollback_errors = Vec::new();
-        if let Some(backup) = backup.as_ref() {
-            if let Err(rollback_error) = rename(backup, &target_artifacts) {
-                rollback_errors.push(rollback_error);
-            }
+        if !checked_import_entry(&session_stage, false)? {
+            return Err(format!(
+                "Не создан временный файл сессии {}",
+                session_stage.display()
+            ));
         }
-        if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
-            if cleanup_error.kind() != io::ErrorKind::NotFound {
-                rollback_errors.push(format!(
-                    "Не удалось очистить {}: {cleanup_error}",
-                    staging.display()
+        if let Ok(metadata) = fs::metadata(destination) {
+            if let Err(error) = fs::set_permissions(&session_stage, metadata.permissions()) {
+                let _ = fs::remove_file(&session_stage);
+                return Err(format!(
+                    "Не удалось сохранить права файла {}: {error}",
+                    destination.display()
                 ));
             }
         }
-        return Err(import_transaction_error(error, rollback_errors));
-    }
-
-    if let Err(error) = write_session(destination, body) {
-        let mut rollback_errors = Vec::new();
-        let moved_new_aside = match rename(&target_artifacts, &staging) {
-            Ok(()) => true,
-            Err(rollback_error) => {
-                rollback_errors.push(rollback_error);
-                false
+        let transaction =
+            ImportTransaction::new(destination, &session_stage, &staging, backup.as_deref())?;
+        let serialized = serde_json::to_vec(&transaction).map_err(|error| error.to_string())?;
+        if let Err(error) = atomic_write_file(&marker, &serialized) {
+            if let Err(recovery_error) = recover_import_transaction(&marker) {
+                return Err(import_transaction_error(error, vec![recovery_error]));
             }
-        };
-        if moved_new_aside {
-            if let Some(backup) = backup.as_ref() {
-                if let Err(rollback_error) = rename(backup, &target_artifacts) {
-                    rollback_errors.push(rollback_error);
-                }
-            }
-            if let Err(cleanup_error) = fs::remove_dir_all(&staging) {
-                if cleanup_error.kind() != io::ErrorKind::NotFound {
-                    rollback_errors.push(format!(
-                        "Не удалось очистить {}: {cleanup_error}",
-                        staging.display()
-                    ));
-                }
-            }
+            let _ = fs::remove_file(&session_stage);
+            return Err(error);
         }
-        return Err(import_transaction_error(error, rollback_errors));
-    }
-
-    if let Some(backup) = backup {
-        if let Err(error) = remove_import_artifacts(&backup) {
-            diagnostics::warn("session.import.cleanup", &error);
+        Ok((marker, session_stage, transaction))
+    })();
+    let (marker, session_stage, transaction) = match prepare {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            let _ = remove_import_artifacts(&staging);
+            return Err(error);
         }
+    };
+
+    // The durable marker precedes both artifact renames. The staged JSONL disappears only
+    // after its atomic publication, so a later cold scan can roll back or finish cleanup.
+    let result = (|| -> Result<(), String> {
+        if let Some(backup) = transaction.backup_path(&marker) {
+            rename(&target_artifacts, &backup)?;
+        }
+        rename(&staging, &target_artifacts)?;
+        replace_file_atomically(&session_stage, destination).map_err(|error| {
+            format!("Не удалось опубликовать {}: {error}", destination.display())
+        })?;
+        sync_parent_directory(destination.parent().unwrap_or_else(|| Path::new(".")))
+            .map_err(|error| format!("Не удалось синхронизировать импорт: {error}"))
+    })();
+    let committed = !checked_import_entry(&session_stage, false)?;
+    let recovery = recover_import_transaction(&marker);
+    if let Err(error) = result {
+        if committed {
+            if let Err(cleanup_error) = recovery {
+                if !checked_import_entry(destination, false)?
+                    || !checked_import_entry(&target_artifacts, true)?
+                {
+                    return Err(import_transaction_error(error, vec![cleanup_error]));
+                }
+                diagnostics::warn("session.import.cleanup", &cleanup_error);
+            }
+            return Ok(());
+        }
+        return Err(import_transaction_error(
+            error,
+            recovery.err().into_iter().collect(),
+        ));
+    }
+    if let Err(cleanup_error) = recovery {
+        diagnostics::warn("session.import.cleanup", &cleanup_error);
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ImportPhase {
+    Prepared,
+    RolledBack,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ImportTransaction {
+    destination: String,
+    session_stage: String,
+    artifact_stage: String,
+    artifact_backup: Option<String>,
+    phase: ImportPhase,
+}
+
+impl ImportTransaction {
+    fn new(
+        destination: &Path,
+        session_stage: &Path,
+        artifact_stage: &Path,
+        artifact_backup: Option<&Path>,
+    ) -> Result<Self, String> {
+        fn name(path: &Path) -> Result<String, String> {
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .map(str::to_owned)
+                .ok_or_else(|| format!("Некорректное имя файла импорта: {}", path.display()))
+        }
+        Ok(Self {
+            destination: name(destination)?,
+            session_stage: name(session_stage)?,
+            artifact_stage: name(artifact_stage)?,
+            artifact_backup: artifact_backup.map(name).transpose()?,
+            phase: ImportPhase::Prepared,
+        })
+    }
+
+    fn backup_path(&self, marker: &Path) -> Option<PathBuf> {
+        self.artifact_backup
+            .as_ref()
+            .map(|name| marker.with_file_name(name))
+    }
+
+    fn validate(&self, marker: &Path) -> Result<(), String> {
+        let stem = Path::new(&self.destination)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Некорректное назначение импорта".to_owned())?;
+        let expected_marker = format!(".{stem}.import-txn.");
+        if Path::new(&self.destination).components().count() != 1
+            || !stem
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            || !self.destination.ends_with(".jsonl")
+            || !marker
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&expected_marker))
+        {
+            return Err("Файл намерений не соответствует сессии импорта".to_owned());
+        }
+        for (name, label) in [
+            (&self.session_stage, "jsonl-stage"),
+            (&self.artifact_stage, "artifacts-stage"),
+        ]
+        .into_iter()
+        .chain(
+            self.artifact_backup
+                .as_ref()
+                .map(|name| (name, "artifacts-backup")),
+        ) {
+            if Path::new(name).components().count() != 1
+                || !name.starts_with(&format!(".{stem}.{label}."))
+            {
+                return Err("Файл намерений содержит посторонний путь".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn checked_import_entry(path: &Path, directory: bool) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() == directory => {
+            Ok(true)
+        }
+        Ok(_) => Err(format!(
+            "Посторонний объект на пути импорта {}",
+            path.display()
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Не удалось проверить {}: {error}", path.display())),
+    }
+}
+
+fn recover_import_transaction(marker: &Path) -> Result<(), String> {
+    if !checked_import_entry(marker, false)? {
+        return Ok(());
+    }
+    if fs::metadata(marker)
+        .map_err(|error| error.to_string())?
+        .len()
+        > 4096
+    {
+        return Err(format!(
+            "Слишком большой файл намерений {}",
+            marker.display()
+        ));
+    }
+    let bytes = fs::read(marker)
+        .map_err(|error| format!("Не удалось прочитать {}: {error}", marker.display()))?;
+    let mut transaction: ImportTransaction = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Некорректный файл намерений {}: {error}", marker.display()))?;
+    transaction.validate(marker)?;
+    let destination = marker.with_file_name(&transaction.destination);
+    let session_stage = marker.with_file_name(&transaction.session_stage);
+    let artifact_stage = marker.with_file_name(&transaction.artifact_stage);
+    let backup = transaction.backup_path(marker);
+    let target_artifacts = destination.with_extension("");
+    if transaction.phase == ImportPhase::RolledBack {
+        if checked_import_entry(&artifact_stage, true)? {
+            remove_import_artifacts(&artifact_stage)?;
+        }
+        if checked_import_entry(&session_stage, false)? {
+            fs::remove_file(&session_stage).map_err(|error| {
+                format!("Не удалось очистить {}: {error}", session_stage.display())
+            })?;
+        }
+        return fs::remove_file(marker)
+            .map_err(|error| format!("Не удалось очистить {}: {error}", marker.display()));
+    }
+
+    if checked_import_entry(&session_stage, false)? {
+        // JSONL is still old. Restore the old artifact directory before exposing the session.
+        let staged_artifacts_present = checked_import_entry(&artifact_stage, true)?;
+        if let Some(backup) = backup.as_ref() {
+            if checked_import_entry(backup, true)? {
+                if checked_import_entry(&target_artifacts, true)? {
+                    if staged_artifacts_present {
+                        return Err(format!(
+                            "Путь артефактов {} занят во время отката импорта",
+                            target_artifacts.display()
+                        ));
+                    }
+                    remove_import_artifacts(&target_artifacts)?;
+                }
+                fs::rename(backup, &target_artifacts).map_err(|error| {
+                    format!(
+                        "Не удалось восстановить {}: {error}",
+                        target_artifacts.display()
+                    )
+                })?;
+            } else if !checked_import_entry(&target_artifacts, true)? {
+                return Err(format!(
+                    "Утеряны исходные артефакты {}",
+                    destination.display()
+                ));
+            }
+        } else if checked_import_entry(&target_artifacts, true)? && !staged_artifacts_present {
+            remove_import_artifacts(&target_artifacts)?;
+        }
+        if staged_artifacts_present {
+            remove_import_artifacts(&artifact_stage)?;
+        }
+        transaction.phase = ImportPhase::RolledBack;
+        let serialized = serde_json::to_vec(&transaction).map_err(|error| error.to_string())?;
+        atomic_write_file(marker, &serialized)?;
+        fs::remove_file(&session_stage)
+            .map_err(|error| format!("Не удалось очистить {}: {error}", session_stage.display()))?;
+    } else {
+        // Atomic JSONL publication removed the staged file: the new artifacts must stay.
+        if !checked_import_entry(&destination, false)?
+            || !checked_import_entry(&target_artifacts, true)?
+        {
+            return Err(format!("Неполный импорт {}", destination.display()));
+        }
+        if let Some(backup) = backup.as_ref() {
+            if checked_import_entry(backup, true)? {
+                remove_import_artifacts(backup)?;
+            }
+        }
+        if checked_import_entry(&artifact_stage, true)? {
+            remove_import_artifacts(&artifact_stage)?;
+        }
+    }
+    fs::remove_file(marker)
+        .map_err(|error| format!("Не удалось очистить {}: {error}", marker.display()))
+}
+
+fn transaction_destination(marker: &Path) -> Option<PathBuf> {
+    let filename = marker.file_name()?.to_str()?.strip_prefix('.')?;
+    let (stem, suffix) = filename.split_once(".import-txn.")?;
+    if stem.is_empty()
+        || suffix.is_empty()
+        || !stem
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return None;
+    }
+    Some(marker.with_file_name(format!("{stem}.jsonl")))
+}
+
+fn recover_imports_in_directory(
+    directory: &Path,
+    warnings: &mut Vec<SessionScanWarning>,
+    blocked: &mut HashSet<PathBuf>,
+) {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+        Err(error) => {
+            warnings.push(SessionScanWarning {
+                path: directory.to_string_lossy().into_owned(),
+                message: format!("Не удалось проверить незавершённые импорты: {error}"),
+            });
+            return;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                warnings.push(SessionScanWarning {
+                    path: directory.to_string_lossy().into_owned(),
+                    message: format!("Не удалось проверить незавершённые импорты: {error}"),
+                });
+                continue;
+            }
+        };
+        let marker = entry.path();
+        let Some(destination) = transaction_destination(&marker) else {
+            continue;
+        };
+        if let Err(message) = recover_import_transaction(&marker) {
+            blocked.insert(destination);
+            warnings.push(SessionScanWarning {
+                path: marker.to_string_lossy().into_owned(),
+                message,
+            });
+        }
+    }
+}
+
+fn recover_interrupted_imports(
+    root: &Path,
+    warnings: &mut Vec<SessionScanWarning>,
+    blocked: &mut HashSet<PathBuf>,
+) {
+    recover_imports_in_directory(root, warnings, blocked);
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+            recover_imports_in_directory(&entry.path(), warnings, blocked);
+        }
+    }
 }
 
 fn import_transaction_error(primary: String, rollback_errors: Vec<String>) -> String {
@@ -2372,14 +2678,26 @@ fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
         }
         Ok(_) => {}
     }
+    let _import_guard = IMPORT_TRANSACTION_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     let mut scan = SessionScan::default();
+    let mut blocked = HashSet::new();
+    recover_interrupted_imports(root, &mut scan.warnings, &mut blocked);
     let mut files = Vec::new();
     collect_jsonl_files(root, 0, 3, &mut files, &mut scan.warnings)?;
-    let current_files = files.iter().cloned().collect::<HashSet<_>>();
+    let current_files = files
+        .iter()
+        .filter(|path| !blocked.contains(*path))
+        .cloned()
+        .collect::<HashSet<_>>();
     let thread_names = load_codex_thread_names();
     let names_stamp = thread_names_stamp(&thread_names);
     for path in files {
+        if blocked.contains(&path) {
+            continue;
+        }
         match parse_session_cached(&path, &thread_names, names_stamp) {
             Ok(Some(session)) => scan.sessions.push(session),
             result => {
@@ -3293,12 +3611,12 @@ mod tests {
         import_destination, import_session, parse_codex_session_with_names, parse_session,
         parse_session_with_names, path_key, read_codex_discovery_prefix, read_import_bytes,
         read_session_answers, read_session_transcript, read_session_transcript_with_limits,
-        restorable_session_model, scan_sessions, serialize_title_slot,
+        replace_file_atomically, restorable_session_model, scan_sessions, serialize_title_slot,
         stage_import_artifacts_with_limits, transfer_session_primary_provider_pin,
         validated_external_import_source, AppSettings, ArtifactLimits, CodexSessionSummary,
-        ImportItemStatus, ImportMode, ImportSessionRequest, SessionSummary,
-        TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES,
-        MAX_IMPORT_BYTES,
+        ImportItemStatus, ImportMode, ImportPhase, ImportSessionRequest, ImportTransaction,
+        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
+        CODEX_DISCOVERY_MAX_LINES, IMPORT_TRANSACTION_LOCK, MAX_IMPORT_BYTES,
     };
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
@@ -4886,7 +5204,7 @@ mod tests {
         ));
         let destination = root.join("session.jsonl");
         let target_artifacts = destination.with_extension("");
-        let staging = root.join("staging");
+        let staging = root.join(".session.artifacts-stage.test.1");
         fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
         fs::create_dir_all(&staging).expect("staging should be creatable");
         fs::write(&destination, b"old session").expect("old session should be writable");
@@ -4940,7 +5258,7 @@ mod tests {
         ));
         let destination = root.join("session.jsonl");
         let target_artifacts = destination.with_extension("");
-        let staging = root.join("staging");
+        let staging = root.join(".session.artifacts-stage.test.1");
         fs::create_dir_all(&target_artifacts).expect("old artifacts should be creatable");
         fs::create_dir_all(&staging).expect("staging should be creatable");
         fs::write(&destination, b"old session").expect("old session should be writable");
@@ -4972,6 +5290,321 @@ mod tests {
         assert!(!staging.exists());
 
         fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn cold_scan_recovers_each_interrupted_artifact_import_phase() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-recovery-{}-{nonce}",
+            std::process::id()
+        ));
+        let old = b"{\"type\":\"session\",\"id\":\"old\",\"timestamp\":\"2026-07-26T00:00:00Z\",\"cwd\":\"/tmp/project\"}\n";
+        let new = b"{\"type\":\"session\",\"id\":\"new\",\"timestamp\":\"2026-07-26T00:00:00Z\",\"cwd\":\"/tmp/project\"}\n";
+
+        for (index, phase) in [
+            "prepared",
+            "backed-up",
+            "swapped",
+            "committed",
+            "new-import",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let workspace = root.join(format!("project-{index}"));
+            fs::create_dir_all(&workspace).expect("workspace should be creatable");
+            let destination = workspace.join("session.jsonl");
+            let artifacts = destination.with_extension("");
+            let staged_artifacts = workspace.join(format!(".session.artifacts-stage.1.{index}"));
+            let staged_jsonl = workspace.join(format!(".session.jsonl-stage.1.{index}"));
+            let backup = workspace.join(format!(".session.artifacts-backup.1.{index}"));
+            let marker = workspace.join(format!(".session.import-txn.1.{index}"));
+            if phase != "new-import" {
+                fs::write(&destination, old).expect("old JSONL should be writable");
+                fs::create_dir(&artifacts).expect("old artifact dir should be creatable");
+                fs::write(artifacts.join("version"), b"old")
+                    .expect("old artifact should be writable");
+            }
+            fs::create_dir(&staged_artifacts).expect("staging should be creatable");
+            fs::write(staged_artifacts.join("version"), b"new")
+                .expect("new artifact should be writable");
+            fs::write(&staged_jsonl, new).expect("new JSONL should be staged");
+            let transaction = ImportTransaction::new(
+                &destination,
+                &staged_jsonl,
+                &staged_artifacts,
+                (phase != "new-import").then_some(backup.as_path()),
+            )
+            .expect("fixture intent should have sibling paths");
+            fs::write(
+                &marker,
+                serde_json::to_vec(&transaction).expect("intent should serialize"),
+            )
+            .expect("intent should be writable");
+            if matches!(phase, "backed-up" | "swapped" | "committed") {
+                fs::rename(&artifacts, &backup).expect("old artifacts should move to backup");
+            }
+            if matches!(phase, "swapped" | "committed" | "new-import") {
+                fs::rename(&staged_artifacts, &artifacts)
+                    .expect("new artifacts should move into place");
+            }
+            if phase == "committed" {
+                replace_file_atomically(&staged_jsonl, &destination)
+                    .expect("new JSONL should be published");
+            }
+
+            let scan = scan_sessions(&root).expect("cold scan should recover interrupted imports");
+            assert!(
+                scan.warnings.is_empty(),
+                "unexpected warnings in {phase}: {:?}",
+                scan.warnings
+            );
+            if phase == "new-import" {
+                assert!(!destination.exists());
+                assert!(!artifacts.exists());
+            } else {
+                let expected = if phase == "committed" { new } else { old };
+                assert_eq!(
+                    fs::read(&destination).expect("JSONL should be restored"),
+                    expected
+                );
+                assert_eq!(
+                    fs::read(artifacts.join("version")).expect("matching artifacts should exist"),
+                    if phase == "committed" { b"new" } else { b"old" }
+                );
+                assert!(scan.sessions.iter().any(|session| {
+                    session.file_path == destination.to_string_lossy()
+                        && session.id == if phase == "committed" { "new" } else { "old" }
+                }));
+            }
+            assert!(!marker.exists() && !staged_jsonl.exists());
+            assert!(!staged_artifacts.exists() && !backup.exists());
+        }
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn cold_scan_finishes_rolled_back_new_import_without_treating_it_as_committed() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-rollback-cleanup-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be creatable");
+        let destination = root.join("session.jsonl");
+        let stage_file = root.join(".session.jsonl-stage.1.0");
+        let stage_artifacts = root.join(".session.artifacts-stage.1.0");
+        let marker = root.join(".session.import-txn.1.0");
+        fs::create_dir(&stage_artifacts).expect("orphan artifact stage should be creatable");
+        let mut transaction =
+            ImportTransaction::new(&destination, &stage_file, &stage_artifacts, None)
+                .expect("intent should have valid sibling names");
+        transaction.phase = ImportPhase::RolledBack;
+        fs::write(
+            &marker,
+            serde_json::to_vec(&transaction).expect("intent should serialize"),
+        )
+        .expect("intent should be writable");
+
+        let scan = scan_sessions(&root).expect("cold scan should complete cleanup");
+        assert!(scan.warnings.is_empty() && scan.sessions.is_empty());
+        assert!(!destination.exists() && !stage_artifacts.exists() && !marker.exists());
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn interrupted_fresh_import_never_deletes_an_artifact_directory_created_by_another_writer() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-artifact-conflict-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be creatable");
+        let destination = root.join("session.jsonl");
+        let staged_jsonl = root.join(".session.jsonl-stage.1.0");
+        let staged_artifacts = root.join(".session.artifacts-stage.1.0");
+        let marker = root.join(".session.import-txn.1.0");
+        let external_artifacts = destination.with_extension("");
+        fs::create_dir(&staged_artifacts).expect("staging should exist");
+        fs::write(&staged_jsonl, b"new session").expect("staged JSONL should exist");
+        fs::create_dir(&external_artifacts).expect("external artifacts should exist");
+        fs::write(external_artifacts.join("keep"), b"external data")
+            .expect("external artifact should be writable");
+        let transaction =
+            ImportTransaction::new(&destination, &staged_jsonl, &staged_artifacts, None)
+                .expect("intent should have sibling names");
+        fs::write(
+            &marker,
+            serde_json::to_vec(&transaction).expect("intent should serialize"),
+        )
+        .expect("intent should be writable");
+
+        let scan = scan_sessions(&root).expect("recovery should preserve the external artifact");
+        assert!(scan.warnings.is_empty() && scan.sessions.is_empty());
+        assert_eq!(
+            fs::read(external_artifacts.join("keep")).expect("external artifact must remain"),
+            b"external data"
+        );
+        assert!(!staged_jsonl.exists() && !staged_artifacts.exists() && !marker.exists());
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn malformed_import_intent_does_not_delete_sibling_files_or_expose_partial_session() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-invalid-intent-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture root should be creatable");
+        let sentinel = root.join("keep.txt");
+        fs::write(&sentinel, b"safe").expect("sentinel should be writable");
+        let destination = root.join("session.jsonl");
+        fs::write(&destination, b"{\"type\":\"session\",\"id\":\"old\",\"timestamp\":\"2026-07-26T00:00:00Z\",\"cwd\":\"/tmp/project\"}\n")
+            .expect("session should be writable");
+        let marker = root.join(".session.import-txn.1.0");
+        fs::write(&marker, br#"{"destination":"session.jsonl","session_stage":"../keep.txt","artifact_stage":".session.artifacts-stage.1.0","artifact_backup":null}"#)
+            .expect("invalid intent should be writable");
+
+        let scan = scan_sessions(&root).expect("other sessions should remain scannable");
+        assert!(scan.sessions.is_empty());
+        assert_eq!(scan.warnings.len(), 1);
+        assert_eq!(
+            fs::read(&sentinel).expect("sibling should survive"),
+            b"safe"
+        );
+        assert!(marker.exists());
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn import_intent_cannot_target_a_parent_session() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-path-{}-{nonce}",
+            std::process::id()
+        ));
+        let workspace = root.join("project");
+        fs::create_dir_all(&workspace).expect("fixture should be creatable");
+        let parent_session = root.join("session.jsonl");
+        let old = b"{\"type\":\"session\",\"id\":\"original\",\"timestamp\":\"2026-07-26T00:00:00Z\",\"cwd\":\"/tmp/project\"}\n";
+        fs::write(&parent_session, old).expect("parent session should be writable");
+        let marker = workspace.join(".session.import-txn.1.0");
+        fs::write(&marker, br#"{"destination":"../session.jsonl","session_stage":".session.jsonl-stage.1.0","artifact_stage":".session.artifacts-stage.1.0","artifact_backup":null}"#)
+            .expect("forged intent should be writable");
+
+        let scan = scan_sessions(&root).expect("valid session should remain visible");
+        assert_eq!(scan.warnings.len(), 1);
+        assert!(scan.sessions.iter().any(|session| session.id == "original"));
+        assert_eq!(
+            fs::read(&parent_session).expect("parent session should survive"),
+            old
+        );
+        assert!(marker.exists());
+        fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[test]
+    fn delete_waits_for_import_commit_and_removes_the_matching_artifacts() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-delete-race-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("root should be creatable");
+        let destination = root.join("session.jsonl");
+        let target_artifacts = destination.with_extension("");
+        let staging = root.join(".session.artifacts-stage.test.1");
+        fs::write(&destination, b"old session").expect("old session should be writable");
+        fs::create_dir(&target_artifacts).expect("old artifacts should be creatable");
+        fs::write(target_artifacts.join("old"), b"old").expect("old artifact should be writable");
+        fs::create_dir(&staging).expect("new artifacts should be staged");
+        fs::write(staging.join("new"), b"new").expect("new artifact should be writable");
+
+        let (swapped_tx, swapped_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let writer_destination = destination.clone();
+        let writer_staging = staging.clone();
+        let writer = std::thread::spawn(move || {
+            let _guard = IMPORT_TRANSACTION_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            commit_import_with(
+                &writer_destination,
+                b"new session",
+                Some(writer_staging.clone()),
+                atomic_write_file,
+                |from, to| {
+                    fs::rename(from, to).map_err(|error| error.to_string())?;
+                    if from == writer_staging.as_path() {
+                        swapped_tx.send(()).map_err(|error| error.to_string())?;
+                        resume_rx
+                            .recv_timeout(Duration::from_secs(5))
+                            .map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                },
+            )
+        });
+        swapped_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("writer should reach swapped artifacts before JSONL commit");
+        let (deleting_tx, deleting_rx) = mpsc::channel();
+        let (deleted_tx, deleted_rx) = mpsc::channel();
+        let delete_destination = destination.to_string_lossy().into_owned();
+        let delete_root = root.clone();
+        let deleter = std::thread::spawn(move || {
+            deleting_tx
+                .send(())
+                .expect("delete attempt should be observable");
+            deleted_tx
+                .send(delete_session(&delete_destination, &delete_root))
+                .expect("delete result should be observable");
+        });
+        deleting_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("delete attempt should start during import");
+        assert!(
+            matches!(
+                deleted_rx.recv_timeout(Duration::from_millis(150)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "deletion must not complete inside the import transaction"
+        );
+        resume_tx.send(()).expect("import should resume");
+        writer
+            .join()
+            .expect("writer thread should finish")
+            .expect("import should commit before deletion");
+        deleted_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("deletion should complete after commit")
+            .expect("session should be deleted");
+        deleter.join().expect("delete thread should finish");
+        assert!(!destination.exists() && !target_artifacts.exists());
+        fs::remove_dir_all(root).expect("fixture should be removable");
     }
 
     #[test]

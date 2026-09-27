@@ -134,14 +134,14 @@ export function SessionRow({
           ))}
 
         <div
-          aria-pressed={selected}
+          aria-pressed={renaming ? undefined : selected}
           aria-describedby={titleTooltipOpen && !renaming ? titleTooltipId : undefined}
-          aria-label={session.title}
+          aria-label={renaming ? undefined : session.title}
           className="session-select"
           onBlur={() => setTitleTooltipOpen(false)}
-          onClick={onSelect}
-          onDoubleClick={onDoubleLaunch}
-          onKeyDown={onKeySelect}
+          onClick={renaming ? undefined : onSelect}
+          onDoubleClick={renaming ? undefined : onDoubleLaunch}
+          onKeyDown={renaming ? undefined : onKeySelect}
           onFocus={() => {
             if (!renaming) setTitleTooltipOpen(true)
           }}
@@ -149,8 +149,8 @@ export function SessionRow({
             if (!renaming) setTitleTooltipOpen(true)
           }}
           onMouseLeave={() => setTitleTooltipOpen(false)}
-          role="button"
-          tabIndex={0}
+          role={renaming ? undefined : "button"}
+          tabIndex={renaming ? undefined : 0}
           ref={titleAnchorRef}
           style={{ paddingLeft: 9 + depth * 14 }}
         >
@@ -165,6 +165,7 @@ export function SessionRow({
             {renaming ? (
               <input
                 autoFocus
+                aria-label={t(lang, "editFixedTitle")}
                 className="session-rename"
                 onBlur={() => {
                   if (!renameFinishedByKeyboardRef.current) onSubmitRename()
