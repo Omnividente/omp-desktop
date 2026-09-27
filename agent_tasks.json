@@ -79178,13 +79178,13 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-27T11:05:50.657606Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-27T11:14:26.332424Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T11:08:26.830730Z",
+    "last_poll_at": "2026-09-27T11:14:44.294363Z",
     "last_tick_at": "2026-09-27T11:08:30.397982Z",
     "run_id": "36314615597"
   }
