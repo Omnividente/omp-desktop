@@ -75653,7 +75653,7 @@
       "id": "discovery-66325acabe5d5044",
       "title": "Refactor session tree utility functions to be iterative to avoid stack overflow",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -75688,6 +75688,12 @@
         "activity_created_at": "2026-09-27T01:31:32.075609Z",
         "session_id": "15763891562670590720",
         "dispatch_key": "025ea842b8773cad60c6fe92"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:09:15Z",
+        "note": "Sep 27 review: iterative utility rewrite leaves buildSessionTree recursion and the underlying depth constraint unchanged, with no observed user stack overflow. A partial refactor is not a fix."
       }
     },
     {
