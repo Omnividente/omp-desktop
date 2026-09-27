@@ -48720,7 +48720,7 @@
       "id": "discovery-d6469a7d2db492867e7d64bf93c3560d12be94efacfc916287043fb6d52628b7",
       "title": "Fix keyboard focus drop when refreshing or retrying transcript load",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -48785,6 +48785,12 @@
         "activity_created_at": "2026-09-24T12:40:24.814025Z",
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:04:13Z",
+        "note": "Sep 27 review: transcript refresh/retry focus is already managed by useModalFocus on the current panel; no failing interaction survives against main."
       }
     },
     {
