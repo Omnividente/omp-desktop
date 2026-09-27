@@ -84795,7 +84795,7 @@
       "id": "research-transcript-links-ux-11",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -84901,16 +84901,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11873245757219553051",
         "dispatch_key": "937e365fd538093960ada9ee",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-937e365fd538093960ada9ee",
         "started_at": "2026-09-27T23:04:07.579619Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T23:18:47.373028Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -85082,13 +85082,146 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T23:12:17.836449Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T23:18:47.373028Z"
+      },
+      "research_result": {
+        "summary": "Investigated the transcript search interaction and external link accessibility. Identified a UX flaw where pressing Escape in the search input abruptly closes the modal, and confirmed that long auto-linked external URLs lack accessible labels, causing disruptive screen reader readouts.",
+        "observations": [
+          {
+            "scenario": "Pressing the Escape key while focus is inside the TranscriptModal search field.",
+            "evidence": "Ran an isolated jsdom test using React Testing Library to simulate pressing Escape within the search input. Tracked event propagation and mocked prop callbacks.",
+            "result": "Establishes that the Escape key event is not trapped by the search input; it bubbles to the modal's `useModalFocus` keydown handler, which fires `onClose`. This causes the entire transcript modal to close immediately, frustrating users who just wanted to clear the search field or drop focus."
+          },
+          {
+            "scenario": "Rendering long, unlabelled external URLs via Markdown auto-linking for screen reader consumption.",
+            "evidence": "Rendered a simulated transcript entry containing a >100 character URL with query parameters and hashes. Inspected the output anchor tag attributes in jsdom.",
+            "result": "Establishes that auto-linked URLs omit an `aria-label`, so the `href`, `title`, and inner text are identical lengthy strings. Screen readers default to reading the entire sequence character-by-character, which is a poor accessibility experience for complex URLs."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if navigating matches using Shift+Enter in the transcript search works reliably when results span across unmounted virtual list boundaries.",
+          "Investigate the accessibility of the TranscriptModal's filter toggle buttons (dialogue vs all, rendered vs source) and whether their pressed state changes are announced properly to screen readers."
+        ],
+        "proposed_task_ids": [
+          "discovery-6ea025a0318469cc",
+          "discovery-8c8a41e9d75f9c3f"
+        ],
+        "completed_at": "2026-09-27T23:18:47.373028Z",
+        "source": {
+          "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+          "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+          "activity_created_at": "2026-09-27T23:10:33.384380Z",
+          "session_id": "11873245757219553051",
+          "dispatch_key": "937e365fd538093960ada9ee"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+          "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+          "activity_created_at": "2026-09-27T23:10:33.384380Z",
+          "session_id": "11873245757219553051",
+          "dispatch_key": "937e365fd538093960ada9ee"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-6ea025a0318469cc",
+            "discovery-8c8a41e9d75f9c3f"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-6ea025a0318469cc",
+      "title": "Prevent Escape key in transcript search from unintentionally closing the entire modal",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-27T23:18:47.373028Z",
+      "acceptance": [
+        "Pressing Escape while the transcript search input is focused clears the search field and stops propagation, preventing the modal from closing."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified using an isolated jsdom test with React Testing Library. Simulated typing in the search box and pressing the Escape key.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a session transcript in the modal.",
+            "Click into the search field and press the Escape key."
+          ],
+          "expected": "The search field is cleared (if it had text) and focus remains in the modal.",
+          "actual": "The Escape key event bubbles to the modal panel's keydown handler, which immediately closes the TranscriptModal, dropping the user's context."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-11",
+        "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+        "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+        "activity_created_at": "2026-09-27T23:10:33.384380Z",
+        "session_id": "11873245757219553051",
+        "dispatch_key": "937e365fd538093960ada9ee"
+      }
+    },
+    {
+      "id": "discovery-8c8a41e9d75f9c3f",
+      "title": "Add accessible labels for long auto-linked external URLs in transcripts to improve screen reader experience",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y"
+      ],
+      "created_at": "2026-09-27T23:18:47.373028Z",
+      "acceptance": [
+        "Long external URLs rendered by auto-linking have an accessible label that prevents the screen reader from reading out lengthy unpronounceable token sequences."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Verified via isolated static rendering and jsdom attribute inspection. Auto-linked URLs produce anchor tags where the text content, title, and href all contain the identical full URL, without any overriding aria-label.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render a long external URL (e.g., a GitHub commit link with a hash) using MarkdownContent.",
+            "Inspect the resulting DOM or use a screen reader to read the message."
+          ],
+          "expected": "The screen reader announces a concise label, such as 'link' or a truncated version of the domain.",
+          "actual": "The anchor tag has no aria-label, causing screen readers to laboriously read out the entire 100+ character string character-by-character for tokens and hashes."
+        }
+      },
+      "target_paths": [
+        "src/MarkdownContent.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-ux-11",
+        "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+        "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+        "activity_created_at": "2026-09-27T23:10:33.384380Z",
+        "session_id": "11873245757219553051",
+        "dispatch_key": "937e365fd538093960ada9ee"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T23:12:36.541532Z",
+    "last_poll_at": "2026-09-27T23:19:03.394602Z",
     "last_tick_at": "2026-09-27T23:12:40.922162Z",
     "run_id": "36357868903"
   }
