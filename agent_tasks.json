@@ -85720,7 +85720,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T23:46:55.439875Z"
+        "observed_at": "2026-09-27T23:46:55.439875Z",
+        "released_attempt_ref": "autonomous/attempt-8282f98546681492b9a09dea"
       },
       "research_result": {
         "summary": "Investigated the specific behavior and latency of terminal mouse selection edit extraction on multi-line text blocks with extreme lengths.",
