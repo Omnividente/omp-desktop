@@ -77317,7 +77317,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T08:48:57.924073Z"
+        "observed_at": "2026-09-27T08:48:57.924073Z",
+        "released_attempt_ref": "autonomous/attempt-b4ca7af6aeca924469f2229e"
       },
       "research_result": {
         "summary": "Verified that pressing Tab in a dialog with thousands of items (like CodexImportModal) causes a severe UI freeze because `useModalFocus` evaluates `window.getComputedStyle` on every focusable element to find the first and last bounds.",
