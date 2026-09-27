@@ -81568,6 +81568,10 @@
         "research_detached": {
           "at": "2026-09-27T14:06:56.905163Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-27T14:06:56.905163Z",
+          "result": "pending"
         }
       }
     }
