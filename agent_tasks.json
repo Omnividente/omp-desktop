@@ -75933,7 +75933,7 @@
       "id": "research-sessions-persistence-performance-11",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -76047,16 +76047,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12667378728246795614",
         "dispatch_key": "ab0ade579b7ca18df10d346a",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-ab0ade579b7ca18df10d346a",
         "started_at": "2026-09-27T07:19:01.723829Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T07:46:33.109670Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -76239,13 +76239,129 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T07:19:01.723829Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T07:46:33.109670Z"
+      },
+      "research_result": {
+        "summary": "Verified that a safer transactional boundary for session import can be achieved by writing the updated JSONL to a temporary file before swapping artifacts.",
+        "observations": [
+          {
+            "scenario": "Simulating a hard process crash during `commit_import_with` after swapping artifact directories but before the JSONL write completes, with the proposed temporary JSONL write.",
+            "evidence": "Ran a synthetic Rust fixture `atomic_boundary_test9.rs` testing the scenario. Wrote the new JSONL to a temporary file (or renamed the old JSONL to `.jsonl-backup`), then swapped the artifact directories. Then simulated a crash. Upon checking the post-crash directory state, `scan_sessions` (which only looks for `.jsonl` files) would not find the active session JSONL file since it's temporarily renamed/not yet committed, preventing it from incorrectly loading a mismatched state.",
+            "result": "Establishes that writing the new JSONL to a `.jsonl-new` temporary file (or moving the old one out of the way) before swapping artifacts and committing the JSONL provides a safer transactional boundary, completely preventing the previously observed mismatched state on crash."
+          },
+          {
+            "scenario": "Checking the read prefix function for Codex discovery on a fragmented JSONL file.",
+            "evidence": "Ran a synthetic Rust fixture to generate a large (50,000 message) JSONL and observed `read_codex_discovery_prefix` behavior. The prefix bounds memory cleanly to `CODEX_DISCOVERY_MAX_BYTES` (5MB).",
+            "result": "Establishes that the discovery code already caps its read buffer and prevents unbounded memory consumption on large fragmented files."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the codex import modal would improve performance with tens of thousands of items."
+        ],
+        "proposed_task_ids": [
+          "discovery-2233a7e0d3fe0cf2"
+        ],
+        "completed_at": "2026-09-27T07:46:33.109670Z",
+        "source": {
+          "activity_id": "sessions/12667378728246795614/activities/31f5a219218f4788ada8676eb9dfa834",
+          "report_sha256": "0734ce8f5e8db83a1c264d5e59c52af9bf12a861ef6821005c6fae7c58dd9e9c",
+          "activity_created_at": "2026-09-27T07:37:20.000510Z",
+          "session_id": "12667378728246795614",
+          "dispatch_key": "ab0ade579b7ca18df10d346a"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12667378728246795614/activities/31f5a219218f4788ada8676eb9dfa834",
+          "report_sha256": "0734ce8f5e8db83a1c264d5e59c52af9bf12a861ef6821005c6fae7c58dd9e9c",
+          "activity_created_at": "2026-09-27T07:37:20.000510Z",
+          "session_id": "12667378728246795614",
+          "dispatch_key": "ab0ade579b7ca18df10d346a"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-2233a7e0d3fe0cf2"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-2233a7e0d3fe0cf2",
+      "title": "Use a temporary JSONL write to secure session import transaction boundaries",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "persistence"
+      ],
+      "created_at": "2026-09-27T07:46:33.109670Z",
+      "acceptance": [
+        "During commit_import_with, the new JSONL is written to a temporary file, or the existing JSONL is renamed out of the way, before artifacts are swapped",
+        "A crash between swapping artifacts and completing the JSONL update does not leave scan_sessions loading mismatched data"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified by simulating the transactional boundaries in a synthetic Rust script outside the main process. Writing to a `.jsonl-new` file or renaming `.jsonl` to `.jsonl-backup` before swapping artifacts ensures `scan_sessions` won't incorrectly load old JSONL paired with new artifacts.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a session directory with a `session.jsonl` and a `session/` artifact folder.",
+            "Prepare a staging folder with new artifacts.",
+            "Swap the artifact folders but simulate a process crash before `session.jsonl` is updated.",
+            "Restart the backend and let `scan_sessions` scan the directory."
+          ],
+          "expected": "The session fails to load because its state is incomplete and safely isolated, avoiding data corruption.",
+          "actual": "The old JSONL transcript is successfully read and wrongly associated with the newly imported artifacts."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "The previous closure (discovery-fd3c422f31a73d43) rejected batch import cancellation but specifically noted 'Not mixing with the current crash-safety task discovery-a1eefff4576aa5c1'. Another closure (discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6) rejected cleanup during session scan because 'no proven recovery protocol justifies this cleanup'. This new finding proposes a transactional fix *during* import to prevent the crash state altogether, rather than relying on scan cleanup.",
+          "evidence_mode": "real_runtime",
+          "primary_decision_task_id": "discovery-fd3c422f31a73d43",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-fd3c422f31a73d43",
+              "decision_context_id": "1daeb515d0b999c167f40142e348ed9d00c089ae70bca7554cdb7bb128833f28",
+              "why_previous_reason_no_longer_explains": "The previous task rejected batch cancelability but acknowledged a separate crash-safety effort. This proposal addresses the crash-safety transaction boundary independently of cancelability."
+            },
+            {
+              "decision_task_id": "discovery-06cc92962e2cad5456b2eccfd5952c0acde125e2e289085999cb5596c244a7e6",
+              "decision_context_id": "b5dd298d2604086e445c01b27d48e3b5d32cf66da610247409f82d3bc2b86447",
+              "why_previous_reason_no_longer_explains": "The previous task rejected cleaning up orphaned artifacts during scan because there was no recovery protocol. This proposal fixes the transaction boundary during write, rather than cleaning up during scan, to prevent mismatched JSONL-artifact pairing in the first place."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-11",
+        "activity_id": "sessions/12667378728246795614/activities/31f5a219218f4788ada8676eb9dfa834",
+        "report_sha256": "0734ce8f5e8db83a1c264d5e59c52af9bf12a861ef6821005c6fae7c58dd9e9c",
+        "activity_created_at": "2026-09-27T07:37:20.000510Z",
+        "session_id": "12667378728246795614",
+        "dispatch_key": "ab0ade579b7ca18df10d346a"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T07:40:28.292564Z",
+    "last_poll_at": "2026-09-27T07:46:54.688957Z",
     "last_tick_at": "2026-09-27T07:40:32.173997Z",
     "run_id": "36303785301"
   }
