@@ -78883,7 +78883,7 @@
       "id": "research-workspace-navigation-ux-11",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -78992,16 +78992,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1356499314931948110",
         "dispatch_key": "6366d01d031c483a4dd7f86c",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-6366d01d031c483a4dd7f86c",
         "started_at": "2026-09-27T11:05:50.657606Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T11:27:31.949189Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -79178,13 +79178,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T11:14:26.332424Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T11:27:31.949189Z"
+      },
+      "research_result": {
+        "summary": "Investigated keyboard navigation for session focus switching inside the virtual list of SessionList component.",
+        "observations": [
+          {
+            "scenario": "Simulated pressing ArrowDown to navigate vertically between rendered virtual list items within the SessionList component.",
+            "evidence": "Wrote a synthetic vitest DOM test (`SessionList.a11y.test.tsx`) that rendered the virtual `SessionList` with 10 sessions. Mocked dimensions so items render, explicitly focused the first session's `<div className=\"session-select\">`, and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original element.",
+            "result": "Establishes that the `SessionList` component does not natively support up/down keyboard focus navigation across session items. The virtual list container lacks an explicit `onKeyDown` handler to traverse the rendered elements programmatically."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualized scrolling performance stutters or drops focus completely during fast keyboard navigation if focus management is added.",
+          "Investigate whether the `ProjectRail` workspaces pane natively supports keyboard navigation, given it renders raw HTML button lists without virtualization."
+        ],
+        "proposed_task_ids": [
+          "discovery-6c68ffa0e4ecce1f"
+        ],
+        "completed_at": "2026-09-27T11:27:31.949189Z",
+        "source": {
+          "activity_id": "sessions/1356499314931948110/activities/29d5bc35bbd849cb9acf4c0a8a5323bf",
+          "report_sha256": "f0d12b6258951df14c6dd129e6a517c96e2d1ae154c72b0458e31946f616040f",
+          "activity_created_at": "2026-09-27T11:17:54.440664Z",
+          "session_id": "1356499314931948110",
+          "dispatch_key": "6366d01d031c483a4dd7f86c"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1356499314931948110/activities/29d5bc35bbd849cb9acf4c0a8a5323bf",
+          "report_sha256": "f0d12b6258951df14c6dd129e6a517c96e2d1ae154c72b0458e31946f616040f",
+          "activity_created_at": "2026-09-27T11:17:54.440664Z",
+          "session_id": "1356499314931948110",
+          "dispatch_key": "6366d01d031c483a4dd7f86c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-6c68ffa0e4ecce1f"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-6c68ffa0e4ecce1f",
+      "title": "Add keyboard focus navigation to the session virtual list",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-09-27T11:27:31.949189Z",
+      "acceptance": [
+        "Pressing ArrowDown from a focused session item moves focus to the next visible session item in the virtual list.",
+        "Pressing ArrowUp from a focused session item moves focus to the previous visible session item in the virtual list."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified using a DOM test simulation that `ArrowDown` events fired on a focused session item inside the virtual list do not inherently move focus to adjacent rows. We recommend adding a `keydown` handler on the container to move focus.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the application and open a workspace that contains several sessions.",
+            "Expand the project rail session pane (Ctrl+B if hidden).",
+            "Click or Tab to focus on the first session item (with class 'session-select').",
+            "Press the ArrowDown key."
+          ],
+          "expected": "The focus should move down to the next session item.",
+          "actual": "The focus remains on the first session item, and no keyboard navigation occurs."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-11",
+        "activity_id": "sessions/1356499314931948110/activities/29d5bc35bbd849cb9acf4c0a8a5323bf",
+        "report_sha256": "f0d12b6258951df14c6dd129e6a517c96e2d1ae154c72b0458e31946f616040f",
+        "activity_created_at": "2026-09-27T11:17:54.440664Z",
+        "session_id": "1356499314931948110",
+        "dispatch_key": "6366d01d031c483a4dd7f86c"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T11:21:13.802192Z",
+    "last_poll_at": "2026-09-27T11:27:49.913273Z",
     "last_tick_at": "2026-09-27T11:21:18.002198Z",
     "run_id": "36315411388"
   }
