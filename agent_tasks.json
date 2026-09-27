@@ -70227,7 +70227,7 @@
       "id": "discovery-fd9640fc9f4e2b85",
       "title": "Resolve nested interactive element and missing label violations in SessionRow during rename",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -70262,6 +70262,12 @@
         "activity_created_at": "2026-09-26T11:48:29.104964Z",
         "session_id": "3512087580058234043",
         "dispatch_key": "acd2b542296a8b620f56a3b2"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:11:39Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): SessionRow.tsx labels rename control and keeps a single interactive target. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
