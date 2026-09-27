@@ -58143,7 +58143,7 @@
       "id": "discovery-906a14e4d6bf289b",
       "title": "Localize workspace and project rail shortcut hints to the host platform",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -58182,6 +58182,12 @@
         "activity_created_at": "2026-09-25T10:22:40.098494Z",
         "session_id": "9165825677314368054",
         "dispatch_key": "393d00fb33e418e17f48e8be"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:05:53Z",
+        "note": "Sep 27 review: macOS is not a supported Desktop target; platform-specific shortcut hint logic is unnecessary for Windows/Linux."
       }
     },
     {
