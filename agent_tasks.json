@@ -83084,8 +83084,8 @@
             }
           ]
         },
-        "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T16:20:23.505916Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-27T16:27:08.021430Z",
         "report_error": {
           "code": "research_json",
           "detail": "research report is not valid JSON: Expecting ',' delimiter: line 12 column 267 (char 1982)",
@@ -83114,7 +83114,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T16:20:45.346884Z",
+    "last_poll_at": "2026-09-27T16:27:29.580140Z",
     "last_tick_at": "2026-09-27T16:21:01.555320Z",
     "run_id": "36332839914"
   }
