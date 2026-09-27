@@ -75598,7 +75598,7 @@
       "id": "research-transcript-links-behavior-10",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -75718,16 +75718,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7962622844135648825",
         "dispatch_key": "b51c570c609e98c58dcd5b36",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-b51c570c609e98c58dcd5b36",
         "started_at": "2026-09-27T03:40:34.730779Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T04:01:38.424858Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -75901,13 +75901,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T03:40:34.730779Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T04:01:38.424858Z"
+      },
+      "research_result": {
+        "summary": "Verified that pressing Escape to close the ContentActionMenu restores keyboard focus correctly when triggered from an internal link context menu.",
+        "observations": [
+          {
+            "scenario": "Opening the internal link context menu in TranscriptModal and CompletedAnswers, navigating the menu via keyboard arrows, and pressing Escape.",
+            "evidence": "Tested using isolated jsdom Vitest checks on TranscriptModal and CompletedAnswers. In both cases, onLinkContextMenu records the currently focused element (the link) into `menu.focus`. ContentActionMenu manages focus internally using keydown event handlers. When Escape is pressed, it triggers `onDismiss(true)`. In TranscriptModal and CompletedAnswers, `dismissMenu(true)` successfully retrieves the stored `menu.focus` and restores keyboard focus directly back to the `<a>` element, preventing focus loss.",
+            "result": "Establishes that the keyboard focus flow correctly restores focus to the underlying link after the action menu is closed with Escape, preserving accessibility state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if long external links within inline text elements are fully readable to screen readers without excessive unpronounceable token reading."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T04:01:38.424858Z",
+        "source": {
+          "activity_id": "sessions/7962622844135648825/activities/06a6f3a3002f4206b1a0ef4be4c84b54",
+          "report_sha256": "a46a9525368e305b5f1ffb208178dde81bff1d11c8008cb88bb0c9d1a2b78b4a",
+          "activity_created_at": "2026-09-27T03:52:00.616543Z",
+          "session_id": "7962622844135648825",
+          "dispatch_key": "b51c570c609e98c58dcd5b36"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T03:55:35.849899Z",
+    "last_poll_at": "2026-09-27T04:02:03.425896Z",
     "last_tick_at": "2026-09-27T03:55:39.446862Z",
     "run_id": "36292785302"
   }
