@@ -72604,7 +72604,7 @@
       "id": "discovery-940b5f71f3979b02",
       "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "medium",
       "focus": [
@@ -72638,6 +72638,12 @@
         "activity_created_at": "2026-09-26T15:18:25.221562Z",
         "session_id": "5858986872392413199",
         "dispatch_key": "8fc0d77fc5d155fc3702e86d"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:13:58Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): runtimeIncidents.ts retains unresolved fallbacks under incident bound. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
