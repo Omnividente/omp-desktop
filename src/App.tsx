@@ -385,6 +385,19 @@ function App() {
     setSearch: setTranscriptSearch,
     setMode: setTranscriptMode,
   } = useTranscript(lang)
+  const knownSessionPathsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!payload) return
+    const nextPaths = new Set(payload.sessions.map((session) => session.filePath))
+    if (
+      transcriptSession &&
+      knownSessionPathsRef.current.has(transcriptSession.filePath) &&
+      !nextPaths.has(transcriptSession.filePath)
+    ) {
+      closeTranscript()
+    }
+    knownSessionPathsRef.current = nextPaths
+  }, [payload, transcriptSession, closeTranscript])
 
   useEffect(() => {
     void getVersion()
@@ -1443,6 +1456,14 @@ function App() {
       )
       applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
+      const completed = result.items.filter((item) => item.status !== "failed")
+      if (completed.length > 0) {
+        setCodexSelected((current) => {
+          const next = { ...current }
+          for (const item of completed) delete next[item.sourcePath]
+          return next
+        })
+      }
       showNotice(summarizeImport(result.items, lang))
       if (failures.length > 0) {
         showError(failures.map((item) => item.message ?? item.sourcePath).join("\n"))

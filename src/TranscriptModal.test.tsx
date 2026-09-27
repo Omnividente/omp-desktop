@@ -259,6 +259,22 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it("announces empty and filtered-out transcripts as status changes", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries: [] })
+  await click("Open transcript")
+  expect(container.querySelector('[role="status"].transcript-state')?.textContent).toContain(
+    "There are no transcript entries yet",
+  )
+
+  vi.mocked(readSessionTranscript).mockResolvedValue(transcript)
+  await click("Open transcript")
+  await act(async () => root.render(<Harness hideSearchedEntries />))
+  await searchFor("needle")
+  expect(container.querySelector('[role="status"].transcript-state')?.textContent).toContain(
+    "No matches in the selected transcript content",
+  )
+})
+
 it("restores a tall-message anchor after asynchronous reopen and remeasurement without borrowing another session's position", async () => {
   await scrollTo(120 * 102 + 850)
   expect(readingRow().dataset.virtualIndex).toBe("120")
@@ -523,6 +539,32 @@ it("offers reveal for file links and does not steal an unrelated selection", asy
   expect(openContentLink).toHaveBeenCalledWith("local://needle.txt", session.filePath, "reveal")
   expect(writeText).not.toHaveBeenCalled()
   outside.remove()
+})
+
+it("keeps native copy available when a selected file link crosses the transcript boundary", async () => {
+  await searchFor("needle")
+  await click("Previous match")
+  const link = currentOccurrence()!.closest("a")!
+  const outside = document.createElement("p")
+  outside.textContent = "selection beyond the virtual viewport"
+  document.body.appendChild(outside)
+  try {
+    const range = document.createRange()
+    range.setStart(link, 0)
+    range.setEnd(outside.firstChild!, outside.textContent.length)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    const down = new MouseEvent("mousedown", { button: 2, bubbles: true, cancelable: true })
+    act(() => link.dispatchEvent(down))
+    expect(down.defaultPrevented).toBe(true)
+    const context = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+    act(() => link.dispatchEvent(context))
+    expect(context.defaultPrevented).toBe(false)
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  } finally {
+    outside.remove()
+  }
 })
 
 it("does not offer Copy for a selection crossing the transcript boundary", () => {

@@ -546,6 +546,103 @@ describe("App lifecycle serialization", () => {
     expect(container.textContent).toContain("A session")
   })
 
+  it("retries only failed Codex imports after a partial copy", async () => {
+    const sources = ["C:/fixture/codex/first.jsonl", "C:/fixture/codex/second.jsonl"]
+    const requests: ImportSessionRequest[][] = []
+    invokeMock.mockImplementation(
+      (command: string, args?: { requests?: ImportSessionRequest[] }) => {
+        if (command === "list_codex_sessions") {
+          return Promise.resolve(
+            sources.map((filePath, index) => ({
+              id: `codex-${index}`,
+              title: `Codex ${index}`,
+              cwd: "C:/fixture/project",
+              filePath,
+              createdAt: "2026-09-27T00:00:00.000Z",
+              updatedAt: index,
+              model: null,
+              preview: "Session transcript",
+            })),
+          )
+        }
+        if (command === "import_sessions") {
+          const batch = args!.requests!
+          requests.push(batch)
+          return Promise.resolve({
+            bootstrap,
+            items: batch.map((request) => ({
+              sourcePath: request.path,
+              destinationPath:
+                request.path === sources[0]
+                  ? "C:/fixture/sessions/first.jsonl"
+                  : requests.length > 1
+                    ? "C:/fixture/sessions/second.jsonl"
+                    : null,
+              status: request.path === sources[0] || requests.length > 1 ? "copied" : "failed",
+              message: request.path === sources[1] && requests.length === 1 ? "Copy failed" : null,
+            })),
+          } satisfies ImportBatchPayload)
+        }
+        throw new Error(`Unexpected Codex fixture command: ${command}`)
+      },
+    )
+
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Импорт из Codex"]').click())
+    const checkboxes = () => [
+      ...container.querySelectorAll<HTMLInputElement>(".codex-import-panel .codex-item input"),
+    ]
+    await act(async () => checkboxes()[0].click())
+    await act(async () => checkboxes()[1].click())
+    act(() => {
+      const mode = element<HTMLSelectElement>(".codex-import-panel .import-mode-field select")
+      mode.value = "copy"
+      mode.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(checkboxes().map((input) => input.checked)).toEqual([false, true])
+    expect(container.querySelector(".codex-import-panel")).not.toBeNull()
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(requests.map((batch) => batch.map((request) => request.path))).toEqual([
+      sources,
+      [sources[1]],
+    ])
+    expect(requests.every((batch) => batch.every((request) => request.mode === "copy"))).toBe(true)
+    expect(container.querySelector(".codex-import-panel")).toBeNull()
+  })
+
+  it("closes a transcript when external refresh removes its session", async () => {
+    vi.mocked(api.bootstrap)
+      .mockResolvedValueOnce(bootstrap)
+      .mockResolvedValue({ ...bootstrap, sessions: [] })
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "read_session_transcript") {
+        return Promise.resolve({
+          session: bootstrap.sessions[0],
+          entries: [],
+          updatedAt: 1,
+          truncated: false,
+          malformedRecords: 0,
+          incompleteLastRecord: false,
+        })
+      }
+      throw new Error(`Unexpected transcript fixture command: ${command}`)
+    })
+
+    await act(async () => root.render(<App />))
+    await act(async () => element(".session-transcript").click())
+    expect(container.querySelector(".transcript-panel")).not.toBeNull()
+
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+    await act(async () => {
+      receive({ event: "single-instance", id: 2, payload: { args: ["omp-desktop"] } })
+    })
+    expect(container.querySelector(".transcript-panel")).toBeNull()
+  })
+
   it("restores focus to the session list after deleting its focused final session", async () => {
     const deletion = deferred<BootstrapPayload>()
     vi.mocked(api.deleteSession).mockReturnValue(deletion.promise)

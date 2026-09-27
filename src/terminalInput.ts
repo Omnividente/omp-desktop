@@ -43,22 +43,29 @@ export function formatSelectionReply(
     .replace(UNSAFE_SELECTION_CONTROLS, "")
     .split("\n")
 
-  while (lines.length > 0 && lines[0].trim() === "") lines.shift()
-  while (lines.length > 0 && lines.at(-1)?.trim() === "") lines.pop()
-  if (lines.length === 0) return ""
+  let first = 0
+  let end = lines.length
+  while (first < end && lines[first].trim() === "") first += 1
+  while (end > first && lines[end - 1].trim() === "") end -= 1
+  if (first === end) return ""
 
   const heading = introduction.trim()
   if (!heading) return ""
   if (!multiline) {
-    const compact = lines
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join(" ↵ ")
-    return compact ? `${heading} “${compact}” — ` : ""
+    const compact: string[] = []
+    for (let index = first; index < end; index += 1) {
+      const line = lines[index].trim()
+      if (line) compact.push(line)
+    }
+    return compact.length ? `${heading} “${compact.join(" ↵ ")}” — ` : ""
   }
 
-  const quote = lines.map((line) => (line.trimEnd() ? `> ${line.trimEnd()}` : ">")).join("\n")
-  return `${heading}\n\n${quote}\n\n`
+  const quote: string[] = []
+  for (let index = first; index < end; index += 1) {
+    const line = lines[index].trimEnd()
+    quote.push(line ? `> ${line}` : ">")
+  }
+  return `${heading}\n\n${quote.join("\n")}\n\n`
 }
 
 export function bufferCellFromMouseEvent(

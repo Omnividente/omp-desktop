@@ -52,6 +52,11 @@ describe("SettingsRecoveryScreen", () => {
       )
     })
 
+    const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')
+    expect(dialog?.getAttribute("aria-labelledby")).toBe("settings-recovery-title")
+    expect(dialog?.getAttribute("aria-describedby")).toBe("settings-recovery-description")
+    expect(dialog?.getAttribute("aria-modal")).toBe("true")
+    expect(document.activeElement).toBe(dialog)
     expect(container.querySelector(".settings-recovery-card")).not.toBeNull()
     expect(container.textContent).toContain(recovery.settingsPath)
     expect(container.textContent).toContain(recovery.backupPath)
