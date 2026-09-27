@@ -48565,7 +48565,7 @@
       "id": "discovery-b418dbab8fdb5c73",
       "title": "Preserve transcript UI state across path reloads",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -48630,6 +48630,12 @@
         "activity_created_at": "2026-09-24T12:40:24.814025Z",
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:02:57Z",
+        "note": "Sep 27 review: path reload is not an active UI operation; removed session paths close the stale transcript intentionally, and retaining state could associate it with another session."
       }
     },
     {
