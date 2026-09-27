@@ -51113,7 +51113,7 @@
       "id": "discovery-87cbf0ae73e75962",
       "title": "Fix React key warning and optimize dense search match rendering in Markdown content",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -51149,6 +51149,12 @@
         "activity_created_at": "2026-09-24T18:53:53.248510Z",
         "session_id": "17723052583341979353",
         "dispatch_key": "06767595273750d397eba580"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:08:35Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): TranscriptModal.tsx keys rendered Markdown content and narrows dense match rendering. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
