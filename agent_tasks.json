@@ -79336,7 +79336,7 @@
       "id": "discovery-6c68ffa0e4ecce1f",
       "title": "Add keyboard focus navigation to the session virtual list",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -79373,6 +79373,12 @@
         "activity_created_at": "2026-09-27T11:17:54.440664Z",
         "session_id": "1356499314931948110",
         "dispatch_key": "6366d01d031c483a4dd7f86c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:09:46Z",
+        "note": "Sep 27 review: session list already supports keyboard Tab navigation; new roving-arrow semantics would change focus contracts without a reproduced access failure."
       }
     },
     {
