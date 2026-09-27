@@ -81397,7 +81397,7 @@
       "id": "discovery-1bfa5bf9af01f966",
       "title": "Optimize ModelPicker performance by caching search terms and preventing string allocation on every query update",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -81431,6 +81431,12 @@
         "activity_created_at": "2026-09-27T13:07:12.288730Z",
         "session_id": "14030234260151532554",
         "dispatch_key": "d0b4ff7ea76da9be74f0bc74"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:18:52Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): ModelPicker.tsx reuses search terms across filtering updates. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
