@@ -78504,7 +78504,8 @@
         "feedback_nudge": {
           "at": "2026-09-27T09:37:55.056968Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d0c4c36d14627caa46d7c944"
       },
       "research_result": {
         "summary": "Verified robust failure recovery and state preservation during workspace addition and removal.",
