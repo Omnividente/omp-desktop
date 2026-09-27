@@ -84155,7 +84155,7 @@
       "id": "research-transcript-links-performance-11",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -84273,16 +84273,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2420551994585731412",
         "dispatch_key": "aefa7be5c35610c02a73144e",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-aefa7be5c35610c02a73144e",
         "started_at": "2026-09-27T19:45:54.597193Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T20:07:00.324141Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -84456,13 +84456,97 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-27T19:45:54.597193Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T20:07:00.324141Z"
+      },
+      "research_result": {
+        "summary": "Investigated the virtual scroll selection boundaries when triggering link context menus.",
+        "observations": [
+          {
+            "scenario": "Simulated context menu invocation on a transcript content link when the active browser selection spans across boundaries (anchor node outside/unmounted, focus node inside).",
+            "evidence": "Ran an isolated jsdom React test simulating `onLinkContextMenu` in `TranscriptModal`. Because virtual windowing unmounts offscreen nodes, `selection.anchorNode` is not contained within `scrollRef.current` if a large text selection originated off-screen. This causes the boundary check `scrollRef.current?.contains(selection.anchorNode) && scrollRef.current.contains(selection.focusNode)` to incorrectly evaluate as false. As a result, the code falls through the guard, calls `event.preventDefault()`, and forcibly opens the custom `ContentActionMenu` (via a Portal), blocking the user's intent to natively copy their selected text.",
+            "result": "Establishes that the context menu boundary check fails during large/cross-boundary virtual scrolling selections, preventing native right-click copy behavior."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-7fc2347695f1836c"
+        ],
+        "completed_at": "2026-09-27T20:07:00.324141Z",
+        "source": {
+          "activity_id": "sessions/2420551994585731412/activities/996ab9fcdbdf443595aa06411a1619f6",
+          "report_sha256": "89c3bda4a090696a480fd681e73e5faa2bf888c15c87dcedd0879f96be89dccc",
+          "activity_created_at": "2026-09-27T19:57:50.394349Z",
+          "session_id": "2420551994585731412",
+          "dispatch_key": "aefa7be5c35610c02a73144e"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2420551994585731412/activities/996ab9fcdbdf443595aa06411a1619f6",
+          "report_sha256": "89c3bda4a090696a480fd681e73e5faa2bf888c15c87dcedd0879f96be89dccc",
+          "activity_created_at": "2026-09-27T19:57:50.394349Z",
+          "session_id": "2420551994585731412",
+          "dispatch_key": "aefa7be5c35610c02a73144e"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7fc2347695f1836c"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-7fc2347695f1836c",
+      "title": "Fix content menu context blocking on multi-node virtual boundaries",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-27T20:07:00.324141Z",
+      "acceptance": [
+        "Context menus correctly abort when dragging a text selection across multiple unloaded virtual list boundaries."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native jsdom React testing simulating cross-boundary layout.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Load a transcript session large enough to trigger virtual scroll unmounting.",
+            "Drag a selection starting from off-screen so that the anchor node is outside the virtualized window.",
+            "Right-click on a file link within the selection."
+          ],
+          "expected": "The native context menu appears, allowing text copying.",
+          "actual": "The custom link context menu appears, preventing native text copying."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-11",
+        "activity_id": "sessions/2420551994585731412/activities/996ab9fcdbdf443595aa06411a1619f6",
+        "report_sha256": "89c3bda4a090696a480fd681e73e5faa2bf888c15c87dcedd0879f96be89dccc",
+        "activity_created_at": "2026-09-27T19:57:50.394349Z",
+        "session_id": "2420551994585731412",
+        "dispatch_key": "aefa7be5c35610c02a73144e"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T20:00:47.075229Z",
+    "last_poll_at": "2026-09-27T20:07:22.978143Z",
     "last_tick_at": "2026-09-27T20:00:51.317985Z",
     "run_id": "36346376777"
   }
