@@ -43633,7 +43633,7 @@
       "id": "discovery-ecacdd20617a4f68",
       "title": "Optimize ProjectRail rendering by memoizing workspace rows",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -43670,6 +43670,12 @@
         "activity_created_at": "2026-09-24T08:27:46.857262Z",
         "session_id": "9638885789936561435",
         "dispatch_key": "863e3da08c76f361d67abdcc"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T20:59:15Z",
+        "note": "Sep 27 owner review: synthetic 500/1000-workspace benchmark does not reproduce a user-visible bottleneck in the supported UI; per-row memoization adds state/prop complexity without an observed benefit. No change to ProjectRail."
       }
     },
     {
