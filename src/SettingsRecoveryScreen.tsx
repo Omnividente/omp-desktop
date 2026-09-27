@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { SettingsUnavailableDetails } from "./types"
@@ -19,10 +20,20 @@ export function SettingsRecoveryScreen({
   onRetry,
   onStartWithDefaults,
 }: SettingsRecoveryScreenProps) {
+  const screenRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    screenRef.current?.focus({ preventScroll: true })
+  }, [])
+
   return (
     <main
-      className="splash-screen settings-recovery-screen"
+      aria-describedby="settings-recovery-description"
       aria-labelledby="settings-recovery-title"
+      aria-modal="true"
+      className="splash-screen settings-recovery-screen"
+      ref={screenRef}
+      role="alertdialog"
+      tabIndex={-1}
     >
       <section className="settings-recovery-card">
         <div className="settings-recovery-icon" aria-hidden="true">
@@ -30,7 +41,7 @@ export function SettingsRecoveryScreen({
         </div>
         <div>
           <h1 id="settings-recovery-title">{t(language, "settingsRecoveryTitle")}</h1>
-          <p className="settings-recovery-description">
+          <p className="settings-recovery-description" id="settings-recovery-description">
             {t(language, "settingsRecoveryDescription")}
           </p>
         </div>

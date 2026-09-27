@@ -638,6 +638,23 @@ describe("runtime incident bounds and cleanup", () => {
     expect(activeRuntimeTerminalCount(state)).toBe(2)
   })
 
+  it("keeps a fallback visible after many errors on the same terminal recover", () => {
+    let state = apply(createRuntimeIncidentState(0), fallbackEvent(), 1)
+    for (let index = 0; index < MAX_RUNTIME_INCIDENTS; index += 1) {
+      state = apply(state, errorEvent({ errorMessage: `failure ${index}` }), 10 + index)
+    }
+
+    expect(state.incidents).toHaveLength(MAX_RUNTIME_INCIDENTS)
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
+    state = apply(state, runtimeEvent({ activity: "idle" }), 10_000)
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+    expect(
+      state.incidents.find(
+        (incident) => incident.kind === "fallback" && incident.status === "active",
+      ),
+    ).toBeDefined()
+  })
+
   it("keeps a long multiline reason exact without a second cache", () => {
     const reason = `Cloud API error (429):\n${"  quota detail ".repeat(120)}\nfinal line`
     const state = apply(createRuntimeIncidentState(0), errorEvent({ errorMessage: reason }), 1_000)

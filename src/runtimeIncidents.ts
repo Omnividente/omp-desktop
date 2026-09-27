@@ -403,15 +403,29 @@ function enforceIncidentBound(incidents: RuntimeIncident[]): RuntimeIncident[] {
   let candidates = resolved
   if (candidates.length === 0) {
     const activePerTerminal = new Map<string, number>()
+    const errorsPerTerminal = new Map<string, number>()
     for (const incident of incidents) {
       activePerTerminal.set(
         incident.terminalId,
         (activePerTerminal.get(incident.terminalId) ?? 0) + 1,
       )
+      if (incident.kind !== "fallback") {
+        errorsPerTerminal.set(
+          incident.terminalId,
+          (errorsPerTerminal.get(incident.terminalId) ?? 0) + 1,
+        )
+      }
     }
+    // Retire duplicate errors before losing the only fallback for a terminal.
     candidates = incidents.filter(
-      (incident) => (activePerTerminal.get(incident.terminalId) ?? 0) > 1,
+      (incident) =>
+        incident.kind !== "fallback" && (errorsPerTerminal.get(incident.terminalId) ?? 0) > 1,
     )
+    if (candidates.length === 0) {
+      candidates = incidents.filter(
+        (incident) => (activePerTerminal.get(incident.terminalId) ?? 0) > 1,
+      )
+    }
     if (candidates.length === 0) candidates = incidents
   }
 

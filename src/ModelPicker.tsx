@@ -93,6 +93,19 @@ export function matchesSelector(model: OmpModelInfo, selector: string): boolean 
   )
 }
 
+interface ModelEntry {
+  model: OmpModelInfo
+  selector: string
+  id: string
+  providerId: string
+  searchText: string
+  sortKey: string
+}
+
+function matchesBase(entry: ModelEntry, base: string): boolean {
+  return entry.selector === base || entry.id === base || entry.providerId === base
+}
+
 export function ModelPicker({
   language,
   models,
@@ -108,28 +121,41 @@ export function ModelPicker({
   const panelRef = useRef<HTMLDivElement>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const panelId = `model-picker-${role.replace(/[^a-z0-9_-]/gi, "-")}`
-  const selectedModel = models.find((model) => matchesSelector(model, value))
+  const modelEntries = useMemo<ModelEntry[]>(
+    () =>
+      models.map((model) => ({
+        model,
+        selector: model.selector.toLowerCase(),
+        id: model.id.toLowerCase(),
+        providerId: `${model.provider}/${model.id}`.toLowerCase(),
+        searchText: [model.name, model.provider, model.id, model.selector].join(" ").toLowerCase(),
+        sortKey: `${model.provider}/${model.name}`,
+      })),
+    [models],
+  )
+  const configured = splitSelector(value)
+  const selectedBase = configured.base.toLowerCase()
+  const selectedModel = modelEntries.find((entry) => matchesBase(entry, selectedBase))?.model
   const selectedStatus = selectedModel?.status ?? (value ? "missing" : "unset")
-  const configuredThinking = splitSelector(value).thinking
+  const configuredThinking = configured.thinking
   const thinkingLevels = thinkingOptionsForModel(selectedModel)
 
-  const filteredModels = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return models
-      .filter((model) => {
-        if (!normalized) return true
-        return [model.name, model.provider, model.id, model.selector]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalized)
-      })
-      .sort((left, right) => {
-        if (left.available !== right.available) {
-          return left.available ? -1 : 1
+  const sortedEntries = useMemo(
+    () =>
+      [...modelEntries].sort((left, right) => {
+        if (left.model.available !== right.model.available) {
+          return left.model.available ? -1 : 1
         }
-        return `${left.provider}/${left.name}`.localeCompare(`${right.provider}/${right.name}`)
-      })
-  }, [models, query])
+        return left.sortKey.localeCompare(right.sortKey)
+      }),
+    [modelEntries],
+  )
+  const filteredEntries = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    return normalized
+      ? sortedEntries.filter((entry) => entry.searchText.includes(normalized))
+      : sortedEntries
+  }, [sortedEntries, query])
 
   const setOpen = (next: boolean) => {
     if (!next) {
@@ -154,27 +180,31 @@ export function ModelPicker({
 
   useEffect(() => {
     if (!open) return
-    const selectedIndex = filteredModels.findIndex((model) => matchesSelector(model, value))
-    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredModels.length > 0 ? 0 : -1)
-  }, [filteredModels, open, value])
+    const selectedIndex = filteredEntries.findIndex((entry) => matchesBase(entry, selectedBase))
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredEntries.length > 0 ? 0 : -1)
+  }, [filteredEntries, open, query, selectedBase, value])
+
+  const chooseActiveModel = () => {
+    const entry = filteredEntries[activeIndex]
+    if (!entry) return
+    onChange(selectorForModel(entry.model, value))
+    closePicker()
+  }
 
   const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return
-    if (filteredModels.length === 0) return
+    if (filteredEntries.length === 0) return
     let nextIndex: number | null = null
     if (event.key === "ArrowDown") {
-      nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % filteredModels.length
+      nextIndex = activeIndex < 0 ? 0 : (activeIndex + 1) % filteredEntries.length
     } else if (event.key === "ArrowUp") {
-      nextIndex = activeIndex <= 0 ? filteredModels.length - 1 : activeIndex - 1
+      nextIndex = activeIndex <= 0 ? filteredEntries.length - 1 : activeIndex - 1
     } else if (event.key === "Home") {
       nextIndex = 0
     } else if (event.key === "End") {
-      nextIndex = filteredModels.length - 1
+      nextIndex = filteredEntries.length - 1
     } else if (event.key === "Enter" || event.key === " ") {
-      if (activeIndex >= 0) {
-        onChange(selectorForModel(filteredModels[activeIndex], value))
-        closePicker()
-      }
+      chooseActiveModel()
       event.preventDefault()
       return
     }
@@ -267,10 +297,17 @@ export function ModelPicker({
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                if (event.key === "Enter") {
+                  if (filteredEntries[activeIndex]) {
+                    event.preventDefault()
+                    chooseActiveModel()
+                  }
+                  return
+                }
                 if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
-                if (filteredModels.length === 0) return
+                if (filteredEntries.length === 0) return
                 event.preventDefault()
-                const nextIndex = event.key === "ArrowDown" ? 0 : filteredModels.length - 1
+                const nextIndex = event.key === "ArrowDown" ? 0 : filteredEntries.length - 1
                 setActiveIndex(nextIndex)
                 optionRefs.current[nextIndex]?.focus({ preventScroll: true })
               }}
@@ -290,8 +327,9 @@ export function ModelPicker({
             role="listbox"
             tabIndex={0}
           >
-            {filteredModels.map((model, index) => {
-              const selected = matchesSelector(model, value)
+            {filteredEntries.map((entry, index) => {
+              const { model } = entry
+              const selected = matchesBase(entry, selectedBase)
               return (
                 <button
                   aria-selected={selected}
@@ -321,7 +359,7 @@ export function ModelPicker({
                 </button>
               )
             })}
-            {filteredModels.length === 0 && (
+            {filteredEntries.length === 0 && (
               <div className="model-picker-empty">{t(language, "noModelsFound")}</div>
             )}
           </div>

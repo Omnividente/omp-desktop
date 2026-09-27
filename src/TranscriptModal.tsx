@@ -569,8 +569,8 @@ export function TranscriptModal({
             if (
               selection &&
               !selection.isCollapsed &&
-              event.currentTarget.contains(selection.anchorNode) &&
-              event.currentTarget.contains(selection.focusNode)
+              selection.rangeCount > 0 &&
+              selection.getRangeAt(0).intersectsNode(event.target as Node)
             )
               event.preventDefault()
           }}
@@ -610,12 +610,12 @@ export function TranscriptModal({
               </button>
             </div>
           ) : !transcript || transcript.entries.length === 0 ? (
-            <div className="transcript-state">
+            <div className="transcript-state" role="status">
               <Icon name="history" size={24} />
               <strong>{t(lang, "transcriptEmpty")}</strong>
             </div>
           ) : visibleEntries.length === 0 ? (
-            <div className="transcript-state">
+            <div className="transcript-state" role="status">
               <Icon name="search" size={24} />
               <strong>{t(lang, "transcriptNoMatches")}</strong>
               {transcriptSearch && (
@@ -684,8 +684,8 @@ export function TranscriptModal({
                         if (
                           selection &&
                           !selection.isCollapsed &&
-                          scrollRef.current?.contains(selection.anchorNode) &&
-                          scrollRef.current.contains(selection.focusNode)
+                          selection.rangeCount > 0 &&
+                          selection.getRangeAt(0).intersectsNode(event.currentTarget)
                         )
                           return
                         event.preventDefault()

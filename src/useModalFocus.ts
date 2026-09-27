@@ -1,5 +1,8 @@
 import { useLayoutEffect, type KeyboardEvent, type RefObject } from "react"
 
+const CONTROL_SELECTOR =
+  "button, input, select, textarea, a[href], summary, [tabindex], [contenteditable='true']"
+
 function controlAvailable(element: HTMLElement): boolean {
   if (element.matches(":disabled") || element.closest("[hidden], [inert]")) return false
   const visibility = window.getComputedStyle(element).visibility
@@ -12,6 +15,21 @@ function controlAvailable(element: HTMLElement): boolean {
     }
   }
   return true
+}
+
+function boundaryControl(
+  controls: NodeListOf<HTMLElement>,
+  backwards: boolean,
+): HTMLElement | undefined {
+  const step = backwards ? -1 : 1
+  for (
+    let index = backwards ? controls.length - 1 : 0;
+    index >= 0 && index < controls.length;
+    index += step
+  ) {
+    const element = controls[index]
+    if (element.tabIndex >= 0 && controlAvailable(element)) return element
+  }
 }
 
 /** Attach the returned handler in the bubble phase so nested popups own their keys first. */
@@ -62,23 +80,20 @@ export function useModalFocus(
     } else if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
       const panel = panelRef.current
       if (!panel) return
-      const controls = [
-        ...panel.querySelectorAll<HTMLElement>(
-          "button, input, select, textarea, a[href], summary, [tabindex], [contenteditable='true']",
-        ),
-      ].filter((element) => element.tabIndex >= 0 && controlAvailable(element))
-      const first = controls[0]
-      const last = controls[controls.length - 1]
+      const controls = panel.querySelectorAll<HTMLElement>(CONTROL_SELECTOR)
       const active = document.activeElement
-      if (
-        !first ||
-        !controls.includes(active as HTMLElement) ||
-        active === (event.shiftKey ? first : last)
-      ) {
-        event.preventDefault()
-        ;(event.shiftKey ? last : first)?.focus({ preventScroll: true })
-        if (!first) panel.focus({ preventScroll: true })
-      }
+      const activeAvailable =
+        active instanceof HTMLElement &&
+        active !== panel &&
+        panel.contains(active) &&
+        active.matches(CONTROL_SELECTOR) &&
+        active.tabIndex >= 0 &&
+        controlAvailable(active)
+      // Interior traversal is native. Only inspect the active control and the edge being left.
+      if (activeAvailable && active !== boundaryControl(controls, !event.shiftKey)) return
+      const destination = boundaryControl(controls, event.shiftKey)
+      event.preventDefault()
+      ;(destination ?? panel).focus({ preventScroll: true })
     }
   }
 }

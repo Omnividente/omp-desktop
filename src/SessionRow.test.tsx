@@ -169,6 +169,22 @@ describe("SessionRow rename input", () => {
     expect(onKeySelect).not.toHaveBeenCalled()
   })
 
+  it("keeps row selection out of the labeled rename control", () => {
+    const onSelect = vi.fn()
+    act(() =>
+      root.render(<RenameFixture onSave={vi.fn()} onLaunch={vi.fn()} onSelect={onSelect} />),
+    )
+
+    const rowControl = container.querySelector<HTMLElement>(".session-select")!
+    const input = container.querySelector<HTMLInputElement>(".session-rename")!
+    expect(rowControl.hasAttribute("role")).toBe(false)
+    expect(rowControl.hasAttribute("tabindex")).toBe(false)
+    expect(input.getAttribute("aria-label")).toBe("Изменить фиксированное название")
+    act(() => rowControl.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+  })
+
   it.each(["Enter", "Escape"])("returns keyboard focus to the session after %s", (key) => {
     const onSave = vi.fn()
     const onLaunch = vi.fn()

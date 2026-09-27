@@ -1700,6 +1700,11 @@ button:disabled {
   line-height: 1.45;
 }
 
+.provider-account-empty,
+.provider-account-status-reason {
+  overflow-wrap: anywhere;
+}
+
 .provider-account-status-reason {
   color: #dfb169;
 }
