@@ -84457,7 +84457,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T20:07:00.324141Z"
+        "observed_at": "2026-09-27T20:07:00.324141Z",
+        "released_attempt_ref": "autonomous/attempt-aefa7be5c35610c02a73144e"
       },
       "research_result": {
         "summary": "Investigated the virtual scroll selection boundaries when triggering link context menus.",
