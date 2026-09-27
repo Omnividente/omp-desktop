@@ -77412,6 +77412,293 @@
         "session_id": "2174094185288808990",
         "dispatch_key": "b4ca7af6aeca924469f2229e"
       }
+    },
+    {
+      "id": "research-terminal-input-ux-11",
+      "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-27T08:48:57Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "ux",
+        "fingerprint": "acf46366b2d0470dd14f05df64c48179ee25e3c5aa61a52d334f017fd5615654",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Investigated the terminal continuity generation baseline corruption and terminal output batcher immediate trailing flush behavior.",
+            "observations": [
+              {
+                "scenario": "Simulated terminal continuity processing receiving an output event from a stale generation (e.g., generation 1) after having processed an attachment from a newer generation (e.g., generation 2).",
+                "evidence": "Executed an isolated test script against src/terminalContinuity.ts. When applyTerminalOutputEvent received a stale event (generation 1) after the baseline was generation 2, it returned { accept: true, generationChanged: true } and incorrectly reverted the internal baseline back to generation 1.",
+                "result": "This establishes that applyTerminalOutputEvent does not check if an incoming generation change is older than the current baseline. It incorrectly overwrites the continuity baseline with the stale generation. This matches the deferred finding and demonstrates state corruption on delayed stale events."
+              },
+              {
+                "scenario": "Tested terminal output batcher limits by enqueueing multiple chunks that collectively exceed the max bytes limit.",
+                "evidence": "Executed an isolated script against src/terminalOutputBatcher.ts. When enqueueing three chunks of 150 bytes with a limit of 200 bytes, the first chunk starts the batch. The second chunk pushes the length to 300 (exceeding limit) and flushes the first chunk + second chunk immediately. The third chunk [excerpt]",
+                "result": "This establishes that trailing chunks are flushed immediately at the byte limit. However, review of the test suite (terminalOutputBatcher.test.ts) shows an explicit test 'flushes trailing chunks immediately at the byte limit' that *expects* this exact behavior. Therefore, this is the intended design [excerpt]"
+              },
+              {
+                "scenario": "Measured formatSelectionReply performance with a large input text containing many empty lines at the beginning.",
+                "evidence": "Executed an isolated script passing a string with 50,000 leading and trailing empty lines to formatSelectionReply in src/terminalInput.ts. It took ~1400ms to process.",
+                "result": "This establishes that formatSelectionReply has O(N^2) time complexity for empty line removal due to shift() moving array elements on each call. An O(N) fix using index tracking and slice() reduced the time to ~40ms."
+              },
+              {
+                "scenario": "Simulated extracting text length in createMouseSelectionEdit on strings containing zero-width joiner emojis (👨‍👩‍👧‍👦).",
+                "evidence": "Executed an isolated node script testing createMouseSelectionEdit in src/terminalInput.ts with the emoji 👨‍👩‍👧‍👦. Array.from(text).length returns 7, causing the returned edit action to specify 7 delete keystrokes instead of 1.",
+                "result": "This establishes that complex unicode structures cause incorrect deletion keystroke counts because Array.from() does not handle grapheme clusters correctly, leading to over-deletion. A fix using Intl.Segmenter resolves this."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal keyboard shortcut handling properly handles dead keys and composition sequences.",
+              "Investigate if writeTerminal accepts background input safely from the output batcher during model switching when switchRecovery is pending."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-26T23:52:16.268145Z",
+            "source": {
+              "activity_id": "sessions/6503002731509110927/activities/4fb081b6c2464ddf95c121695b7b8735",
+              "report_sha256": "d668ff6033839e8f2219c8f6b8dd9f21ac07d45ece627db062a4133442c5e5b0",
+              "activity_created_at": "2026-09-26T23:46:36.178922Z",
+              "session_id": "6503002731509110927",
+              "dispatch_key": "236b2950b36d6a5ba9304ce7"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix continuity state corruption from stale older-generation output events",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and [excerpt]",
+                "target_paths": [
+                  "src/terminalContinuity.ts",
+                  "src/terminalContinuity.test.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without updating the baseline or setting generationChanged to true"
+                ]
+              },
+              {
+                "title": "Optimize formatSelectionReply to prevent O(N^2) processing delay on empty lines",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-48f2557385bb78b9; not established as a duplicate. {\"detail\": \"Native runtime script executed against src/terminalInput.ts measured execution time of formatSelectionReply.\", \"reproduction\": {\"actual\": \"formatSelectionReply suffers O(N^2) time complexity f [excerpt]",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "formatSelectionReply processes large input with many empty lines without O(N^2) time complexity by avoiding shift()/pop() loops"
+                ]
+              },
+              {
+                "title": "Fix over-deletion of complex unicode characters in terminal input mouse edits",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-555ec713d1750691; not established as a duplicate. {\"detail\": \"Native runtime script simulating createMouseSelectionEdit.\", \"reproduction\": {\"actual\": \"The edit length calculates to 7 using Array.from(text).length, causing over-deletion.\", \"expected\": \"Th [excerpt]",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "createMouseSelectionEdit accurately calculates deletion length for complex graphemes (e.g. emojis with zero-width joiners) using Intl.Segmenter"
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-terminal-input-behavior-11",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 4,
+                "next_hypotheses": 2,
+                "proposed_task_ids": 0,
+                "deferred_findings": 3
+              }
+            }
+          },
+          {
+            "summary": "Investigated terminal input buffering during model switching and generation continuity.",
+            "observations": [
+              {
+                "scenario": "Simulated terminal input buffering during a pending switch to verify bounded accumulation.",
+                "evidence": "In src-tauri/src/terminal.rs, when `process.switch_pending` is true, `write_bytes` delegates to `append_switch_input`. Attempting to append beyond `MAX_SWITCH_INPUT_BUFFER` (64 KiB) returns an overflow error and sets `switch_input_overflow_notified`, ignoring further input without unbounded memory growth.",
+                "result": "Establishes that user input during a switch is safely bounded and preserved for recovery."
+              },
+              {
+                "scenario": "Simulated explicit discard of switch recovery input.",
+                "evidence": "Observed `discard_switch_input_recovery_from_state` correctly clearing `process.switch_recovery` to `None` when the token and generation match, without leaving residual bytes.",
+                "result": "Establishes that explicitly discarding switch input resets the state properly, preventing replay of stale input."
+              },
+              {
+                "scenario": "Simulated terminal continuity state transition from a newer to an older generation.",
+                "evidence": "Executed an isolated node script against src/terminalContinuity.ts. `applyTerminalOutputEvent` receiving an older generation event downgrades the baseline generation to the older one. However, per owner context (43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434), output generation is fixed per terminal_id at spawn.",
+                "result": "Establishes that while the continuity function accepts older generations, this state corruption requires synthetic events and cannot occur in production, validating the prior rejection."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal keyboard shortcut handling correctly parses dead keys and composition events across different locales.",
+              "Investigate if the PTY exit timeout (TERMINAL_STOP_TIMEOUT) correctly handles hanging child processes without leaving zombie processes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T01:10:54.964773Z",
+            "source": {
+              "activity_id": "sessions/9663367812069103744/activities/455ad7c1c71d487a896429c501afcba9",
+              "report_sha256": "5a472a87ce6b91f15f32f44b0f59988497875ec2d3c7196394f1f5fe9efda2f9",
+              "activity_created_at": "2026-09-27T00:40:28.367133Z",
+              "session_id": "9663367812069103744",
+              "dispatch_key": "1d3bd6d0bef8f8c27e20d929"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal input mouse edit character lengths and format selection time complexity.",
+            "observations": [
+              {
+                "scenario": "Simulated extracting text length using Array.from() in createMouseSelectionEdit on strings with zero-width joiner emojis (e.g. 👨‍👩‍👧‍👦).",
+                "evidence": "Executed an isolated node script testing createMouseSelectionEdit in src/terminalInput.ts. Array.from(text).length evaluates the emoji to length 7, while Intl.Segmenter evaluates it to 1 grapheme cluster.",
+                "result": "Establishes that terminal mouse selection edits over-calculate deletion keystrokes for complex graphemes because Array.from() does not handle grapheme clusters correctly. Intl.Segmenter resolves this."
+              },
+              {
+                "scenario": "Measured formatSelectionReply performance with large input text containing 50,000 leading and trailing empty lines.",
+                "evidence": "Executed an isolated script passing a string with 50,000 leading and trailing empty lines to formatSelectionReply in src/terminalInput.ts. It took ~700ms to process.",
+                "result": "Establishes that formatSelectionReply has O(N^2) time complexity for empty line removal due to shift() moving array elements on each call. An O(N) fix using index tracking reduces the time."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal shortcuts incorrectly suppress or modify composition events (isComposing) across different locales."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T08:14:30.888767Z",
+            "source": {
+              "activity_id": "sessions/2523253957691442736/activities/cd2b0a58a3144e6d87957586e530da1a",
+              "report_sha256": "2da4aaefba6ba04be3564ab5a4a4e5260be739c468088fa575da1835bda9fd63",
+              "activity_created_at": "2026-09-27T08:11:06.849330Z",
+              "session_id": "2523253957691442736",
+              "dispatch_key": "f295e86bc6accde43e328e00"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix over-deletion of complex unicode characters in terminal input mouse edits",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-555ec713d1750691; not established as a duplicate. {\"detail\": \"Native runtime script simulating createMouseSelectionEdit.\", \"reproduction\": {\"actual\": \"The length calculates to 7 using Array.from(text.replace(/[\\\\r\\\\n]/g, \\\"\\\")).length, causing 7 deletion keystrokes and over-deletion.\", \"expected\": \"The length evaluates to 1 using Intl.Segmenter, resulting in 1 deletion keystroke.\", \"steps\": [\"Execute isolated script simulating createMouseSelectionEdit on the text 👨‍👩‍👧‍👦\", \"Observe the calculated length used for deletions\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "createMouseSelectionEdit accurately calculates deletion length for complex graphemes (e.g. emojis with zero-width joiners) using Intl.Segmenter"
+                ]
+              },
+              {
+                "title": "Optimize formatSelectionReply to prevent O(N^2) processing delay on empty lines",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-48f2557385bb78b9; not established as a duplicate. {\"detail\": \"Native runtime script executed against src/terminalInput.ts measured execution time of formatSelectionReply.\", \"reproduction\": {\"actual\": \"formatSelectionReply suffers O(N^2) time complexity from repeated shift() and pop() calls in while loops, taking ~700ms.\", \"expected\": \"The text parses and returns quickly (~20ms) using O(N) traversal.\", \"steps\": [\"Execute an isolated node script that generates a string with 50,000 leading and trailing blank lines\", \"Pass this string to formatSelectionReply and measure execution time\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "formatSelectionReply processes large input with many empty lines without O(N^2) time complexity by avoiding shift()/pop() loops"
+                ]
+              },
+              {
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result and the internal baseline map\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/terminalContinuity.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                ],
+                "deferred_id": "a44b750811b2457bf83b475e77719168cba495591b5db2524ba3cce56c9829e9",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix terminal continuity generation changes during failure recovery",
+                  "risk": "medium",
+                  "priority": 60,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/terminalContinuity.ts"
+                  ],
+                  "acceptance": [
+                    "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Establish a generation 2 baseline using applyTerminalAttachment",
+                        "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                        "Observe the result and the internal baseline map"
+                      ],
+                      "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+                      "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "observation_refs": [],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                          "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                          "why_previous_reason_no_longer_explains": "The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation."
+                        },
+                        {
+                          "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                          "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                          "why_previous_reason_no_longer_explains": "The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "action": "reject",
+                      "decision_at": "2026-09-21T20:12:25Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-terminal-input-performance-11",
+                  "activity_id": "sessions/2523253957691442736/activities/cd2b0a58a3144e6d87957586e530da1a",
+                  "report_sha256": "2da4aaefba6ba04be3564ab5a4a4e5260be739c468088fa575da1835bda9fd63",
+                  "activity_created_at": "2026-09-27T08:11:06.849330Z",
+                  "session_id": "2523253957691442736",
+                  "dispatch_key": "f295e86bc6accde43e328e00"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
