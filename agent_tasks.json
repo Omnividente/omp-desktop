@@ -48487,7 +48487,7 @@
       "id": "discovery-785f12cd56fb9835",
       "title": "Fix focus drop when opening external links in MarkdownContent",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -48553,6 +48553,12 @@
         "activity_created_at": "2026-09-24T12:40:24.814025Z",
         "session_id": "8488157827395858554",
         "dispatch_key": "6dadaff308f402e26f8a4020"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:02:20Z",
+        "note": "Sep 27 review: no reproducible focus drop after guarded external-link opening on the supported Desktop surface; avoid a focus-stealing restoration on unrelated windows."
       }
     },
     {
