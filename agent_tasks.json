@@ -62679,7 +62679,7 @@
       "id": "discovery-7ca21f00652b62dd",
       "title": "Prevent main thread block on massive transcript regex search",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -62715,6 +62715,12 @@
         "activity_created_at": "2026-09-25T19:14:14.271524Z",
         "session_id": "8323963864401090117",
         "dispatch_key": "1c9139e8213c424769d468bb"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:06:59Z",
+        "note": "Sep 27 review: the proposed regex match cap changes complete transcript search behavior; no bounded-session native freeze was demonstrated that warrants omitting matches."
       }
     },
     {
