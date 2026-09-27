@@ -50591,7 +50591,7 @@
       "id": "discovery-aa3074cd1d181e73",
       "title": "Deselect successfully imported sessions to prevent duplicate operations on retry",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -50627,6 +50627,12 @@
         "activity_created_at": "2026-09-24T17:26:56.915611Z",
         "session_id": "837913136715643650",
         "dispatch_key": "acd8875315af33bccedee153"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:08:00Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): App.tsx deselects completed imports so retry targets only remaining sources. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
