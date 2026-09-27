@@ -77884,7 +77884,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T09:16:36.339276Z"
+        "observed_at": "2026-09-27T09:16:36.339276Z",
+        "released_attempt_ref": "autonomous/attempt-53cf7e81054bccadfcb44dc8"
       },
       "research_result": {
         "summary": "Investigated terminal continuity handling of stale generations and keyboard shortcuts input mappings.",
