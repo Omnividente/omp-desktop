@@ -81209,7 +81209,7 @@
       "id": "research-settings-models-reliability-11",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -81383,16 +81383,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11325218126329700204",
         "dispatch_key": "730c7bdd57fb6a27a9b9c79e",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-730c7bdd57fb6a27a9b9c79e",
         "started_at": "2026-09-27T13:45:57.090270Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T14:15:32.544778Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -81563,8 +81563,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-27T14:06:56.905163Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T14:15:32.544778Z",
         "research_detached": {
           "at": "2026-09-27T14:06:56.905163Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -81573,6 +81573,29 @@
           "at": "2026-09-27T14:06:56.905163Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated Settings recovery and model selection failure modes. Reviewed recovery behavior during write failures and confirmed that the existing atomic write and backup mechanisms correctly preserve state.",
+        "observations": [
+          {
+            "scenario": "Simulating a failed write operation during `start_with_defaults_prepared` and `recover_invalid_settings`.",
+            "evidence": "Inspected Rust test suite (`failed_defaults_write_keeps_source_and_completed_backup`, `failed_recovery_backup_never_replaces_invalid_source`) which explicitly checks that failed writes do not corrupt the original invalid source and correctly yield a `.tmp` and/or `.backup` file conservatively.",
+            "result": "Establishes that failed recovery operations are handled safely. Backups are intentionally duplicated (as per previous decision `bd59fa229eeec07c254a0ce56b24c12fd0ab4f33799df28e45a3bb378061a38c`), and original state is preserved without silent loss."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the robustness of model selection fallback chains when handling models that are unexpectedly removed from the OmpConfig during an active session."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T14:15:32.544778Z",
+        "source": {
+          "activity_id": "sessions/11325218126329700204/activities/fe141b744239477daac528d86d114ea3",
+          "report_sha256": "e06f53527dc81b8b58ee7982404ae1852d0366b6cdc275091845b1f4da9a929c",
+          "activity_created_at": "2026-09-27T14:07:53.079145Z",
+          "session_id": "11325218126329700204",
+          "dispatch_key": "730c7bdd57fb6a27a9b9c79e"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -81888,7 +81911,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T14:09:24.074572Z",
+    "last_poll_at": "2026-09-27T14:15:50.843698Z",
     "last_tick_at": "2026-09-27T14:09:28.074966Z",
     "run_id": "36324725583"
   }
