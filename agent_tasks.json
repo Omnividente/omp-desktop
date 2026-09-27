@@ -77883,13 +77883,13 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-27T08:48:57.924073Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-27T08:57:14.911894Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T08:51:06.379095Z",
+    "last_poll_at": "2026-09-27T08:57:31.824682Z",
     "last_tick_at": "2026-09-27T08:51:10.171750Z",
     "run_id": "36307364242"
   }
