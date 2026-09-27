@@ -60391,7 +60391,7 @@
       "id": "discovery-7f58e586ac2abeec",
       "title": "Allow selecting the active model with Enter directly from ModelPicker's search input",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -60425,6 +60425,12 @@
         "activity_created_at": "2026-09-25T13:09:23.411620Z",
         "session_id": "8440830932093286634",
         "dispatch_key": "ad1a9623fccb11045ddfc24f"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-09-27T22:09:47Z",
+        "note": "Resolved externally in merged PR #95 (https://github.com/Omnividente/omp-desktop/pull/95, main d659001d1ec8a70fa982b88ce77de1e9c8621544): ModelPicker.tsx selects the active filtered model via Enter in search. Windows/Linux quality gates and targeted regression checks passed."
       }
     },
     {
