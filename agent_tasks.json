@@ -84150,6 +84150,127 @@
         "session_id": "17545297632891352198",
         "dispatch_key": "dc019ebafbc554b3fdcb8477"
       }
+    },
+    {
+      "id": "research-transcript-links-performance-11",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-27T19:45:54Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "dc7299d7d65b02d1b3d4639e95e5af1303b11e1a1f649b03af6cae277b42cdf4",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Investigated keyboard accessibility and screen reader support for copy buttons, transcript state containers, and mode toggles in the TranscriptModal.",
+            "observations": [
+              {
+                "scenario": "Navigating to code block copy buttons via keyboard and screen reader.",
+                "evidence": "Ran isolated jsdom Vitest checks on `MarkdownContent` containing code blocks. The `.markdown-copy-button` button renders correctly in tab order (tabIndex=0 by default for `<button>`), and has explicit `aria-label=\"Copy code\"` with `title=\"Copy code\"` (or `aria-label=\"Copy text\"` for general messages). When clicked, the inner span successfully dynamically updates with `role=\"status\"` and `aria-live=\"polite\"` via React state.",
+                "result": "Establishes that code block copy buttons and general message copy buttons are fully keyboard accessible and correctly announce copied state changes dynamically without losing focus."
+              },
+              {
+                "scenario": "Changing transcript view mode via the transcript filter buttons.",
+                "evidence": "Ran isolated jsdom Vitest checks simulating a click on the 'Dialogue + service' button while focused. The active focus remains on the clicked mode button, correctly retaining its layout in the toolbar without dropping focus back to `document.body`.",
+                "result": "Establishes that changing transcript view modes does not disrupt keyboard navigation state or drop focus."
+              },
+              {
+                "scenario": "Evaluating empty/error/no-match transcript state screen reader announcements.",
+                "evidence": "Ran isolated jsdom Vitest checks capturing the HTML of `.transcript-state` containers under different conditions. Observed that the 'Error' and 'Loading' states correctly include `role=\"alert\"` and `aria-live=\"polite\"` respectively. However, the 'Empty' state (`<div className=\"transcript-state\">`) and 'No Matches' state (`<div className=\"transcript-state\">`) lack `role=\"status\"` and `aria-live=\"polite\"` attributes entirely in `TranscriptModal.tsx`.",
+                "result": "Establishes that while errors and loading states announce properly, screen reader users might miss changes if a transcript is successfully emptied or a search yields zero matches, because the state block acts as a standard static `div`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if long external links within inline text elements are fully readable to screen readers without excessive unpronounceable token reading.",
+              "Investigate the accessibility of keyboard focus flow when pressing `Escape` to close the `ContentActionMenu` from an internal link context menu."
+            ],
+            "proposed_task_ids": [
+              "discovery-f9463c9e29083930"
+            ],
+            "completed_at": "2026-09-26T23:31:08.398999Z",
+            "source": {
+              "activity_id": "sessions/2680805311560206796/activities/8e86d253c40043d584928529a7ec86c8",
+              "report_sha256": "dc42822bfc51878cdc6a8ce1f7e5fb805bbc501b49a6dc19e73fa0f48aeec3ae",
+              "activity_created_at": "2026-09-26T23:19:33.591730Z",
+              "session_id": "2680805311560206796",
+              "dispatch_key": "a46c6dad5d6ae86a5f28afe8"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that pressing Escape to close the ContentActionMenu restores keyboard focus correctly when triggered from an internal link context menu.",
+            "observations": [
+              {
+                "scenario": "Opening the internal link context menu in TranscriptModal and CompletedAnswers, navigating the menu via keyboard arrows, and pressing Escape.",
+                "evidence": "Tested using isolated jsdom Vitest checks on TranscriptModal and CompletedAnswers. In both cases, onLinkContextMenu records the currently focused element (the link) into `menu.focus`. ContentActionMenu manages focus internally using keydown event handlers. When Escape is pressed, it triggers `onDismiss(true)`. In TranscriptModal and CompletedAnswers, `dismissMenu(true)` successfully retrieves the stored `menu.focus` and restores keyboard focus directly back to the `<a>` element, preventing focus loss.",
+                "result": "Establishes that the keyboard focus flow correctly restores focus to the underlying link after the action menu is closed with Escape, preserving accessibility state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if long external links within inline text elements are fully readable to screen readers without excessive unpronounceable token reading."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T04:01:38.424858Z",
+            "source": {
+              "activity_id": "sessions/7962622844135648825/activities/06a6f3a3002f4206b1a0ef4be4c84b54",
+              "report_sha256": "a46a9525368e305b5f1ffb208178dde81bff1d11c8008cb88bb0c9d1a2b78b4a",
+              "activity_created_at": "2026-09-27T03:52:00.616543Z",
+              "session_id": "7962622844135648825",
+              "dispatch_key": "b51c570c609e98c58dcd5b36"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified via isolated rendering tests and static analysis that Transcript load operations correctly tolerate concurrency, cancellation, and simulated failures without dropping state or producing duplicate side-effects.",
+            "observations": [
+              {
+                "scenario": "Concurrent overlapping invocations of `loadTranscript` and `loadTranscriptPath` with mock data.",
+                "evidence": "Ran an isolated jsdom test simulating simultaneous load requests by mocking the underlying backend API. Tracked internal synchronization counters (`requestRef`) in `useTranscript.ts`. Observed that earlier simulated backend responses arriving out-of-order are safely ignored, preventing race conditions or interleaved data; only the latest requested session correctly renders.",
+                "result": "Establishes that the UI cleanly handles concurrent reloading and navigation without duplicate UI updates or invalid view state. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Simulated failure of a transcript backend read, followed by manual retry.",
+                "evidence": "Inspected `useTranscript` and `TranscriptModal` fallback loops. Verified that throwing a mock read error clears the rendering area but keeps `transcriptSearch` and `transcriptMode` fully intact. When clicking 'Retry', the invocation triggers `preservePosition` which correctly bypasses empty states, guarding the cached LRU position dictionary, ensuring no scroll data is overwritten with empty bounds. Upon subsequent success, layout parameters are faithfully restored.",
+                "result": "Establishes that failure boundaries during transcript refreshes maintain recoverability, preventing the loss of user view context and scrolling progress without creating duplicate request side-effects. (Evidence mode: static_analysis, mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the interaction between content link selection boundaries and virtual scrolling performance when dragging a text selection across multiple unloaded virtual list boundaries."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T14:28:38.859887Z",
+            "source": {
+              "activity_id": "sessions/4932807549407875854/activities/bb2e755863b8456f93f0e4523ec8916e",
+              "report_sha256": "48f900833909b9dddda1caef30e4ac2912bf13a85eeebdb81ed06a723554f137",
+              "activity_created_at": "2026-09-27T14:16:47.680361Z",
+              "session_id": "4932807549407875854",
+              "dispatch_key": "66596e33b2ecdfb2dad07640"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
