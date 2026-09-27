@@ -76721,7 +76721,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T08:14:30.888767Z"
+        "observed_at": "2026-09-27T08:14:30.888767Z",
+        "released_attempt_ref": "autonomous/attempt-f295e86bc6accde43e328e00"
       },
       "research_result": {
         "summary": "Investigated terminal input mouse edit character lengths and format selection time complexity.",
