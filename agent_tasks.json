@@ -74726,7 +74726,7 @@
       "id": "research-terminal-input-reliability-11",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -74893,16 +74893,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9663367812069103744",
         "dispatch_key": "1d3bd6d0bef8f8c27e20d929",
         "base_sha": "4d4f656ad4fe25b59e1c5fd730336fe24ce3255b",
         "starting_branch": "autonomous/attempt-1d3bd6d0bef8f8c27e20d929",
         "started_at": "2026-09-27T00:24:32.516864Z",
-        "finished_at": "",
+        "finished_at": "2026-09-27T01:10:54.964773Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f4d3b02ff8e4b7a6ede46690d7c492bdb67870eb",
@@ -75075,8 +75075,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-27T00:39:12.234044Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-27T01:10:54.964773Z",
         "research_detached": {
           "at": "2026-09-27T00:39:12.234044Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -75085,11 +75085,45 @@
           "at": "2026-09-27T00:39:12.234044Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated terminal input buffering during model switching and generation continuity.",
+        "observations": [
+          {
+            "scenario": "Simulated terminal input buffering during a pending switch to verify bounded accumulation.",
+            "evidence": "In src-tauri/src/terminal.rs, when `process.switch_pending` is true, `write_bytes` delegates to `append_switch_input`. Attempting to append beyond `MAX_SWITCH_INPUT_BUFFER` (64 KiB) returns an overflow error and sets `switch_input_overflow_notified`, ignoring further input without unbounded memory growth.",
+            "result": "Establishes that user input during a switch is safely bounded and preserved for recovery."
+          },
+          {
+            "scenario": "Simulated explicit discard of switch recovery input.",
+            "evidence": "Observed `discard_switch_input_recovery_from_state` correctly clearing `process.switch_recovery` to `None` when the token and generation match, without leaving residual bytes.",
+            "result": "Establishes that explicitly discarding switch input resets the state properly, preventing replay of stale input."
+          },
+          {
+            "scenario": "Simulated terminal continuity state transition from a newer to an older generation.",
+            "evidence": "Executed an isolated node script against src/terminalContinuity.ts. `applyTerminalOutputEvent` receiving an older generation event downgrades the baseline generation to the older one. However, per owner context (43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434), output generation is fixed per terminal_id at spawn.",
+            "result": "Establishes that while the continuity function accepts older generations, this state corruption requires synthetic events and cannot occur in production, validating the prior rejection."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal keyboard shortcut handling correctly parses dead keys and composition events across different locales.",
+          "Investigate if the PTY exit timeout (TERMINAL_STOP_TIMEOUT) correctly handles hanging child processes without leaving zombie processes."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-27T01:10:54.964773Z",
+        "source": {
+          "activity_id": "sessions/9663367812069103744/activities/455ad7c1c71d487a896429c501afcba9",
+          "report_sha256": "5a472a87ce6b91f15f32f44b0f59988497875ec2d3c7196394f1f5fe9efda2f9",
+          "activity_created_at": "2026-09-27T00:40:28.367133Z",
+          "session_id": "9663367812069103744",
+          "dispatch_key": "1d3bd6d0bef8f8c27e20d929"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-27T00:39:29.756462Z",
+    "last_poll_at": "2026-09-27T01:11:11.781400Z",
     "last_tick_at": "2026-09-27T00:39:44.827959Z",
     "run_id": "36283123111"
   }
