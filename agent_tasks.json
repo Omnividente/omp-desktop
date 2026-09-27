@@ -49340,7 +49340,7 @@
       "id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
       "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "medium",
       "focus": [
@@ -49408,6 +49408,12 @@
         "activity_created_at": "2026-09-24T13:33:40.002155Z",
         "session_id": "234372672784030942",
         "dispatch_key": "08fbc2c11b6aa638f886768a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-27T21:04:39Z",
+        "note": "Sep 27 review: the modal focus walk already excludes descendants hidden in closed details; no current inaccessible tab stop was reproduced."
       }
     },
     {
