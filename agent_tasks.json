@@ -84058,7 +84058,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-27T19:36:55.641913Z"
+        "observed_at": "2026-09-27T19:36:55.641913Z",
+        "released_attempt_ref": "autonomous/attempt-dc019ebafbc554b3fdcb8477"
       },
       "research_result": {
         "summary": "Verified that a concurrent deletion during session import (commit_import_with) creates a race condition that leaves a session.jsonl file without its corresponding artifact directory.",
