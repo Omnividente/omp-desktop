@@ -90226,7 +90226,8 @@
         "feedback_nudge": {
           "at": "2026-09-28T10:53:53.860850Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-71d8c09b2ac914433345128a"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching performance across large datasets. Discovered a measurable performance bottleneck in 'formatRelative' caused by repeatedly instantiating 'Intl' formatters.",
