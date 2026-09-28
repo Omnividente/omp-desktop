@@ -90870,7 +90870,7 @@
       "id": "research-settings-models-performance-12",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -91040,16 +91040,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "39507811164087162",
         "dispatch_key": "45076009f264e64f5dff6f61",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-45076009f264e64f5dff6f61",
         "started_at": "2026-09-28T11:29:10.892593Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T11:44:44.808745Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -91220,13 +91220,107 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T11:29:10.892593Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T11:44:44.808745Z"
+      },
+      "research_result": {
+        "summary": "Measured filtering latency and DOM rendering overhead in ModelPicker when handling 5000 models. Both keyboard interaction and opening the picker take >1.1 seconds due to unvirtualized DOM nodes.",
+        "observations": [
+          {
+            "scenario": "Keyboard filtering of models in ModelPicker.",
+            "evidence": "Simulated typing 'Model-123' into the ModelPicker's search input with 5000 options pre-loaded. The filtering callback (onChange) latency for a single keystroke was ~175ms.",
+            "result": "Establishes that filtering is currently slow, but not the primary cause of latency."
+          },
+          {
+            "scenario": "DOM rendering cost when opening ModelPicker.",
+            "evidence": "Measured the time to open the ModelPicker with 5000 options. The initial render took ~1.58 seconds, and closing/reopening took ~1.14 seconds. Inspected the resulting DOM and confirmed 5000 `<button role=\"option\">` nodes were appended directly to the DOM without virtualization.",
+            "result": "Establishes that DOM rendering overhead is the primary bottleneck when dealing with a large list of models, suggesting the need for windowing/virtualization."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate using react-window or react-virtuoso to replace the static map inside `.model-picker-options` to solve the latency on open/filter.",
+          "Assess if `useTransition` or `startTransition` inside `setQuery` would keep the search input responsive during the synchronous filtered list render."
+        ],
+        "proposed_task_ids": [
+          "discovery-d41f0e7cd0ba21ff"
+        ],
+        "completed_at": "2026-09-28T11:44:44.808745Z",
+        "source": {
+          "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+          "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+          "activity_created_at": "2026-09-28T11:36:55.160369Z",
+          "session_id": "39507811164087162",
+          "dispatch_key": "45076009f264e64f5dff6f61"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+          "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+          "activity_created_at": "2026-09-28T11:36:55.160369Z",
+          "session_id": "39507811164087162",
+          "dispatch_key": "45076009f264e64f5dff6f61"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-d41f0e7cd0ba21ff"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-d41f0e7cd0ba21ff",
+      "title": "Optimize ModelPicker DOM rendering with list virtualization",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-28T11:44:44.808745Z",
+      "acceptance": [
+        "Opening the ModelPicker with 5000 options takes significantly less than 1.5s",
+        "Filtering the list with 5000 options remains responsive without freezing the browser"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Frontend Vitest jsdom observation of initial mount and rerender time using 5000 synthetic models. Found that generating 5000 <button> nodes directly inside the listbox is the primary bottleneck. Measured time to open the picker was ~1.58s.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render ModelPicker with open={true} and an array of 5000 synthetic model objects",
+            "Count the DOM children of `.model-picker-options`",
+            "Measure time difference between starting to render and completing render"
+          ],
+          "expected": "The number of rendered DOM nodes should be limited to the visible viewport (e.g. 10-20), and opening should be near instant.",
+          "actual": "All 5000 DOM nodes are rendered simultaneously, taking >1.5s and freezing the UI."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-12",
+        "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+        "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+        "activity_created_at": "2026-09-28T11:36:55.160369Z",
+        "session_id": "39507811164087162",
+        "dispatch_key": "45076009f264e64f5dff6f61"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T11:38:31.067869Z",
+    "last_poll_at": "2026-09-28T11:45:03.894449Z",
     "last_tick_at": "2026-09-28T11:38:35.660867Z",
     "run_id": "36416777524"
   }
