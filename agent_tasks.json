@@ -85191,7 +85191,7 @@
       "id": "discovery-8c8a41e9d75f9c3f",
       "title": "Add accessible labels for long auto-linked external URLs in transcripts to improve screen reader experience",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -85224,6 +85224,12 @@
         "activity_created_at": "2026-09-27T23:10:33.384380Z",
         "session_id": "11873245757219553051",
         "dispatch_key": "937e365fd538093960ada9ee"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:33:08Z",
+        "note": "Bare URL as link accessible name is standard, exposes the destination, and no actual screen-reader failure is shown. Generic link/truncated aria-label would obscure distinct targets."
       }
     },
     {
