@@ -87680,6 +87680,341 @@
         "session_id": "7398654335993085517",
         "dispatch_key": "38463f7605581d6664b72f45"
       }
+    },
+    {
+      "id": "research-terminal-input-performance-12",
+      "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-09-28T08:12:06Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "performance",
+        "fingerprint": "18621df952d90d1bb8bf0c890683a43cd37b96825b7d3cf910bb9753cb0b9554",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Investigated terminal continuity handling of stale generations and keyboard shortcuts input mappings.",
+            "observations": [
+              {
+                "scenario": "Simulated applyTerminalOutputEvent receiving a stale event from an older generation than the baseline.",
+                "evidence": "Executed an isolated native script applying an output event with generation 1 to a continuity state mapped to generation 2 in `src/terminalContinuity.ts`. The decision incorrectly set `generationChanged` to true, returned `accept: true`, and overwrote the baseline generation back to 1.",
+                "result": "Establishes that the continuity state machine downgrades baselines upon receiving stale outputs from older generations. It should explicitly reject regressions in generation."
+              },
+              {
+                "scenario": "Simulated terminal keyboard shortcut mapping for physical KeyP with and without shift/ctrl.",
+                "evidence": "Executed an isolated node script testing `terminalShortcutInput` in `src/terminalShortcuts.ts`. When `ctrlKey` was true and `shiftKey` was true for KeyP, it successfully returned `\\x1b[112;6u` without invoking legacy encoding. When `shiftKey` was false, it returned null, preserving xterm's behavior.",
+                "result": "Establishes that custom CSI-u shortcuts for `Ctrl+Shift+P/O` are explicitly encoded correctly to bypass xterm's legacy drop while leaving simpler chords intact."
+              },
+              {
+                "scenario": "Simulated composition key event handling in terminal shortcut input.",
+                "evidence": "Executed isolated scripts providing an event with `isComposing: true` and `key: a` to `terminalShortcutInput`.",
+                "result": "Establishes that composition inputs are bypassed by returning `null`, keeping xterm/browser composition behavior untouched."
+              },
+              {
+                "scenario": "Simulated terminal keyboard shortcut mapping for Alt+Delete vs Ctrl+Delete.",
+                "evidence": "Executed an isolated node script testing `terminalShortcutInput`. Alt+Delete correctly returned null, keeping xterm behavior, while Ctrl+Delete correctly translated to `\\x1b[3;3~`, acting as OMP's word deletion alias.",
+                "result": "Establishes that specific legacy desktop deletion aliases are properly differentiated from alternate keyboard chords."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if writeTerminal correctly limits concurrent IPC messages to prevent webview lockups on rapid output.",
+              "Investigate the specific behavior and latency of terminal mouse selection edit extraction on multi-line text blocks with extreme lengths."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T09:16:36.339276Z",
+            "source": {
+              "activity_id": "sessions/3638143303478928414/activities/10088165bdd5479796b57ff2749d261c",
+              "report_sha256": "91b6ff12de78bbe21f2e3ad777884dd387e720aa36a8c960df363a295144e0e5",
+              "activity_created_at": "2026-09-27T09:11:56.986373Z",
+              "session_id": "3638143303478928414",
+              "dispatch_key": "53cf7e81054bccadfcb44dc8"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result and the internal baseline map\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/terminalContinuity.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                ],
+                "deferred_id": "136302b880554204c1fca07fad2894c32b00fc920e7e703a88dfa869778cd72a",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix terminal continuity generation changes during failure recovery",
+                  "risk": "medium",
+                  "priority": 60,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/terminalContinuity.ts"
+                  ],
+                  "acceptance": [
+                    "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Establish a generation 2 baseline using applyTerminalAttachment",
+                        "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                        "Observe the result and the internal baseline map"
+                      ],
+                      "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+                      "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                          "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                          "why_previous_reason_no_longer_explains": "The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation."
+                        },
+                        {
+                          "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                          "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                          "why_previous_reason_no_longer_explains": "The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "action": "reject",
+                      "decision_at": "2026-09-21T20:12:25Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-terminal-input-ux-11",
+                  "activity_id": "sessions/3638143303478928414/activities/10088165bdd5479796b57ff2749d261c",
+                  "report_sha256": "91b6ff12de78bbe21f2e3ad777884dd387e720aa36a8c960df363a295144e0e5",
+                  "activity_created_at": "2026-09-27T09:11:56.986373Z",
+                  "session_id": "3638143303478928414",
+                  "dispatch_key": "53cf7e81054bccadfcb44dc8"
+                }
+              },
+              {
+                "title": "Optimize formatSelectionReply to prevent O(N^2) processing delay on empty lines",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-48f2557385bb78b9; not established as a duplicate. {\"detail\": \"Native runtime script executed against src/terminalInput.ts measured execution time of formatSelectionReply.\", \"reproduction\": {\"actual\": \"formatSelectionReply suffers O(N^2) time complexity from repeated shift() and pop() calls in while loops, taking ~670ms.\", \"expected\": \"The text parses and returns quickly (~20ms) using O(N) traversal.\", \"steps\": [\"Execute an isolated node script that generates a string with 50,000 leading and trailing blank lines\", \"Pass this string to formatSelectionReply and measure execution time\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "formatSelectionReply processes large input with many empty lines without O(N^2) time complexity by avoiding shift()/pop() loops"
+                ]
+              },
+              {
+                "title": "Fix over-deletion of complex unicode characters in terminal input mouse edits",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-555ec713d1750691; not established as a duplicate. {\"detail\": \"Native runtime script simulating createMouseSelectionEdit.\", \"reproduction\": {\"actual\": \"The length calculates to 7 using Array.from(text.replace(/[\\\\r\\\\n]/g, \\\"\\\")).length, causing 7 deletion keystrokes and over-deletion.\", \"expected\": \"The length evaluates to 1 using Intl.Segmenter, resulting in 1 deletion keystroke.\", \"steps\": [\"Execute isolated script simulating createMouseSelectionEdit on the text 👨‍👩‍👧‍👦\", \"Observe the calculated length used for deletions\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "createMouseSelectionEdit accurately calculates deletion length for complex graphemes (e.g. emojis with zero-width joiners) using Intl.Segmenter"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the specific behavior and latency of terminal mouse selection edit extraction on multi-line text blocks with extreme lengths.",
+            "observations": [
+              {
+                "scenario": "Simulated terminal UI right-clicking with a very large (extreme length) text selection to trigger `createMouseSelectionEdit`.",
+                "evidence": "Executed an isolated node script passing a 3,000,000-character string to `createMouseSelectionEdit`. The script measured roughly 800ms of synchronous execution time on the main thread.",
+                "result": "Establishes that the unconditional string extraction `Array.from(text.replace(/[\\r\\n]/g, \"\")).length` block synchronously before early returning `null` via `cursorMoveInput`. A huge selection from terminal scrollback freezes the UI on right click."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if writeTerminal correctly limits concurrent IPC messages to prevent webview lockups on rapid output.",
+              "Investigate if terminal continuity correctly handles multiple transient IPC errors without dropping events."
+            ],
+            "proposed_task_ids": [
+              "discovery-4ba740d357eb631f"
+            ],
+            "completed_at": "2026-09-27T23:46:55.439875Z",
+            "source": {
+              "activity_id": "sessions/17959923304857814379/activities/f810a0b1782645a683cbc74d72d83ae4",
+              "report_sha256": "8c26b13a8d554b946732973ad77fc57df9306b312081c53f021eccc991c81605",
+              "activity_created_at": "2026-09-27T23:39:20.371256Z",
+              "session_id": "17959923304857814379",
+              "dispatch_key": "8282f98546681492b9a09dea"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated continuity, input editing, and output batching behaviors related to terminal failure recovery and performance.",
+            "observations": [
+              {
+                "scenario": "Simulated applyTerminalOutputEvent receiving a stale event from an older generation than the current baseline.",
+                "evidence": "Executed an isolated native script testing applyTerminalOutputEvent with a generation 1 event after establishing a generation 2 baseline in src/terminalContinuity.ts. The logic incorrectly returned accept: true, generationChanged: true, and downgraded the internal baseline back to generation 1 instead of rejecting the stale generation.",
+                "result": "Establishes that the continuity state machine accepts regressions in generation from output events, potentially corrupting the baseline and causing duplicate processing during failure recovery."
+              },
+              {
+                "scenario": "Tested createMouseSelectionEdit calculation for extreme terminal scrollback text length (e.g. 3,000,000 characters).",
+                "evidence": "Executed an isolated script simulating an extreme length right-click selection. The length validation Array.from(text.replace(/[\\r\\n]/g, \"\")).length runs synchronously before returning null, taking ~50ms for 3M chars.",
+                "result": "Establishes that extracting string lengths for extreme lengths is noticeably synchronous but within 50ms, though Array.from causes incorrect length for complex unicode."
+              },
+              {
+                "scenario": "Tested formatSelectionReply with 100,000 leading/trailing empty lines.",
+                "evidence": "Observed execution time using `while` loop without `lines.shift()` and `lines.pop()` (as it exists currently on main) and compared against the previous reported issue.",
+                "result": "Established that formatSelectionReply currently avoids O(N^2) delay because it was previously resolved (merged PR #95) and does not use shift()/pop()."
+              },
+              {
+                "scenario": "Tested createMouseSelectionEdit deletion length calculation on complex graphemes (e.g., emojis with zero-width joiners like 👨‍👩‍👧‍👦).",
+                "evidence": "Executed an isolated node script passing '👨‍👩‍👧‍👦' to createMouseSelectionEdit. The current Array.from approach yielded a length of 7. Modified the script to use Intl.Segmenter, which correctly evaluated the length to 1.",
+                "result": "Establishes that Array.from over-calculates deletion strokes for complex graphemes, causing terminal over-deletion on mouse selection edits, whereas Intl.Segmenter provides accurate grapheme cluster counts."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if writeTerminal correctly limits concurrent IPC messages to prevent webview lockups on rapid output."
+            ],
+            "proposed_task_ids": [
+              "discovery-1e592458e240e870"
+            ],
+            "completed_at": "2026-09-28T00:53:24.759856Z",
+            "source": {
+              "activity_id": "sessions/17762987055337439725/activities/56181aedf6b346ecbb7168d83a61acfc",
+              "report_sha256": "dd28b02e34814431402198ce43b640e8e4be1d8d0dd6ef8b42b390f739324135",
+              "activity_created_at": "2026-09-28T00:42:07.417862Z",
+              "session_id": "17762987055337439725",
+              "dispatch_key": "d99422c7cbb909c96faa0a6d"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result and the internal baseline map\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/terminalContinuity.ts",
+                  "src/terminalContinuity.test.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                ],
+                "deferred_id": "fd5f4c11a9c761750024371a02404fcc08329bb337ac039873d284551618cf32",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix terminal continuity generation changes during failure recovery",
+                  "risk": "medium",
+                  "priority": 60,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/terminalContinuity.ts",
+                    "src/terminalContinuity.test.ts"
+                  ],
+                  "acceptance": [
+                    "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Establish a generation 2 baseline using applyTerminalAttachment",
+                        "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                        "Observe the result and the internal baseline map"
+                      ],
+                      "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+                      "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                          "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                          "why_previous_reason_no_longer_explains": "The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation."
+                        },
+                        {
+                          "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                          "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                          "why_previous_reason_no_longer_explains": "The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "action": "reject",
+                      "decision_at": "2026-09-21T20:12:25Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-terminal-input-reliability-12",
+                  "activity_id": "sessions/17762987055337439725/activities/56181aedf6b346ecbb7168d83a61acfc",
+                  "report_sha256": "dd28b02e34814431402198ce43b640e8e4be1d8d0dd6ef8b42b390f739324135",
+                  "activity_created_at": "2026-09-28T00:42:07.417862Z",
+                  "session_id": "17762987055337439725",
+                  "dispatch_key": "d99422c7cbb909c96faa0a6d"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
