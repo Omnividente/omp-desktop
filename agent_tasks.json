@@ -89301,8 +89301,8 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-28T08:49:55.839246Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-28T08:58:03.130526Z"
       }
     },
     {
@@ -89349,7 +89349,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T08:58:24.599300Z",
+    "last_poll_at": "2026-09-28T08:58:31.755184Z",
     "last_tick_at": "2026-09-28T08:51:57.641427Z",
     "run_id": "36399678878"
   }
