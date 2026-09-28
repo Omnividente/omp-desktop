@@ -90327,7 +90327,7 @@
       "id": "discovery-0d1360aaaa775a55",
       "title": "Optimize formatRelative latency by caching Intl formatters",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "todo",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -90361,6 +90361,12 @@
         "activity_created_at": "2026-09-28T10:55:11.922933Z",
         "session_id": "6153294401714548361",
         "dispatch_key": "71d8c09b2ac914433345128a"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:37:18Z",
+        "note": "uiUtils.ts:25-41 constructs Intl formatters on each relative-time render. Cache locale-specific instances without changing displayed text or language switching. Valid small optimization, NOT a 0.9.7 release gate."
       }
     },
     {
