@@ -86214,7 +86214,8 @@
             "session_id": "17762987055337439725",
             "dispatch_key": "d99422c7cbb909c96faa0a6d"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d99422c7cbb909c96faa0a6d"
       },
       "research_result": {
         "summary": "Investigated continuity, input editing, and output batching behaviors related to terminal failure recovery and performance.",
