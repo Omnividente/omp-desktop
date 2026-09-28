@@ -88757,7 +88757,8 @@
         "feedback_nudge": {
           "at": "2026-09-28T08:43:39.262133Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d77d5d261260c8b53c386d70"
       },
       "research_result": {
         "summary": "Investigated memory boundaries and list rendering scalability in CodexImportModal and SessionList. Verified that CodexImportModal suffers from a fatal OOM crash without virtualization at 100,000 items, while SessionList successfully renders the same synthetic scale due to useVirtualList.",
