@@ -95884,6 +95884,125 @@
         "session_id": "13838146669907269334",
         "dispatch_key": "57320e9261ec1e2e10ec4bef"
       }
+    },
+    {
+      "id": "research-transcript-links-performance-12",
+      "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-28T19:47:01Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "performance",
+        "fingerprint": "564be157a34112f5635a4577e184c3bf8114f028935c58e427acb18be38c5688",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Investigated the transcript search interaction and external link accessibility. Identified a UX flaw where pressing Escape in the search input abruptly closes the modal, and confirmed that long auto-linked external URLs lack accessible labels, causing disruptive screen reader readouts.",
+            "observations": [
+              {
+                "scenario": "Pressing the Escape key while focus is inside the TranscriptModal search field.",
+                "evidence": "Ran an isolated jsdom test using React Testing Library to simulate pressing Escape within the search input. Tracked event propagation and mocked prop callbacks.",
+                "result": "Establishes that the Escape key event is not trapped by the search input; it bubbles to the modal's `useModalFocus` keydown handler, which fires `onClose`. This causes the entire transcript modal to close immediately, frustrating users who just wanted to clear the search field or drop focus."
+              },
+              {
+                "scenario": "Rendering long, unlabelled external URLs via Markdown auto-linking for screen reader consumption.",
+                "evidence": "Rendered a simulated transcript entry containing a >100 character URL with query parameters and hashes. Inspected the output anchor tag attributes in jsdom.",
+                "result": "Establishes that auto-linked URLs omit an `aria-label`, so the `href`, `title`, and inner text are identical lengthy strings. Screen readers default to reading the entire sequence character-by-character, which is a poor accessibility experience for complex URLs."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if navigating matches using Shift+Enter in the transcript search works reliably when results span across unmounted virtual list boundaries.",
+              "Investigate the accessibility of the TranscriptModal's filter toggle buttons (dialogue vs all, rendered vs source) and whether their pressed state changes are announced properly to screen readers."
+            ],
+            "proposed_task_ids": [
+              "discovery-6ea025a0318469cc",
+              "discovery-8c8a41e9d75f9c3f"
+            ],
+            "completed_at": "2026-09-27T23:18:47.373028Z",
+            "source": {
+              "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+              "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+              "activity_created_at": "2026-09-27T23:10:33.384380Z",
+              "session_id": "11873245757219553051",
+              "dispatch_key": "937e365fd538093960ada9ee"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the behavior of Shift+Enter match navigation across virtual boundaries and confirmed the accessibility of the filter toggle buttons, finding both work correctly as implemented.",
+            "observations": [
+              {
+                "scenario": "Simulated pressing Shift+Enter to navigate to a search match located in an unmounted (virtualized) list item boundary.",
+                "evidence": "Ran an isolated jsdom test with mocked `ResizeObserver` forcing virtualization. Observed that `scrollToIndex` correctly triggers a synchronous scroll position state update. This prompts a re-render that mounts the previously hidden list item. A subsequent `useLayoutEffect` detects the mounted `<mark>` element and uses `requestAnimationFrame` to precisely adjust the scroll bound offset.",
+                "result": "Establishes that navigating backward and forward across unmounted virtual boundaries correctly restores the message context without blocking the main thread or getting stuck in layout loops. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Screen reader readout of Transcript filter toggle buttons (dialogue vs all, formatted vs source).",
+                "evidence": "Ran an isolated jsdom test examining the element attributes on the filter group and buttons. The container explicitly uses `role=\"group\"` with an `aria-label`, and the buttons properly toggle the `aria-pressed` boolean attribute depending on the mode.",
+                "result": "Establishes that the filter toggle states correctly announce their accessible pressed state and group context to screen readers, complying with accessibility standards. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if clicking 'Latest message' safely anchors long terminal transcript messages that span larger than the viewport, preventing the bottom of the message from being unintentionally hidden by top-alignment."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T04:09:46.449093Z",
+            "source": {
+              "activity_id": "sessions/7817973288253923163/activities/8ad65e29448846a0a507b69686bad0c8",
+              "report_sha256": "01f787dbe8dc8192f47a839ef26d6974fd0a46efc7d0c9691ab829cee3233e87",
+              "activity_created_at": "2026-09-28T04:00:24.625240Z",
+              "session_id": "7817973288253923163",
+              "dispatch_key": "d56c87480a5d10ccd56f4592"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of jumping to the 'Latest message' in the TranscriptModal. Discovered that the anchor restoration mechanism incorrectly binds the top of the message to the top of the viewport due to a 0-offset default. When messages are exceptionally long, this hides the actual bottom/latest content.",
+            "observations": [
+              {
+                "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+                "evidence": "Ran an isolated jsdom test mocking `getBoundingClientRect` to simulate a message element with `height: 5000px` and a scroll viewport of `500px`. Observed that after triggering `pendingLatestRef`, `useLayoutEffect` initializes `pendingRestoreRef.current` with `{ index: lastIndex, offset: 0 }`. The restoration logic then calculates `scroll.scrollTop + rowBounds.top - containerTop + offset`. Since `offset` is `0`, the *top* of the 5000px message is aligned to the top of the viewport. The scroll position settled at `99500` rather than the maximum possible scroll boundary (which would show the *bottom* of the text). Changing the assigned offset to `Infinity` within `pendingRestoreRef` properly leveraged `Math.min(saved.offset, rowBounds.height - 1)` clamping, correctly pinning the bottom of the tall element to the viewport.",
+                "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, causing the actual latest content to be hidden off-screen."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+            ],
+            "proposed_task_ids": [
+              "discovery-84ebe14b2ef5320a"
+            ],
+            "completed_at": "2026-09-28T14:49:37.620997Z",
+            "source": {
+              "activity_id": "sessions/8682276882943402279/activities/d385dd6484df4d2b812efd2a727024f4",
+              "report_sha256": "ae9cc26a2faf5f72b419308096a8129d64f8d59106c48e1fe0d37be3430769c0",
+              "activity_created_at": "2026-09-28T14:27:14.302777Z",
+              "session_id": "8682276882943402279",
+              "dispatch_key": "dc71c304b7e0024f0a3bf24b"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
