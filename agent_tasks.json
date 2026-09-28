@@ -87663,7 +87663,7 @@
       "id": "discovery-5a4035fe39fb1554",
       "title": "Implement structural bounds or virtualization for CodexImportModal to prevent out-of-memory crashes on massive datasets",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "medium",
       "focus": [
@@ -87709,6 +87709,12 @@
         "activity_created_at": "2026-09-28T07:51:04.201869Z",
         "session_id": "7398654335993085517",
         "dispatch_key": "38463f7605581d6664b72f45"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:35:53Z",
+        "note": "Same unbounded CodexImportModal list and 100k synthetic crash as approved discovery-62b7e5e452db8a76. Duplicate work; approved task owns the structural bound and focus behavior."
       }
     },
     {
