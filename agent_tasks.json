@@ -95019,7 +95019,7 @@
       "id": "discovery-2f466cea5a5c36d8",
       "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -95052,6 +95052,12 @@
         "activity_created_at": "2026-09-28T16:16:11.384009Z",
         "session_id": "187760068886555318",
         "dispatch_key": "5ccb46e44a60d1355f24450d"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:42:06Z",
+        "note": "100k-line clean-log benchmark is synthetic, not an observed event-loop stall. redact_text must scan all supported sensitive forms and return an owned String; a simplistic prefix fast-path risks leaking secrets. Reassess only with real bounded production case."
       }
     },
     {
