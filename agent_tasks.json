@@ -91640,6 +91640,155 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-settings-models-ux-12",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-28T12:24:50Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "b69abb14a05494a3878d9458c83b9c383bfa34aa83b9c94bd80c88fc504d2f84",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Verified hypotheses for ModelPicker keyboard handling, SettingsRecoveryScreen ARIA/focus, and ModelPicker performance latency.",
+            "observations": [
+              {
+                "scenario": "Handling the Enter key within the ModelPicker search and manual inputs.",
+                "evidence": "Tested rendering ModelPicker in a Vitest jsdom environment. Dispatched a 'keydown' event with key 'Enter' on both search and manual inputs. In both cases, the picker was not closed and no selection occurred.",
+                "result": "Establishes that the Enter key is currently ignored in both inputs, and should be handled to improve keyboard navigation."
+              },
+              {
+                "scenario": "Checking ARIA roles and auto-focus behavior on SettingsRecoveryScreen.",
+                "evidence": "Tested rendering SettingsRecoveryScreen in a Vitest jsdom environment. Checked for the `role` attribute on the container and inspected `document.activeElement` after rendering. Neither `role=\"alertdialog\"` was present nor focus was placed on the primary button.",
+                "result": "Establishes that the recovery screen lacks the alertdialog role and auto-focus on the primary action button, degrading accessibility."
+              },
+              {
+                "scenario": "Measuring filtering performance with 5000 models in ModelPicker.",
+                "evidence": "Rendered ModelPicker with 5000 synthetic models in Vitest jsdom. Triggering an `onChange` event with a search string takes significantly long time (around 2 seconds) due to repeated string array joining inside the filtering loop.",
+                "result": "Establishes that string allocations during filtering introduce noticeable latency, which should be optimized by pre-calculating search terms."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the listbox options using `react-window` or `react-virtuoso` further reduces DOM layout thrashing.",
+              "Investigate if fallback chains selection needs better validation to handle empty missing models."
+            ],
+            "proposed_task_ids": [
+              "discovery-1bfa5bf9af01f966"
+            ],
+            "completed_at": "2026-09-27T13:17:27.342872Z",
+            "source": {
+              "activity_id": "sessions/14030234260151532554/activities/571961cc56874704886a3084c3a51d15",
+              "report_sha256": "81a98aa1b10c90bffdc7b1703e33173715af0a6f4687d40222a769b51356315c",
+              "activity_created_at": "2026-09-27T13:07:12.288730Z",
+              "session_id": "14030234260151532554",
+              "dispatch_key": "d0b4ff7ea76da9be74f0bc74"
+            },
+            "deferred_findings": [
+              {
+                "title": "Allow model selection by pressing Enter in the ModelPicker inputs",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-7f58e586ac2abeec; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom observation using synthetic model data. Tested keyboard events on the search and manual inputs.\", \"reproduction\": {\"actual\": \"The Enter key event is ignored and no selection or closing occurs\", \"expected\": \"The currently highlighted model is selected and onChange is called for search input, and the picker is closed for both\", \"steps\": [\"Render ModelPicker with open={true} and valid model options\", \"Focus the search input and press the 'Enter' key\", \"Focus the manual input and press the 'Enter' key\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Enter while focused in the ModelPicker search input selects the currently highlighted model and closes the picker",
+                  "Pressing Enter while focused in the ModelPicker manual input closes the picker"
+                ]
+              },
+              {
+                "title": "Improve SettingsRecoveryScreen accessibility with focus management and ARIA roles",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-ab7a935a0deafa44; not established as a duplicate. {\"detail\": \"Frontend Vitest jsdom validation of SettingsRecoveryScreen DOM elements and component mount lifecycle.\", \"reproduction\": {\"actual\": \"Focus remains on the document body and the main container has no explicit role attribute\", \"expected\": \"Focus is moved to the primary action button, and the container has role=\\\"alertdialog\\\"\", \"steps\": [\"Mount the SettingsRecoveryScreen component with synthetic recovery details\", \"Check document.activeElement and the role attribute of the main container\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/SettingsRecoveryScreen.tsx"
+                ],
+                "acceptance": [
+                  "The recovery screen container has role=\"alertdialog\"",
+                  "Focus is captured automatically by the primary 'Start with defaults' button when the recovery screen appears"
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated Settings recovery and model selection failure modes. Reviewed recovery behavior during write failures and confirmed that the existing atomic write and backup mechanisms correctly preserve state.",
+            "observations": [
+              {
+                "scenario": "Simulating a failed write operation during `start_with_defaults_prepared` and `recover_invalid_settings`.",
+                "evidence": "Inspected Rust test suite (`failed_defaults_write_keeps_source_and_completed_backup`, `failed_recovery_backup_never_replaces_invalid_source`) which explicitly checks that failed writes do not corrupt the original invalid source and correctly yield a `.tmp` and/or `.backup` file conservatively.",
+                "result": "Establishes that failed recovery operations are handled safely. Backups are intentionally duplicated (as per previous decision `bd59fa229eeec07c254a0ce56b24c12fd0ab4f33799df28e45a3bb378061a38c`), and original state is preserved without silent loss."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the robustness of model selection fallback chains when handling models that are unexpectedly removed from the OmpConfig during an active session."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T14:15:32.544778Z",
+            "source": {
+              "activity_id": "sessions/11325218126329700204/activities/fe141b744239477daac528d86d114ea3",
+              "report_sha256": "e06f53527dc81b8b58ee7982404ae1852d0366b6cdc275091845b1f4da9a929c",
+              "activity_created_at": "2026-09-27T14:07:53.079145Z",
+              "session_id": "11325218126329700204",
+              "dispatch_key": "730c7bdd57fb6a27a9b9c79e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured filtering latency and DOM rendering overhead in ModelPicker when handling 5000 models. Both keyboard interaction and opening the picker take >1.1 seconds due to unvirtualized DOM nodes.",
+            "observations": [
+              {
+                "scenario": "Keyboard filtering of models in ModelPicker.",
+                "evidence": "Simulated typing 'Model-123' into the ModelPicker's search input with 5000 options pre-loaded. The filtering callback (onChange) latency for a single keystroke was ~175ms.",
+                "result": "Establishes that filtering is currently slow, but not the primary cause of latency."
+              },
+              {
+                "scenario": "DOM rendering cost when opening ModelPicker.",
+                "evidence": "Measured the time to open the ModelPicker with 5000 options. The initial render took ~1.58 seconds, and closing/reopening took ~1.14 seconds. Inspected the resulting DOM and confirmed 5000 `<button role=\"option\">` nodes were appended directly to the DOM without virtualization.",
+                "result": "Establishes that DOM rendering overhead is the primary bottleneck when dealing with a large list of models, suggesting the need for windowing/virtualization."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate using react-window or react-virtuoso to replace the static map inside `.model-picker-options` to solve the latency on open/filter.",
+              "Assess if `useTransition` or `startTransition` inside `setQuery` would keep the search input responsive during the synchronous filtered list render."
+            ],
+            "proposed_task_ids": [
+              "discovery-d41f0e7cd0ba21ff"
+            ],
+            "completed_at": "2026-09-28T11:44:44.808745Z",
+            "source": {
+              "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+              "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+              "activity_created_at": "2026-09-28T11:36:55.160369Z",
+              "session_id": "39507811164087162",
+              "dispatch_key": "45076009f264e64f5dff6f61"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
