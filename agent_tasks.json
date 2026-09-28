@@ -95472,7 +95472,7 @@
         },
         "report_repair": {
           "at": "2026-09-28T18:40:56.641984Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/13838146669907269334/activities/9ae909a8c82849519f2e26aeacb3bbf5",
