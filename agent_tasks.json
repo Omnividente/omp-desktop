@@ -95320,8 +95320,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "13838146669907269334",
         "dispatch_key": "57320e9261ec1e2e10ec4bef",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-57320e9261ec1e2e10ec4bef",
