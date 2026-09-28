@@ -93849,7 +93849,7 @@
       "id": "research-diagnostics-resources-behavior-12",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -94085,16 +94085,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7367919261731182012",
         "dispatch_key": "258d095a9581b2f5ee651d1c",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-258d095a9581b2f5ee651d1c",
         "started_at": "2026-09-28T15:32:11.187064Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T16:22:41.696728Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -94221,8 +94221,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T15:53:16.289516Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T16:22:41.696728Z",
         "research_detached": {
           "at": "2026-09-28T15:47:50.043622Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -94231,6 +94231,34 @@
           "at": "2026-09-28T15:47:50.043622Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the hypothesis that high-throughput terminal output could block the event loop via overlapping `redact_text` invocations. Confirmed this does not occur in practice because raw terminal output chunks are not passed to `redact_text`; the transient backend detector only emits small metadata strings.",
+        "observations": [
+          {
+            "scenario": "Verify if concurrent high-throughput terminal outputs cause overlapping `redact_text` invocations that block the Tauri IPC event loop.",
+            "evidence": "Source code inspection of `terminal.rs` and `diagnostics.rs`. Terminal outputs are processed by `route_output` which calls `transient_backend_detector.observe(data)`. This detector only issues `diagnostics::warn` with a small pre-formatted string (`terminal_id=...; category=...`) when a pattern is matched, rather than logging the entire terminal output payload.",
+            "result": "Establishes that `redact_text` is never invoked on large terminal output streams, and thus cannot block the Tauri IPC event loop during high-throughput output. The hypothesis is unsupported."
+          },
+          {
+            "scenario": "Verify if `redact_text` processing time scales poorly with extremely large strings containing sensitive markers.",
+            "evidence": "Executed an isolated Rust test (`test_diagnostics_10.rs`, `test_diagnostics_14.rs`) passing megabyte-sized strings padded with spaces and sensitive markers into `redact_text`. The function processed 10MB of text in ~760ms to ~9 seconds depending on line splits.",
+            "result": "Establishes that while `redact_text` performs heavy string allocations, it operates within an acceptable linear time bound. Since it is only invoked on small warnings and bounded error messages, this performance profile is safe and does not require immediate optimization."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the lack of bounds checking before `diagnostics::redact_text` in `models::sanitize_error_text` could lead to a massive temporary memory allocation spike if an underlying OS command or API request returns an unexpectedly large multi-megabyte error message."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T16:22:41.696728Z",
+        "source": {
+          "activity_id": "sessions/7367919261731182012/activities/724fb70e47764d7b8c5f262a83453d88",
+          "report_sha256": "d98ea5173bb7cb573d8b371311fd4046aeb70229345a49e947fbf7cf582ce3df",
+          "activity_created_at": "2026-09-28T15:50:18.198888Z",
+          "session_id": "7367919261731182012",
+          "dispatch_key": "258d095a9581b2f5ee651d1c"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -94614,7 +94642,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T16:23:07.245175Z",
+    "last_poll_at": "2026-09-28T16:23:13.302405Z",
     "last_tick_at": "2026-09-28T16:16:16.582461Z",
     "run_id": "36449657076"
   }
