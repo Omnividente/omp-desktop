@@ -96191,6 +96191,10 @@
         "research_detached": {
           "at": "2026-09-28T20:16:05.943888Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-28T20:16:05.943888Z",
+          "result": "pending"
         }
       }
     }
