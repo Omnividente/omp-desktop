@@ -93850,7 +93850,7 @@
       "id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
       "title": "Fix failure to resolve active fallbacks when primary model recovers",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -93915,6 +93915,12 @@
         "activity_created_at": "2026-09-28T15:05:53.132839Z",
         "session_id": "16396213467376557388",
         "dispatch_key": "c7a97fcd01954b7ca308050a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:41:24Z",
+        "note": "Revisited prior rejection: primary-restored modelChange without fallbackRole does not prove a secondary role recovered. runtimeIncidents role scoped; clearing secondary from a primary-only signal can hide an active fallback. Need real producer lifecycle evidence."
       }
     },
     {
