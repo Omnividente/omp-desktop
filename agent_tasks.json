@@ -91335,7 +91335,7 @@
       "id": "discovery-d41f0e7cd0ba21ff",
       "title": "Optimize ModelPicker DOM rendering with list virtualization",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "medium",
       "focus": [
@@ -91371,6 +91371,12 @@
         "activity_created_at": "2026-09-28T11:36:55.160369Z",
         "session_id": "39507811164087162",
         "dispatch_key": "45076009f264e64f5dff6f61"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:39:20Z",
+        "note": "Synthetic 5000-model test has no shown production provider-catalog path; current filter and low-hundreds normal model set do not demonstrate user-facing freeze. Do not add virtualized listbox complexity without real scale."
       }
     },
     {
