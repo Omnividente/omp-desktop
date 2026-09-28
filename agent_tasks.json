@@ -95979,7 +95979,7 @@
       "id": "research-transcript-links-performance-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -96095,7 +96095,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "11846649909323179230",
         "dispatch_key": "12b3f563d46225d4b4525a2f",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
@@ -96103,8 +96103,8 @@
         "started_at": "2026-09-28T19:47:01.023626Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_json",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -96276,8 +96276,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-28T20:16:05.943888Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T20:49:13.927890Z",
         "research_detached": {
           "at": "2026-09-28T20:16:05.943888Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -96285,12 +96285,36 @@
         "feedback_nudge": {
           "at": "2026-09-28T20:16:05.943888Z",
           "result": "sent"
+        },
+        "report_error": {
+          "code": "research_json",
+          "detail": "research report is not valid JSON: Invalid \\escape: line 6 column 188 (char 737)",
+          "reported_at": "2026-09-28T20:49:13.927890Z",
+          "source": {
+            "activity_id": "sessions/11846649909323179230/activities/4c7a0cd53d554ad4a10220194d02d704",
+            "report_sha256": "ca7eb7efba61bba7f7a9188e92eb5237be36b7b298a6bff6a9d92816f46c9316",
+            "activity_created_at": "2026-09-28T20:17:44.714996Z",
+            "session_id": "11846649909323179230",
+            "dispatch_key": "12b3f563d46225d4b4525a2f"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-28T20:49:49.723682Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/11846649909323179230/activities/4c7a0cd53d554ad4a10220194d02d704",
+            "report_sha256": "ca7eb7efba61bba7f7a9188e92eb5237be36b7b298a6bff6a9d92816f46c9316",
+            "activity_created_at": "2026-09-28T20:17:44.714996Z",
+            "session_id": "11846649909323179230",
+            "dispatch_key": "12b3f563d46225d4b4525a2f"
+          }
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T20:49:41.879077Z",
+    "last_poll_at": "2026-09-28T20:49:47.735234Z",
     "last_tick_at": "2026-09-28T20:17:01.532273Z",
     "run_id": "36477908979"
   }
