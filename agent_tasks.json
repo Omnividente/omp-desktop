@@ -91221,7 +91221,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T11:44:44.808745Z"
+        "observed_at": "2026-09-28T11:44:44.808745Z",
+        "released_attempt_ref": "autonomous/attempt-45076009f264e64f5dff6f61"
       },
       "research_result": {
         "summary": "Measured filtering latency and DOM rendering overhead in ModelPicker when handling 5000 models. Both keyboard interaction and opening the picker take >1.1 seconds due to unvirtualized DOM nodes.",
