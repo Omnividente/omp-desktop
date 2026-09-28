@@ -86925,6 +86925,124 @@
         "session_id": "12840153817774080616",
         "dispatch_key": "7df068600b40dffd23f62d58"
       }
+    },
+    {
+      "id": "research-transcript-links-behavior-11",
+      "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-28T03:41:34Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "behavior",
+        "fingerprint": "564be157a34112f5635a4577e184c3bf8114f028935c58e427acb18be38c5688",
+        "cycle": 11,
+        "previous_reports": [
+          {
+            "summary": "Verified via isolated rendering tests and static analysis that Transcript load operations correctly tolerate concurrency, cancellation, and simulated failures without dropping state or producing duplicate side-effects.",
+            "observations": [
+              {
+                "scenario": "Concurrent overlapping invocations of `loadTranscript` and `loadTranscriptPath` with mock data.",
+                "evidence": "Ran an isolated jsdom test simulating simultaneous load requests by mocking the underlying backend API. Tracked internal synchronization counters (`requestRef`) in `useTranscript.ts`. Observed that earlier simulated backend responses arriving out-of-order are safely ignored, preventing race conditions or interleaved data; only the latest requested session correctly renders.",
+                "result": "Establishes that the UI cleanly handles concurrent reloading and navigation without duplicate UI updates or invalid view state. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Simulated failure of a transcript backend read, followed by manual retry.",
+                "evidence": "Inspected `useTranscript` and `TranscriptModal` fallback loops. Verified that throwing a mock read error clears the rendering area but keeps `transcriptSearch` and `transcriptMode` fully intact. When clicking 'Retry', the invocation triggers `preservePosition` which correctly bypasses empty states, guarding the cached LRU position dictionary, ensuring no scroll data is overwritten with empty bounds. Upon subsequent success, layout parameters are faithfully restored.",
+                "result": "Establishes that failure boundaries during transcript refreshes maintain recoverability, preventing the loss of user view context and scrolling progress without creating duplicate request side-effects. (Evidence mode: static_analysis, mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the interaction between content link selection boundaries and virtual scrolling performance when dragging a text selection across multiple unloaded virtual list boundaries."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T14:28:38.859887Z",
+            "source": {
+              "activity_id": "sessions/4932807549407875854/activities/bb2e755863b8456f93f0e4523ec8916e",
+              "report_sha256": "48f900833909b9dddda1caef30e4ac2912bf13a85eeebdb81ed06a723554f137",
+              "activity_created_at": "2026-09-27T14:16:47.680361Z",
+              "session_id": "4932807549407875854",
+              "dispatch_key": "66596e33b2ecdfb2dad07640"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the virtual scroll selection boundaries when triggering link context menus.",
+            "observations": [
+              {
+                "scenario": "Simulated context menu invocation on a transcript content link when the active browser selection spans across boundaries (anchor node outside/unmounted, focus node inside).",
+                "evidence": "Ran an isolated jsdom React test simulating `onLinkContextMenu` in `TranscriptModal`. Because virtual windowing unmounts offscreen nodes, `selection.anchorNode` is not contained within `scrollRef.current` if a large text selection originated off-screen. This causes the boundary check `scrollRef.current?.contains(selection.anchorNode) && scrollRef.current.contains(selection.focusNode)` to incorrectly evaluate as false. As a result, the code falls through the guard, calls `event.preventDefault()`, and forcibly opens the custom `ContentActionMenu` (via a Portal), blocking the user's intent to natively copy their selected text.",
+                "result": "Establishes that the context menu boundary check fails during large/cross-boundary virtual scrolling selections, preventing native right-click copy behavior."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-7fc2347695f1836c"
+            ],
+            "completed_at": "2026-09-27T20:07:00.324141Z",
+            "source": {
+              "activity_id": "sessions/2420551994585731412/activities/996ab9fcdbdf443595aa06411a1619f6",
+              "report_sha256": "89c3bda4a090696a480fd681e73e5faa2bf888c15c87dcedd0879f96be89dccc",
+              "activity_created_at": "2026-09-27T19:57:50.394349Z",
+              "session_id": "2420551994585731412",
+              "dispatch_key": "aefa7be5c35610c02a73144e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the transcript search interaction and external link accessibility. Identified a UX flaw where pressing Escape in the search input abruptly closes the modal, and confirmed that long auto-linked external URLs lack accessible labels, causing disruptive screen reader readouts.",
+            "observations": [
+              {
+                "scenario": "Pressing the Escape key while focus is inside the TranscriptModal search field.",
+                "evidence": "Ran an isolated jsdom test using React Testing Library to simulate pressing Escape within the search input. Tracked event propagation and mocked prop callbacks.",
+                "result": "Establishes that the Escape key event is not trapped by the search input; it bubbles to the modal's `useModalFocus` keydown handler, which fires `onClose`. This causes the entire transcript modal to close immediately, frustrating users who just wanted to clear the search field or drop focus."
+              },
+              {
+                "scenario": "Rendering long, unlabelled external URLs via Markdown auto-linking for screen reader consumption.",
+                "evidence": "Rendered a simulated transcript entry containing a >100 character URL with query parameters and hashes. Inspected the output anchor tag attributes in jsdom.",
+                "result": "Establishes that auto-linked URLs omit an `aria-label`, so the `href`, `title`, and inner text are identical lengthy strings. Screen readers default to reading the entire sequence character-by-character, which is a poor accessibility experience for complex URLs."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if navigating matches using Shift+Enter in the transcript search works reliably when results span across unmounted virtual list boundaries.",
+              "Investigate the accessibility of the TranscriptModal's filter toggle buttons (dialogue vs all, rendered vs source) and whether their pressed state changes are announced properly to screen readers."
+            ],
+            "proposed_task_ids": [
+              "discovery-6ea025a0318469cc",
+              "discovery-8c8a41e9d75f9c3f"
+            ],
+            "completed_at": "2026-09-27T23:18:47.373028Z",
+            "source": {
+              "activity_id": "sessions/11873245757219553051/activities/4a75d61d44ab4efc87ecb6cd1487207b",
+              "report_sha256": "ad4214c85ef6bbf3dc42676fc2df493557103a562a719e4daaa4a0ceb5989b13",
+              "activity_created_at": "2026-09-27T23:10:33.384380Z",
+              "session_id": "11873245757219553051",
+              "dispatch_key": "937e365fd538093960ada9ee"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
