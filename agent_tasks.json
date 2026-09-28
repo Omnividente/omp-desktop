@@ -85787,7 +85787,7 @@
       "id": "discovery-4ba740d357eb631f",
       "title": "Fix terminal UI freezing when right-clicking on huge mouse selections",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -85820,6 +85820,12 @@
         "activity_created_at": "2026-09-27T23:39:20.371256Z",
         "session_id": "17959923304857814379",
         "dispatch_key": "8282f98546681492b9a09dea"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:33:46Z",
+        "note": "TerminalView.tsx:386-391 right-click contextmenu calls getSelection/showSelectionReply, never createMouseSelectionEdit. The 3M synthetic call cannot prove or fix right-click freeze; quantify the actual event path first."
       }
     },
     {
