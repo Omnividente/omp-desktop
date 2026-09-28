@@ -92367,7 +92367,7 @@
       "id": "research-settings-models-reliability-12",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -92480,16 +92480,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1708713293407081052",
         "dispatch_key": "6f6bcfa30f55bec6160c1eac",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-6f6bcfa30f55bec6160c1eac",
         "started_at": "2026-09-28T13:46:16.465362Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T14:18:43.189644Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -92660,8 +92660,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-28T14:09:08.138161Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T14:18:43.189644Z",
         "research_detached": {
           "at": "2026-09-28T14:09:08.138161Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -92670,6 +92670,34 @@
           "at": "2026-09-28T14:09:08.138161Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the robustness of proxy provider selection and settings saving when a custom provider is unexpectedly removed. Verified that the SettingsPanel properly flags changes, computes differences, and correctly sends the `removedCustomProviders` field without losing the list of valid `proxyProviders`.",
+        "observations": [
+          {
+            "scenario": "Handling of unexpectedly removed custom proxy providers during settings save on the frontend.",
+            "evidence": "Simulated a SettingsPanel environment in Vitest jsdom where an existing active custom proxy provider (`missing-provider`) is explicitly removed by the user in the UI. Intercepted `saveSettingsBundle` and verified that the `removedCustomProviders` array is populated with `['missing-provider']`, and the `proxyProviders` list is re-evaluated appropriately. Additionally, confirmed `hasChanges` properly marks the settings form as dirty.",
+            "result": "Establishes that the frontend gracefully aggregates changes regarding missing providers and sends the intention to remove a provider correctly to the backend API (`saveSettingsBundle`)."
+          },
+          {
+            "scenario": "Persistence and normalization of proxy_providers on the backend when invalid providers exist.",
+            "evidence": "Inspected `normalize_persisted_proxy_providers` in `src-tauri/src/settings.rs` which verifies that persisted proxy provider IDs are trimmed and invalid empty values are removed, guaranteeing they do not corrupt the persisted Rust state. Checked Rust tests `persisted_proxy_provider_ids_are_trimmed_and_invalid_values_removed` and `proxy_providers_survive_settings_round_trip`.",
+            "result": "Establishes that the backend enforces safe deserialization and normalization of `proxy_providers`, preventing invalid chains or ghost values from causing a panic or unrecoverable state."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the application's runtime behavior when a previously active proxy provider is entirely disabled from `OmpConfig` (but still present in settings) and how `resolve_omp` treats those disabled instances."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T14:18:43.189644Z",
+        "source": {
+          "activity_id": "sessions/1708713293407081052/activities/e5a1e006705046028b1dead9acc49044",
+          "report_sha256": "babdc94f6b8be69705b90c6acb41462f96b2a8b21cbde1493851bf069f865f59",
+          "activity_created_at": "2026-09-28T14:10:53.440119Z",
+          "session_id": "1708713293407081052",
+          "dispatch_key": "6f6bcfa30f55bec6160c1eac"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -92978,7 +93006,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T14:19:00.678615Z",
+    "last_poll_at": "2026-09-28T14:19:06.471306Z",
     "last_tick_at": "2026-09-28T14:12:23.456015Z",
     "run_id": "36433735376"
   }
