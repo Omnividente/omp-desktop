@@ -93002,7 +93002,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T14:49:37.620997Z"
+        "observed_at": "2026-09-28T14:49:37.620997Z",
+        "released_attempt_ref": "autonomous/attempt-dc71c304b7e0024f0a3bf24b"
       },
       "research_result": {
         "summary": "Investigated the behavior of jumping to the 'Latest message' in the TranscriptModal. Discovered that the anchor restoration mechanism incorrectly binds the top of the message to the top of the viewport due to a 0-offset default. When messages are exceptionally long, this hides the actual bottom/latest content.",
