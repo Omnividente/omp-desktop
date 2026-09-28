@@ -88438,7 +88438,7 @@
       "id": "research-sessions-persistence-ux-12",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -88567,16 +88567,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18193483836805901824",
         "dispatch_key": "d77d5d261260c8b53c386d70",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-d77d5d261260c8b53c386d70",
         "started_at": "2026-09-28T08:27:51.401425Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T08:58:03.130526Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -88748,8 +88748,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T08:49:55.839246Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T08:58:03.130526Z",
         "research_detached": {
           "at": "2026-09-28T08:43:39.262133Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -88757,6 +88757,58 @@
         "feedback_nudge": {
           "at": "2026-09-28T08:43:39.262133Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated memory boundaries and list rendering scalability in CodexImportModal and SessionList. Verified that CodexImportModal suffers from a fatal OOM crash without virtualization at 100,000 items, while SessionList successfully renders the same synthetic scale due to useVirtualList.",
+        "observations": [
+          {
+            "scenario": "Rendering CodexImportModal with an unbounded dataset (100,000 synthetic sessions).",
+            "evidence": "Ran a React/jsdom memory test using Vitest, mounting CodexImportModal with 100,000 generated items. The Node process crashed consistently with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'.",
+            "result": "Establishes that the unbounded DOM rendering of CodexImportModal leads to a hard crash under massive dataset loads, proving the architectural limit."
+          },
+          {
+            "scenario": "Rendering SessionList with an equivalent unbounded dataset (100,000 synthetic sessions).",
+            "evidence": "Ran an equivalent React/jsdom memory test on SessionList with 100,000 generated items. Render succeeded in ~5s without crashing, successfully leveraging useVirtualList.",
+            "result": "Establishes that list virtualization protects the frontend from heap exhaustion at massive scale, demonstrating the necessary mitigation is already available in the codebase."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if synchronization (e.g. locking) is required for session mutations (such as title updates and title pinning) in `sessions.rs` to prevent concurrent writes from destroying concurrent JSONL updates, similar to the import boundary.",
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+        ],
+        "proposed_task_ids": [
+          "discovery-62b7e5e452db8a76"
+        ],
+        "completed_at": "2026-09-28T08:58:03.130526Z",
+        "source": {
+          "activity_id": "sessions/18193483836805901824/activities/0ad12d06e3c549789371f672cf4d9fe3",
+          "report_sha256": "93e93d18a9e802835719827a623e2c73d46d93c6e5d450a13179acf4bbd3555d",
+          "activity_created_at": "2026-09-28T08:44:30.409495Z",
+          "session_id": "18193483836805901824",
+          "dispatch_key": "d77d5d261260c8b53c386d70"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/18193483836805901824/activities/0ad12d06e3c549789371f672cf4d9fe3",
+          "report_sha256": "93e93d18a9e802835719827a623e2c73d46d93c6e5d450a13179acf4bbd3555d",
+          "activity_created_at": "2026-09-28T08:44:30.409495Z",
+          "session_id": "18193483836805901824",
+          "dispatch_key": "d77d5d261260c8b53c386d70"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-62b7e5e452db8a76"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -89252,10 +89304,52 @@
         "session_state": "QUEUED",
         "observed_at": "2026-09-28T08:49:55.839246Z"
       }
+    },
+    {
+      "id": "discovery-62b7e5e452db8a76",
+      "title": "Virtualize the list of items in CodexImportModal",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "a11y"
+      ],
+      "created_at": "2026-09-28T08:58:03.130526Z",
+      "acceptance": [
+        "CodexImportModal renders successfully without a fatal memory crash when given 100,000 sessions",
+        "Keyboard focus logic in the modal remains intact and navigable, bypassing the O(N) trapping bottleneck over 100,000 hidden nodes"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed in a React/jsdom synthetic environment rendering massive datasets (100k items) through the actual UI components. Unbounded rendering produced 'JavaScript heap out of memory', proving an architectural scaling boundary.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a jsdom test that instantiates an array of 100,000 synthetic CodexSessionSummary objects.",
+            "Render CodexImportModal with the synthetic data array.",
+            "Run the test file via vitest."
+          ],
+          "expected": "The list handles the dataset via virtualization, returning a stable render without exhausting process memory.",
+          "actual": "The Node process throws a FATAL ERROR for JavaScript heap out of memory."
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-12",
+        "activity_id": "sessions/18193483836805901824/activities/0ad12d06e3c549789371f672cf4d9fe3",
+        "report_sha256": "93e93d18a9e802835719827a623e2c73d46d93c6e5d450a13179acf4bbd3555d",
+        "activity_created_at": "2026-09-28T08:44:30.409495Z",
+        "session_id": "18193483836805901824",
+        "dispatch_key": "d77d5d261260c8b53c386d70"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T08:51:53.300297Z",
+    "last_poll_at": "2026-09-28T08:58:24.599300Z",
     "last_tick_at": "2026-09-28T08:51:57.641427Z",
     "run_id": "36399678878"
   }
