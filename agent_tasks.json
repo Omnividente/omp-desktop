@@ -87263,7 +87263,7 @@
       "id": "research-sessions-persistence-performance-12",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -87387,16 +87387,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7398654335993085517",
         "dispatch_key": "38463f7605581d6664b72f45",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-38463f7605581d6664b72f45",
         "started_at": "2026-09-28T07:20:27.091618Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T08:12:06.655954Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -87568,13 +87568,121 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T07:29:10.473305Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T08:12:06.655954Z"
+      },
+      "research_result": {
+        "summary": "Verified that the unbounded DOM rendering of large lists (100,000 items) in CodexImportModal results in a fatal JavaScript heap exhaustion (OOM), revealing a hard architectural limit for large datasets.",
+        "observations": [
+          {
+            "scenario": "Rendering CodexImportModal with an unbounded number of items, scaling up to 100,000 synthetic sessions.",
+            "evidence": "Ran a React/jsdom memory test (src/ListMemLeak.test.tsx) generating 100,000 mock CodexSessionSummary items and mounting CodexImportModal. The Node process crashed with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'.",
+            "result": "Establishes that the frontend lacks protective boundaries (such as a maximum item limit, pagination, or list virtualization) for massive datasets, leading to a complete crash. This provides the missing rationale for virtualization or pagination in extreme edge cases, contrasting with the previous rejection which focused solely on the O(N) accessibility trapping bottleneck at 10k items."
+          },
+          {
+            "scenario": "Rendering CodexImportModal with a moderately large dataset of 30,000 synthetic sessions.",
+            "evidence": "Ran a React/jsdom test generating 30,000 mock CodexSessionSummary items and mounting CodexImportModal. The render succeeded but took ~10 seconds.",
+            "result": "Establishes a baseline for the OOM crash: the frontend can survive rendering 30,000 sessions (albeit slowly) but predictably fails under larger loads."
+          },
+          {
+            "scenario": "Simulating a mass import persistence request on the backend with 1,000 requests.",
+            "evidence": "Created a synthetic benchmark (benchmark_mass_import) in src-tauri/src/sessions_benchmark.rs invoking import_sessions with 1,000 duplicate ImportSessionRequest payloads. The operation successfully completed all 1,000 imports in ~197ms.",
+            "result": "Establishes that the Rust backend and file system persistence can comfortably handle large bulk requests with low latency, proving the primary scaling bottleneck for massive import workflows resides entirely in the frontend rendering layer."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory and latency footprint of the SessionList component (which displays active workspaces) when dealing with similarly large session hierarchies to determine if the same OOM boundary applies."
+        ],
+        "proposed_task_ids": [
+          "discovery-5a4035fe39fb1554"
+        ],
+        "completed_at": "2026-09-28T08:12:06.655954Z",
+        "source": {
+          "activity_id": "sessions/7398654335993085517/activities/dedc40bbc4954e858a052a8680b23dc1",
+          "report_sha256": "324615d7884b4fe82bfe07934119c1b1e3b7414c51309f9071d27dddff5fba27",
+          "activity_created_at": "2026-09-28T07:51:04.201869Z",
+          "session_id": "7398654335993085517",
+          "dispatch_key": "38463f7605581d6664b72f45"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7398654335993085517/activities/dedc40bbc4954e858a052a8680b23dc1",
+          "report_sha256": "324615d7884b4fe82bfe07934119c1b1e3b7414c51309f9071d27dddff5fba27",
+          "activity_created_at": "2026-09-28T07:51:04.201869Z",
+          "session_id": "7398654335993085517",
+          "dispatch_key": "38463f7605581d6664b72f45"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5a4035fe39fb1554"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-5a4035fe39fb1554",
+      "title": "Implement structural bounds or virtualization for CodexImportModal to prevent out-of-memory crashes on massive datasets",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-28T08:12:06.655954Z",
+      "acceptance": [
+        "CodexImportModal successfully renders without crashing when provided with 100,000 session items."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified using a synthetic jsdom benchmark that rendering 100,000 items directly to the DOM causes a fatal V8 JavaScript heap limit crash.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a jsdom test that generates 100,000 mock CodexSessionSummary items.",
+            "Render <CodexImportModal> with the 100,000 items."
+          ],
+          "expected": "The modal renders or properly truncates/virtualizes the list to prevent memory exhaustion.",
+          "actual": "The JavaScript process crashes with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Previous proposals evaluated virtualization purely as a latency optimization for 10k items (which was correctly rejected in favor of fixing the O(N) focus trap). This new evidence establishes a distinct failure mode (OOM crash) when the dataset grows to 100k items, proving that a structural bound is required for stability, not just speed.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-3713ec52cc3c27b8",
+          "observation_refs": [
+            0,
+            1
+          ],
+          "responses": []
+        }
+      },
+      "target_paths": [
+        "src/CodexImportModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-12",
+        "activity_id": "sessions/7398654335993085517/activities/dedc40bbc4954e858a052a8680b23dc1",
+        "report_sha256": "324615d7884b4fe82bfe07934119c1b1e3b7414c51309f9071d27dddff5fba27",
+        "activity_created_at": "2026-09-28T07:51:04.201869Z",
+        "session_id": "7398654335993085517",
+        "dispatch_key": "38463f7605581d6664b72f45"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T07:55:53.943955Z",
+    "last_poll_at": "2026-09-28T08:12:26.164585Z",
     "last_tick_at": "2026-09-28T07:55:58.435371Z",
     "run_id": "36394292246"
   }
