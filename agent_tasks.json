@@ -90325,7 +90325,7 @@
       "id": "research-workspace-navigation-ux-12",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -90446,16 +90446,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18256682279471561662",
         "dispatch_key": "ef6b94c32d8b124045953c20",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-ef6b94c32d8b124045953c20",
         "started_at": "2026-09-28T11:06:59.672438Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T11:29:10.892593Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -90629,13 +90629,245 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T11:15:50.734873Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T11:29:10.892593Z"
+      },
+      "research_result": {
+        "summary": "Verified that ProjectRail and SessionList lack native keyboard arrow navigation, leaving focus static when navigating vertically.",
+        "observations": [
+          {
+            "scenario": "Simulate pressing ArrowDown to navigate vertically between workspace items within the ProjectRail component.",
+            "evidence": "Wrote a synthetic vitest DOM test (`ProjectRail.a11y.test.tsx`) that rendered the `ProjectRail` component with multiple workspace items. Explicitly focused the first workspace's `.project-item` button and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original button.",
+            "result": "Establishes that the `ProjectRail` workspaces pane does not natively support up/down keyboard focus navigation across workspace items."
+          },
+          {
+            "scenario": "Simulate pressing ArrowDown to navigate vertically between session items within the SessionList component.",
+            "evidence": "Wrote a synthetic vitest DOM test (`SessionList.a11y.test.tsx`) that rendered the `SessionList` component with multiple session items. Explicitly focused the first session's `.session-select` element and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original element.",
+            "result": "Establishes that the `SessionList` sessions pane also lacks native up/down keyboard focus navigation, similarly to the ProjectRail component."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal continuity correctly handles scenarios where the underlying PTY session returns a generic failure during sendRecoveredSwitchInput."
+        ],
+        "proposed_task_ids": [
+          "discovery-b9434cdba341d96a"
+        ],
+        "completed_at": "2026-09-28T11:29:10.892593Z",
+        "source": {
+          "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+          "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+          "activity_created_at": "2026-09-28T11:19:42.206616Z",
+          "session_id": "18256682279471561662",
+          "dispatch_key": "ef6b94c32d8b124045953c20"
+        },
+        "deferred_findings": [
+          {
+            "title": "Implement arrow key navigation in SessionList",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.\", \"reproduction\": {\"actual\": \"Focus remains on the first session element.\", \"expected\": \"Focus moves to the `.session-select` element of the second session.\", \"steps\": [\"Render the SessionList component with multiple sessions.\", \"Focus the `.session-select` element of the first session.\", \"Press the ArrowDown key.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/SessionList.tsx",
+              "src/SessionRow.tsx"
+            ],
+            "acceptance": [
+              "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+            ],
+            "deferred_id": "7716b763ff33a36b00d550834251c804b443b7ff04f6afb1959124c37ce4bc3c",
+            "candidate": {
+              "task_type": "product_improvement",
+              "title": "Implement arrow key navigation in SessionList",
+              "risk": "low",
+              "priority": 40,
+              "focus": [
+                "a11y",
+                "ux"
+              ],
+              "target_paths": [
+                "src/SessionList.tsx",
+                "src/SessionRow.tsx"
+              ],
+              "acceptance": [
+                "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Render the SessionList component with multiple sessions.",
+                    "Focus the `.session-select` element of the first session.",
+                    "Press the ArrowDown key."
+                  ],
+                  "expected": "Focus moves to the `.session-select` element of the second session.",
+                  "actual": "Focus remains on the first session element."
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-6c68ffa0e4ecce1f",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:09:46Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-workspace-navigation-ux-12",
+              "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+              "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+              "activity_created_at": "2026-09-28T11:19:42.206616Z",
+              "session_id": "18256682279471561662",
+              "dispatch_key": "ef6b94c32d8b124045953c20"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+          "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+          "activity_created_at": "2026-09-28T11:19:42.206616Z",
+          "session_id": "18256682279471561662",
+          "dispatch_key": "ef6b94c32d8b124045953c20"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b9434cdba341d96a"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-1d91a3dc755a6cc0",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-6c68ffa0e4ecce1f"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Implement arrow key navigation in SessionList",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.\", \"reproduction\": {\"actual\": \"Focus remains on the first session element.\", \"expected\": \"Focus moves to the `.session-select` element of the second session.\", \"steps\": [\"Render the SessionList component with multiple sessions.\", \"Focus the `.session-select` element of the first session.\", \"Press the ArrowDown key.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/SessionList.tsx",
+                "src/SessionRow.tsx"
+              ],
+              "acceptance": [
+                "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+              ],
+              "deferred_id": "7716b763ff33a36b00d550834251c804b443b7ff04f6afb1959124c37ce4bc3c",
+              "candidate": {
+                "task_type": "product_improvement",
+                "title": "Implement arrow key navigation in SessionList",
+                "risk": "low",
+                "priority": 40,
+                "focus": [
+                  "a11y",
+                  "ux"
+                ],
+                "target_paths": [
+                  "src/SessionList.tsx",
+                  "src/SessionRow.tsx"
+                ],
+                "acceptance": [
+                  "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Render the SessionList component with multiple sessions.",
+                      "Focus the `.session-select` element of the first session.",
+                      "Press the ArrowDown key."
+                    ],
+                    "expected": "Focus moves to the `.session-select` element of the second session.",
+                    "actual": "Focus remains on the first session element."
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-6c68ffa0e4ecce1f",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:09:46Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-workspace-navigation-ux-12",
+                "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+                "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+                "activity_created_at": "2026-09-28T11:19:42.206616Z",
+                "session_id": "18256682279471561662",
+                "dispatch_key": "ef6b94c32d8b124045953c20"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b9434cdba341d96a",
+      "title": "Implement arrow key navigation in ProjectRail workspace list",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "ux"
+      ],
+      "created_at": "2026-09-28T11:29:10.892593Z",
+      "acceptance": [
+        "Pressing ArrowDown and ArrowUp navigates focus vertically between workspace items in ProjectRail"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused workspace item does not move focus to the next item.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the ProjectRail component with multiple workspaces.",
+            "Focus the button of the first workspace.",
+            "Press the ArrowDown key."
+          ],
+          "expected": "Focus moves to the button of the second workspace.",
+          "actual": "Focus remains on the first workspace button."
+        }
+      },
+      "target_paths": [
+        "src/ProjectRail.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-12",
+        "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+        "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+        "activity_created_at": "2026-09-28T11:19:42.206616Z",
+        "session_id": "18256682279471561662",
+        "dispatch_key": "ef6b94c32d8b124045953c20"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T11:22:51.433078Z",
+    "last_poll_at": "2026-09-28T11:29:31.796673Z",
     "last_tick_at": "2026-09-28T11:22:56.584098Z",
     "run_id": "36415214640"
   }
