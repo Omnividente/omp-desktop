@@ -89572,6 +89572,121 @@
         "session_id": "18193483836805901824",
         "dispatch_key": "d77d5d261260c8b53c386d70"
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-12",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-28T09:17:50Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "1a55709da33dcca1b702ba015aa6c4f84b52a2b64cc951d2b50c3d98a0018c52",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Verified that Rust backend recursion has maximum depth parameters but OS path length limits prevent recursive stack overflows in the backend before reaching those limits.",
+            "observations": [
+              {
+                "scenario": "Review the backend session scanning logic (`collect_jsonl_files` in `src-tauri/src/sessions.rs`) to determine if it has similar stack limits to the frontend.",
+                "evidence": "Inspected `collect_jsonl_files`, which is a recursive function. Executed a Rust test script creating deeply nested directories to test it. The script failed to create depth >100 due to the OS 'File name too long' error before the recursion limit of 10 (`max_depth`) was hit, effectively preventing a stack overflow from recursive calls natively. The maximum `depth` in the production function is explicitly constrained by `max_depth` to 10.",
+                "result": "Establishes that the backend does not suffer from a deep recursion stack overflow since `max_depth` explicitly truncates the call graph and the OS limits nested paths before deep recursion is reached."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session search filtering (e.g., `useSearchTree`) experiences performance issues or re-renders repeatedly with large datasets.",
+              "Investigate the maximum size threshold where `buildSessionTreeIterative` begins to impact frame rates and if web workers should handle parsing."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T11:05:50.657606Z",
+            "source": {
+              "activity_id": "sessions/9276732955616322391/activities/9c4384dfba604beaa2b520b726080a1b",
+              "report_sha256": "92ed105afafe0bbb7955592eb06e91b6364d79c26e792d5f61dce0e9df738659",
+              "activity_created_at": "2026-09-27T10:57:56.079668Z",
+              "session_id": "9276732955616322391",
+              "dispatch_key": "e8ebf6f71c60c0619b1da990"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated keyboard navigation for session focus switching inside the virtual list of SessionList component.",
+            "observations": [
+              {
+                "scenario": "Simulated pressing ArrowDown to navigate vertically between rendered virtual list items within the SessionList component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`SessionList.a11y.test.tsx`) that rendered the virtual `SessionList` with 10 sessions. Mocked dimensions so items render, explicitly focused the first session's `<div className=\"session-select\">`, and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original element.",
+                "result": "Establishes that the `SessionList` component does not natively support up/down keyboard focus navigation across session items. The virtual list container lacks an explicit `onKeyDown` handler to traverse the rendered elements programmatically."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized scrolling performance stutters or drops focus completely during fast keyboard navigation if focus management is added.",
+              "Investigate whether the `ProjectRail` workspaces pane natively supports keyboard navigation, given it renders raw HTML button lists without virtualization."
+            ],
+            "proposed_task_ids": [
+              "discovery-6c68ffa0e4ecce1f"
+            ],
+            "completed_at": "2026-09-27T11:27:31.949189Z",
+            "source": {
+              "activity_id": "sessions/1356499314931948110/activities/29d5bc35bbd849cb9acf4c0a8a5323bf",
+              "report_sha256": "f0d12b6258951df14c6dd129e6a517c96e2d1ae154c72b0458e31946f616040f",
+              "activity_created_at": "2026-09-27T11:17:54.440664Z",
+              "session_id": "1356499314931948110",
+              "dispatch_key": "6366d01d031c483a4dd7f86c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated Arrow key navigation in ProjectRail component workspaces pane and switch recovery failure handling.",
+            "observations": [
+              {
+                "scenario": "Simulate pressing ArrowDown to navigate vertically between workspace items within the ProjectRail component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`ProjectRail.a11y.test.tsx`) that rendered the `ProjectRail` component with multiple workspace items. Explicitly focused the first workspace's `.project-item` button and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original button.",
+                "result": "Establishes that the `ProjectRail` workspaces pane does not natively support up/down keyboard focus navigation across workspace items."
+              },
+              {
+                "scenario": "Investigate if terminal continuity correctly handles scenarios where the underlying PTY session returns a generic failure during sendRecoveredSwitchInput.",
+                "evidence": "Source code inspection of `sendRecoveredSwitchInput` in `App.tsx` and unit test verification of `switchInputRecoveryDetails` behavior on generic errors. If an error is not explicitly formatted as a backend recovery error, `switchInputRecoveryDetails` returns `null`.",
+                "result": "Establishes that generic errors cause the UI to remain stuck in the 'sending' state indefinitely. The `catch` block falls back to `currentRecovery ?? candidate.switchRecovery` where the candidate is already marked 'sending', which disables retry and discard buttons permanently."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session search filtering (e.g., `useSearchTree`) experiences performance issues or re-renders repeatedly with large datasets.",
+              "Investigate the maximum size threshold where `buildSessionTreeIterative` begins to impact frame rates and if web workers should handle parsing."
+            ],
+            "proposed_task_ids": [
+              "discovery-708891cade391524"
+            ],
+            "completed_at": "2026-09-28T01:39:07.521399Z",
+            "source": {
+              "activity_id": "sessions/12840153817774080616/activities/dcd4598842ab4451af62bd72cd97919d",
+              "report_sha256": "7bda2f474f7f050ca6f673f93c1061b9d0ef0d760410261a519e0ef6468a56bf",
+              "activity_created_at": "2026-09-28T01:32:04.021323Z",
+              "session_id": "12840153817774080616",
+              "dispatch_key": "7df068600b40dffd23f62d58"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
