@@ -88567,8 +88567,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "18193483836805901824",
         "dispatch_key": "d77d5d261260c8b53c386d70",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-d77d5d261260c8b53c386d70",
