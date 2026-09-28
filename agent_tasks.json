@@ -88201,7 +88201,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T08:27:51.401425Z"
+        "observed_at": "2026-09-28T08:27:51.401425Z",
+        "released_attempt_ref": "autonomous/attempt-ca7086f44da2e0da67c14ff9"
       },
       "research_result": {
         "summary": "Investigated terminal output batcher performance limit and continuity generation downgrade defect.",
