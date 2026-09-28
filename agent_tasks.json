@@ -94980,7 +94980,7 @@
       "id": "research-diagnostics-resources-ux-12",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -95320,16 +95320,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "13838146669907269334",
         "dispatch_key": "57320e9261ec1e2e10ec4bef",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-57320e9261ec1e2e10ec4bef",
         "started_at": "2026-09-28T18:24:27.153738Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T18:55:11.824631Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -95456,24 +95456,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T18:46:29.739598Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-28T18:40:24.955987Z",
-          "source": {
-            "activity_id": "sessions/13838146669907269334/activities/9ae909a8c82849519f2e26aeacb3bbf5",
-            "report_sha256": "ea1b642961463d1589775bb98803c4780d9639431996010e7420dad5b94166df",
-            "activity_created_at": "2026-09-28T18:33:08.307058Z",
-            "session_id": "13838146669907269334",
-            "dispatch_key": "57320e9261ec1e2e10ec4bef"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T18:55:11.824631Z",
         "report_repair": {
           "at": "2026-09-28T18:40:56.641984Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/13838146669907269334/activities/9ae909a8c82849519f2e26aeacb3bbf5",
             "report_sha256": "ea1b642961463d1589775bb98803c4780d9639431996010e7420dad5b94166df",
@@ -95481,6 +95469,57 @@
             "session_id": "13838146669907269334",
             "dispatch_key": "57320e9261ec1e2e10ec4bef"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated the performance of error text sanitization and memory management for runtime incidents.",
+        "observations": [
+          {
+            "scenario": "Verify if the lack of bounds checking before diagnostics::redact_text in models::sanitize_error_text causes a massive temporary memory allocation spike and performance hit if an underlying API returns an unexpectedly large multi-megabyte error message.",
+            "evidence": "Executed an isolated Rust test on c934a275012765dde5834c99048cf6297f059110 comparing the current sanitize_error_text implementation against an optimized version that applies a length bound before redaction. The current implementation took ~911ms to process a 100MB string due to allocating a full redacted copy of the entire string before truncation. Reversing the order to truncate first took <1ms.",
+            "result": "Establishes a performance and memory bug where sanitize_error_text processes the entirety of unbounded error strings before truncating them to 8KB. Since this runs on the Tauri IPC event loop, a large error payload could cause a temporary memory spike and block the UI."
+          },
+          {
+            "scenario": "Verify if enforceIncidentBound handles memory cleanup correctly when continuously dropping older incidents under high throughput.",
+            "evidence": "Executed an isolated node TS test on c934a275012765dde5834c99048cf6297f059110 applying 50,000 synthetic runtime error events sequentially to applyRuntimeIncidentEvent, triggering enforceIncidentBound. Monitored V8 heap usage during the test.",
+            "result": "Establishes that the incident array correctly bounds itself to 100 elements without leaking memory references over time, effectively garbage collecting older incidents."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if enforceIncidentBound mistakenly drops unresolved primary incidents when a high volume of identical fallback occurrences saturate the 100-incident bound."
+        ],
+        "proposed_task_ids": [
+          "discovery-7c33165d9d4290a0"
+        ],
+        "completed_at": "2026-09-28T18:55:11.824631Z",
+        "source": {
+          "activity_id": "sessions/13838146669907269334/activities/820e0828c39746bb9c7b6465ac2f3277",
+          "report_sha256": "1f7e429a54a2ff9d4a5de2335d01edb31feadcfefcc2c767a079ed09efa9b150",
+          "activity_created_at": "2026-09-28T18:42:26.593813Z",
+          "session_id": "13838146669907269334",
+          "dispatch_key": "57320e9261ec1e2e10ec4bef"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13838146669907269334/activities/820e0828c39746bb9c7b6465ac2f3277",
+          "report_sha256": "1f7e429a54a2ff9d4a5de2335d01edb31feadcfefcc2c767a079ed09efa9b150",
+          "activity_created_at": "2026-09-28T18:42:26.593813Z",
+          "session_id": "13838146669907269334",
+          "dispatch_key": "57320e9261ec1e2e10ec4bef"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-7c33165d9d4290a0"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -95797,10 +95836,49 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-28T18:46:29.739598Z"
       }
+    },
+    {
+      "id": "discovery-7c33165d9d4290a0",
+      "title": "Apply bounds checking before redaction in sanitize_error_text to prevent memory spikes",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-28T18:55:11.824631Z",
+      "acceptance": [
+        "sanitize_error_text limits the input string size to a safe margin before passing it to redact_text, preventing massive memory allocations on unbounded error messages."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated Rust performance measurement script on sanitize_error_text with a 100MB input string on c934a275012765dde5834c99048cf6297f059110.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a Rust test passing a 100MB 'a' string into sanitize_error_text.",
+            "Measure the execution time and memory allocation footprint."
+          ],
+          "expected": "The function executes in less than a millisecond by only evaluating the first ~8KB of the string for redaction.",
+          "actual": "The function takes nearly a full second, running redaction and whitespace splitting on the entire 100MB string before finally truncating the result to 8KB."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/models.rs"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-ux-12",
+        "activity_id": "sessions/13838146669907269334/activities/820e0828c39746bb9c7b6465ac2f3277",
+        "report_sha256": "1f7e429a54a2ff9d4a5de2335d01edb31feadcfefcc2c767a079ed09efa9b150",
+        "activity_created_at": "2026-09-28T18:42:26.593813Z",
+        "session_id": "13838146669907269334",
+        "dispatch_key": "57320e9261ec1e2e10ec4bef"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T18:55:34.078111Z",
+    "last_poll_at": "2026-09-28T18:55:40.736367Z",
     "last_tick_at": "2026-09-28T18:48:56.959935Z",
     "run_id": "36467482906"
   }
