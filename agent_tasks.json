@@ -96317,7 +96317,7 @@
       "id": "research-transcript-links-ux-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -96434,16 +96434,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8721392693620911662",
         "dispatch_key": "e390e23b5dc232a9515cafc6",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-e390e23b5dc232a9515cafc6",
         "started_at": "2026-09-28T23:20:09.941335Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T23:36:23.553881Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -96615,13 +96615,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T23:29:34.351258Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T23:36:23.553881Z"
+      },
+      "research_result": {
+        "summary": "Verified the behavior of oversized virtual list items during scroll navigation and confirmed that traversing them does not trigger measurement loops.",
+        "observations": [
+          {
+            "scenario": "Simulating rapid scroll navigation (like Page Down) across an oversized virtual list item.",
+            "evidence": "Ran an isolated jsdom test with an oversized list item (5000px height in a 500px viewport) wrapped in `useVirtualList`. Triggered repeated simulated scroll jumps of the viewport height (mimicking Page Down navigation) while capturing resize observations and timer cycles.",
+            "result": "Establishes that rapidly traversing a very tall, dynamically measured list item correctly calculates scroll offsets and updates the virtualization window without causing unbounded layout measurement loops. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if rapidly clearing the search input via the 'clearSearch' button immediately after filtering a large transcript correctly drops focus back to the search bar without breaking reading position restoration."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T23:36:23.553881Z",
+        "source": {
+          "activity_id": "sessions/8721392693620911662/activities/c075a66a9d984e598bb3b616f2aecb35",
+          "report_sha256": "42686a2d4ae5a5482c3cd6f611d90357cfc4cadcae76ff93f09c8a8322f03fdb",
+          "activity_created_at": "2026-09-28T23:29:00.537425Z",
+          "session_id": "8721392693620911662",
+          "dispatch_key": "e390e23b5dc232a9515cafc6"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T23:36:47.320117Z",
+    "last_poll_at": "2026-09-28T23:36:52.829087Z",
     "last_tick_at": "2026-09-28T23:30:10.529523Z",
     "run_id": "36498231122"
   }
