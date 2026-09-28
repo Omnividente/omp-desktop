@@ -95613,8 +95613,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "5162758749953566608",
         "dispatch_key": "8a2c8a02454d1c38a0510a6b",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-8a2c8a02454d1c38a0510a6b",
