@@ -90630,7 +90630,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T11:29:10.892593Z"
+        "observed_at": "2026-09-28T11:29:10.892593Z",
+        "released_attempt_ref": "autonomous/attempt-ef6b94c32d8b124045953c20"
       },
       "research_result": {
         "summary": "Verified that ProjectRail and SessionList lack native keyboard arrow navigation, leaving focus static when navigating vertically.",
