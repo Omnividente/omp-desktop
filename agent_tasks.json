@@ -89577,7 +89577,7 @@
       "id": "research-workspace-navigation-reliability-12",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -89689,16 +89689,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15446768781289860447",
         "dispatch_key": "4fce0166d77c6e39e4a3b7bc",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-4fce0166d77c6e39e4a3b7bc",
         "started_at": "2026-09-28T09:17:50.228464Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T10:04:52.151604Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -89872,8 +89872,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-28T09:32:35.087463Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T10:04:52.151604Z",
         "research_detached": {
           "at": "2026-09-28T09:32:35.087463Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -89882,11 +89882,40 @@
           "at": "2026-09-28T09:32:35.087463Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified that workspace rename and deletion operations handle backend failures gracefully without corrupting frontend state.",
+        "observations": [
+          {
+            "scenario": "Simulate a failure during workspace rename (e.g. backend rejects the new name).",
+            "evidence": "Inspected `submitWorkspaceRename` in App.tsx and executed a Vitest JS DOM simulation where `renameWorkspace` throws an error. The state correctly resets `renamingWorkspaceKey` to null and `workspaceBusyKey` to null before the network call resolves. On failure, the UI gracefully falls back to displaying the original workspace name.",
+            "result": "Establishes that failed rename operations do not corrupt the workspace list or lock the UI in an edit state permanently. Any typed text is discarded upon failure, requiring the user to re-initiate the rename."
+          },
+          {
+            "scenario": "Simulate a failure during workspace deletion.",
+            "evidence": "Inspected `removeWorkspace` in App.tsx and executed a Vitest JS DOM simulation where `removeWorkspaceFromList` throws an error. The workspace remains in the UI and the busy indicator (`workspaceBusyKey`) is cleared in the `finally` block.",
+            "result": "Establishes that deletion failures leave the UI in a recoverable state allowing the user to retry the operation without duplicate requests or stuck loading states."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session launch failures properly clean up terminal continuity and lease claims before aborting.",
+          "Investigate the robustness of `refreshRuntimeState` when concurrent rename or remove operations mutate the workspace list."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T10:04:52.151604Z",
+        "source": {
+          "activity_id": "sessions/15446768781289860447/activities/d03c2b474de74259beee243d010545e7",
+          "report_sha256": "e575651ad24d516517835399d513a7f8301b0a2007945dffd610744d769ad7f0",
+          "activity_created_at": "2026-09-28T09:33:34.245935Z",
+          "session_id": "15446768781289860447",
+          "dispatch_key": "4fce0166d77c6e39e4a3b7bc"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T09:32:57.829784Z",
+    "last_poll_at": "2026-09-28T10:05:13.601296Z",
     "last_tick_at": "2026-09-28T09:33:16.836268Z",
     "run_id": "36404111318"
   }
