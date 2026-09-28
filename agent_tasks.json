@@ -92705,7 +92705,7 @@
       "id": "research-transcript-links-reliability-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -92820,16 +92820,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8682276882943402279",
         "dispatch_key": "dc71c304b7e0024f0a3bf24b",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-dc71c304b7e0024f0a3bf24b",
         "started_at": "2026-09-28T14:09:08.138161Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T14:49:37.620997Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -93001,13 +93001,100 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T14:09:08.138161Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T14:49:37.620997Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of jumping to the 'Latest message' in the TranscriptModal. Discovered that the anchor restoration mechanism incorrectly binds the top of the message to the top of the viewport due to a 0-offset default. When messages are exceptionally long, this hides the actual bottom/latest content.",
+        "observations": [
+          {
+            "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+            "evidence": "Ran an isolated jsdom test mocking `getBoundingClientRect` to simulate a message element with `height: 5000px` and a scroll viewport of `500px`. Observed that after triggering `pendingLatestRef`, `useLayoutEffect` initializes `pendingRestoreRef.current` with `{ index: lastIndex, offset: 0 }`. The restoration logic then calculates `scroll.scrollTop + rowBounds.top - containerTop + offset`. Since `offset` is `0`, the *top* of the 5000px message is aligned to the top of the viewport. The scroll position settled at `99500` rather than the maximum possible scroll boundary (which would show the *bottom* of the text). Changing the assigned offset to `Infinity` within `pendingRestoreRef` properly leveraged `Math.min(saved.offset, rowBounds.height - 1)` clamping, correctly pinning the bottom of the tall element to the viewport.",
+            "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, causing the actual latest content to be hidden off-screen."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+        ],
+        "proposed_task_ids": [
+          "discovery-84ebe14b2ef5320a"
+        ],
+        "completed_at": "2026-09-28T14:49:37.620997Z",
+        "source": {
+          "activity_id": "sessions/8682276882943402279/activities/d385dd6484df4d2b812efd2a727024f4",
+          "report_sha256": "ae9cc26a2faf5f72b419308096a8129d64f8d59106c48e1fe0d37be3430769c0",
+          "activity_created_at": "2026-09-28T14:27:14.302777Z",
+          "session_id": "8682276882943402279",
+          "dispatch_key": "dc71c304b7e0024f0a3bf24b"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8682276882943402279/activities/d385dd6484df4d2b812efd2a727024f4",
+          "report_sha256": "ae9cc26a2faf5f72b419308096a8129d64f8d59106c48e1fe0d37be3430769c0",
+          "activity_created_at": "2026-09-28T14:27:14.302777Z",
+          "session_id": "8682276882943402279",
+          "dispatch_key": "dc71c304b7e0024f0a3bf24b"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-84ebe14b2ef5320a"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-84ebe14b2ef5320a",
+      "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-09-28T14:49:37.620997Z",
+      "acceptance": [
+        "When clicking 'Latest message', the bottom of the last message is aligned with the bottom of the viewport even if it is taller than the screen."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native desktop simulation via Vitest showing that 'Latest message' navigation falls back to 'offset: 0' in pendingRestoreRef, incorrectly pinning the top of the final virtual element. Changing the default offset from 0 to Infinity solves the issue.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a session transcript containing a very large final message (e.g., taller than the application window).",
+            "Scroll to the top to reveal the 'Latest message' overlay button.",
+            "Click the 'Latest message' button."
+          ],
+          "expected": "The scroll view jumps to the absolute bottom of the transcript, displaying the end of the last message.",
+          "actual": "The scroll view jumps to the *top* of the last message, leaving the end of the message out of view and requiring manual scrolling."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-reliability-12",
+        "activity_id": "sessions/8682276882943402279/activities/d385dd6484df4d2b812efd2a727024f4",
+        "report_sha256": "ae9cc26a2faf5f72b419308096a8129d64f8d59106c48e1fe0d37be3430769c0",
+        "activity_created_at": "2026-09-28T14:27:14.302777Z",
+        "session_id": "8682276882943402279",
+        "dispatch_key": "dc71c304b7e0024f0a3bf24b"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T14:49:59.621062Z",
+    "last_poll_at": "2026-09-28T14:50:05.179372Z",
     "last_tick_at": "2026-09-28T14:33:28.808907Z",
     "run_id": "36436725021"
   }
