@@ -92669,7 +92669,8 @@
         "feedback_nudge": {
           "at": "2026-09-28T14:09:08.138161Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-6f6bcfa30f55bec6160c1eac"
       },
       "research_result": {
         "summary": "Investigated the robustness of proxy provider selection and settings saving when a custom provider is unexpectedly removed. Verified that the SettingsPanel properly flags changes, computes differences, and correctly sends the `removedCustomProviders` field without losing the list of valid `proxyProviders`.",
