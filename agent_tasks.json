@@ -87569,7 +87569,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T08:12:06.655954Z"
+        "observed_at": "2026-09-28T08:12:06.655954Z",
+        "released_attempt_ref": "autonomous/attempt-38463f7605581d6664b72f45"
       },
       "research_result": {
         "summary": "Verified that the unbounded DOM rendering of large lists (100,000 items) in CodexImportModal results in a fatal JavaScript heap exhaustion (OOM), revealing a hard architectural limit for large datasets.",
