@@ -94638,7 +94638,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T16:39:52.090079Z"
+        "observed_at": "2026-09-28T16:39:52.090079Z",
+        "released_attempt_ref": "autonomous/attempt-5ccb46e44a60d1355f24450d"
       },
       "research_result": {
         "summary": "Verified that `diagnostics::redact_text` scales linearly with the size of the input regardless of content, blocking the Tauri event loop for large payloads. Investigated previously deferred findings, crafting the required structured revisit rationale for both.",
