@@ -91629,13 +91629,17 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T12:02:23.418508Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-09-28T12:24:50.214833Z",
+        "research_detached": {
+          "at": "2026-09-28T12:24:50.214833Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T12:18:22.557664Z",
+    "last_poll_at": "2026-09-28T12:25:10.004442Z",
     "last_tick_at": "2026-09-28T12:18:27.645617Z",
     "run_id": "36420890798"
   }
