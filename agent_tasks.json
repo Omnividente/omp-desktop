@@ -89918,7 +89918,7 @@
       "id": "research-workspace-navigation-performance-12",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -90034,16 +90034,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6153294401714548361",
         "dispatch_key": "71d8c09b2ac914433345128a",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-71d8c09b2ac914433345128a",
         "started_at": "2026-09-28T10:39:05.902562Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T11:06:59.672438Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -90217,8 +90217,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-28T10:53:53.860850Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T11:06:59.672438Z",
         "research_detached": {
           "at": "2026-09-28T10:53:53.860850Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -90227,11 +90227,102 @@
           "at": "2026-09-28T10:53:53.860850Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation and project switching performance across large datasets. Discovered a measurable performance bottleneck in 'formatRelative' caused by repeatedly instantiating 'Intl' formatters.",
+        "observations": [
+          {
+            "scenario": "Simulated rendering 1,000 workspaces in `ProjectRail` and 5,000 sessions in `TerminalWorkspace` / `App`.",
+            "evidence": "Observed that while `Array.find` for `selectedWorkspace` and iterative rendering of workspaces and session trees scale well (taking <100ms for large lists), the `formatRelative` function in `src/uiUtils.ts` takes ~700-800ms for 5,000 calls. This is due to creating new instances of `Intl.RelativeTimeFormat` and `Intl.DateTimeFormat` on every invocation.",
+            "result": "Establishes that `formatRelative` constitutes a significant portion of rendering latency when displaying large lists of workspaces or sessions. Caching the `Intl` formatters by language key dramatically reduces execution time (from ~750ms to ~30ms for 5,000 calls)."
+          },
+          {
+            "scenario": "Analyzed `TerminalWorkspace` rendering performance with 5,000 sessions, specifically focusing on `buildSessionTree`.",
+            "evidence": "Wrote a synthetic test demonstrating `buildSessionTree` parses and groups 5,000 sessions in ~25-30ms.",
+            "result": "Establishes that constructing the session tree dynamically is fast and does not represent a user-visible bottleneck, refuting the hypothesis that session grouping requires web worker offloading at current scales."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the workspace list in `ProjectRail` yields measurable memory reductions when 500+ workspaces are loaded, even if render latency is primarily bound by `formatRelative` overhead."
+        ],
+        "proposed_task_ids": [
+          "discovery-0d1360aaaa775a55"
+        ],
+        "completed_at": "2026-09-28T11:06:59.672438Z",
+        "source": {
+          "activity_id": "sessions/6153294401714548361/activities/6633950fb40643c7af101a72e8d679cb",
+          "report_sha256": "1b4ab3cf815c584e20d7afed994bf26fead9686ce6bb1051c70d50a91a62b6c4",
+          "activity_created_at": "2026-09-28T10:55:11.922933Z",
+          "session_id": "6153294401714548361",
+          "dispatch_key": "71d8c09b2ac914433345128a"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6153294401714548361/activities/6633950fb40643c7af101a72e8d679cb",
+          "report_sha256": "1b4ab3cf815c584e20d7afed994bf26fead9686ce6bb1051c70d50a91a62b6c4",
+          "activity_created_at": "2026-09-28T10:55:11.922933Z",
+          "session_id": "6153294401714548361",
+          "dispatch_key": "71d8c09b2ac914433345128a"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-0d1360aaaa775a55"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-0d1360aaaa775a55",
+      "title": "Optimize formatRelative latency by caching Intl formatters",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-09-28T11:06:59.672438Z",
+      "acceptance": [
+        "formatRelative execution time is drastically reduced for large batches",
+        "Language switching correctly invalidates or selects the proper cached formatter"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured 737ms for 5000 calls of formatRelative due to Intl instance creation. Caching the formatters reduces this to ~30ms.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a synthetic test that calls formatRelative 5000 times in a loop.",
+            "Measure the execution time."
+          ],
+          "expected": "The function executes in < 50ms for 5000 calls.",
+          "actual": "The function execution takes > 700ms because new Intl formatter objects are instantiated inside every call."
+        }
+      },
+      "target_paths": [
+        "src/uiUtils.ts"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-performance-12",
+        "activity_id": "sessions/6153294401714548361/activities/6633950fb40643c7af101a72e8d679cb",
+        "report_sha256": "1b4ab3cf815c584e20d7afed994bf26fead9686ce6bb1051c70d50a91a62b6c4",
+        "activity_created_at": "2026-09-28T10:55:11.922933Z",
+        "session_id": "6153294401714548361",
+        "dispatch_key": "71d8c09b2ac914433345128a"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T10:54:18.576945Z",
+    "last_poll_at": "2026-09-28T11:07:22.972415Z",
     "last_tick_at": "2026-09-28T10:54:37.951548Z",
     "run_id": "36412352132"
   }
