@@ -95483,6 +95483,134 @@
           }
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-13",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-28T18:46:29Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "2c3be6b020dc8d856051ce7100c3358026728f1f50a3374197f39cc74d64ebbf",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Verified that a concurrent deletion during session import (commit_import_with) creates a race condition that leaves a session.jsonl file without its corresponding artifact directory.",
+            "observations": [
+              {
+                "scenario": "Simulating a concurrent session deletion during the `commit_import_with` operation, specifically after the artifact swap but before the JSONL file atomic write finishes.",
+                "evidence": "Ran a synthetic Rust fixture `test_concurrent_delete_during_import_leaves_orphaned_jsonl` simulating the scenario by invoking `delete_session` within the `write_session` closure of `commit_import_with`. Observed that `delete_session` successfully removed the newly swapped artifact directory and the old `.jsonl` file. However, the suspended `atomic_write_file` operation then continued, successfully placing the new `.jsonl` file. The final state showed an orphaned `.jsonl` file with no corresponding artifact directory.",
+                "result": "Establishes a race condition (TOCTOU) between `commit_import_with` and `delete_session` which can lead to data loss (silent artifact deletion) for an actively imported session, corrupting its state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the list in CodexImportModal improves initial render and memory footprint sufficiently to justify the layout complexity.",
+              "Investigate if synchronization (e.g., locking) is required for other session mutations (such as title updates) to prevent concurrent overwrites."
+            ],
+            "proposed_task_ids": [
+              "discovery-0c6175b6cf6f1642"
+            ],
+            "completed_at": "2026-09-27T19:36:55.641913Z",
+            "source": {
+              "activity_id": "sessions/17545297632891352198/activities/8eb97563e7d14c849013b763d6e2ba24",
+              "report_sha256": "54f534c3a9f50782faf609806d12835063c616bedfa1399a79382c7726f2d88b",
+              "activity_created_at": "2026-09-27T19:12:56.789359Z",
+              "session_id": "17545297632891352198",
+              "dispatch_key": "dc019ebafbc554b3fdcb8477"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that the unbounded DOM rendering of large lists (100,000 items) in CodexImportModal results in a fatal JavaScript heap exhaustion (OOM), revealing a hard architectural limit for large datasets.",
+            "observations": [
+              {
+                "scenario": "Rendering CodexImportModal with an unbounded number of items, scaling up to 100,000 synthetic sessions.",
+                "evidence": "Ran a React/jsdom memory test (src/ListMemLeak.test.tsx) generating 100,000 mock CodexSessionSummary items and mounting CodexImportModal. The Node process crashed with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'.",
+                "result": "Establishes that the frontend lacks protective boundaries (such as a maximum item limit, pagination, or list virtualization) for massive datasets, leading to a complete crash. This provides the missing rationale for virtualization or pagination in extreme edge cases, contrasting with the previous rejection which focused solely on the O(N) accessibility trapping bottleneck at 10k items."
+              },
+              {
+                "scenario": "Rendering CodexImportModal with a moderately large dataset of 30,000 synthetic sessions.",
+                "evidence": "Ran a React/jsdom test generating 30,000 mock CodexSessionSummary items and mounting CodexImportModal. The render succeeded but took ~10 seconds.",
+                "result": "Establishes a baseline for the OOM crash: the frontend can survive rendering 30,000 sessions (albeit slowly) but predictably fails under larger loads."
+              },
+              {
+                "scenario": "Simulating a mass import persistence request on the backend with 1,000 requests.",
+                "evidence": "Created a synthetic benchmark (benchmark_mass_import) in src-tauri/src/sessions_benchmark.rs invoking import_sessions with 1,000 duplicate ImportSessionRequest payloads. The operation successfully completed all 1,000 imports in ~197ms.",
+                "result": "Establishes that the Rust backend and file system persistence can comfortably handle large bulk requests with low latency, proving the primary scaling bottleneck for massive import workflows resides entirely in the frontend rendering layer."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory and latency footprint of the SessionList component (which displays active workspaces) when dealing with similarly large session hierarchies to determine if the same OOM boundary applies."
+            ],
+            "proposed_task_ids": [
+              "discovery-5a4035fe39fb1554"
+            ],
+            "completed_at": "2026-09-28T08:12:06.655954Z",
+            "source": {
+              "activity_id": "sessions/7398654335993085517/activities/dedc40bbc4954e858a052a8680b23dc1",
+              "report_sha256": "324615d7884b4fe82bfe07934119c1b1e3b7414c51309f9071d27dddff5fba27",
+              "activity_created_at": "2026-09-28T07:51:04.201869Z",
+              "session_id": "7398654335993085517",
+              "dispatch_key": "38463f7605581d6664b72f45"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated memory boundaries and list rendering scalability in CodexImportModal and SessionList. Verified that CodexImportModal suffers from a fatal OOM crash without virtualization at 100,000 items, while SessionList successfully renders the same synthetic scale due to useVirtualList.",
+            "observations": [
+              {
+                "scenario": "Rendering CodexImportModal with an unbounded dataset (100,000 synthetic sessions).",
+                "evidence": "Ran a React/jsdom memory test using Vitest, mounting CodexImportModal with 100,000 generated items. The Node process crashed consistently with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'.",
+                "result": "Establishes that the unbounded DOM rendering of CodexImportModal leads to a hard crash under massive dataset loads, proving the architectural limit."
+              },
+              {
+                "scenario": "Rendering SessionList with an equivalent unbounded dataset (100,000 synthetic sessions).",
+                "evidence": "Ran an equivalent React/jsdom memory test on SessionList with 100,000 generated items. Render succeeded in ~5s without crashing, successfully leveraging useVirtualList.",
+                "result": "Establishes that list virtualization protects the frontend from heap exhaustion at massive scale, demonstrating the necessary mitigation is already available in the codebase."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if synchronization (e.g. locking) is required for session mutations (such as title updates and title pinning) in `sessions.rs` to prevent concurrent writes from destroying concurrent JSONL updates, similar to the import boundary.",
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+            ],
+            "proposed_task_ids": [
+              "discovery-62b7e5e452db8a76"
+            ],
+            "completed_at": "2026-09-28T08:58:03.130526Z",
+            "source": {
+              "activity_id": "sessions/18193483836805901824/activities/0ad12d06e3c549789371f672cf4d9fe3",
+              "report_sha256": "93e93d18a9e802835719827a623e2c73d46d93c6e5d450a13179acf4bbd3555d",
+              "activity_created_at": "2026-09-28T08:44:30.409495Z",
+              "session_id": "18193483836805901824",
+              "dispatch_key": "d77d5d261260c8b53c386d70"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
