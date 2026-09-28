@@ -89303,7 +89303,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T09:04:54.740690Z"
+        "observed_at": "2026-09-28T09:04:54.740690Z",
+        "released_attempt_ref": "autonomous/attempt-121768b883e3e28abb85e8b1"
       },
       "research_result": {
         "summary": "Investigated terminal continuity behavior when receiving stale older generation output events during failure recovery.",
