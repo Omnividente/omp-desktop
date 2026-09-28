@@ -93805,7 +93805,7 @@
       "id": "discovery-c4e350673db03db4",
       "title": "Fix duplicate fallback toasts from differing provider aliases",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 25,
       "risk": "low",
       "focus": [
@@ -93838,6 +93838,12 @@
         "activity_created_at": "2026-09-28T15:05:53.132839Z",
         "session_id": "16396213467376557388",
         "dispatch_key": "c7a97fcd01954b7ca308050a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:40:48Z",
+        "note": "runtimeFeedbackDedupeKey uses raw fallback edge and role intentionally: anthropic and bedrock are distinct providers even with same base model. No proven duplicate same event or provider alias equivalence."
       }
     },
     {
