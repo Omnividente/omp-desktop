@@ -93474,7 +93474,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T15:19:05.097198Z"
+        "observed_at": "2026-09-28T15:19:05.097198Z",
+        "released_attempt_ref": "autonomous/attempt-c7a97fcd01954b7ca308050a"
       },
       "research_result": {
         "summary": "Verified the deduplication logic failure for fallbacks where provider prefixes cause duplicate fallback events to slip past the dedupe check. Confirmed that the `enforceIncidentBound` issue was resolved on main. Crafted post-revisit rationale for focus trap bug and resolveFallbacks bug.",
