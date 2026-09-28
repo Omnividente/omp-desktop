@@ -89881,7 +89881,8 @@
         "feedback_nudge": {
           "at": "2026-09-28T09:32:35.087463Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-4fce0166d77c6e39e4a3b7bc"
       },
       "research_result": {
         "summary": "Verified that workspace rename and deletion operations handle backend failures gracefully without corrupting frontend state.",
