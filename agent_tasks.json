@@ -92480,8 +92480,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "1708713293407081052",
         "dispatch_key": "6f6bcfa30f55bec6160c1eac",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-6f6bcfa30f55bec6160c1eac",
