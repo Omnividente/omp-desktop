@@ -94230,7 +94230,8 @@
         "feedback_nudge": {
           "at": "2026-09-28T15:47:50.043622Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-258d095a9581b2f5ee651d1c"
       },
       "research_result": {
         "summary": "Investigated the hypothesis that high-throughput terminal output could block the event loop via overlapping `redact_text` invocations. Confirmed this does not occur in practice because raw terminal output chunks are not passed to `redact_text`; the transient backend detector only emits small metadata strings.",
