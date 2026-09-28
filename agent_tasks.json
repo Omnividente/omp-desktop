@@ -96616,7 +96616,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T23:36:23.553881Z"
+        "observed_at": "2026-09-28T23:36:23.553881Z",
+        "released_attempt_ref": "autonomous/attempt-e390e23b5dc232a9515cafc6"
       },
       "research_result": {
         "summary": "Verified the behavior of oversized virtual list items during scroll navigation and confirmed that traversing them does not trigger measurement loops.",
