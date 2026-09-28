@@ -88433,6 +88433,138 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-ux-12",
+      "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-28T08:27:51Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "ux",
+        "fingerprint": "2c3be6b020dc8d856051ce7100c3358026728f1f50a3374197f39cc74d64ebbf",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Verified that tab navigation in large lists causes a severe latency bottleneck due to O(N) DOM style evaluation in useModalFocus, and established a short-circuiting alternative.",
+            "observations": [
+              {
+                "scenario": "Simulating a keyboard Tab press in a dialog containing 10,000 focusable elements, mimicking CodexImportModal under heavy load.",
+                "evidence": "Ran a synthetic jsdom benchmark firing a 'Tab' keyDown event. The current useModalFocus uses Array.prototype.filter to check controlAvailable (which calls window.getComputedStyle) on every single focusable node, causing the operation to take over 400ms in jsdom and forcing synchronous layout calculations on thousands of elements.",
+                "result": "Establishes that the keyboard focus trap causes severe latency for keyboard users in large lists, confirming a distinct accessibility trapping bottleneck."
+              },
+              {
+                "scenario": "Evaluating an optimized useModalFocus using short-circuiting array methods.",
+                "evidence": "Ran the same jsdom test modified to use .find() for the first element and .findLast() for the last element, bypassing the full .filter() pass. This reduced the number of getComputedStyle calls from 10,000 to 12, reducing the Tab handling time from ~417ms to ~194ms (largely jsdom overhead) and eliminating O(N) style computations.",
+                "result": "Establishes that the O(N) focus freeze can be mitigated by using short-circuiting array methods without modifying the list layout."
+              },
+              {
+                "scenario": "Inspecting atomic file write durability on Windows to ensure session files aren't zeroed out if the OS hard crashes during the rename syscall.",
+                "evidence": "Examined replace_file_atomically in src-tauri/src/sessions.rs. For Windows, it calls MoveFileExW with MOVEFILE_WRITE_THROUGH which instructs the OS to write through the cache directly to disk.",
+                "result": "Establishes that the native implementation mitigates file zeroing on crash by using write-through flushing, removing the need for additional syncs in the rename step."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the list in CodexImportModal improves initial render and memory footprint sufficiently to justify the layout complexity."
+            ],
+            "proposed_task_ids": [
+              "discovery-3713ec52cc3c27b8"
+            ],
+            "completed_at": "2026-09-27T12:30:32.110293Z",
+            "source": {
+              "activity_id": "sessions/17140218297233858439/activities/eb335485a03e46bdaf4cf583b477e21d",
+              "report_sha256": "06e9e4c02e5f33fd6704ebaf63446f6a02331230dbdb7a0f7ef0126c16ef6636",
+              "activity_created_at": "2026-09-27T12:23:33.618822Z",
+              "session_id": "17140218297233858439",
+              "dispatch_key": "e60e2e1728937a508ccd18a4"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that a concurrent deletion during session import (commit_import_with) creates a race condition that leaves a session.jsonl file without its corresponding artifact directory.",
+            "observations": [
+              {
+                "scenario": "Simulating a concurrent session deletion during the `commit_import_with` operation, specifically after the artifact swap but before the JSONL file atomic write finishes.",
+                "evidence": "Ran a synthetic Rust fixture `test_concurrent_delete_during_import_leaves_orphaned_jsonl` simulating the scenario by invoking `delete_session` within the `write_session` closure of `commit_import_with`. Observed that `delete_session` successfully removed the newly swapped artifact directory and the old `.jsonl` file. However, the suspended `atomic_write_file` operation then continued, successfully placing the new `.jsonl` file. The final state showed an orphaned `.jsonl` file with no corresponding artifact directory.",
+                "result": "Establishes a race condition (TOCTOU) between `commit_import_with` and `delete_session` which can lead to data loss (silent artifact deletion) for an actively imported session, corrupting its state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the list in CodexImportModal improves initial render and memory footprint sufficiently to justify the layout complexity.",
+              "Investigate if synchronization (e.g., locking) is required for other session mutations (such as title updates) to prevent concurrent overwrites."
+            ],
+            "proposed_task_ids": [
+              "discovery-0c6175b6cf6f1642"
+            ],
+            "completed_at": "2026-09-27T19:36:55.641913Z",
+            "source": {
+              "activity_id": "sessions/17545297632891352198/activities/8eb97563e7d14c849013b763d6e2ba24",
+              "report_sha256": "54f534c3a9f50782faf609806d12835063c616bedfa1399a79382c7726f2d88b",
+              "activity_created_at": "2026-09-27T19:12:56.789359Z",
+              "session_id": "17545297632891352198",
+              "dispatch_key": "dc019ebafbc554b3fdcb8477"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that the unbounded DOM rendering of large lists (100,000 items) in CodexImportModal results in a fatal JavaScript heap exhaustion (OOM), revealing a hard architectural limit for large datasets.",
+            "observations": [
+              {
+                "scenario": "Rendering CodexImportModal with an unbounded number of items, scaling up to 100,000 synthetic sessions.",
+                "evidence": "Ran a React/jsdom memory test (src/ListMemLeak.test.tsx) generating 100,000 mock CodexSessionSummary items and mounting CodexImportModal. The Node process crashed with 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory'.",
+                "result": "Establishes that the frontend lacks protective boundaries (such as a maximum item limit, pagination, or list virtualization) for massive datasets, leading to a complete crash. This provides the missing rationale for virtualization or pagination in extreme edge cases, contrasting with the previous rejection which focused solely on the O(N) accessibility trapping bottleneck at 10k items."
+              },
+              {
+                "scenario": "Rendering CodexImportModal with a moderately large dataset of 30,000 synthetic sessions.",
+                "evidence": "Ran a React/jsdom test generating 30,000 mock CodexSessionSummary items and mounting CodexImportModal. The render succeeded but took ~10 seconds.",
+                "result": "Establishes a baseline for the OOM crash: the frontend can survive rendering 30,000 sessions (albeit slowly) but predictably fails under larger loads."
+              },
+              {
+                "scenario": "Simulating a mass import persistence request on the backend with 1,000 requests.",
+                "evidence": "Created a synthetic benchmark (benchmark_mass_import) in src-tauri/src/sessions_benchmark.rs invoking import_sessions with 1,000 duplicate ImportSessionRequest payloads. The operation successfully completed all 1,000 imports in ~197ms.",
+                "result": "Establishes that the Rust backend and file system persistence can comfortably handle large bulk requests with low latency, proving the primary scaling bottleneck for massive import workflows resides entirely in the frontend rendering layer."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory and latency footprint of the SessionList component (which displays active workspaces) when dealing with similarly large session hierarchies to determine if the same OOM boundary applies."
+            ],
+            "proposed_task_ids": [
+              "discovery-5a4035fe39fb1554"
+            ],
+            "completed_at": "2026-09-28T08:12:06.655954Z",
+            "source": {
+              "activity_id": "sessions/7398654335993085517/activities/dedc40bbc4954e858a052a8680b23dc1",
+              "report_sha256": "324615d7884b4fe82bfe07934119c1b1e3b7414c51309f9071d27dddff5fba27",
+              "activity_created_at": "2026-09-28T07:51:04.201869Z",
+              "session_id": "7398654335993085517",
+              "dispatch_key": "38463f7605581d6664b72f45"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
