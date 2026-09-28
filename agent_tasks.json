@@ -92362,6 +92362,122 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-settings-models-reliability-12",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-28T13:46:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "b69abb14a05494a3878d9458c83b9c383bfa34aa83b9c94bd80c88fc504d2f84",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Investigated Settings recovery and model selection failure modes. Reviewed recovery behavior during write failures and confirmed that the existing atomic write and backup mechanisms correctly preserve state.",
+            "observations": [
+              {
+                "scenario": "Simulating a failed write operation during `start_with_defaults_prepared` and `recover_invalid_settings`.",
+                "evidence": "Inspected Rust test suite (`failed_defaults_write_keeps_source_and_completed_backup`, `failed_recovery_backup_never_replaces_invalid_source`) which explicitly checks that failed writes do not corrupt the original invalid source and correctly yield a `.tmp` and/or `.backup` file conservatively.",
+                "result": "Establishes that failed recovery operations are handled safely. Backups are intentionally duplicated (as per previous decision `bd59fa229eeec07c254a0ce56b24c12fd0ab4f33799df28e45a3bb378061a38c`), and original state is preserved without silent loss."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the robustness of model selection fallback chains when handling models that are unexpectedly removed from the OmpConfig during an active session."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T14:15:32.544778Z",
+            "source": {
+              "activity_id": "sessions/11325218126329700204/activities/fe141b744239477daac528d86d114ea3",
+              "report_sha256": "e06f53527dc81b8b58ee7982404ae1852d0366b6cdc275091845b1f4da9a929c",
+              "activity_created_at": "2026-09-27T14:07:53.079145Z",
+              "session_id": "11325218126329700204",
+              "dispatch_key": "730c7bdd57fb6a27a9b9c79e"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured filtering latency and DOM rendering overhead in ModelPicker when handling 5000 models. Both keyboard interaction and opening the picker take >1.1 seconds due to unvirtualized DOM nodes.",
+            "observations": [
+              {
+                "scenario": "Keyboard filtering of models in ModelPicker.",
+                "evidence": "Simulated typing 'Model-123' into the ModelPicker's search input with 5000 options pre-loaded. The filtering callback (onChange) latency for a single keystroke was ~175ms.",
+                "result": "Establishes that filtering is currently slow, but not the primary cause of latency."
+              },
+              {
+                "scenario": "DOM rendering cost when opening ModelPicker.",
+                "evidence": "Measured the time to open the ModelPicker with 5000 options. The initial render took ~1.58 seconds, and closing/reopening took ~1.14 seconds. Inspected the resulting DOM and confirmed 5000 `<button role=\"option\">` nodes were appended directly to the DOM without virtualization.",
+                "result": "Establishes that DOM rendering overhead is the primary bottleneck when dealing with a large list of models, suggesting the need for windowing/virtualization."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate using react-window or react-virtuoso to replace the static map inside `.model-picker-options` to solve the latency on open/filter.",
+              "Assess if `useTransition` or `startTransition` inside `setQuery` would keep the search input responsive during the synchronous filtered list render."
+            ],
+            "proposed_task_ids": [
+              "discovery-d41f0e7cd0ba21ff"
+            ],
+            "completed_at": "2026-09-28T11:44:44.808745Z",
+            "source": {
+              "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+              "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+              "activity_created_at": "2026-09-28T11:36:55.160369Z",
+              "session_id": "39507811164087162",
+              "dispatch_key": "45076009f264e64f5dff6f61"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the robustness of fallback chains and model selection validation. Verified that empty missing models are properly blocked on save, and that dynamically removed models in the active session are gracefully handled as custom non-catalog items.",
+            "observations": [
+              {
+                "scenario": "Handling of empty missing models in fallback chains during Settings save.",
+                "evidence": "Simulated an empty fallback model string via Vitest jsdom integration test. When clicking Save on SettingsPanel with an empty selector (\"\") in a fallback chain, `serializeFallbackChains` throws a `fallbackEmptyModelError` (e.g. 'A fallback chain model selector cannot be empty.'). The UI correctly catches this and renders the `.settings-save-error` alert block without making an API request.",
+                "result": "Establishes that the frontend validation correctly handles empty models and prevents malformed state from reaching the backend."
+              },
+              {
+                "scenario": "Robustness of model selection when fallback chain models are unexpectedly removed from the OmpConfig.",
+                "evidence": "Configured a Vitest jsdom environment where `fallbackChains` contained a selector (`provider/missing-model`) that did not exist in the loaded OmpConfig catalog. Checked the frontend DOM for rendering failures.",
+                "result": "Establishes that the frontend gracefully handles models missing from the active OmpConfig. The fallback chain continues to render the missing entry as 'Custom selector' with the status 'not in catalog', and no crashes or infinite loops occur."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the application's behavior when an unexpectedly removed custom provider key is used inside a saved proxy providers list."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T13:14:13.936010Z",
+            "source": {
+              "activity_id": "sessions/9645767117199726444/activities/df2a1569481c46eea25d43bbc056b42c",
+              "report_sha256": "9e3aa8642777b61912a4f53e807690df43c8557587e4d0c3907b9b2d4fb402d7",
+              "activity_created_at": "2026-09-28T13:07:41.018390Z",
+              "session_id": "9645767117199726444",
+              "dispatch_key": "684e07da4c33da7ac79b8c83"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
