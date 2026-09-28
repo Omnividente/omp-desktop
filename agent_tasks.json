@@ -93844,6 +93844,245 @@
         "session_id": "16396213467376557388",
         "dispatch_key": "c7a97fcd01954b7ca308050a"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-12",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-28T15:32:11Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 12,
+        "previous_reports": [
+          {
+            "summary": "Verified three runtime diagnostics bugs: focus traps failing inside closed details, secondary fallbacks failing to resolve on primary recovery, and active fallbacks incorrectly evicted under high error volume.",
+            "observations": [
+              {
+                "scenario": "Verify focus trap logic for elements hidden inside closed details tags in IncidentCenter and ResourceHealthPanel.",
+                "evidence": "Executed isolated tests using `@testing-library/react` and `jsdom` that rendered both components with a mock `<details>` block (closed by default) and an injected button inside its `<pre>` block. Simulating a Tab press moved focus to the internal button.",
+                "result": "Establishes that the custom `DIALOG_FOCUSABLE_SELECTOR` in both components misses descendants of closed details elements. They must explicitly reject elements matched by `.closest('details:not([open])')` unless they are within the `<summary>`."
+              },
+              {
+                "scenario": "Verify if secondary fallback incidents fail to resolve when the primary model recovers.",
+                "evidence": "Executed an isolated state machine test script against `applyRuntimeIncidentEvent` generating a `retryFallbackApplied` with `fallbackRole: 'secondary'`, then a `modelChange` with `modelRole: 'primary'` and `resolvedModelIsFallback: false`.",
+                "result": "Establishes a logical bug where `resolveFallbacks` filters by exact role match, skipping secondary fallbacks when the event role is primary. The secondary fallback incorrectly remains active."
+              },
+              {
+                "scenario": "Verify if `enforceIncidentBound` drops unresolved primary fallbacks under high error volume on the same terminal.",
+                "evidence": "Executed an isolated state machine test script against `applyRuntimeIncidentEvent` by creating a fallback incident for `terminal-1`, then simulating 110 unique error events for `terminal-1`.",
+                "result": "Establishes a logical bug where `enforceIncidentBound` drops the oldest incident (the unresolved fallback) to stay within `MAX_RUNTIME_INCIDENTS`, causing the terminal health status to mistakenly switch to `error`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate whether `runtimeFeedbackDedupeKey` fails to coalesce identical fallback edge error messages that arrive via different providers, creating duplicate toasts."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-27T18:53:48.833394Z",
+            "source": {
+              "activity_id": "sessions/10966172769377705217/activities/90bf7350b02b41718572e643cd34ff05",
+              "report_sha256": "7a53db5825a83c245a05de74400271c175e19c1e45f44bf586d8ff39903a9eda",
+              "activity_created_at": "2026-09-27T18:46:30.737853Z",
+              "session_id": "10966172769377705217",
+              "dispatch_key": "60d281e2dd96d41b1ca2824b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe; not established as a duplicate. {\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              },
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-aa17322b78e9eae9; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping unresolved fallbacks under high error volume",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-940b5f71f3979b02; not established as a duplicate. {\"detail\": \"Isolated state machine test using `applyRuntimeIncidentEvent` and synthetic large event batches in vitest.\", \"reproduction\": {\"actual\": \"The oldest unresolved incident, which is the fallback incident, is dropped from the active incidents state.\", \"expected\": \"The fallback incident remains active so `runtimeHealthStatus` accurately reports the fallback state.\", \"steps\": [\"Create a fallback incident for a terminal.\", \"Simulate >100 unique generic activity runtime errors on the same terminal to exceed MAX_RUNTIME_INCIDENTS.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a terminal encounters errors exceeding MAX_RUNTIME_INCIDENTS, its active fallback incident remains tracked to correctly report health status."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified the deduplication logic failure for fallbacks where provider prefixes cause duplicate fallback events to slip past the dedupe check. Confirmed that the `enforceIncidentBound` issue was resolved on main. Crafted post-revisit rationale for focus trap bug and resolveFallbacks bug.",
+            "observations": [
+              {
+                "scenario": "Verify if `runtimeFeedbackDedupeKey` fails to coalesce identical fallback edge error messages that arrive via different providers.",
+                "evidence": "Executed an isolated node TS test verifying that two fallback events from `anthropic/claude-3-5-sonnet` and `bedrock/claude-3-5-sonnet` (both falling back to `openai/gpt-4o`) produce different deduplication keys in `runtimeFeedbackDedupeKey`.",
+                "result": "Establishes a logical bug where duplicate fallback toasts are emitted for the same underlying edge model error if the models arrive through different alias providers. The fallback edge provider needs to be stripped using `splitSelector(...).base.split('/').at(-1)` similar to the feedback model."
+              },
+              {
+                "scenario": "Verify focus trap logic for elements hidden inside closed details tags.",
+                "evidence": "Executed an isolated React jsdom test rendering `IncidentCenter` and `ResourceHealthPanel` with a mock `<details>` block (closed by default) and an injected button inside it. Simulating a Tab press via `userEvent` moved focus to the internal hidden button.",
+                "result": "Re-verified the previous focus trap bug. The custom inline focus trap loops in both components lack the `useModalFocus` controlAvailable logic, and thus fail to exclude details descendants."
+              },
+              {
+                "scenario": "Verify if `resolveFallbacks` correctly resolves a secondary fallback on primary model recovery.",
+                "evidence": "Observed `resolveFallbacks` uses a strict equality check (`incident.role === role`) when a primary role recovers.",
+                "result": "Re-verified the previous secondary fallback incident bug where it fails to clear an active secondary fallback incident when returning to the primary model."
+              },
+              {
+                "scenario": "Verify if `enforceIncidentBound` drops unresolved primary fallback issues under a high volume of errors.",
+                "evidence": "Checked branch main `c934a275012765dde5834c99048cf6297f059110` using a codebase search and inspected PR #95.",
+                "result": "Confirmed this issue is resolved on main, retaining unresolved fallbacks under incident bound."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if concurrent high-throughput terminal outputs can cause overlapping `redact_text` invocations to block the Tauri IPC event loop when retrieving extremely large diagnostics logs."
+            ],
+            "proposed_task_ids": [
+              "discovery-c4e350673db03db4",
+              "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11"
+            ],
+            "completed_at": "2026-09-28T15:19:05.097198Z",
+            "source": {
+              "activity_id": "sessions/16396213467376557388/activities/49b7c4510ebe4799b364c9dd1eaded12",
+              "report_sha256": "a4be78aa92e0b068194dae8dea7e63284035c03c65b0733eacf165585a9820e8",
+              "activity_created_at": "2026-09-28T15:05:53.132839Z",
+              "session_id": "16396213467376557388",
+              "dispatch_key": "c7a97fcd01954b7ca308050a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection states the modal focus walk already excludes descendants hidden in closed details. However, neither IncidentCenter nor ResourceHealthPanel use the fixed modal focus walk logic. They implement their own custom handleKeyDown loop with `!element.hidden` check, which does not check if the element is hidden inside closed details.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "deferred_id": "af292bd5e0ba8adef9b2f01aef64ec004b650f37db9ca5699673c8b12a57fc58",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                  "risk": "low",
+                  "priority": 30,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/IncidentCenter.tsx",
+                    "src/ResourceHealthPanel.tsx"
+                  ],
+                  "acceptance": [
+                    "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                        "Focus the <summary> element and trigger a Tab keypress."
+                      ],
+                      "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                      "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The rejection assumed IncidentCenter and ResourceHealthPanel use useModalFocus. However, they implement a custom handleKeyDown for focus trapping that lacks the controlAvailable logic, thus remaining affected by the bug.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "observation_refs": [
+                        1
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                          "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                          "why_previous_reason_no_longer_explains": "The rejection states useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement. However, neither IncidentCenter nor ResourceHealthPanel use useModalFocus. They implement their own custom focus trap loops inline using a simple hidden attribute filter, which fails to correctly exclude details descendants."
+                        },
+                        {
+                          "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                          "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                          "why_previous_reason_no_longer_explains": "The rejection states the modal focus walk already excludes descendants hidden in closed details. However, neither IncidentCenter nor ResourceHealthPanel use the fixed modal focus walk logic. They implement their own custom handleKeyDown loop with `!element.hidden` check, which does not check if the element is hidden inside closed details."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "action": "reject",
+                      "decision_at": "2026-09-27T21:04:39Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-b82daad4c8b8b9f9",
+                      "action": "reject",
+                      "decision_at": "2026-09-24T07:11:05Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-diagnostics-resources-reliability-12",
+                  "activity_id": "sessions/16396213467376557388/activities/49b7c4510ebe4799b364c9dd1eaded12",
+                  "report_sha256": "a4be78aa92e0b068194dae8dea7e63284035c03c65b0733eacf165585a9820e8",
+                  "activity_created_at": "2026-09-28T15:05:53.132839Z",
+                  "session_id": "16396213467376557388",
+                  "dispatch_key": "c7a97fcd01954b7ca308050a"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
