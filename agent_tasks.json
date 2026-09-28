@@ -90629,13 +90629,13 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-09-28T11:06:59.672438Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-28T11:15:50.734873Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T11:09:39.212650Z",
+    "last_poll_at": "2026-09-28T11:16:13.976882Z",
     "last_tick_at": "2026-09-28T11:09:44.593672Z",
     "run_id": "36413651047"
   }
