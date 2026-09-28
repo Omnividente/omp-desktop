@@ -93116,7 +93116,7 @@
       "id": "discovery-84ebe14b2ef5320a",
       "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -93151,6 +93151,12 @@
         "activity_created_at": "2026-09-28T14:27:14.302777Z",
         "session_id": "8682276882943402279",
         "dispatch_key": "dc71c304b7e0024f0a3bf24b"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:40:03Z",
+        "note": "TranscriptModal.tsx:156-160 Latest stores offset 0, restore at :307 pins top of last article. With oversized last answer, navigate to actual scroll bottom after virtual measurement; preserve reading-position/search behavior."
       }
     },
     {
