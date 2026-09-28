@@ -87227,7 +87227,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T04:09:46.449093Z"
+        "observed_at": "2026-09-28T04:09:46.449093Z",
+        "released_attempt_ref": "autonomous/attempt-d56c87480a5d10ccd56f4592"
       },
       "research_result": {
         "summary": "Verified the behavior of Shift+Enter match navigation across virtual boundaries and confirmed the accessibility of the filter toggle buttons, finding both work correctly as implemented.",
