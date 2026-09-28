@@ -92331,7 +92331,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-28T13:14:13.936010Z"
+        "observed_at": "2026-09-28T13:14:13.936010Z",
+        "released_attempt_ref": "autonomous/attempt-684e07da4c33da7ac79b8c83"
       },
       "research_result": {
         "summary": "Investigated the robustness of fallback chains and model selection validation. Verified that empty missing models are properly blocked on save, and that dynamically removed models in the active session are gracefully handled as custom non-catalog items.",
