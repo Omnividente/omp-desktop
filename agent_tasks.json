@@ -90222,6 +90222,10 @@
         "research_detached": {
           "at": "2026-09-28T10:53:53.860850Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-28T10:53:53.860850Z",
+          "result": "pending"
         }
       }
     }
