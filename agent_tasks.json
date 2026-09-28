@@ -92004,7 +92004,7 @@
       "id": "research-settings-models-behavior-12",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -92150,16 +92150,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9645767117199726444",
         "dispatch_key": "684e07da4c33da7ac79b8c83",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-684e07da4c33da7ac79b8c83",
         "started_at": "2026-09-28T12:57:44.844606Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T13:14:13.936010Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -92330,13 +92330,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T12:57:44.844606Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T13:14:13.936010Z"
+      },
+      "research_result": {
+        "summary": "Investigated the robustness of fallback chains and model selection validation. Verified that empty missing models are properly blocked on save, and that dynamically removed models in the active session are gracefully handled as custom non-catalog items.",
+        "observations": [
+          {
+            "scenario": "Handling of empty missing models in fallback chains during Settings save.",
+            "evidence": "Simulated an empty fallback model string via Vitest jsdom integration test. When clicking Save on SettingsPanel with an empty selector (\"\") in a fallback chain, `serializeFallbackChains` throws a `fallbackEmptyModelError` (e.g. 'A fallback chain model selector cannot be empty.'). The UI correctly catches this and renders the `.settings-save-error` alert block without making an API request.",
+            "result": "Establishes that the frontend validation correctly handles empty models and prevents malformed state from reaching the backend."
+          },
+          {
+            "scenario": "Robustness of model selection when fallback chain models are unexpectedly removed from the OmpConfig.",
+            "evidence": "Configured a Vitest jsdom environment where `fallbackChains` contained a selector (`provider/missing-model`) that did not exist in the loaded OmpConfig catalog. Checked the frontend DOM for rendering failures.",
+            "result": "Establishes that the frontend gracefully handles models missing from the active OmpConfig. The fallback chain continues to render the missing entry as 'Custom selector' with the status 'not in catalog', and no crashes or infinite loops occur."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the application's behavior when an unexpectedly removed custom provider key is used inside a saved proxy providers list."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T13:14:13.936010Z",
+        "source": {
+          "activity_id": "sessions/9645767117199726444/activities/df2a1569481c46eea25d43bbc056b42c",
+          "report_sha256": "9e3aa8642777b61912a4f53e807690df43c8557587e4d0c3907b9b2d4fb402d7",
+          "activity_created_at": "2026-09-28T13:07:41.018390Z",
+          "session_id": "9645767117199726444",
+          "dispatch_key": "684e07da4c33da7ac79b8c83"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T13:14:38.206608Z",
+    "last_poll_at": "2026-09-28T13:14:44.104334Z",
     "last_tick_at": "2026-09-28T13:07:56.958952Z",
     "run_id": "36426305085"
   }
