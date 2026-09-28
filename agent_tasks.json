@@ -95469,7 +95469,8 @@
             "session_id": "13838146669907269334",
             "dispatch_key": "57320e9261ec1e2e10ec4bef"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-57320e9261ec1e2e10ec4bef"
       },
       "research_result": {
         "summary": "Investigated the performance of error text sanitization and memory management for runtime incidents.",
