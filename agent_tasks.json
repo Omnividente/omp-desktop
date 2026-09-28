@@ -87685,7 +87685,7 @@
       "id": "research-terminal-input-performance-12",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -88017,16 +88017,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16143160751168595932",
         "dispatch_key": "ca7086f44da2e0da67c14ff9",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-ca7086f44da2e0da67c14ff9",
         "started_at": "2026-09-28T08:12:06.655954Z",
-        "finished_at": "",
+        "finished_at": "2026-09-28T08:27:51.401425Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -88200,13 +88200,242 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-28T08:12:06.655954Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-28T08:27:51.401425Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal output batcher performance limit and continuity generation downgrade defect.",
+        "observations": [
+          {
+            "scenario": "Simulated output batcher processing thousands of chunks with sizes exceeding the maximum batch length.",
+            "evidence": "Executed an isolated node script testing createTerminalOutputBatcher with 10,000 enqueues of 200KiB chunks. The script completed in ~1450ms.",
+            "result": "Establishes that the batching algorithm executes O(N) array merges on flush, taking around 1.4 seconds for 2GB of enqueued output. While inefficient on a large scale of over limit size, in practice the chunks coming from Rust are strictly batched at 64KiB due to PTY_OUTPUT_BATCH_LIMIT, never reaching an N-squared extreme rendering delay that warrants optimization on the current batch size."
+          },
+          {
+            "scenario": "Simulated applyTerminalOutputEvent receiving a stale event from an older generation than the baseline.",
+            "evidence": "Executed an isolated native script testing applyTerminalOutputEvent with a generation 1 event after establishing a generation 2 baseline in src/terminalContinuity.ts.",
+            "result": "Establishes that the continuity state machine incorrectly returns accept: true, generationChanged: true, and downgrades the internal baseline back to generation 1, instead of rejecting the stale generation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal IPC message limits or queue sizes in Tauri prevent memory leaks during rapid massive output."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-28T08:27:51.401425Z",
+        "source": {
+          "activity_id": "sessions/16143160751168595932/activities/2083e09aa3b3475b8fc66d9bc0b09e78",
+          "report_sha256": "153acf9dd3122030feea6a4872a05a41d66637f46a115c8ff145d88dbb81679b",
+          "activity_created_at": "2026-09-28T08:19:36.239465Z",
+          "session_id": "16143160751168595932",
+          "dispatch_key": "ca7086f44da2e0da67c14ff9"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix terminal continuity generation changes during failure recovery",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result and the internal baseline map\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/terminalContinuity.ts",
+              "src/terminalContinuity.test.ts"
+            ],
+            "acceptance": [
+              "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+            ],
+            "deferred_id": "1c3f7a10fc4b737592a023ff608d53229cccdb5f144411cafe74e827e8190dd5",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix terminal continuity generation changes during failure recovery",
+              "risk": "medium",
+              "priority": 60,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/terminalContinuity.ts",
+                "src/terminalContinuity.test.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Establish a generation 2 baseline using applyTerminalAttachment",
+                    "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                    "Observe the result and the internal baseline map"
+                  ],
+                  "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+                  "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                  "observation_refs": [
+                    1
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                      "why_previous_reason_no_longer_explains": "The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation."
+                    },
+                    {
+                      "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                      "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                      "why_previous_reason_no_longer_explains": "The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                  "action": "reject",
+                  "decision_at": "2026-09-21T20:12:25Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-terminal-input-performance-12",
+              "activity_id": "sessions/16143160751168595932/activities/2083e09aa3b3475b8fc66d9bc0b09e78",
+              "report_sha256": "153acf9dd3122030feea6a4872a05a41d66637f46a115c8ff145d88dbb81679b",
+              "activity_created_at": "2026-09-28T08:19:36.239465Z",
+              "session_id": "16143160751168595932",
+              "dispatch_key": "ca7086f44da2e0da67c14ff9"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16143160751168595932/activities/2083e09aa3b3475b8fc66d9bc0b09e78",
+          "report_sha256": "153acf9dd3122030feea6a4872a05a41d66637f46a115c8ff145d88dbb81679b",
+          "activity_created_at": "2026-09-28T08:19:36.239465Z",
+          "session_id": "16143160751168595932",
+          "dispatch_key": "ca7086f44da2e0da67c14ff9"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-5640a0d5b2031811",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix terminal continuity generation changes during failure recovery",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result and the internal baseline map\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/terminalContinuity.ts",
+                "src/terminalContinuity.test.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+              ],
+              "deferred_id": "1c3f7a10fc4b737592a023ff608d53229cccdb5f144411cafe74e827e8190dd5",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "risk": "medium",
+                "priority": 60,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/terminalContinuity.ts",
+                  "src/terminalContinuity.test.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Native runtime script executed against src/terminalContinuity.ts demonstrated that applyTerminalOutputEvent accepts generation changes from older generations and corrupts the internal baselines map.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Establish a generation 2 baseline using applyTerminalAttachment",
+                      "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                      "Observe the result and the internal baseline map"
+                    ],
+                    "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+                    "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The rejection (discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae) claimed that applyTerminalOutputEvent does not throw a fatal error. While it doesn't throw a fatal error, it does corrupt the map (it overwrites the baseline to the older generation). Because generation is monotonically increasing during recovery, an older generation event should never be able to downgrade the baseline generation, as demonstrated in my synthetic test. While this may only happen via 'synthetic events' or network races, it is a logic defect in the continuity state machine.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                    "observation_refs": [
+                      1
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                        "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                        "why_previous_reason_no_longer_explains": "The previous rationale focused on the absence of a thrown exception, but did not address the observed state corruption where an older generation downgrades a newer baseline. Even if this requires a synthetic or rare sequence of events, applyTerminalOutputEvent is a state machine that should logically reject regressions in generation."
+                      },
+                      {
+                        "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                        "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                        "why_previous_reason_no_longer_explains": "The rationale states that generation is fixed per terminal_id and continuity requires synthetic mock events, so different generations don't happen. While this may be true, applyTerminalOutputEvent should logically reject an older generation if it does receive one, rather than downgrading its internal baseline map to the older generation."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                    "action": "reject",
+                    "decision_at": "2026-09-21T20:12:25Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-terminal-input-performance-12",
+                "activity_id": "sessions/16143160751168595932/activities/2083e09aa3b3475b8fc66d9bc0b09e78",
+                "report_sha256": "153acf9dd3122030feea6a4872a05a41d66637f46a115c8ff145d88dbb81679b",
+                "activity_created_at": "2026-09-28T08:19:36.239465Z",
+                "session_id": "16143160751168595932",
+                "dispatch_key": "ca7086f44da2e0da67c14ff9"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-28T08:21:32.217687Z",
+    "last_poll_at": "2026-09-28T08:28:13.283871Z",
     "last_tick_at": "2026-09-28T08:21:36.317239Z",
     "run_id": "36396804429"
   }
