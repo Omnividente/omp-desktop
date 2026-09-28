@@ -85145,7 +85145,7 @@
       "id": "discovery-6ea025a0318469cc",
       "title": "Prevent Escape key in transcript search from unintentionally closing the entire modal",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "todo",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -85179,6 +85179,12 @@
         "activity_created_at": "2026-09-27T23:10:33.384380Z",
         "session_id": "11873245757219553051",
         "dispatch_key": "937e365fd538093960ada9ee"
+      },
+      "proposal_decision": {
+        "action": "approve",
+        "actor": "Omnividente",
+        "at": "2026-09-28T20:32:22Z",
+        "note": "TranscriptModal.tsx search input handles only Enter; Escape bubbles into useModalFocus and closes the reader. Fix Escape with nonempty query to clear and keep focus; with empty query preserve dialog close. Include in 0.9.7 candidate after review."
       }
     },
     {
