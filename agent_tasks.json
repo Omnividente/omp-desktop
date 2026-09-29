@@ -95934,7 +95934,7 @@
       "id": "discovery-7c33165d9d4290a0",
       "title": "Apply bounds checking before redaction in sanitize_error_text to prevent memory spikes",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -95969,10 +95969,10 @@
         "dispatch_key": "57320e9261ec1e2e10ec4bef"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-28T20:42:53Z",
-        "note": "models.rs:9-20 redacts entire unbounded input before truncation to 8KiB, causing avoidable CPU/memory spike for huge errors. Bound input safely before redaction while preserving UTF-8 and secrecy of any emitted prefix or boundary token; no claim of current secret leak."
+        "at": "2026-09-29T10:11:19Z",
+        "note": "Implemented by reviewed and merged PR #98, main df856f35322b24776766dee1bb0823c20ec64bbd; 0.9.7 source/CI/native smoke passed."
       }
     },
     {
