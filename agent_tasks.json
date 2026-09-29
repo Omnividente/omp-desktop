@@ -107624,7 +107624,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T19:32:19.978693Z"
+        "observed_at": "2026-09-29T19:32:19.978693Z",
+        "released_attempt_ref": "autonomous/attempt-65668b1a04194122219d7639"
       },
       "research_result": {
         "summary": "Investigated resource sampling latency, string redaction bounds, and previously reported incident state logic issues.",
