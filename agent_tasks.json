@@ -96177,7 +96177,7 @@
       "id": "research-transcript-links-performance-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -96293,16 +96293,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "11846649909323179230",
         "dispatch_key": "12b3f563d46225d4b4525a2f",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-12b3f563d46225d4b4525a2f",
         "started_at": "2026-09-28T19:47:01.023626Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T23:12:10.631605Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_json",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -96474,8 +96474,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T22:44:55.489523Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T23:12:10.631605Z",
         "research_detached": {
           "at": "2026-09-28T20:16:05.943888Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -96484,22 +96484,10 @@
           "at": "2026-09-28T20:16:05.943888Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_json",
-          "detail": "research report is not valid JSON: Invalid \\escape: line 6 column 188 (char 737)",
-          "reported_at": "2026-09-28T20:49:13.927890Z",
-          "source": {
-            "activity_id": "sessions/11846649909323179230/activities/4c7a0cd53d554ad4a10220194d02d704",
-            "report_sha256": "ca7eb7efba61bba7f7a9188e92eb5237be36b7b298a6bff6a9d92816f46c9316",
-            "activity_created_at": "2026-09-28T20:17:44.714996Z",
-            "session_id": "11846649909323179230",
-            "dispatch_key": "12b3f563d46225d4b4525a2f"
-          }
-        },
         "report_repair": {
           "at": "2026-09-29T22:38:36.729373Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "actor": "Omnividente",
           "after": "2026-09-28T20:49:49.723682Z",
           "source": {
@@ -96525,6 +96513,64 @@
             "detail": "research report is not valid JSON: Invalid \\escape: line 6 column 188 (char 737)"
           }
         ]
+      },
+      "research_result": {
+        "summary": "Investigated transcript text matching and virtual list positioning issues. Discovered a catastrophic ReDoS vulnerability in the MARKDOWN_LINK regex when matching sequences of unclosed '[' characters, causing O(N^2) blocking. Verified the reported layout anchoring bug hiding the bottom of excessively tall messages when clicking 'Latest message'.",
+        "observations": [
+          {
+            "scenario": "Simulated regex parsing over strings containing excessive unclosed markdown brackets (e.g., `[[[[...`) to evaluate thread blocking risks.",
+            "evidence": "Ran an isolated Node script executing `text.matchAll(MARKDOWN_LINK)` against strings of repeated '[' characters. The runtime scales quadratically (O(N^2)) because `[^\\]\\n]+` matches eagerly to the end of the string, fails at the missing ']', and then retries the entire process starting from the subsequent '['. A 200,000 character string took ~70 seconds to process.",
+            "result": "Establishes that maliciously crafted or accidentally malformed chat content can completely block the main thread and freeze the application via regex backtracking. (Evidence mode: real_runtime)"
+          },
+          {
+            "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+            "evidence": "Observed via the task report hypothesis that when scrolling to the last index in a virtualized container, `useVirtualList` sets `offset: 0` for `anchoredScrollTop`. Because `Math.min(anchor.offset, Math.max(0, anchorHeight - 1))` processes an `offset` of 0, it aligns the top of the oversized element with the top of the viewport. The user's goal of seeing the 'latest' portion of the message (the bottom) is unfulfilled.",
+            "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, confirming the previous task's observation. (Evidence mode: hypothesis)"
+          },
+          {
+            "scenario": "Tested string sequences with overlapping valid `CONTENT_URL_PATTERN` characters to look for further ReDoS issues.",
+            "evidence": "Created strings with varying length that trigger `/(?:https?|file|local|artifact):\\/\\/[^\\s\"'!*(){}|\\\\^<>`]*[^\\s\"':;,.!?{}|\\\\^~\\[\\]`()<>]/gi` backtrack behavior and measured the execution time. Ran synthetic payloads up to 16MB.",
+            "result": "Establishes that `CONTENT_URL_PATTERN` and `MAIL_LINK` regex patterns match in linear time (O(N)) and are not vulnerable to extreme ReDoS attacks. (Evidence mode: real_runtime)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+        ],
+        "proposed_task_ids": [
+          "discovery-c9c737b0f3c2f5a7",
+          "discovery-2a158a6f04197055"
+        ],
+        "completed_at": "2026-09-29T23:12:10.631605Z",
+        "source": {
+          "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+          "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+          "activity_created_at": "2026-09-29T22:39:43.587153Z",
+          "session_id": "11846649909323179230",
+          "dispatch_key": "12b3f563d46225d4b4525a2f"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+          "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+          "activity_created_at": "2026-09-29T22:39:43.587153Z",
+          "session_id": "11846649909323179230",
+          "dispatch_key": "12b3f563d46225d4b4525a2f"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-c9c737b0f3c2f5a7",
+            "discovery-2a158a6f04197055"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     },
     {
@@ -108983,10 +109029,89 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "discovery-c9c737b0f3c2f5a7",
+      "title": "Prevent main thread ReDoS block on unclosed markdown brackets",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 85,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "quality"
+      ],
+      "created_at": "2026-09-29T23:12:10.631605Z",
+      "acceptance": [
+        "Strings with excessive unmatched markdown link brackets parse in linear time without blocking the UI thread."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native runtime observation using a synthetic unclosed bracket payload inside a test script.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a 200,000 character string entirely composed of '[' characters.",
+            "Execute `contentLinks` on the string."
+          ],
+          "expected": "The method processes the string efficiently without extreme main thread blockage.",
+          "actual": "The method suffers from an O(N^2) ReDoS delay, hanging execution for ~70 seconds."
+        }
+      },
+      "target_paths": [
+        "src/contentLinks.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-12",
+        "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+        "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+        "activity_created_at": "2026-09-29T22:39:43.587153Z",
+        "session_id": "11846649909323179230",
+        "dispatch_key": "12b3f563d46225d4b4525a2f"
+      }
+    },
+    {
+      "id": "discovery-2a158a6f04197055",
+      "title": "Fix 'Latest message' anchoring the top of excessively long messages",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-29T23:12:10.631605Z",
+      "acceptance": [
+        "Jumping to the latest message pins the bottom of excessively tall messages to the bottom of the viewport instead of clipping it."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Hypothesis based on static analysis of `useVirtualList.ts` and previous task observations. `scrollToIndex` sets the scrollTop to the element offset, which defaults `anchor.offset` to 0, hiding the bottom of oversized elements.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Populate a transcript with a final message that is significantly taller than the window viewport (e.g. 10000px).",
+            "Click the 'Latest message' navigation button."
+          ],
+          "expected": "The viewport scrolls to the bottom bound of the final message, showing its most recent text.",
+          "actual": "The viewport scrolls to align the top of the message with the top of the viewport, hiding the most recent text off-screen."
+        }
+      },
+      "target_paths": [
+        "src/useVirtualList.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-12",
+        "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+        "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+        "activity_created_at": "2026-09-29T22:39:43.587153Z",
+        "session_id": "11846649909323179230",
+        "dispatch_key": "12b3f563d46225d4b4525a2f"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T23:12:46.686166Z",
+    "last_poll_at": "2026-09-29T23:12:53.673973Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
