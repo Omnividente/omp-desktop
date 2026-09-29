@@ -103440,7 +103440,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T13:53:44.929967Z"
+        "observed_at": "2026-09-29T13:53:44.929967Z",
+        "released_attempt_ref": "autonomous/attempt-7fa8e59c816de002d00b2cc9"
       },
       "research_result": {
         "summary": "Investigated Settings recovery screen state retention after a generic error, and proxy provider lifecycle bugs regarding removed/disabled providers in settings persistence and runtime overlay generation.",
