@@ -103905,7 +103905,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T14:18:20.284642Z"
+        "observed_at": "2026-09-29T14:18:20.284642Z",
+        "released_attempt_ref": "autonomous/attempt-c4975515b7640397637398e5"
       },
       "research_result": {
         "summary": "Investigated the behavior of clearing search in the transcript modal. Discovered that rapidly clearing the search input via the 'clearSearch' button immediately resets the `pendingRestoreRef`, breaking reading position restoration instead of correctly navigating the user back to where they were before or during the search.",
