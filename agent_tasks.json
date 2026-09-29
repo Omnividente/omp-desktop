@@ -101021,7 +101021,8 @@
         "feedback_nudge": {
           "at": "2026-09-29T10:35:30.011764Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-dd36781bbd08d9ef8235a3a1"
       },
       "research_result": {
         "summary": "Investigated workspace failure recovery and persistence logic under generic failure conditions, focusing on background saves and rename operations.",
