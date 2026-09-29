@@ -86914,7 +86914,7 @@
       "id": "discovery-708891cade391524",
       "title": "Revert switchRecovery state from 'sending' on generic failure",
       "task_type": "bugfix",
-      "status": "todo",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -86950,10 +86950,10 @@
         "dispatch_key": "7df068600b40dffd23f62d58"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-28T20:35:11Z",
-        "note": "App.tsx:1618-1658 generic error preserves state sending, blocking both retry and discard. Restore pending only for same recovery token/generation, retain structured backend metadata; regression scenario required before 0.9.7."
+        "at": "2026-09-29T10:08:01Z",
+        "note": "Implemented by reviewed and merged PR #98, main df856f35322b24776766dee1bb0823c20ec64bbd; 0.9.7 source/CI/native smoke passed."
       }
     },
     {
