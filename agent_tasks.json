@@ -56974,18 +56974,34 @@
           }
         },
         "report_repair": {
-          "at": "2026-09-25T09:09:11.884623Z",
-          "result": "sent",
-          "status": "invalid",
+          "at": "2026-09-29T22:35:40.056100Z",
+          "result": "pending",
+          "status": "pending",
+          "actor": "Omnividente",
+          "after": "2026-09-25T09:09:11.884623Z",
           "source": {
             "activity_id": "sessions/5228876765825342139/activities/7c1049afb851469899b093961457eb26",
             "report_sha256": "85c54780919bc0f0ce1ee34e4da2e9258ec3e9823d147923cb162a685f4c2c1c",
             "activity_created_at": "2026-09-25T09:10:39.436838Z",
             "session_id": "5228876765825342139",
             "dispatch_key": "39c29d518f1480db1357c981"
-          },
-          "detail": "expected exactly one ordered research report block"
-        }
+          }
+        },
+        "report_repair_history": [
+          {
+            "at": "2026-09-25T09:09:11.884623Z",
+            "result": "sent",
+            "status": "invalid",
+            "source": {
+              "activity_id": "sessions/5228876765825342139/activities/7c1049afb851469899b093961457eb26",
+              "report_sha256": "85c54780919bc0f0ce1ee34e4da2e9258ec3e9823d147923cb162a685f4c2c1c",
+              "activity_created_at": "2026-09-25T09:10:39.436838Z",
+              "session_id": "5228876765825342139",
+              "dispatch_key": "39c29d518f1480db1357c981"
+            },
+            "detail": "expected exactly one ordered research report block"
+          }
+        ]
       }
     },
     {
