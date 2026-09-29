@@ -100650,7 +100650,7 @@
       "id": "research-workspace-navigation-reliability-13",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -100833,16 +100833,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17931433267199088846",
         "dispatch_key": "dd36781bbd08d9ef8235a3a1",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-dd36781bbd08d9ef8235a3a1",
         "started_at": "2026-09-29T10:12:03.257842Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T10:49:11.020362Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -101012,8 +101012,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T10:40:23.880634Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T10:49:11.020362Z",
         "research_detached": {
           "at": "2026-09-29T10:35:30.011764Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -101021,6 +101021,58 @@
         "feedback_nudge": {
           "at": "2026-09-29T10:35:30.011764Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated workspace failure recovery and persistence logic under generic failure conditions, focusing on background saves and rename operations.",
+        "observations": [
+          {
+            "scenario": "Simulated concurrent workspace selection changes leading to background save-queue serialization, forcing the first selection save to reject.",
+            "evidence": "Executed a synthetic Vitest scenario covering `App.tsx` lines 1086-1101 where multiple selections are triggered consecutively. When `api.saveWorkspaceSelection` was mocked to reject the first request, the fallback logic within the queue (`workspaceSaveQueueRef.current`) successfully absorbed the rejection, presented an error to the user, and smoothly proceeded to flush the latest uncancelled request.",
+            "result": "Establishes that the workspace persistence background queue robustly deduplicates selections and recovers gracefully from individual disk/backend failures without halting or omitting subsequent saves."
+          },
+          {
+            "scenario": "Simulated a failure during a workspace rename operation initiated from `ProjectRail` context actions in `App.tsx`.",
+            "evidence": "Executed a synthetic Vitest test calling `submitWorkspaceRename` where `api.renameWorkspace` was mocked to reject. Observed that lines 657-658 eagerly execute `setRenamingWorkspaceKey(null)` and `setWorkspaceNameValue('')` before waiting for the asynchronous rename payload. The UI state is irrevocably lost on error.",
+            "result": "Establishes a user experience defect: if a workspace rename fails for any reason, the user's intended text is discarded and the rename dialog closes prematurely, preventing them from correcting or retrying without starting completely over."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session renaming shares the same eager-state-clearing bug on failure, potentially causing similar UI regressions.",
+          "Explore how quickly repeated single-instance workspace arguments reconcile if an asynchronous `addWorkspace` call blocks on a slow filesystem."
+        ],
+        "proposed_task_ids": [
+          "discovery-5577ea4e9ef26ca2"
+        ],
+        "completed_at": "2026-09-29T10:49:11.020362Z",
+        "source": {
+          "activity_id": "sessions/17931433267199088846/activities/d20c90734a1d48bc9dbff6d12492450e",
+          "report_sha256": "8fe03ad4651f00448cc64fe9260941eecc262bb2490d651c45d37a84f5ce3b65",
+          "activity_created_at": "2026-09-29T10:36:59.713718Z",
+          "session_id": "17931433267199088846",
+          "dispatch_key": "dd36781bbd08d9ef8235a3a1"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17931433267199088846/activities/d20c90734a1d48bc9dbff6d12492450e",
+          "report_sha256": "8fe03ad4651f00448cc64fe9260941eecc262bb2490d651c45d37a84f5ce3b65",
+          "activity_created_at": "2026-09-29T10:36:59.713718Z",
+          "session_id": "17931433267199088846",
+          "dispatch_key": "dd36781bbd08d9ef8235a3a1"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5577ea4e9ef26ca2"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -101392,10 +101444,52 @@
         "session_state": "IN_PROGRESS",
         "observed_at": "2026-09-29T10:40:23.880634Z"
       }
+    },
+    {
+      "id": "discovery-5577ea4e9ef26ca2",
+      "title": "Retain workspace rename input state on failure",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "ux",
+        "bugfix"
+      ],
+      "created_at": "2026-09-29T10:49:11.020362Z",
+      "acceptance": [
+        "When a workspace rename fails, the user's typed name is retained in the input.",
+        "When a workspace rename fails, the input remains visible for the user to try again."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Native desktop observation with a synthetic mock overriding `api.renameWorkspace` to throw an error.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render the application with at least one loaded workspace.",
+            "Open the rename input for a workspace via the action menu, type a new name, and press Enter to commit.",
+            "Simulate a network or generic persistence failure from `renameWorkspace`."
+          ],
+          "expected": "The error is displayed, but the inline rename input stays open with the user's typed name preserved.",
+          "actual": "The input abruptly closes and the rename value is discarded immediately before the error is caught."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-13",
+        "activity_id": "sessions/17931433267199088846/activities/d20c90734a1d48bc9dbff6d12492450e",
+        "report_sha256": "8fe03ad4651f00448cc64fe9260941eecc262bb2490d651c45d37a84f5ce3b65",
+        "activity_created_at": "2026-09-29T10:36:59.713718Z",
+        "session_id": "17931433267199088846",
+        "dispatch_key": "dd36781bbd08d9ef8235a3a1"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T10:49:36.460351Z",
+    "last_poll_at": "2026-09-29T10:49:42.414163Z",
     "last_tick_at": "2026-09-29T10:42:51.990441Z",
     "run_id": "36556930967"
   }
