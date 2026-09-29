@@ -102238,7 +102238,8 @@
             "session_id": "2195924658419957192",
             "dispatch_key": "51430683be25c0b4f5e8e1c4"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-51430683be25c0b4f5e8e1c4"
       },
       "research_result": {
         "summary": "Measured ModelPicker input responsiveness under a 5000-model load and verified bounded work efficiency in settings recovery and error sanitization.",
