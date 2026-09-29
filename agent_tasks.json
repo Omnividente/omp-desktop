@@ -104295,8 +104295,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-29T14:43:00.343237Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-29T14:51:19.195313Z",
         "research_detached": {
           "at": "2026-09-29T14:43:00.343237Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -104309,7 +104309,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T14:51:56.842763Z",
+    "last_poll_at": "2026-09-29T14:52:12.586590Z",
     "last_tick_at": "2026-09-29T14:43:56.966912Z",
     "run_id": "36584666867"
   }
