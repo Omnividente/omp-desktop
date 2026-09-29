@@ -97091,7 +97091,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T00:10:57.565384Z"
+        "observed_at": "2026-09-29T00:10:57.565384Z",
+        "released_attempt_ref": "autonomous/attempt-ff35532796f246c64cce2d1c"
       },
       "research_result": {
         "summary": "Verified continuity baseline downgrade on stale applyTerminalOutputEvent and proposed structured fix.",
