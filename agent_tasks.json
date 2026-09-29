@@ -102577,7 +102577,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T12:57:18.714336Z"
+        "observed_at": "2026-09-29T12:57:18.714336Z",
+        "released_attempt_ref": "autonomous/attempt-558b5b27f2d44336a75ceade"
       },
       "research_result": {
         "summary": "Investigated the behavior of disabled/removed custom proxy providers during persistence and the SettingsRecoveryScreen's handling of consecutive errors.",
