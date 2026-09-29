@@ -102723,6 +102723,137 @@
         "session_id": "14574839716979966196",
         "dispatch_key": "558b5b27f2d44336a75ceade"
       }
+    },
+    {
+      "id": "research-settings-models-ux-13",
+      "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-29T12:57:18Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "ux",
+        "fingerprint": "fc2b337cbc6ce6ca1b680a6dd357ad044cb8645fc16f4a92b63d4b230fb53040",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Investigated the robustness of proxy provider selection and settings saving when a custom provider is unexpectedly removed. Verified that the SettingsPanel properly flags changes, computes differences, and correctly sends the `removedCustomProviders` field without losing the list of valid `proxyProviders`.",
+            "observations": [
+              {
+                "scenario": "Handling of unexpectedly removed custom proxy providers during settings save on the frontend.",
+                "evidence": "Simulated a SettingsPanel environment in Vitest jsdom where an existing active custom proxy provider (`missing-provider`) is explicitly removed by the user in the UI. Intercepted `saveSettingsBundle` and verified that the `removedCustomProviders` array is populated with `['missing-provider']`, and the `proxyProviders` list is re-evaluated appropriately. Additionally, confirmed `hasChanges` properly marks the settings form as dirty.",
+                "result": "Establishes that the frontend gracefully aggregates changes regarding missing providers and sends the intention to remove a provider correctly to the backend API (`saveSettingsBundle`)."
+              },
+              {
+                "scenario": "Persistence and normalization of proxy_providers on the backend when invalid providers exist.",
+                "evidence": "Inspected `normalize_persisted_proxy_providers` in `src-tauri/src/settings.rs` which verifies that persisted proxy provider IDs are trimmed and invalid empty values are removed, guaranteeing they do not corrupt the persisted Rust state. Checked Rust tests `persisted_proxy_provider_ids_are_trimmed_and_invalid_values_removed` and `proxy_providers_survive_settings_round_trip`.",
+                "result": "Establishes that the backend enforces safe deserialization and normalization of `proxy_providers`, preventing invalid chains or ghost values from causing a panic or unrecoverable state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the application's runtime behavior when a previously active proxy provider is entirely disabled from `OmpConfig` (but still present in settings) and how `resolve_omp` treats those disabled instances."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T14:18:43.189644Z",
+            "source": {
+              "activity_id": "sessions/1708713293407081052/activities/e5a1e006705046028b1dead9acc49044",
+              "report_sha256": "babdc94f6b8be69705b90c6acb41462f96b2a8b21cbde1493851bf069f865f59",
+              "activity_created_at": "2026-09-28T14:10:53.440119Z",
+              "session_id": "1708713293407081052",
+              "dispatch_key": "6f6bcfa30f55bec6160c1eac"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Measured ModelPicker input responsiveness under a 5000-model load and verified bounded work efficiency in settings recovery and error sanitization.",
+            "observations": [
+              {
+                "scenario": "Typing latency in ModelPicker search with 5000 models loaded.",
+                "evidence": "Ran a synthetic Vitest jsdom test rendering 5000 mock models. Interacting with the `<input>` element showed a single keystroke change event latency of ~750ms.",
+                "result": "Establishes that synchronous React renders of 5000 unvirtualized list items block the main thread and significantly degrade keyboard input responsiveness."
+              },
+              {
+                "scenario": "Memory allocation and latency when truncating large strings in sanitize_error_text.",
+                "evidence": "Ran a compiled Rust benchmark using a 100MB string against the current `sanitize_error_text` implementation in `src-tauri/src/models.rs`. The execution completed in < 1ms.",
+                "result": "Establishes that the current character indexing approach operates in constant/minimal time without excessive memory allocations, effectively bounding the work."
+              },
+              {
+                "scenario": "Time bounded scanning in custom JSON recovery parsing.",
+                "evidence": "Ran a Rust benchmark simulating `recover_top_level_json_field` over a JSON string with 100,000 top-level keys to find a key placed at the very end. The parser reached the end in ~35ms.",
+                "result": "Establishes that the fallback manual JSON parser handles large corrupted files quickly enough to not cause noticeable UI freezing during startup."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if wrapping `setQuery` in `startTransition` inside ModelPicker allows the input to remain responsive while the items are being filtered and rendered."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T12:11:19.760837Z",
+            "source": {
+              "activity_id": "sessions/2195924658419957192/activities/9b8400ce68bb454bb3ea7c186801e9a5",
+              "report_sha256": "b34e1f8ad32510d13dc24888b21962218fffbe2c37ef148da4b35d3cafc50e35",
+              "activity_created_at": "2026-09-29T12:03:47.368269Z",
+              "session_id": "2195924658419957192",
+              "dispatch_key": "51430683be25c0b4f5e8e1c4"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of disabled/removed custom proxy providers during persistence and the SettingsRecoveryScreen's handling of consecutive errors.",
+            "observations": [
+              {
+                "scenario": "Removing a custom proxy provider and saving settings on the frontend.",
+                "evidence": "Simulated removing a custom proxy provider ('my-custom-provider') in SettingsPanel and intercepted `saveSettingsBundle`. Observed that while the ID is correctly added to `removedCustomProviders` in `ompConfig`, it is NOT filtered out of the `proxyProviders` list sent to the backend. The frontend visually disables it, but relies on `omp_bridge.rs` (via `mutation.removed`) to filter it from `proxy_providers` before persisting.",
+                "result": "Establishes that the frontend sends stale/removed providers inside the `proxyProviders` array during a save. The backend `save_config` filters them out, preventing immediate corruption."
+              },
+              {
+                "scenario": "Handling disabled proxy providers in `OmpConfig` when generating OMP runtime arguments.",
+                "evidence": "Traced the usage of `settings.proxy_providers` through the backend. In `src-tauri/src/terminal.rs`, `ensure_proxy_provider_overlay` calls `proxy_provider_overlay()`. The overlay file `proxy-providers.yml` is generated exclusively from the `proxy_providers` set. `disabled_providers` is never checked. Thus, if a provider ID remains in `proxy_providers` (e.g. toggled off as 'providerEnabled' but still checked as 'providerProxyMode'), the OMP process is incorrectly launched with a fallback chain routing for that disabled proxy.",
+                "result": "Establishes that disabled proxy providers still generate proxy overlays if their proxy toggle remains active, contradicting user expectations that a disabled provider applies no behaviors."
+              },
+              {
+                "scenario": "SettingsRecoveryScreen behavior on consecutive errors.",
+                "evidence": "Simulated consecutive startup errors in `App.tsx`. After an initial `settings_unavailable` error triggers the recovery screen, clicking 'Start with Defaults' triggers `startWithDefaults()`. When `startWithDefaults()` throws a *generic* error instead of a `settings_unavailable` error, the `App.tsx` catch block displays an error toast via `showError()` but does not clear or update `settingsRecovery`. The `SettingsRecoveryScreen` remains visible, displaying the *first* failure's details indefinitely.",
+                "result": "Establishes that the UI becomes visually stuck on an outdated recovery state if a subsequent non-settings error occurs during the recovery process."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the user deleting a previously saved `proxy-providers.yml` overlay mid-session while OMP restarts handles missing configuration paths gracefully."
+            ],
+            "proposed_task_ids": [
+              "discovery-f7cec393fa805278",
+              "discovery-863caf28d16304d6"
+            ],
+            "completed_at": "2026-09-29T12:57:18.714336Z",
+            "source": {
+              "activity_id": "sessions/14574839716979966196/activities/a1f67004e3f8478d806a781a58ef6a1c",
+              "report_sha256": "aeed7eb906ca29d5390b0d9802dce3a410424ab521607ea6db9b8040759142ff",
+              "activity_created_at": "2026-09-29T12:34:16.848398Z",
+              "session_id": "14574839716979966196",
+              "dispatch_key": "558b5b27f2d44336a75ceade"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
