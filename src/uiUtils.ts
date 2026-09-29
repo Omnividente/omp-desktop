@@ -22,15 +22,22 @@ export function formatTerminalExitLine(event: PtyExitEvent, language: Lang): str
   return `\r\n\x1b[38;2;${color}m${t(language, "ompExitedCode").replace("{code}", String(code))}\x1b[0m\r\n`
 }
 
+const relativeFormatters = {
+  en: {
+    relative: new Intl.RelativeTimeFormat("en", { numeric: "auto" }),
+    date: new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }),
+  },
+  ru: {
+    relative: new Intl.RelativeTimeFormat("ru", { numeric: "auto" }),
+    date: new Intl.DateTimeFormat("ru", { day: "numeric", month: "short" }),
+  },
+} satisfies Record<Lang, { relative: Intl.RelativeTimeFormat; date: Intl.DateTimeFormat }>
+
 export function formatRelative(timestamp: number, lang: Lang): string {
   if (!timestamp) {
     return lang === "en" ? "no runs" : "нет запусков"
   }
-  const relativeTime = new Intl.RelativeTimeFormat(localeTag(lang), { numeric: "auto" })
-  const calendarDate = new Intl.DateTimeFormat(localeTag(lang), {
-    day: "numeric",
-    month: "short",
-  })
+  const { relative: relativeTime, date: calendarDate } = relativeFormatters[lang]
   const seconds = Math.round((timestamp - Date.now()) / 1000)
   const absolute = Math.abs(seconds)
   if (absolute < 60) return relativeTime.format(seconds, "second")
