@@ -101023,6 +101023,191 @@
           "result": "sent"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-13",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-29T10:40:23Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "61cd8504e589e3b2e9fe528ef30c3af9dff246096299973eb7366cdf83e41be3",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation and project switching performance across large datasets. Discovered a measurable performance bottleneck in 'formatRelative' caused by repeatedly instantiating 'Intl' formatters.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering 1,000 workspaces in `ProjectRail` and 5,000 sessions in `TerminalWorkspace` / `App`.",
+                "evidence": "Observed that while `Array.find` for `selectedWorkspace` and iterative rendering of workspaces and session trees scale well (taking <100ms for large lists), the `formatRelative` function in `src/uiUtils.ts` takes ~700-800ms for 5,000 calls. This is due to creating new instances of `Intl.RelativeTimeFormat` and `Intl.DateTimeFormat` on every invocation.",
+                "result": "Establishes that `formatRelative` constitutes a significant portion of rendering latency when displaying large lists of workspaces or sessions. Caching the `Intl` formatters by language key dramatically reduces execution time (from ~750ms to ~30ms for 5,000 calls)."
+              },
+              {
+                "scenario": "Analyzed `TerminalWorkspace` rendering performance with 5,000 sessions, specifically focusing on `buildSessionTree`.",
+                "evidence": "Wrote a synthetic test demonstrating `buildSessionTree` parses and groups 5,000 sessions in ~25-30ms.",
+                "result": "Establishes that constructing the session tree dynamically is fast and does not represent a user-visible bottleneck, refuting the hypothesis that session grouping requires web worker offloading at current scales."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the workspace list in `ProjectRail` yields measurable memory reductions when 500+ workspaces are loaded, even if render latency is primarily bound by `formatRelative` overhead."
+            ],
+            "proposed_task_ids": [
+              "discovery-0d1360aaaa775a55"
+            ],
+            "completed_at": "2026-09-28T11:06:59.672438Z",
+            "source": {
+              "activity_id": "sessions/6153294401714548361/activities/6633950fb40643c7af101a72e8d679cb",
+              "report_sha256": "1b4ab3cf815c584e20d7afed994bf26fead9686ce6bb1051c70d50a91a62b6c4",
+              "activity_created_at": "2026-09-28T10:55:11.922933Z",
+              "session_id": "6153294401714548361",
+              "dispatch_key": "71d8c09b2ac914433345128a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that ProjectRail and SessionList lack native keyboard arrow navigation, leaving focus static when navigating vertically.",
+            "observations": [
+              {
+                "scenario": "Simulate pressing ArrowDown to navigate vertically between workspace items within the ProjectRail component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`ProjectRail.a11y.test.tsx`) that rendered the `ProjectRail` component with multiple workspace items. Explicitly focused the first workspace's `.project-item` button and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original button.",
+                "result": "Establishes that the `ProjectRail` workspaces pane does not natively support up/down keyboard focus navigation across workspace items."
+              },
+              {
+                "scenario": "Simulate pressing ArrowDown to navigate vertically between session items within the SessionList component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`SessionList.a11y.test.tsx`) that rendered the `SessionList` component with multiple session items. Explicitly focused the first session's `.session-select` element and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original element.",
+                "result": "Establishes that the `SessionList` sessions pane also lacks native up/down keyboard focus navigation, similarly to the ProjectRail component."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity correctly handles scenarios where the underlying PTY session returns a generic failure during sendRecoveredSwitchInput."
+            ],
+            "proposed_task_ids": [
+              "discovery-b9434cdba341d96a"
+            ],
+            "completed_at": "2026-09-28T11:29:10.892593Z",
+            "source": {
+              "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+              "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+              "activity_created_at": "2026-09-28T11:19:42.206616Z",
+              "session_id": "18256682279471561662",
+              "dispatch_key": "ef6b94c32d8b124045953c20"
+            },
+            "deferred_findings": [
+              {
+                "title": "Implement arrow key navigation in SessionList",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.\", \"reproduction\": {\"actual\": \"Focus remains on the first session element.\", \"expected\": \"Focus moves to the `.session-select` element of the second session.\", \"steps\": [\"Render the SessionList component with multiple sessions.\", \"Focus the `.session-select` element of the first session.\", \"Press the ArrowDown key.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/SessionList.tsx",
+                  "src/SessionRow.tsx"
+                ],
+                "acceptance": [
+                  "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+                ],
+                "deferred_id": "7716b763ff33a36b00d550834251c804b443b7ff04f6afb1959124c37ce4bc3c",
+                "candidate": {
+                  "task_type": "product_improvement",
+                  "title": "Implement arrow key navigation in SessionList",
+                  "risk": "low",
+                  "priority": 40,
+                  "focus": [
+                    "a11y",
+                    "ux"
+                  ],
+                  "target_paths": [
+                    "src/SessionList.tsx",
+                    "src/SessionRow.tsx"
+                  ],
+                  "acceptance": [
+                    "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Render the SessionList component with multiple sessions.",
+                        "Focus the `.session-select` element of the first session.",
+                        "Press the ArrowDown key."
+                      ],
+                      "expected": "Focus moves to the `.session-select` element of the second session.",
+                      "actual": "Focus remains on the first session element."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-6c68ffa0e4ecce1f",
+                      "action": "reject",
+                      "decision_at": "2026-09-27T21:09:46Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-workspace-navigation-ux-12",
+                  "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+                  "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+                  "activity_created_at": "2026-09-28T11:19:42.206616Z",
+                  "session_id": "18256682279471561662",
+                  "dispatch_key": "ef6b94c32d8b124045953c20"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the behavior of `sendRecoveredSwitchInput` during generic network failures. Found that the switch recovery state is improperly mutated and locked into 'sending' without a fallback.",
+            "observations": [
+              {
+                "scenario": "Simulate a generic network failure during `sendRecoveredSwitchInput` in `App.tsx`.",
+                "evidence": "Executed synthetic vitest DOM tests to evaluate state changes inside `sendRecoveredSwitchInput`. In `App.tsx:1618`, `candidate.switchRecovery` is preemptively set to `{ state: \"sending\" }` before calling `sendSwitchInputRecovery`. When the try block fails with a generic error (i.e. `switchInputRecoveryDetails(error)` returns `null`), the catch block falls back to `currentRecovery ?? candidate.switchRecovery`. Since `currentRecovery` is null, it retains `candidate.switchRecovery` which was already modified to 'sending'.",
+                "result": "Establishes that terminal switch recovery gets permanently locked in a 'sending' state upon generic failures. The correct fallback should revert to the original state (e.g. 'pending') retrieved before the state mutation, allowing the user to retry or discard the operation later."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the workspace list in `ProjectRail` yields measurable memory reductions when 500+ workspaces are loaded, even if render latency is primarily bound by `formatRelative` overhead."
+            ],
+            "proposed_task_ids": [
+              "discovery-f94013eee0f81537"
+            ],
+            "completed_at": "2026-09-29T02:02:43.386798Z",
+            "source": {
+              "activity_id": "sessions/3874607795049470568/activities/ea2b3ade130d4de184c777e1afde612c",
+              "report_sha256": "965362a93a6aab574ec93717d3468a3ccf6f119841a429660123a106ab2cfd1f",
+              "activity_created_at": "2026-09-29T01:51:02.432617Z",
+              "session_id": "3874607795049470568",
+              "dispatch_key": "c844c564972e5e608e8fb0e4"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
