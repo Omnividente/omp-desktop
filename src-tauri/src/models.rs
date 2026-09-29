@@ -7,13 +7,32 @@ use std::{
 const MAX_APP_ERROR_DETAILS_CHARS: usize = 8 * 1024;
 
 pub(crate) fn sanitize_error_text(value: &str) -> String {
-    let redacted = diagnostics::redact_text(value);
+    // Never redact a partial token: a secret marker may end just past the display limit.
+    let (source, clipped) = match value.char_indices().nth(MAX_APP_ERROR_DETAILS_CHARS) {
+        Some((limit, next)) => {
+            let prefix = &value[..limit];
+            let end = if prefix.chars().next_back().is_some_and(char::is_whitespace)
+                || next.is_whitespace()
+            {
+                limit
+            } else {
+                prefix
+                    .char_indices()
+                    .rev()
+                    .find(|(_, character)| character.is_whitespace())
+                    .map_or(0, |(index, character)| index + character.len_utf8())
+            };
+            (&value[..end], true)
+        }
+        None => (value, false),
+    };
+    let redacted = diagnostics::redact_text(source);
     let mut characters = redacted.chars();
     let mut bounded = characters
         .by_ref()
         .take(MAX_APP_ERROR_DETAILS_CHARS)
         .collect::<String>();
-    if characters.next().is_some() {
+    if clipped || characters.next().is_some() {
         bounded.push('…');
     }
     bounded
@@ -873,7 +892,34 @@ mod tests {
             "x".repeat(MAX_APP_ERROR_DETAILS_CHARS + 100),
         );
         let details = oversized.details.expect("bounded details should exist");
-        assert_eq!(details.chars().count(), MAX_APP_ERROR_DETAILS_CHARS + 1);
+        assert!(details.chars().count() <= MAX_APP_ERROR_DETAILS_CHARS + 1);
         assert!(details.ends_with('…'));
+    }
+
+    #[test]
+    fn app_error_drops_incomplete_sensitive_tokens_at_unicode_boundary() {
+        let prefix = "Ready 🚀\npassword=earlier-private\n";
+        for (fragment, remainder) in [
+            ("sk-", "private-value"),
+            ("sk-🚀", "private-value"),
+            ("api_key=par", "tial-secret"),
+            ("api_key", "=secret-value"),
+        ] {
+            let ending = format!(" safe {fragment}");
+            let padding = "x".repeat(
+                MAX_APP_ERROR_DETAILS_CHARS - prefix.chars().count() - ending.chars().count(),
+            );
+            let input = format!("{prefix}{padding}{ending}{remainder}\naccess_token=next-secret");
+            let details = AppError::from_internal("failed", "Failure", input)
+                .details
+                .expect("bounded details should exist");
+
+            assert!(details.starts_with("Ready 🚀\n[REDACTED SENSITIVE LINE]\n"));
+            assert!(details.ends_with(" safe …"));
+            assert!(!details.contains(fragment));
+            assert!(!details.contains("earlier-private"));
+            assert!(!details.contains(remainder));
+            assert!(details.chars().count() <= MAX_APP_ERROR_DETAILS_CHARS + 1);
+        }
     }
 }

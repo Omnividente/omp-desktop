@@ -676,6 +676,54 @@ it("preserves a tall visible row through width invalidation, clamps shrinking co
   expect(container.querySelector('article[data-virtual-index="179"]')).not.toBeNull()
 })
 
+it("clears a focused transcript query on Escape before Escape closes the reader", async () => {
+  await searchFor("needle")
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  act(() => input.focus())
+  const clear = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+  await act(async () => input.dispatchEvent(clear))
+  expect(clear.defaultPrevented).toBe(true)
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(input.value).toBe("")
+  expect(document.activeElement).toBe(input)
+
+  const close = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+  await act(async () => input.dispatchEvent(close))
+  expect(close.defaultPrevented).toBe(true)
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it("reaches the bottom of an oversized final message on Latest and a direct read", async () => {
+  rowHeights.set(179, 1400)
+  await click("Latest message")
+  let scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+  expect(scroll.scrollTop).toBe(scroll.scrollHeight - scroll.clientHeight)
+  rowHeights.set(179, 2200)
+  await resizeTo(viewportWidth)
+  expect(scroll.scrollTop).toBe(scroll.scrollHeight - scroll.clientHeight)
+  expect(
+    container
+      .querySelector<HTMLElement>('article[data-virtual-index="179"]')!
+      .getBoundingClientRect().bottom,
+  ).toBe(480)
+  const readingTop = scroll.scrollTop - 250
+  await scrollTo(readingTop)
+  rowHeights.set(179, 3000)
+  await resizeTo(viewportWidth)
+  expect(scroll.scrollTop).toBe(readingTop)
+
+  await click("Close")
+  rowHeights.set(178, 1400)
+  await click("Read current transcript")
+  scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+  expect(scroll.scrollTop).toBe(scroll.scrollHeight - scroll.clientHeight)
+  expect(
+    container
+      .querySelector<HTMLElement>('article[data-virtual-index="178"]')!
+      .getBoundingClientRect().bottom,
+  ).toBe(480)
+})
+
 it("returns both explicit Clear search actions to the search input without stealing Latest focus", async () => {
   const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
   await searchFor("needle")

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, StrictMode } from "react"
+import { act, StrictMode, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CodexImportModal } from "./CodexImportModal"
@@ -216,4 +216,61 @@ describe.each(["OMP", "Codex"] as const)("%s import keyboard navigation", (kind)
       expect(document.activeElement).toBe(selectAll)
     })
   }
+})
+
+it("keeps distant Codex sessions keyboard-reachable and selectable without mounting the entire list", () => {
+  const sessions = Array.from({ length: 200 }, (_, index): CodexSessionSummary => ({
+    ...session,
+    id: `synthetic-${index}`,
+    title: `Session ${index}`,
+    filePath: `/synthetic/session-${index}.jsonl`,
+    preview: index % 2 ? "A longer two-line preview of the selected session" : "",
+  }))
+  const imported = vi.fn()
+  function LargeImport() {
+    const [selected, setSelected] = useState<Record<string, boolean>>({})
+    return (
+      <CodexImportModal
+        language="en"
+        loading={false}
+        importing={false}
+        mode="skip"
+        sessions={sessions}
+        selected={selected}
+        onClose={() => undefined}
+        onImport={() => imported(selected)}
+        onModeChange={() => undefined}
+        onSelectedChange={setSelected}
+      />
+    )
+  }
+  act(() => root.render(<LargeImport />))
+  const first = dialog().querySelector<HTMLInputElement>(
+    '.codex-item[data-virtual-index="0"] input',
+  )!
+  expect(first).not.toBeNull()
+  expect(dialog().querySelectorAll(".codex-item").length).toBeLessThan(40)
+  act(() => first.focus())
+  expect(press(first, "End").defaultPrevented).toBe(true)
+  const last = dialog().querySelector<HTMLInputElement>(
+    '.codex-item[data-virtual-index="199"] input',
+  )!
+  expect(last).not.toBeNull()
+  expect(document.activeElement).toBe(last)
+  expect(dialog().querySelectorAll(".codex-item").length).toBeLessThan(40)
+  act(() => last.click())
+  expect(last.checked).toBe(true)
+  act(() => dialog().querySelector<HTMLButtonElement>("footer .primary")!.click())
+  expect(imported).toHaveBeenCalledWith({ [sessions[199].filePath]: true })
+  expect(press(last, "Home").defaultPrevented).toBe(true)
+  const back = dialog().querySelector<HTMLInputElement>(
+    '.codex-item[data-virtual-index="0"] input',
+  )!
+  expect(document.activeElement).toBe(back)
+  expect(back.checked).toBe(false)
+  act(() => dialog().querySelector<HTMLButtonElement>("footer .secondary")!.click())
+  expect(back.checked).toBe(true)
+  act(() => dialog().querySelector<HTMLButtonElement>("footer .primary")!.click())
+  expect(Object.keys(imported.mock.lastCall![0]).length).toBe(sessions.length)
+  expect(imported.mock.lastCall![0][sessions[199].filePath]).toBe(true)
 })
