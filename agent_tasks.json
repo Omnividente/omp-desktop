@@ -95990,7 +95990,7 @@
         },
         "feedback_nudge": {
           "at": "2026-09-29T22:42:54.305869Z",
-          "result": "pending",
+          "result": "sent",
           "source": {
             "session_id": "5162758749953566608",
             "dispatch_key": "8a2c8a02454d1c38a0510a6b",
