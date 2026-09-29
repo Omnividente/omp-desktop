@@ -103036,7 +103036,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T13:13:18.901046Z"
+        "observed_at": "2026-09-29T13:13:18.901046Z",
+        "released_attempt_ref": "autonomous/attempt-669f9484ae9ef00811696cb1"
       },
       "research_result": {
         "summary": "Investigated ModelPicker focus interactions and discovered that keyboard navigation explicitly moves DOM focus to options, breaking continuous typing and rendering the existing aria-activedescendant attribute redundant.",
