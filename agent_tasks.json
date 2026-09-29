@@ -107243,7 +107243,7 @@
       "id": "research-diagnostics-resources-performance-13",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -107442,16 +107442,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13175791998878670979",
         "dispatch_key": "65668b1a04194122219d7639",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-65668b1a04194122219d7639",
         "started_at": "2026-09-29T18:50:46.044507Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T19:32:19.978693Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained, possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -107623,13 +107623,379 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T18:50:46.044507Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T19:32:19.978693Z"
+      },
+      "research_result": {
+        "summary": "Investigated resource sampling latency, string redaction bounds, and previously reported incident state logic issues.",
+        "observations": [
+          {
+            "scenario": "Verify if the lack of bounds checking before diagnostics::redact_text in models::sanitize_error_text causes a massive temporary memory allocation spike and performance hit if an underlying API returns an unexpectedly large multi-megabyte error message.",
+            "evidence": "Observed that in models.rs sanitize_error_text already bounds the value at MAX_APP_ERROR_DETAILS_CHARS *before* passing the string to diagnostics::redact_text. No unbouded truncation regression was found in bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06. Bounding an 100MB string upfront takes around 0.5ms.",
+            "result": "The previously reported claim that sanitize_error_text processes unbounded strings is incorrect for the current codebase state. The issue is mitigated at the source string before redaction."
+          },
+          {
+            "scenario": "Verify if enforceIncidentBound mistakenly drops the sole unresolved primary error incident when a terminal is saturated by distinct active fallback incidents.",
+            "evidence": "Executed an isolated node TS test on bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 injecting 1 modelError and 100 active fallbacks onto a single terminal. The modelError incident is dropped as candidate length is evaluated. The state bound of 100 incidents resulted in the original modelError being dropped. The candidate filter incorrectly targets the error because activePerTerminal > 1.",
+            "result": "Establishes a logic bug where a single persistent primary error incident is lost if overwhelmed by a flood of fallback transitions on the same terminal, because the filter does not exempt the sole error on a saturated terminal."
+          },
+          {
+            "scenario": "Verify if secondary fallbacks remain unresolved when the primary model is restored via a modelChange event.",
+            "evidence": "Executed an isolated test verifying applyRuntimeIncidentEvent. A fallback incident with role 'secondary' and a modelChange with resolvedModelIsFallback: false (primary restored). The fallback remained active.",
+            "result": "Establishes a logic bug where resolveFallbacks strictly matches the role ('primary' due to normalization fallbackRole ?? modelRole on modelChange event) and fails to resolve active 'secondary' fallbacks on the same terminal when the primary recovers."
+          },
+          {
+            "scenario": "Verify if the focus trap in IncidentCenter and ResourceHealthPanel correctly skips focusable elements hidden inside closed details tags.",
+            "evidence": "Native jsdom test demonstrating that a `button` element inside a closed standard HTML5 `<details>` tag (without the custom `hidden` attribute added) is matched by `!element.hidden`, resulting in it being included as a focusable element.",
+            "result": "Establishes a UI bug where the inline focus trap logic attempts to focus visually hidden elements inside closed details tags because it doesn't check for closed ancestor details wrappers (unlike useModalFocus which handles this correctly)."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if concurrent unmounts in ResourceHealthPanel can still result in orphaned Rust event loops or resource sampling deadlocks.",
+          "Investigate if rapid System::new() creations with system.refresh_memory_specifics in loop blocks Tauri resource threads significantly."
+        ],
+        "proposed_task_ids": [
+          "discovery-4a32b30c5b16b56a67de0576a850864b384884aa3f04647b241fe6cda73a4ec6"
+        ],
+        "completed_at": "2026-09-29T19:32:19.978693Z",
+        "source": {
+          "activity_id": "sessions/13175791998878670979/activities/2439b041fec04969ae0d6cb3aa0e63e7",
+          "report_sha256": "4d109f88ebb71eb46d93238c484121b1b453d752a83f531a4dc43237241b608d",
+          "activity_created_at": "2026-09-29T19:10:28.728480Z",
+          "session_id": "13175791998878670979",
+          "dispatch_key": "65668b1a04194122219d7639"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-c3c404bd71dbb2bb; not established as a duplicate. {\"detail\": \"Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 100 fallback incidents and losing the original error.\", \"expected\": \"The modelError incident is preserved.\", \"steps\": [\"Create a state array with one modelError runtime incident.\", \"Apply 100 consecutive distinct retryFallbackApplied incidents using applyRuntimeIncidentEvent.\", \"Check the state for the original modelError incident.\"]}, \"source\": \"product_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+            ]
+          },
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using jsdom.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the focus trap.\", \"expected\": \"Focus correctly ignores the hidden `<details>` tag contents.\", \"steps\": [\"Open the IncidentCenter modal with long reasoning strings enclosed in a `<details>` tag that is not currently opened.\", \"Perform a tab traversal to check if it lands on the focusable children of the `<details>` wrapper.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the component directly manages its focus trapping with custom code and lacks a check for parents wrapped in a closed `<details>` element (as evidenced by a direct AST read and jsdom test).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement` and a fix exists on main. However, IncidentCenter and ResourceHealthPanel are actually NOT using `useModalFocus` for the keyboard trap logic—they use an inline `handleKeyDown` hook bound manually which filters via `!element.hasAttribute(\\\"disabled\\\") && !element.hidden`. This logic remains broken.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ],
+            "deferred_id": "4f685fc2a039369387010d951e444e356fbb90abbc1dda26abae6670fb37c050",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "risk": "low",
+              "priority": 60,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using jsdom.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Open the IncidentCenter modal with long reasoning strings enclosed in a `<details>` tag that is not currently opened.",
+                    "Perform a tab traversal to check if it lands on the focusable children of the `<details>` wrapper."
+                  ],
+                  "expected": "Focus correctly ignores the hidden `<details>` tag contents.",
+                  "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the focus trap."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "new_evidence",
+                  "difference": "The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the component directly manages its focus trapping with custom code and lacks a check for parents wrapped in a closed `<details>` element (as evidenced by a direct AST read and jsdom test).",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                  "observation_refs": [
+                    3
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                      "why_previous_reason_no_longer_explains": "The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement` and a fix exists on main. However, IncidentCenter and ResourceHealthPanel are actually NOT using `useModalFocus` for the keyboard trap logic—they use an inline `handleKeyDown` hook bound manually which filters via `!element.hasAttribute(\"disabled\") && !element.hidden`. This logic remains broken."
+                    },
+                    {
+                      "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                      "why_previous_reason_no_longer_explains": "The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:04:39Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-b82daad4c8b8b9f9",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:11:05Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-performance-13",
+              "activity_id": "sessions/13175791998878670979/activities/2439b041fec04969ae0d6cb3aa0e63e7",
+              "report_sha256": "4d109f88ebb71eb46d93238c484121b1b453d752a83f531a4dc43237241b608d",
+              "activity_created_at": "2026-09-29T19:10:28.728480Z",
+              "session_id": "13175791998878670979",
+              "dispatch_key": "65668b1a04194122219d7639"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13175791998878670979/activities/2439b041fec04969ae0d6cb3aa0e63e7",
+          "report_sha256": "4d109f88ebb71eb46d93238c484121b1b453d752a83f531a4dc43237241b608d",
+          "activity_created_at": "2026-09-29T19:10:28.728480Z",
+          "session_id": "13175791998878670979",
+          "dispatch_key": "65668b1a04194122219d7639"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4a32b30c5b16b56a67de0576a850864b384884aa3f04647b241fe6cda73a4ec6"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-c3c404bd71dbb2bb",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-c3c404bd71dbb2bb"
+            },
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-c3c404bd71dbb2bb; not established as a duplicate. {\"detail\": \"Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 100 fallback incidents and losing the original error.\", \"expected\": \"The modelError incident is preserved.\", \"steps\": [\"Create a state array with one modelError runtime incident.\", \"Apply 100 consecutive distinct retryFallbackApplied incidents using applyRuntimeIncidentEvent.\", \"Check the state for the original modelError incident.\"]}, \"source\": \"product_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ]
+            },
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using jsdom.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the focus trap.\", \"expected\": \"Focus correctly ignores the hidden `<details>` tag contents.\", \"steps\": [\"Open the IncidentCenter modal with long reasoning strings enclosed in a `<details>` tag that is not currently opened.\", \"Perform a tab traversal to check if it lands on the focusable children of the `<details>` wrapper.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the component directly manages its focus trapping with custom code and lacks a check for parents wrapped in a closed `<details>` element (as evidenced by a direct AST read and jsdom test).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement` and a fix exists on main. However, IncidentCenter and ResourceHealthPanel are actually NOT using `useModalFocus` for the keyboard trap logic—they use an inline `handleKeyDown` hook bound manually which filters via `!element.hasAttribute(\\\"disabled\\\") && !element.hidden`. This logic remains broken.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "deferred_id": "4f685fc2a039369387010d951e444e356fbb90abbc1dda26abae6670fb37c050",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "risk": "low",
+                "priority": 60,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using jsdom.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Open the IncidentCenter modal with long reasoning strings enclosed in a `<details>` tag that is not currently opened.",
+                      "Perform a tab traversal to check if it lands on the focusable children of the `<details>` wrapper."
+                    ],
+                    "expected": "Focus correctly ignores the hidden `<details>` tag contents.",
+                    "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the focus trap."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "new_evidence",
+                    "difference": "The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the component directly manages its focus trapping with custom code and lacks a check for parents wrapped in a closed `<details>` element (as evidenced by a direct AST read and jsdom test).",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                    "observation_refs": [
+                      3
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                        "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                        "why_previous_reason_no_longer_explains": "The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement` and a fix exists on main. However, IncidentCenter and ResourceHealthPanel are actually NOT using `useModalFocus` for the keyboard trap logic—they use an inline `handleKeyDown` hook bound manually which filters via `!element.hasAttribute(\"disabled\") && !element.hidden`. This logic remains broken."
+                      },
+                      {
+                        "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                        "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                        "why_previous_reason_no_longer_explains": "The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:04:39Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-b82daad4c8b8b9f9",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:11:05Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-performance-13",
+                "activity_id": "sessions/13175791998878670979/activities/2439b041fec04969ae0d6cb3aa0e63e7",
+                "report_sha256": "4d109f88ebb71eb46d93238c484121b1b453d752a83f531a4dc43237241b608d",
+                "activity_created_at": "2026-09-29T19:10:28.728480Z",
+                "session_id": "13175791998878670979",
+                "dispatch_key": "65668b1a04194122219d7639"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4a32b30c5b16b56a67de0576a850864b384884aa3f04647b241fe6cda73a4ec6",
+      "title": "Fix failure to resolve active fallbacks when primary model recovers",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-29T19:32:19.978693Z",
+      "acceptance": [
+        "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Apply a modelError and retryFallbackApplied to trigger a secondary fallback incident on term-1.",
+            "Apply a modelChange event with `resolvedModelIsFallback: false` indicating primary restoration on term-1.",
+            "Inspect active fallback incidents on term-1."
+          ],
+          "expected": "The secondary fallback incident is transitioned to `status: \"resolved\"`.",
+          "actual": "The secondary fallback incident remains in `status: \"active\"`."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Tested `applyRuntimeIncidentEvent` directly. When `resolvedModelIsFallback: false` is seen during `modelChange`, it evaluates `const role = normalizeFallbackRole(event.fallbackRole ?? event.modelRole);`. If the event lacks these, `role` is `null`. The resolution logic explicitly matches `role === null ? incident.role === null : incident.role === role`. A secondary role (`secondary`) active incident avoids resolution since it fails this equality check, resulting in a perpetually unresolved fallback despite explicitly noting primary recovery.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+          "observation_refs": [
+            2
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+              "decision_context_id": "12f6c04a4b2f2d67fb2ea3a06aae03bf315a7fb077fee1628fb4f81d1a6f6635",
+              "why_previous_reason_no_longer_explains": "The rejection reason states clearing secondary from a primary-only signal can hide an active fallback. However, a modelChange where `resolvedModelIsFallback` is false is definitively signaling the entire fallback state on the terminal is ending, as primary recovery inherently resolves all nested fallback layers for that channel. Not resolving them leaks memory and UI references in the IncidentCenter."
+            },
+            {
+              "decision_task_id": "discovery-aa17322b78e9eae9",
+              "decision_context_id": "edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2",
+              "why_previous_reason_no_longer_explains": "The context states it would incorrectly resolve unrelated roles. However, the runtime limit is 1 active incident set per terminal channel. When a terminal explicitly reports its primary model is active and running again (`resolvedModelIsFallback: false`), all fallbacks associated with that specific terminal lifecycle are defunct, regardless of role distinction."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/runtimeIncidents.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+            "action": "reject",
+            "decision_at": "2026-09-28T20:41:24Z",
+            "match": "possible",
+            "timing": "post"
+          },
+          {
+            "task_id": "discovery-aa17322b78e9eae9",
+            "action": "reject",
+            "decision_at": "2026-09-27T21:08:43Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-diagnostics-resources-performance-13",
+        "activity_id": "sessions/13175791998878670979/activities/2439b041fec04969ae0d6cb3aa0e63e7",
+        "report_sha256": "4d109f88ebb71eb46d93238c484121b1b453d752a83f531a4dc43237241b608d",
+        "activity_created_at": "2026-09-29T19:10:28.728480Z",
+        "session_id": "13175791998878670979",
+        "dispatch_key": "65668b1a04194122219d7639"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T19:32:44.432124Z",
+    "last_poll_at": "2026-09-29T19:32:50.642670Z",
     "last_tick_at": "2026-09-29T19:15:48.600740Z",
     "run_id": "36617803514"
   }
