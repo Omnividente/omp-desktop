@@ -101929,7 +101929,7 @@
       "id": "research-settings-models-performance-13",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -102046,16 +102046,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "2195924658419957192",
         "dispatch_key": "51430683be25c0b4f5e8e1c4",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-51430683be25c0b4f5e8e1c4",
         "started_at": "2026-09-29T11:38:53.321779Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T12:11:19.760837Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -102227,22 +102227,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-09-29T12:02:23.588018Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-29T12:02:23.588018Z",
-          "source": {
-            "activity_id": "sessions/2195924658419957192/activities/004ed8fbfb9c41d99a27ca7963e3bf38",
-            "report_sha256": "756303cd57abf26e3b27ece434d71d8c4e68838b956ea8ce2d6bf44d1caf63ae",
-            "activity_created_at": "2026-09-29T11:51:08.742226Z",
-            "session_id": "2195924658419957192",
-            "dispatch_key": "51430683be25c0b4f5e8e1c4"
-          }
-        },
         "report_repair": {
           "at": "2026-09-29T12:02:53.159900Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/2195924658419957192/activities/004ed8fbfb9c41d99a27ca7963e3bf38",
             "report_sha256": "756303cd57abf26e3b27ece434d71d8c4e68838b956ea8ce2d6bf44d1caf63ae",
@@ -102251,6 +102239,39 @@
             "dispatch_key": "51430683be25c0b4f5e8e1c4"
           }
         }
+      },
+      "research_result": {
+        "summary": "Measured ModelPicker input responsiveness under a 5000-model load and verified bounded work efficiency in settings recovery and error sanitization.",
+        "observations": [
+          {
+            "scenario": "Typing latency in ModelPicker search with 5000 models loaded.",
+            "evidence": "Ran a synthetic Vitest jsdom test rendering 5000 mock models. Interacting with the `<input>` element showed a single keystroke change event latency of ~750ms.",
+            "result": "Establishes that synchronous React renders of 5000 unvirtualized list items block the main thread and significantly degrade keyboard input responsiveness."
+          },
+          {
+            "scenario": "Memory allocation and latency when truncating large strings in sanitize_error_text.",
+            "evidence": "Ran a compiled Rust benchmark using a 100MB string against the current `sanitize_error_text` implementation in `src-tauri/src/models.rs`. The execution completed in < 1ms.",
+            "result": "Establishes that the current character indexing approach operates in constant/minimal time without excessive memory allocations, effectively bounding the work."
+          },
+          {
+            "scenario": "Time bounded scanning in custom JSON recovery parsing.",
+            "evidence": "Ran a Rust benchmark simulating `recover_top_level_json_field` over a JSON string with 100,000 top-level keys to find a key placed at the very end. The parser reached the end in ~35ms.",
+            "result": "Establishes that the fallback manual JSON parser handles large corrupted files quickly enough to not cause noticeable UI freezing during startup."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if wrapping `setQuery` in `startTransition` inside ModelPicker allows the input to remain responsive while the items are being filtered and rendered."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T12:11:19.760837Z",
+        "source": {
+          "activity_id": "sessions/2195924658419957192/activities/9b8400ce68bb454bb3ea7c186801e9a5",
+          "report_sha256": "b34e1f8ad32510d13dc24888b21962218fffbe2c37ef148da4b35d3cafc50e35",
+          "activity_created_at": "2026-09-29T12:03:47.368269Z",
+          "session_id": "2195924658419957192",
+          "dispatch_key": "51430683be25c0b4f5e8e1c4"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -102560,7 +102581,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T12:11:48.709174Z",
+    "last_poll_at": "2026-09-29T12:11:54.557704Z",
     "last_tick_at": "2026-09-29T12:05:01.166814Z",
     "run_id": "36565443587"
   }
