@@ -104340,7 +104340,7 @@
       "id": "research-workspace-navigation-behavior-14",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -104455,16 +104455,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15564505969197262178",
         "dispatch_key": "7ab1e4cfda38fe44cf2da0ae",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-7ab1e4cfda38fe44cf2da0ae",
         "started_at": "2026-09-29T14:51:19.195313Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T15:32:50.274105Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -104634,13 +104634,107 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T14:51:19.195313Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T15:32:50.274105Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace and session rename failure behavior, as well as the reconciliation of slow addWorkspace operations with concurrent selections.",
+        "observations": [
+          {
+            "scenario": "Simulated a failure during a session rename operation initiated from the SessionList context via `App.tsx`.",
+            "evidence": "Observed via synthetic vitest integration tests mimicking user input and UI transitions. `submitRenameSession` eagerly clears `renamingSessionId` before awaiting `updateSessionTitlePin`. This synchronously removes the rename input field from the UI. If the subsequent `setSessionTitlePin` network/disk operation fails, an error is reported but the UI state is irrevocably lost.",
+            "result": "Establishes a user experience defect: similar to workspace renames, if a session rename fails, the user's intended text is discarded and the rename dialog closes prematurely, preventing correction or retry without starting over."
+          },
+          {
+            "scenario": "Simulated a slow, blocking `addWorkspace` operation initiated via `openFolder` while the user simultaneously selects an existing workspace.",
+            "evidence": "Observed via synthetic vitest integration tests driving `App.tsx`. In `App.tsx`, `openFolder` snapshots `++workspaceSelectionRequestRef.current` before awaiting `addWorkspace`. Selecting a workspace concurrently (e.g. via ProjectRail) increments the ref again. When `addWorkspace` resolves, it checks if the saved snapshot equals `workspaceSelectionRequestRef.current`. Since they differ, `applyPayload` skips forcing the selection.",
+            "result": "Establishes that concurrent workspace selections successfully reconcile; a blocked open request safely adds the new workspace to the payload without hijacking the user's later selection."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory lifecycle of older PTY sessions left open in background tabs for extended periods."
+        ],
+        "proposed_task_ids": [
+          "discovery-b343e6c8e66ef195"
+        ],
+        "completed_at": "2026-09-29T15:32:50.274105Z",
+        "source": {
+          "activity_id": "sessions/15564505969197262178/activities/6c58eabd340041f190490fdcc7ae4783",
+          "report_sha256": "fa537a5f71f55886b3bc04b66f28c59e0542a127ab971aa35a1fab130498b82c",
+          "activity_created_at": "2026-09-29T15:21:47.752615Z",
+          "session_id": "15564505969197262178",
+          "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15564505969197262178/activities/6c58eabd340041f190490fdcc7ae4783",
+          "report_sha256": "fa537a5f71f55886b3bc04b66f28c59e0542a127ab971aa35a1fab130498b82c",
+          "activity_created_at": "2026-09-29T15:21:47.752615Z",
+          "session_id": "15564505969197262178",
+          "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b343e6c8e66ef195"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b343e6c8e66ef195",
+      "title": "Retain renaming state on failure during workspace or session rename",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-29T15:32:50.274105Z",
+      "acceptance": [
+        "If submitWorkspaceRename fails, the renaming state and input value are preserved",
+        "If submitRenameSession fails, the renaming state and input value are preserved",
+        "The input is only cleared on a successful update or user cancellation"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed through synthetic Vitest DOM testing of state transitions in App.tsx. Both submitWorkspaceRename and submitRenameSession synchronously set renaming state to null before awaiting the backend call.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Initiate a workspace or session rename in the UI.",
+            "Type a new name and press Enter while simulating a generic network/backend failure (e.g. disconnected or forced rejection).",
+            "Observe that the input field disappears immediately, discarding the new text, followed by an error notification."
+          ],
+          "expected": "The input field remains open with the typed text intact so the user can correct it or try again.",
+          "actual": "The input field is closed prematurely and the text is lost."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-14",
+        "activity_id": "sessions/15564505969197262178/activities/6c58eabd340041f190490fdcc7ae4783",
+        "report_sha256": "fa537a5f71f55886b3bc04b66f28c59e0542a127ab971aa35a1fab130498b82c",
+        "activity_created_at": "2026-09-29T15:21:47.752615Z",
+        "session_id": "15564505969197262178",
+        "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T15:33:15.441144Z",
+    "last_poll_at": "2026-09-29T15:33:20.892607Z",
     "last_tick_at": "2026-09-29T15:16:28.203570Z",
     "run_id": "36588738181"
   }
