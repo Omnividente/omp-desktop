@@ -99055,7 +99055,8 @@
             },
             "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 124 (char 1381)"
           }
-        ]
+        ],
+        "released_attempt_ref": "autonomous/attempt-4e9d859c1639592ae33bdef2"
       },
       "research_result": {
         "summary": "Investigated transcript empty state interactions and content link parsing. Identified a misleading UI state where search UI components are presented to fix a mode-filtered empty state, and a regex overlap issue where URLs can consume markdown link brackets and break rendering.",
