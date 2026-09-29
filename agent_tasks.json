@@ -104635,7 +104635,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T15:32:50.274105Z"
+        "observed_at": "2026-09-29T15:32:50.274105Z",
+        "released_attempt_ref": "autonomous/attempt-7ab1e4cfda38fe44cf2da0ae"
       },
       "research_result": {
         "summary": "Investigated workspace and session rename failure behavior, as well as the reconciliation of slow addWorkspace operations with concurrent selections.",
