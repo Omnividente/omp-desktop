@@ -69428,7 +69428,7 @@
         },
         "report_repair": {
           "at": "2026-09-29T23:22:42.591476Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "actor": "Omnividente",
           "after": "2026-09-29T22:41:52.216192Z",
