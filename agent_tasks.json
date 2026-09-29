@@ -102232,19 +102232,18 @@
           }
         },
         "report_repair": {
-          "at": "2026-09-29T22:39:42.355596Z",
-          "result": "sent",
-          "status": "invalid",
+          "at": "2026-09-29T23:20:38.540312Z",
+          "result": "pending",
+          "status": "pending",
           "actor": "Omnividente",
-          "after": "2026-09-29T11:39:26.937931Z",
+          "after": "2026-09-29T22:39:42.355596Z",
           "source": {
             "activity_id": "sessions/10493274932274070899/activities/06f766d2f84f4df994485a97c7fb1a27",
             "report_sha256": "9d52c0070be2503ab16e0d0f0bdc924bde6d3c7e2de3c902dde11970366073f1",
             "activity_created_at": "2026-09-29T22:41:37.487371Z",
             "session_id": "10493274932274070899",
             "dispatch_key": "28e389222b48ea0d8574df28"
-          },
-          "detail": "expected exactly one ordered research report block"
+          }
         },
         "report_repair_history": [
           {
@@ -102255,6 +102254,21 @@
               "activity_id": "sessions/10493274932274070899/activities/d4351f0660df451d9b6a87b5edc23b82",
               "report_sha256": "07374ada3811913c22790662ed77f4c750b3fb18706c9873f5f9c3021aa42a22",
               "activity_created_at": "2026-09-29T11:41:06.401131Z",
+              "session_id": "10493274932274070899",
+              "dispatch_key": "28e389222b48ea0d8574df28"
+            },
+            "detail": "expected exactly one ordered research report block"
+          },
+          {
+            "at": "2026-09-29T22:39:42.355596Z",
+            "result": "sent",
+            "status": "invalid",
+            "actor": "Omnividente",
+            "after": "2026-09-29T11:39:26.937931Z",
+            "source": {
+              "activity_id": "sessions/10493274932274070899/activities/06f766d2f84f4df994485a97c7fb1a27",
+              "report_sha256": "9d52c0070be2503ab16e0d0f0bdc924bde6d3c7e2de3c902dde11970366073f1",
+              "activity_created_at": "2026-09-29T22:41:37.487371Z",
               "session_id": "10493274932274070899",
               "dispatch_key": "28e389222b48ea0d8574df28"
             },
