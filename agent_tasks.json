@@ -104000,6 +104000,119 @@
         "session_id": "8969723610217188553",
         "dispatch_key": "c4975515b7640397637398e5"
       }
+    },
+    {
+      "id": "research-transcript-links-ux-13",
+      "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-29T14:18:20Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "ux",
+        "fingerprint": "1c4320648f81eb0860b156400a5491f46223323d5de3655df26c8710b62dcfbc",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Investigated the behavior of jumping to the 'Latest message' in the TranscriptModal. Discovered that the anchor restoration mechanism incorrectly binds the top of the message to the top of the viewport due to a 0-offset default. When messages are exceptionally long, this hides the actual bottom/latest content.",
+            "observations": [
+              {
+                "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+                "evidence": "Ran an isolated jsdom test mocking `getBoundingClientRect` to simulate a message element with `height: 5000px` and a scroll viewport of `500px`. Observed that after triggering `pendingLatestRef`, `useLayoutEffect` initializes `pendingRestoreRef.current` with `{ index: lastIndex, offset: 0 }`. The restoration logic then calculates `scroll.scrollTop + rowBounds.top - containerTop + offset`. Since `offset` is `0`, the *top* of the 5000px message is aligned to the top of the viewport. The scroll position settled at `99500` rather than the maximum possible scroll boundary (which would show the *bottom* of the text). Changing the assigned offset to `Infinity` within `pendingRestoreRef` properly leveraged `Math.min(saved.offset, rowBounds.height - 1)` clamping, correctly pinning the bottom of the tall element to the viewport.",
+                "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, causing the actual latest content to be hidden off-screen."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+            ],
+            "proposed_task_ids": [
+              "discovery-84ebe14b2ef5320a"
+            ],
+            "completed_at": "2026-09-28T14:49:37.620997Z",
+            "source": {
+              "activity_id": "sessions/8682276882943402279/activities/d385dd6484df4d2b812efd2a727024f4",
+              "report_sha256": "ae9cc26a2faf5f72b419308096a8129d64f8d59106c48e1fe0d37be3430769c0",
+              "activity_created_at": "2026-09-28T14:27:14.302777Z",
+              "session_id": "8682276882943402279",
+              "dispatch_key": "dc71c304b7e0024f0a3bf24b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified the behavior of oversized virtual list items during scroll navigation and confirmed that traversing them does not trigger measurement loops.",
+            "observations": [
+              {
+                "scenario": "Simulating rapid scroll navigation (like Page Down) across an oversized virtual list item.",
+                "evidence": "Ran an isolated jsdom test with an oversized list item (5000px height in a 500px viewport) wrapped in `useVirtualList`. Triggered repeated simulated scroll jumps of the viewport height (mimicking Page Down navigation) while capturing resize observations and timer cycles.",
+                "result": "Establishes that rapidly traversing a very tall, dynamically measured list item correctly calculates scroll offsets and updates the virtualization window without causing unbounded layout measurement loops. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if rapidly clearing the search input via the 'clearSearch' button immediately after filtering a large transcript correctly drops focus back to the search bar without breaking reading position restoration."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T23:36:23.553881Z",
+            "source": {
+              "activity_id": "sessions/8721392693620911662/activities/c075a66a9d984e598bb3b616f2aecb35",
+              "report_sha256": "42686a2d4ae5a5482c3cd6f611d90357cfc4cadcae76ff93f09c8a8322f03fdb",
+              "activity_created_at": "2026-09-28T23:29:00.537425Z",
+              "session_id": "8721392693620911662",
+              "dispatch_key": "e390e23b5dc232a9515cafc6"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of clearing search in the transcript modal. Discovered that rapidly clearing the search input via the 'clearSearch' button immediately resets the `pendingRestoreRef`, breaking reading position restoration instead of correctly navigating the user back to where they were before or during the search.",
+            "observations": [
+              {
+                "scenario": "Simulated clearing an active search by changing the transcriptSearch prop in TranscriptModal, tracing the effect on the reading position reference.",
+                "evidence": "Source code review of `TranscriptModal.tsx` combined with isolated jsdom tests. The `useEffect` that monitors `readingContextRef.current` unconditionally sets `pendingRestoreRef.current = null` if `previous.search !== transcriptSearch`. Consequently, when search clears (i.e., `transcriptSearch` transitions from truthy to falsy), the component fails to restore `readingPositions.get(transcriptSession.filePath)`, abruptly forgetting the user's reading position.",
+                "result": "Establishes that clearing search drops the stored reading position, causing the scroll location to be improperly bounded instead of correctly snapping to the previous reading state. (Evidence mode: static_analysis, mock_or_model)"
+              },
+              {
+                "scenario": "Analyzed focus management interacting with the clearSearch button unmounting.",
+                "evidence": "Tested the behavior of `useModalFocus` against `clearSearch()`. The `clearSearch()` function natively focuses the search input synchronously before the state updates and the clear button unmounts. `useModalFocus` checks the newly active element, recognizes it as a valid, enabled input (`searchRef.current`), and thus does not forcibly steal focus back to the panel.",
+                "result": "Establishes that focus is properly managed and does successfully return to the search input when the search is cleared, refuting any hypothesis that unmounting the button drops focus to the body. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if modifying the global `readingPositions` Map concurrently while rapidly cycling search modes causes cross-session scroll pollution in `useTranscript.ts`."
+            ],
+            "proposed_task_ids": [
+              "discovery-cafe449bf1013d81"
+            ],
+            "completed_at": "2026-09-29T14:18:20.284642Z",
+            "source": {
+              "activity_id": "sessions/8969723610217188553/activities/151c02ccc9134afd91d94b8348f476e8",
+              "report_sha256": "fd669a255a5e7e81681cde51b3de5dcb257f0b199babd4dba7419571627a73a7",
+              "activity_created_at": "2026-09-29T14:09:04.738985Z",
+              "session_id": "8969723610217188553",
+              "dispatch_key": "c4975515b7640397637398e5"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
