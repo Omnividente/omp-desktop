@@ -102279,7 +102279,7 @@
       "id": "research-settings-models-behavior-13",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -102397,16 +102397,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14574839716979966196",
         "dispatch_key": "558b5b27f2d44336a75ceade",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-558b5b27f2d44336a75ceade",
         "started_at": "2026-09-29T12:02:23.588018Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T12:57:18.714336Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -102576,13 +102576,156 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T12:11:19.760837Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T12:57:18.714336Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of disabled/removed custom proxy providers during persistence and the SettingsRecoveryScreen's handling of consecutive errors.",
+        "observations": [
+          {
+            "scenario": "Removing a custom proxy provider and saving settings on the frontend.",
+            "evidence": "Simulated removing a custom proxy provider ('my-custom-provider') in SettingsPanel and intercepted `saveSettingsBundle`. Observed that while the ID is correctly added to `removedCustomProviders` in `ompConfig`, it is NOT filtered out of the `proxyProviders` list sent to the backend. The frontend visually disables it, but relies on `omp_bridge.rs` (via `mutation.removed`) to filter it from `proxy_providers` before persisting.",
+            "result": "Establishes that the frontend sends stale/removed providers inside the `proxyProviders` array during a save. The backend `save_config` filters them out, preventing immediate corruption."
+          },
+          {
+            "scenario": "Handling disabled proxy providers in `OmpConfig` when generating OMP runtime arguments.",
+            "evidence": "Traced the usage of `settings.proxy_providers` through the backend. In `src-tauri/src/terminal.rs`, `ensure_proxy_provider_overlay` calls `proxy_provider_overlay()`. The overlay file `proxy-providers.yml` is generated exclusively from the `proxy_providers` set. `disabled_providers` is never checked. Thus, if a provider ID remains in `proxy_providers` (e.g. toggled off as 'providerEnabled' but still checked as 'providerProxyMode'), the OMP process is incorrectly launched with a fallback chain routing for that disabled proxy.",
+            "result": "Establishes that disabled proxy providers still generate proxy overlays if their proxy toggle remains active, contradicting user expectations that a disabled provider applies no behaviors."
+          },
+          {
+            "scenario": "SettingsRecoveryScreen behavior on consecutive errors.",
+            "evidence": "Simulated consecutive startup errors in `App.tsx`. After an initial `settings_unavailable` error triggers the recovery screen, clicking 'Start with Defaults' triggers `startWithDefaults()`. When `startWithDefaults()` throws a *generic* error instead of a `settings_unavailable` error, the `App.tsx` catch block displays an error toast via `showError()` but does not clear or update `settingsRecovery`. The `SettingsRecoveryScreen` remains visible, displaying the *first* failure's details indefinitely.",
+            "result": "Establishes that the UI becomes visually stuck on an outdated recovery state if a subsequent non-settings error occurs during the recovery process."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the user deleting a previously saved `proxy-providers.yml` overlay mid-session while OMP restarts handles missing configuration paths gracefully."
+        ],
+        "proposed_task_ids": [
+          "discovery-f7cec393fa805278",
+          "discovery-863caf28d16304d6"
+        ],
+        "completed_at": "2026-09-29T12:57:18.714336Z",
+        "source": {
+          "activity_id": "sessions/14574839716979966196/activities/a1f67004e3f8478d806a781a58ef6a1c",
+          "report_sha256": "aeed7eb906ca29d5390b0d9802dce3a410424ab521607ea6db9b8040759142ff",
+          "activity_created_at": "2026-09-29T12:34:16.848398Z",
+          "session_id": "14574839716979966196",
+          "dispatch_key": "558b5b27f2d44336a75ceade"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14574839716979966196/activities/a1f67004e3f8478d806a781a58ef6a1c",
+          "report_sha256": "aeed7eb906ca29d5390b0d9802dce3a410424ab521607ea6db9b8040759142ff",
+          "activity_created_at": "2026-09-29T12:34:16.848398Z",
+          "session_id": "14574839716979966196",
+          "dispatch_key": "558b5b27f2d44336a75ceade"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f7cec393fa805278",
+            "discovery-863caf28d16304d6"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f7cec393fa805278",
+      "title": "Exclude disabled proxy providers from the runtime proxy overlay generation",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-29T12:57:18.714336Z",
+      "acceptance": [
+        "The proxy overlay configuration strictly ignores proxy providers that exist in the disabled_providers set"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via static analysis and tracing the backend call graph for OMP runtime instantiation. The `ensure_proxy_provider_overlay` function uses only `settings.proxy_providers` and has no awareness of `settings.disabled_providers`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open Settings, add a custom provider, and enable its Proxy Mode toggle.",
+            "Disable the provider using the 'Enable' toggle.",
+            "Save settings and start a terminal session.",
+            "Inspect the `proxy-providers.yml` overlay sent to the child process."
+          ],
+          "expected": "The generated overlay file should not contain routing rules for the disabled provider.",
+          "actual": "The overlay file contains the disabled provider's fallback chain, improperly injecting its routing into OMP."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/terminal.rs"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-13",
+        "activity_id": "sessions/14574839716979966196/activities/a1f67004e3f8478d806a781a58ef6a1c",
+        "report_sha256": "aeed7eb906ca29d5390b0d9802dce3a410424ab521607ea6db9b8040759142ff",
+        "activity_created_at": "2026-09-29T12:34:16.848398Z",
+        "session_id": "14574839716979966196",
+        "dispatch_key": "558b5b27f2d44336a75ceade"
+      }
+    },
+    {
+      "id": "discovery-863caf28d16304d6",
+      "title": "Update SettingsRecoveryScreen state accurately on consecutive errors",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality",
+        "tests"
+      ],
+      "created_at": "2026-09-29T12:57:18.714336Z",
+      "acceptance": [
+        "When a generic error occurs during recovery via 'Start with Defaults', the UI clears the stale SettingsRecoveryScreen and displays the standard error splash screen or alert"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via Vitest jsdom simulation of `App.tsx` startup error handling.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Induce a `settings_unavailable` error during OMP Desktop startup.",
+            "Click the 'Start with defaults' button on the recovery screen.",
+            "Induce a generic file system error during the defaults save."
+          ],
+          "expected": "The recovery screen should be replaced by a splash screen showing the new generic error.",
+          "actual": "The old recovery screen persists alongside an error toast, displaying the stale failure details."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-13",
+        "activity_id": "sessions/14574839716979966196/activities/a1f67004e3f8478d806a781a58ef6a1c",
+        "report_sha256": "aeed7eb906ca29d5390b0d9802dce3a410424ab521607ea6db9b8040759142ff",
+        "activity_created_at": "2026-09-29T12:34:16.848398Z",
+        "session_id": "14574839716979966196",
+        "dispatch_key": "558b5b27f2d44336a75ceade"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T12:57:51.069834Z",
+    "last_poll_at": "2026-09-29T12:57:57.616691Z",
     "last_tick_at": "2026-09-29T12:40:37.030083Z",
     "run_id": "36569534046"
   }
