@@ -101923,6 +101923,126 @@
           }
         }
       }
+    },
+    {
+      "id": "research-settings-models-performance-13",
+      "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-09-29T11:38:53Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "performance",
+        "fingerprint": "fc2b337cbc6ce6ca1b680a6dd357ad044cb8645fc16f4a92b63d4b230fb53040",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Measured filtering latency and DOM rendering overhead in ModelPicker when handling 5000 models. Both keyboard interaction and opening the picker take >1.1 seconds due to unvirtualized DOM nodes.",
+            "observations": [
+              {
+                "scenario": "Keyboard filtering of models in ModelPicker.",
+                "evidence": "Simulated typing 'Model-123' into the ModelPicker's search input with 5000 options pre-loaded. The filtering callback (onChange) latency for a single keystroke was ~175ms.",
+                "result": "Establishes that filtering is currently slow, but not the primary cause of latency."
+              },
+              {
+                "scenario": "DOM rendering cost when opening ModelPicker.",
+                "evidence": "Measured the time to open the ModelPicker with 5000 options. The initial render took ~1.58 seconds, and closing/reopening took ~1.14 seconds. Inspected the resulting DOM and confirmed 5000 `<button role=\"option\">` nodes were appended directly to the DOM without virtualization.",
+                "result": "Establishes that DOM rendering overhead is the primary bottleneck when dealing with a large list of models, suggesting the need for windowing/virtualization."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate using react-window or react-virtuoso to replace the static map inside `.model-picker-options` to solve the latency on open/filter.",
+              "Assess if `useTransition` or `startTransition` inside `setQuery` would keep the search input responsive during the synchronous filtered list render."
+            ],
+            "proposed_task_ids": [
+              "discovery-d41f0e7cd0ba21ff"
+            ],
+            "completed_at": "2026-09-28T11:44:44.808745Z",
+            "source": {
+              "activity_id": "sessions/39507811164087162/activities/4f8dea4015ed4a47b49c95af56764b3a",
+              "report_sha256": "c22be1f347b76adcbc2c65be3bd1bc1df2e59c56b5cddd3acdea2d7514609765",
+              "activity_created_at": "2026-09-28T11:36:55.160369Z",
+              "session_id": "39507811164087162",
+              "dispatch_key": "45076009f264e64f5dff6f61"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the robustness of fallback chains and model selection validation. Verified that empty missing models are properly blocked on save, and that dynamically removed models in the active session are gracefully handled as custom non-catalog items.",
+            "observations": [
+              {
+                "scenario": "Handling of empty missing models in fallback chains during Settings save.",
+                "evidence": "Simulated an empty fallback model string via Vitest jsdom integration test. When clicking Save on SettingsPanel with an empty selector (\"\") in a fallback chain, `serializeFallbackChains` throws a `fallbackEmptyModelError` (e.g. 'A fallback chain model selector cannot be empty.'). The UI correctly catches this and renders the `.settings-save-error` alert block without making an API request.",
+                "result": "Establishes that the frontend validation correctly handles empty models and prevents malformed state from reaching the backend."
+              },
+              {
+                "scenario": "Robustness of model selection when fallback chain models are unexpectedly removed from the OmpConfig.",
+                "evidence": "Configured a Vitest jsdom environment where `fallbackChains` contained a selector (`provider/missing-model`) that did not exist in the loaded OmpConfig catalog. Checked the frontend DOM for rendering failures.",
+                "result": "Establishes that the frontend gracefully handles models missing from the active OmpConfig. The fallback chain continues to render the missing entry as 'Custom selector' with the status 'not in catalog', and no crashes or infinite loops occur."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the application's behavior when an unexpectedly removed custom provider key is used inside a saved proxy providers list."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T13:14:13.936010Z",
+            "source": {
+              "activity_id": "sessions/9645767117199726444/activities/df2a1569481c46eea25d43bbc056b42c",
+              "report_sha256": "9e3aa8642777b61912a4f53e807690df43c8557587e4d0c3907b9b2d4fb402d7",
+              "activity_created_at": "2026-09-28T13:07:41.018390Z",
+              "session_id": "9645767117199726444",
+              "dispatch_key": "684e07da4c33da7ac79b8c83"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the robustness of proxy provider selection and settings saving when a custom provider is unexpectedly removed. Verified that the SettingsPanel properly flags changes, computes differences, and correctly sends the `removedCustomProviders` field without losing the list of valid `proxyProviders`.",
+            "observations": [
+              {
+                "scenario": "Handling of unexpectedly removed custom proxy providers during settings save on the frontend.",
+                "evidence": "Simulated a SettingsPanel environment in Vitest jsdom where an existing active custom proxy provider (`missing-provider`) is explicitly removed by the user in the UI. Intercepted `saveSettingsBundle` and verified that the `removedCustomProviders` array is populated with `['missing-provider']`, and the `proxyProviders` list is re-evaluated appropriately. Additionally, confirmed `hasChanges` properly marks the settings form as dirty.",
+                "result": "Establishes that the frontend gracefully aggregates changes regarding missing providers and sends the intention to remove a provider correctly to the backend API (`saveSettingsBundle`)."
+              },
+              {
+                "scenario": "Persistence and normalization of proxy_providers on the backend when invalid providers exist.",
+                "evidence": "Inspected `normalize_persisted_proxy_providers` in `src-tauri/src/settings.rs` which verifies that persisted proxy provider IDs are trimmed and invalid empty values are removed, guaranteeing they do not corrupt the persisted Rust state. Checked Rust tests `persisted_proxy_provider_ids_are_trimmed_and_invalid_values_removed` and `proxy_providers_survive_settings_round_trip`.",
+                "result": "Establishes that the backend enforces safe deserialization and normalization of `proxy_providers`, preventing invalid chains or ghost values from causing a panic or unrecoverable state."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the application's runtime behavior when a previously active proxy provider is entirely disabled from `OmpConfig` (but still present in settings) and how `resolve_omp` treats those disabled instances."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T14:18:43.189644Z",
+            "source": {
+              "activity_id": "sessions/1708713293407081052/activities/e5a1e006705046028b1dead9acc49044",
+              "report_sha256": "babdc94f6b8be69705b90c6acb41462f96b2a8b21cbde1493851bf069f865f59",
+              "activity_created_at": "2026-09-28T14:10:53.440119Z",
+              "session_id": "1708713293407081052",
+              "dispatch_key": "6f6bcfa30f55bec6160c1eac"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
