@@ -89571,7 +89571,7 @@
       "id": "discovery-62b7e5e452db8a76",
       "title": "Virtualize the list of items in CodexImportModal",
       "task_type": "product_improvement",
-      "status": "todo",
+      "status": "done",
       "priority": 25,
       "risk": "medium",
       "focus": [
@@ -89609,10 +89609,10 @@
         "dispatch_key": "d77d5d261260c8b53c386d70"
       },
       "proposal_decision": {
-        "action": "approve",
+        "action": "resolve",
         "actor": "Omnividente",
-        "at": "2026-09-28T20:36:32Z",
-        "note": "CodexImportModal.tsx:78 mounts every item while sessions.rs:1533 discovery has no item-count cap. Virtualize list with stable checkbox identity, keyboard focus, selection/select-all preserved; validate realistic large data."
+        "at": "2026-09-29T10:09:46Z",
+        "note": "Implemented by reviewed and merged PR #98, main df856f35322b24776766dee1bb0823c20ec64bbd; 0.9.7 source/CI/native smoke passed."
       }
     },
     {
