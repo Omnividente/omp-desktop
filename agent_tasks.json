@@ -98748,8 +98748,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T05:05:31.786835Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T05:12:15.496653Z",
         "research_detached": {
           "at": "2026-09-29T04:26:26.975879Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -98773,20 +98773,21 @@
         "report_repair": {
           "at": "2026-09-29T04:59:11.172874Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/6658890549132550599/activities/d07c8cbf03644db884ea5b3192dff7cb",
-            "report_sha256": "494829744f6588c079a0680f867a2a37eb509d0b0bcc876a004a07dc033a3a3f",
-            "activity_created_at": "2026-09-29T04:28:26.486878Z",
+            "activity_id": "sessions/6658890549132550599/activities/64ddd5ca02b94e9cb1898d99174d2011",
+            "report_sha256": "dc92d46eda7b7f14759854fb1c5d71bdeb662a2bb692c4cea39b6228a1b57c0f",
+            "activity_created_at": "2026-09-29T04:59:54.624410Z",
             "session_id": "6658890549132550599",
             "dispatch_key": "4e9d859c1639592ae33bdef2"
-          }
+          },
+          "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 124 (char 1381)"
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T05:12:38.930366Z",
+    "last_poll_at": "2026-09-29T05:12:43.888129Z",
     "last_tick_at": "2026-09-29T05:06:06.374548Z",
     "run_id": "36524498721"
   }
