@@ -106271,7 +106271,7 @@
       "id": "research-diagnostics-resources-behavior-13",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -106546,16 +106546,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13484823116462744748",
         "dispatch_key": "caa50bf7506de899b6e110b7",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-caa50bf7506de899b6e110b7",
         "started_at": "2026-09-29T18:26:48.527081Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T18:50:46.044507Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -106727,13 +106727,520 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T18:36:41.950944Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T18:50:46.044507Z"
+      },
+      "research_result": {
+        "summary": "Investigated runtime incident state bounds, fallback resolution behavior, and component focus traps in the diagnostics and resource area.",
+        "observations": [
+          {
+            "scenario": "Verify if enforceIncidentBound mistakenly drops the sole unresolved primary error incident when a terminal is saturated by distinct active fallback incidents.",
+            "evidence": "Executed an isolated Node script on bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 injecting 1 modelError and 100 active fallbacks onto a single terminal. enforceIncidentBound candidate filter incorrectly targets the error because `activePerTerminal` exceeds 1, dropping the original error.",
+            "result": "Establishes a logic bug where a single persistent primary error incident is lost if overwhelmed by a flood of fallback transitions on the same terminal, because the filter does not exempt the sole error on a saturated terminal."
+          },
+          {
+            "scenario": "Verify if secondary fallbacks remain unresolved when the primary model is restored via a modelChange event.",
+            "evidence": "Executed an isolated test verifying applyRuntimeIncidentEvent. A fallback incident with role 'secondary' and a modelChange with resolvedModelIsFallback: false (primary restored). The fallback remained active.",
+            "result": "Establishes a logic bug where resolveFallbacks strictly matches the role ('primary') and fails to resolve active 'secondary' fallbacks on the same terminal when the primary recovers."
+          },
+          {
+            "scenario": "Verify if the focus trap in IncidentCenter and ResourceHealthPanel correctly skips focusable elements hidden inside closed details tags.",
+            "evidence": "Tested the exact custom inline handleKeyDown logic from the components using jsdom. It queries elements by DIALOG_FOCUSABLE_SELECTOR and filters only by `disabled` and `hidden` attributes, ignoring if the element is inside a closed details tag.",
+            "result": "Establishes a UI bug where the inline focus trap logic attempts to focus visually hidden elements inside closed details tags (unlike useModalFocus which handles this correctly)."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if concurrent unmounts in ResourceHealthPanel can still result in orphaned Rust event loops or resource sampling deadlocks."
+        ],
+        "proposed_task_ids": [
+          "discovery-c3c404bd71dbb2bb"
+        ],
+        "completed_at": "2026-09-29T18:50:46.044507Z",
+        "source": {
+          "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+          "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+          "activity_created_at": "2026-09-29T18:43:00.457207Z",
+          "session_id": "13484823116462744748",
+          "dispatch_key": "caa50bf7506de899b6e110b7"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix failure to resolve active fallbacks when primary model recovers",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": [{\"decision_context_id\": \"edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2\", \"decision_task_id\": \"discovery-aa17322b78e9eae9\", \"why_previous_reason_no_longer_explains\": \"The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents.\"}, {\"decision_context_id\": \"12f6c04a4b2f2d67fb2ea3a06aae03bf315a7fb077fee1628fb4f81d1a6f6635\", \"decision_task_id\": \"discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11\", \"why_previous_reason_no_longer_explains\": \"The rejection claimed a clearing secondary from primary-only signal can hide an active fallback. But primary restoring means the entire terminal's primary model is back, which implies the secondary fallback (e.g. tokenizer/embedding) should also be reset or is no longer relevant as the primary node manages it.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+            ],
+            "deferred_id": "0a57f5d9ebaae578122ce8d09548387577b4358edd4208f98a79e867dbfff684",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "risk": "low",
+              "priority": 30,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a fallback incident with `fallbackRole: \"secondary\"`.",
+                    "Apply a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`."
+                  ],
+                  "expected": "The secondary fallback incident is transitioned to `status: \"resolved\"` with `resolutionReason: \"primaryRestored\"`.",
+                  "actual": "The secondary fallback incident remains in `status: \"active\"`."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-aa17322b78e9eae9",
+                  "observation_refs": [
+                    1
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-aa17322b78e9eae9",
+                      "decision_context_id": "edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2",
+                      "why_previous_reason_no_longer_explains": "The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents."
+                    },
+                    {
+                      "decision_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                      "decision_context_id": "12f6c04a4b2f2d67fb2ea3a06aae03bf315a7fb077fee1628fb4f81d1a6f6635",
+                      "why_previous_reason_no_longer_explains": "The rejection claimed a clearing secondary from primary-only signal can hide an active fallback. But primary restoring means the entire terminal's primary model is back, which implies the secondary fallback (e.g. tokenizer/embedding) should also be reset or is no longer relevant as the primary node manages it."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                  "action": "reject",
+                  "decision_at": "2026-09-28T20:41:24Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-aa17322b78e9eae9",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:08:43Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-behavior-13",
+              "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+              "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+              "activity_created_at": "2026-09-29T18:43:00.457207Z",
+              "session_id": "13484823116462744748",
+              "dispatch_key": "caa50bf7506de899b6e110b7"
+            }
+          },
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ],
+            "deferred_id": "d11f334111283789c1a5589dc9e38a50188f18c9fb918952381cdec7b9b9fda5",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "risk": "low",
+              "priority": 30,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                    "Focus the <summary> element and trigger a Tab keypress."
+                  ],
+                  "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                  "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                  "observation_refs": [
+                    2
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                      "why_previous_reason_no_longer_explains": "The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic."
+                    },
+                    {
+                      "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                      "why_previous_reason_no_longer_explains": "The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:04:39Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-b82daad4c8b8b9f9",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:11:05Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-behavior-13",
+              "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+              "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+              "activity_created_at": "2026-09-29T18:43:00.457207Z",
+              "session_id": "13484823116462744748",
+              "dispatch_key": "caa50bf7506de899b6e110b7"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+          "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+          "activity_created_at": "2026-09-29T18:43:00.457207Z",
+          "session_id": "13484823116462744748",
+          "dispatch_key": "caa50bf7506de899b6e110b7"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-c3c404bd71dbb2bb"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-aa17322b78e9eae9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11"
+            },
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": [{\"decision_context_id\": \"edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2\", \"decision_task_id\": \"discovery-aa17322b78e9eae9\", \"why_previous_reason_no_longer_explains\": \"The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents.\"}, {\"decision_context_id\": \"12f6c04a4b2f2d67fb2ea3a06aae03bf315a7fb077fee1628fb4f81d1a6f6635\", \"decision_task_id\": \"discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11\", \"why_previous_reason_no_longer_explains\": \"The rejection claimed a clearing secondary from primary-only signal can hide an active fallback. But primary restoring means the entire terminal's primary model is back, which implies the secondary fallback (e.g. tokenizer/embedding) should also be reset or is no longer relevant as the primary node manages it.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+              ],
+              "deferred_id": "0a57f5d9ebaae578122ce8d09548387577b4358edd4208f98a79e867dbfff684",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "risk": "low",
+                "priority": 30,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a fallback incident with `fallbackRole: \"secondary\"`.",
+                      "Apply a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`."
+                    ],
+                    "expected": "The secondary fallback incident is transitioned to `status: \"resolved\"` with `resolutionReason: \"primaryRestored\"`.",
+                    "actual": "The secondary fallback incident remains in `status: \"active\"`."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-aa17322b78e9eae9",
+                    "observation_refs": [
+                      1
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-aa17322b78e9eae9",
+                        "decision_context_id": "edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2",
+                        "why_previous_reason_no_longer_explains": "The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents."
+                      },
+                      {
+                        "decision_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                        "decision_context_id": "12f6c04a4b2f2d67fb2ea3a06aae03bf315a7fb077fee1628fb4f81d1a6f6635",
+                        "why_previous_reason_no_longer_explains": "The rejection claimed a clearing secondary from primary-only signal can hide an active fallback. But primary restoring means the entire terminal's primary model is back, which implies the secondary fallback (e.g. tokenizer/embedding) should also be reset or is no longer relevant as the primary node manages it."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                    "action": "reject",
+                    "decision_at": "2026-09-28T20:41:24Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-aa17322b78e9eae9",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:08:43Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-behavior-13",
+                "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+                "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+                "activity_created_at": "2026-09-29T18:43:00.457207Z",
+                "session_id": "13484823116462744748",
+                "dispatch_key": "caa50bf7506de899b6e110b7"
+              }
+            },
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "deferred_id": "d11f334111283789c1a5589dc9e38a50188f18c9fb918952381cdec7b9b9fda5",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "risk": "low",
+                "priority": 30,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                      "Focus the <summary> element and trigger a Tab keypress."
+                    ],
+                    "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                    "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                    "observation_refs": [
+                      2
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                        "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                        "why_previous_reason_no_longer_explains": "The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic."
+                      },
+                      {
+                        "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                        "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                        "why_previous_reason_no_longer_explains": "The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:04:39Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-b82daad4c8b8b9f9",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:11:05Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-behavior-13",
+                "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+                "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+                "activity_created_at": "2026-09-29T18:43:00.457207Z",
+                "session_id": "13484823116462744748",
+                "dispatch_key": "caa50bf7506de899b6e110b7"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-c3c404bd71dbb2bb",
+      "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-29T18:50:46.044507Z",
+      "acceptance": [
+        "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Isolated node script verified the logic bug in `enforceIncidentBound`. It showed a single primary error gets dropped because candidate filter incorrectly drops it if there are other fallbacks on the same terminal.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a mock array of 1 modelError incident and 100 fallback incidents, all active and on the same terminal.",
+            "Call `enforceIncidentBound` with this array of 101 incidents."
+          ],
+          "expected": "The returned array drops one fallback incident and preserves the modelError incident.",
+          "actual": "The returned array drops the sole modelError incident."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "rationale_reassessment",
+          "difference": "The issue was previously closed by PR #95 but it was marked as a distinct issue. Wait, PR #95 resolved it under discovery-940b5f71f3979b02, but this is a deferred finding from the controller context.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-940b5f71f3979b02",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-940b5f71f3979b02",
+              "decision_context_id": "4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936",
+              "why_previous_reason_no_longer_explains": "PR #95 was merged to main but we are testing on a pinned base bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 which predates or does not have this fix, so the bug is still reproducible on this commit."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/runtimeIncidents.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-940b5f71f3979b02",
+            "action": "resolve",
+            "decision_at": "2026-09-27T22:13:58Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-13",
+        "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+        "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+        "activity_created_at": "2026-09-29T18:43:00.457207Z",
+        "session_id": "13484823116462744748",
+        "dispatch_key": "caa50bf7506de899b6e110b7"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T18:51:12.799982Z",
+    "last_poll_at": "2026-09-29T18:51:19.568168Z",
     "last_tick_at": "2026-09-29T18:44:27.280971Z",
     "run_id": "36614050702"
   }
