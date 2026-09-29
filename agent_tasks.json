@@ -98459,7 +98459,7 @@
       "id": "research-transcript-links-behavior-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -98567,7 +98567,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "6658890549132550599",
         "dispatch_key": "4e9d859c1639592ae33bdef2",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
@@ -98575,8 +98575,8 @@
         "started_at": "2026-09-29T04:10:14.150143Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_json",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -98748,8 +98748,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-29T04:26:26.975879Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T04:58:40.527892Z",
         "research_detached": {
           "at": "2026-09-29T04:26:26.975879Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -98757,12 +98757,36 @@
         "feedback_nudge": {
           "at": "2026-09-29T04:26:26.975879Z",
           "result": "sent"
+        },
+        "report_error": {
+          "code": "research_json",
+          "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 104 (char 1361)",
+          "reported_at": "2026-09-29T04:58:40.527892Z",
+          "source": {
+            "activity_id": "sessions/6658890549132550599/activities/d07c8cbf03644db884ea5b3192dff7cb",
+            "report_sha256": "494829744f6588c079a0680f867a2a37eb509d0b0bcc876a004a07dc033a3a3f",
+            "activity_created_at": "2026-09-29T04:28:26.486878Z",
+            "session_id": "6658890549132550599",
+            "dispatch_key": "4e9d859c1639592ae33bdef2"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-29T04:59:11.172874Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/6658890549132550599/activities/d07c8cbf03644db884ea5b3192dff7cb",
+            "report_sha256": "494829744f6588c079a0680f867a2a37eb509d0b0bcc876a004a07dc033a3a3f",
+            "activity_created_at": "2026-09-29T04:28:26.486878Z",
+            "session_id": "6658890549132550599",
+            "dispatch_key": "4e9d859c1639592ae33bdef2"
+          }
         }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T04:59:03.861758Z",
+    "last_poll_at": "2026-09-29T04:59:09.362706Z",
     "last_tick_at": "2026-09-29T04:27:19.067078Z",
     "run_id": "36521594580"
   }
