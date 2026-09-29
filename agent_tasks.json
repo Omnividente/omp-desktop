@@ -101455,7 +101455,8 @@
             "session_id": "16326946347596633865",
             "dispatch_key": "d6c27f7fecb0b648f26970fa"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d6c27f7fecb0b648f26970fa"
       },
       "research_result": {
         "summary": "Measured ProjectRail and TerminalWorkspace rendering performance with 500-1000 items. Found linear DOM growth in ProjectRail but no unhandled memory leak, confirming previous decisions that 500+ scale is not a supported target for virtualization.",
