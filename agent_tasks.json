@@ -98809,18 +98809,34 @@
           }
         },
         "report_repair": {
-          "at": "2026-09-29T04:59:11.172874Z",
-          "result": "sent",
-          "status": "invalid",
+          "at": "2026-09-29T22:37:40.542675Z",
+          "result": "pending",
+          "status": "pending",
+          "actor": "Omnividente",
+          "after": "2026-09-29T04:59:11.172874Z",
           "source": {
             "activity_id": "sessions/6658890549132550599/activities/64ddd5ca02b94e9cb1898d99174d2011",
             "report_sha256": "dc92d46eda7b7f14759854fb1c5d71bdeb662a2bb692c4cea39b6228a1b57c0f",
             "activity_created_at": "2026-09-29T04:59:54.624410Z",
             "session_id": "6658890549132550599",
             "dispatch_key": "4e9d859c1639592ae33bdef2"
-          },
-          "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 124 (char 1381)"
-        }
+          }
+        },
+        "report_repair_history": [
+          {
+            "at": "2026-09-29T04:59:11.172874Z",
+            "result": "sent",
+            "status": "invalid",
+            "source": {
+              "activity_id": "sessions/6658890549132550599/activities/64ddd5ca02b94e9cb1898d99174d2011",
+              "report_sha256": "dc92d46eda7b7f14759854fb1c5d71bdeb662a2bb692c4cea39b6228a1b57c0f",
+              "activity_created_at": "2026-09-29T04:59:54.624410Z",
+              "session_id": "6658890549132550599",
+              "dispatch_key": "4e9d859c1639592ae33bdef2"
+            },
+            "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 124 (char 1381)"
+          }
+        ]
       }
     },
     {
