@@ -104304,7 +104304,8 @@
         "feedback_nudge": {
           "at": "2026-09-29T14:43:00.343237Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-d2aebf567ea7bfeba6399333"
       },
       "research_result": {
         "summary": "Verified the accessibility, keyboard navigation, and structural state reporting for transcript rendering and content links.",
