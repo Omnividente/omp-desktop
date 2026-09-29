@@ -97994,7 +97994,7 @@
       "id": "research-workspace-navigation-behavior-13",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -98181,16 +98181,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3874607795049470568",
         "dispatch_key": "c844c564972e5e608e8fb0e4",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-c844c564972e5e608e8fb0e4",
         "started_at": "2026-09-29T01:40:21.418369Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T02:02:43.386798Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -98364,13 +98364,99 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T01:40:21.418369Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T02:02:43.386798Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of `sendRecoveredSwitchInput` during generic network failures. Found that the switch recovery state is improperly mutated and locked into 'sending' without a fallback.",
+        "observations": [
+          {
+            "scenario": "Simulate a generic network failure during `sendRecoveredSwitchInput` in `App.tsx`.",
+            "evidence": "Executed synthetic vitest DOM tests to evaluate state changes inside `sendRecoveredSwitchInput`. In `App.tsx:1618`, `candidate.switchRecovery` is preemptively set to `{ state: \"sending\" }` before calling `sendSwitchInputRecovery`. When the try block fails with a generic error (i.e. `switchInputRecoveryDetails(error)` returns `null`), the catch block falls back to `currentRecovery ?? candidate.switchRecovery`. Since `currentRecovery` is null, it retains `candidate.switchRecovery` which was already modified to 'sending'.",
+            "result": "Establishes that terminal switch recovery gets permanently locked in a 'sending' state upon generic failures. The correct fallback should revert to the original state (e.g. 'pending') retrieved before the state mutation, allowing the user to retry or discard the operation later."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if virtualizing the workspace list in `ProjectRail` yields measurable memory reductions when 500+ workspaces are loaded, even if render latency is primarily bound by `formatRelative` overhead."
+        ],
+        "proposed_task_ids": [
+          "discovery-f94013eee0f81537"
+        ],
+        "completed_at": "2026-09-29T02:02:43.386798Z",
+        "source": {
+          "activity_id": "sessions/3874607795049470568/activities/ea2b3ade130d4de184c777e1afde612c",
+          "report_sha256": "965362a93a6aab574ec93717d3468a3ccf6f119841a429660123a106ab2cfd1f",
+          "activity_created_at": "2026-09-29T01:51:02.432617Z",
+          "session_id": "3874607795049470568",
+          "dispatch_key": "c844c564972e5e608e8fb0e4"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3874607795049470568/activities/ea2b3ade130d4de184c777e1afde612c",
+          "report_sha256": "965362a93a6aab574ec93717d3468a3ccf6f119841a429660123a106ab2cfd1f",
+          "activity_created_at": "2026-09-29T01:51:02.432617Z",
+          "session_id": "3874607795049470568",
+          "dispatch_key": "c844c564972e5e608e8fb0e4"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f94013eee0f81537"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f94013eee0f81537",
+      "title": "Fix switch recovery state lockup on generic failures",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-29T02:02:43.386798Z",
+      "acceptance": [
+        "A failed sendSwitchInputRecovery call with a generic network error correctly reverts the tab's switchRecovery state back to 'pending'"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified via synthetic isolated Vitest simulation. The `sendRecoveredSwitchInput` function modifies `switchRecovery.state` to 'sending' prior to the network request. On a generic error, `switchInputRecoveryDetails(error)` returns `null`, and the catch block assigns `currentRecovery ?? candidate.switchRecovery`. Since `candidate.switchRecovery` is already mutated, it retains the 'sending' state permanently.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a session switch recovery prompt in a 'pending' state",
+            "Trigger `sendRecoveredSwitchInput` to initiate recovery",
+            "Simulate a generic network error (e.g. disconnected connection or non-JSON error format) from the underlying backend API"
+          ],
+          "expected": "The switch recovery UI reverts to the pending state (with 'Send'/'Discard' buttons enabled), preserving the original recovery token",
+          "actual": "The switch recovery UI remains permanently stuck in the 'sending' state with actions disabled"
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-13",
+        "activity_id": "sessions/3874607795049470568/activities/ea2b3ade130d4de184c777e1afde612c",
+        "report_sha256": "965362a93a6aab574ec93717d3468a3ccf6f119841a429660123a106ab2cfd1f",
+        "activity_created_at": "2026-09-29T01:51:02.432617Z",
+        "session_id": "3874607795049470568",
+        "dispatch_key": "c844c564972e5e608e8fb0e4"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T02:03:13.011610Z",
+    "last_poll_at": "2026-09-29T02:03:18.414913Z",
     "last_tick_at": "2026-09-29T01:56:34.203642Z",
     "run_id": "36510152152"
   }
