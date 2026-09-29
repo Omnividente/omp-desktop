@@ -105162,7 +105162,8 @@
         "feedback_nudge": {
           "at": "2026-09-29T15:56:23.336162Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-08accb41578ca1044a1e269c"
       },
       "research_result": {
         "summary": "Investigated memory management and incident retention limits within runtime incidents under high-throughput fallback scenarios.",
