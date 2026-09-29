@@ -99737,7 +99737,7 @@
       "id": "research-sessions-persistence-ux-13",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -99862,16 +99862,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15842647214670378477",
         "dispatch_key": "0617047fa6dd0451b999ee02",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-0617047fa6dd0451b999ee02",
         "started_at": "2026-09-29T08:59:21.977599Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T09:15:56.843517Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -100043,13 +100043,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T08:59:21.977599Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T09:15:56.843517Z"
+      },
+      "research_result": {
+        "summary": "Investigated the session pinning interaction in SessionList. Verified that toggling a pin on a session that subsequently disappears from the active view (e.g., due to an active search filter) drops keyboard focus to the body element, unlike renaming or deleting which safely restore focus to the list context.",
+        "observations": [
+          {
+            "scenario": "Unpinning a session when an active search query matches its pinned title but not its unpinned title or other content.",
+            "evidence": "Created a synthetic React/jsdom test `src/SessionListTogglePinFocus.test.tsx` simulating `SessionList` with an active search query \"Pinned\" matching a session's `pinnedTitle`. The test triggered `onToggleTitlePin`, simulating the backend unpin response which removes the session from the visible list. Before the fix, `document.activeElement` fell back to `document.body`. After applying the same `actionFocusRef` safeguard used for `onSubmitRename`, focus was correctly restored to the list container (`.session-list`).",
+            "result": "Establishes a reproducible accessibility issue where toggling a session title pin drops focus if the session is filtered out by the state change. It also proves that the existing `actionFocusRef` pattern in `SessionList` is sufficient to fix it."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if synchronization (e.g. locking) is required for session mutations (such as title updates and title pinning) in `sessions.rs` to prevent concurrent writes from destroying concurrent JSONL updates, similar to the import boundary.",
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+          "Investigate the focus behavior when toggling the primary provider pin on the active tab."
+        ],
+        "proposed_task_ids": [
+          "discovery-2f867a193102363a"
+        ],
+        "completed_at": "2026-09-29T09:15:56.843517Z",
+        "source": {
+          "activity_id": "sessions/15842647214670378477/activities/373988454e4e4d1db1bf3260bbe17e39",
+          "report_sha256": "30f30824870a8857411c5080c32ebf44ebabdb483da8b9458d3e05e032124d2a",
+          "activity_created_at": "2026-09-29T09:13:20.934905Z",
+          "session_id": "15842647214670378477",
+          "dispatch_key": "0617047fa6dd0451b999ee02"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15842647214670378477/activities/373988454e4e4d1db1bf3260bbe17e39",
+          "report_sha256": "30f30824870a8857411c5080c32ebf44ebabdb483da8b9458d3e05e032124d2a",
+          "activity_created_at": "2026-09-29T09:13:20.934905Z",
+          "session_id": "15842647214670378477",
+          "dispatch_key": "0617047fa6dd0451b999ee02"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-2f867a193102363a"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-2f867a193102363a",
+      "title": "Restore focus when a session pin toggle removes the session from the active search",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 45,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-09-29T09:15:56.843517Z",
+      "acceptance": [
+        "Toggling a session's title pin restores focus to the list if the session is removed from the visible list by the resulting state change"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified via React/jsdom test mimicking the `SessionList` search behavior. The `onToggleTitlePin` handler inside `SessionList.tsx` currently fails to capture the active element in `actionFocusRef` before executing the action, leaving the fallback focus mechanism unaware of the interaction when the row unmounts.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Launch the app and pin a session, naming it something unique like 'Temporary Pin'.",
+            "Focus the search input and type 'Temporary Pin'. The pinned session should be the only result.",
+            "Using the keyboard (Tab and Space/Enter), navigate to the session row and toggle its pin.",
+            "Observe that the session loses its pinned title, no longer matches the search, and disappears from the list."
+          ],
+          "expected": "Keyboard focus should fall back to a safe interactive element in the context (like the `.session-list` region), mirroring the behavior of deleting a session.",
+          "actual": "Keyboard focus is completely lost and falls back to the `document.body` element."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-13",
+        "activity_id": "sessions/15842647214670378477/activities/373988454e4e4d1db1bf3260bbe17e39",
+        "report_sha256": "30f30824870a8857411c5080c32ebf44ebabdb483da8b9458d3e05e032124d2a",
+        "activity_created_at": "2026-09-29T09:13:20.934905Z",
+        "session_id": "15842647214670378477",
+        "dispatch_key": "0617047fa6dd0451b999ee02"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T09:16:22.407327Z",
+    "last_poll_at": "2026-09-29T09:16:28.125609Z",
     "last_tick_at": "2026-09-29T09:09:33.848620Z",
     "run_id": "36547174287"
   }
