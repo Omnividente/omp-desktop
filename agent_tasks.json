@@ -95989,9 +95989,26 @@
           "reason": "AWAITING_USER_FEEDBACK"
         },
         "feedback_nudge": {
-          "at": "2026-09-28T19:02:15.431976Z",
-          "result": "sent"
-        }
+          "at": "2026-09-29T22:42:54.305869Z",
+          "result": "pending",
+          "source": {
+            "session_id": "5162758749953566608",
+            "dispatch_key": "8a2c8a02454d1c38a0510a6b",
+            "activity_id": "sessions/5162758749953566608/activities/0ef1ec46b64c4ac3afbe41e754a90ef4",
+            "activity_created_at": "2026-09-28T19:15:05.165308Z",
+            "activity_sha256": "6d21dd2caa4fab0312c61fd5107ee4a619effd7786a98a53104d74e9e5f4d99f"
+          },
+          "authorization": {
+            "actor": "Omnividente",
+            "after": "2026-09-28T19:02:15.431976Z"
+          }
+        },
+        "feedback_nudge_history": [
+          {
+            "at": "2026-09-28T19:02:15.431976Z",
+            "result": "sent"
+          }
+        ]
       }
     },
     {
