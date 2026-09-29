@@ -99480,8 +99480,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "7184556701131603684",
         "dispatch_key": "26474d8657783fce1b0064f8",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-26474d8657783fce1b0064f8",
