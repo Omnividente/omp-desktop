@@ -107238,6 +107238,208 @@
         "session_id": "13484823116462744748",
         "dispatch_key": "caa50bf7506de899b6e110b7"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-performance-13",
+      "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-29T18:50:46Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "performance",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Investigated the performance of error text sanitization and memory management for runtime incidents.",
+            "observations": [
+              {
+                "scenario": "Verify if the lack of bounds checking before diagnostics::redact_text in models::sanitize_error_text causes a massive temporary memory allocation spike and performance hit if an underlying API returns an unexpectedly large multi-megabyte error message.",
+                "evidence": "Executed an isolated Rust test on c934a275012765dde5834c99048cf6297f059110 comparing the current sanitize_error_text implementation against an optimized version that applies a length bound before redaction. The current implementation took ~911ms to process a 100MB string due to allocating a full redacted copy of the entire string before truncation. Reversing the order to truncate first took <1ms.",
+                "result": "Establishes a performance and memory bug where sanitize_error_text processes the entirety of unbounded error strings before truncating them to 8KB. Since this runs on the Tauri IPC event loop, a large error payload could cause a temporary memory spike and block the UI."
+              },
+              {
+                "scenario": "Verify if enforceIncidentBound handles memory cleanup correctly when continuously dropping older incidents under high throughput.",
+                "evidence": "Executed an isolated node TS test on c934a275012765dde5834c99048cf6297f059110 applying 50,000 synthetic runtime error events sequentially to applyRuntimeIncidentEvent, triggering enforceIncidentBound. Monitored V8 heap usage during the test.",
+                "result": "Establishes that the incident array correctly bounds itself to 100 elements without leaking memory references over time, effectively garbage collecting older incidents."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if enforceIncidentBound mistakenly drops unresolved primary incidents when a high volume of identical fallback occurrences saturate the 100-incident bound."
+            ],
+            "proposed_task_ids": [
+              "discovery-7c33165d9d4290a0"
+            ],
+            "completed_at": "2026-09-28T18:55:11.824631Z",
+            "source": {
+              "activity_id": "sessions/13838146669907269334/activities/820e0828c39746bb9c7b6465ac2f3277",
+              "report_sha256": "1f7e429a54a2ff9d4a5de2335d01edb31feadcfefcc2c767a079ed09efa9b150",
+              "activity_created_at": "2026-09-28T18:42:26.593813Z",
+              "session_id": "13838146669907269334",
+              "dispatch_key": "57320e9261ec1e2e10ec4bef"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated memory management and incident retention limits within runtime incidents under high-throughput fallback scenarios.",
+            "observations": [
+              {
+                "scenario": "Verify if enforceIncidentBound mistakenly drops the sole unresolved primary error incident when a terminal is saturated by distinct active fallback incidents.",
+                "evidence": "Executed an isolated Node TS script on bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 injecting one active modelError followed by 100 distinct fallbackApplied events onto a single terminal. The state bound of 100 incidents resulted in the original modelError being dropped. The activePerTerminal threshold  [excerpt]",
+                "result": "Establishes a logic bug where a single persistent primary error incident is lost if overwhelmed by a flood of fallback transitions on the same terminal, causing the system to lose context of the original failure."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if concurrent unmounts in ResourceHealthPanel can still result in orphaned Rust event loops or resource sampling deadlocks."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T16:06:24.793625Z",
+            "source": {
+              "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+              "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+              "activity_created_at": "2026-09-29T15:58:40.000590Z",
+              "session_id": "2820347012782964821",
+              "dispatch_key": "08accb41578ca1044a1e269c"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 100 fallback incidents and losing the original error.\", [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              },
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking t [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              },
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resol [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-reliability-13",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 1,
+                "next_hypotheses": 1,
+                "proposed_task_ids": 0,
+                "deferred_findings": 4
+              }
+            }
+          },
+          {
+            "summary": "Investigated runtime incident state bounds, fallback resolution behavior, and component focus traps in the diagnostics and resource area.",
+            "observations": [
+              {
+                "scenario": "Verify if enforceIncidentBound mistakenly drops the sole unresolved primary error incident when a terminal is saturated by distinct active fallback incidents.",
+                "evidence": "Executed an isolated Node script on bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 injecting 1 modelError and 100 active fallbacks onto a single terminal. enforceIncidentBound candidate filter incorrectly targets the error because `activePerTerminal` exceeds 1, dropping the original error.",
+                "result": "Establishes a logic bug where a single persistent primary error incident is lost if overwhelmed by a flood of fallback transitions on the same terminal, because the filter does not exempt the sole error on a saturated terminal."
+              },
+              {
+                "scenario": "Verify if secondary fallbacks remain unresolved when the primary model is restored via a modelChange event.",
+                "evidence": "Executed an isolated test verifying applyRuntimeIncidentEvent. A fallback incident with role 'secondary' and a modelChange with resolvedModelIsFallback: false (primary restored). The fallback remained active.",
+                "result": "Establishes a logic bug where resolveFallbacks strictly matches the role ('primary') and fails to resolve active 'secondary' fallbacks on the same terminal when the primary recovers."
+              },
+              {
+                "scenario": "Verify if the focus trap in IncidentCenter and ResourceHealthPanel correctly skips focusable elements hidden inside closed details tags.",
+                "evidence": "Tested the exact custom inline handleKeyDown logic from the components using jsdom. It queries elements by DIALOG_FOCUSABLE_SELECTOR and filters only by `disabled` and `hidden` attributes, ignoring if the element is inside a closed details tag.",
+                "result": "Establishes a UI bug where the inline focus trap logic attempts to focus visually hidden elements inside closed details tags (unlike useModalFocus which handles this correctly)."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if concurrent unmounts in ResourceHealthPanel can still result in orphaned Rust event loops or resource sampling deadlocks."
+            ],
+            "proposed_task_ids": [
+              "discovery-c3c404bd71dbb2bb"
+            ],
+            "completed_at": "2026-09-29T18:50:46.044507Z",
+            "source": {
+              "activity_id": "sessions/13484823116462744748/activities/0a9fff37cbe54c5e85b2c7b4c45ec9d5",
+              "report_sha256": "866097c9e301a1daddf47bd75395833337fb57f77348fc4ed3b27152000d9a4f",
+              "activity_created_at": "2026-09-29T18:43:00.457207Z",
+              "session_id": "13484823116462744748",
+              "dispatch_key": "caa50bf7506de899b6e110b7"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resol [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ]
+              },
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking t [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-behavior-13",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 3,
+                "next_hypotheses": 1,
+                "proposed_task_ids": 1,
+                "deferred_findings": 2
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "controller": {
