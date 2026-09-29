@@ -32,6 +32,8 @@ from task_lifecycle import (  # noqa: E402
 )
 from select_task import select
 from jules_provenance import bind_proposal
+from validate_tasks import validate
+from proposal_backlog import decide
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
 TASK_ID = "auto-clock-1"
@@ -114,6 +116,43 @@ class StartTest(unittest.TestCase):
         data = manifest(task(execution={"attempts": 1, "state": "retry"}))
         start(data, TASK_ID, dispatch_key="second", now=NOW)
         self.assertEqual(execution(data)["attempts"], 2)
+
+    def test_new_attempt_archives_old_feedback_without_rebinding_it(self):
+        for use_reservation in (False, True):
+            with self.subTest(reservation=use_reservation):
+                data = manifest(task(focus=["quality"], evidence={"source": "fixture", "detail": "Synthetic failure"}))
+                start(data, TASK_ID, session_id="1", dispatch_key="first", now=NOW)
+                block = execution(data)
+                block["feedback_nudge"] = {"at": "2026-09-12T12:05:00Z", "result": "sent"}
+                block["feedback_nudge_history"] = [{"at": "2026-09-12T12:01:00Z", "result": "sent"}]
+                source = {"session_id": "1", "dispatch_key": "first", "activity_id": "sessions/1/activities/new",
+                          "activity_created_at": "2026-09-12T12:02:00Z", "activity_sha256": "a" * 64}
+                block["feedback_nudge"]["source"] = source
+                saved = {field: copy.deepcopy(block[field]) for field in (
+                    "attempts", "session_id", "dispatch_key", "started_at", "feedback_nudge", "feedback_nudge_history")}
+                complete(data, TASK_ID, outcome="failed", now=NOW + timedelta(minutes=10))
+                if use_reservation:
+                    reserve(data, TASK_ID, "second", base_sha="b" * 40,
+                            starting_branch="autonomous/attempt-second", now=NOW + timedelta(minutes=15))
+                    self.assertEqual(validate(data), [])
+                start(data, TASK_ID, session_id="2", dispatch_key="second", now=NOW + timedelta(minutes=15))
+                current = execution(data)
+                self.assertEqual(current["feedback_nudge_attempt_history"], [saved])
+                self.assertNotIn("feedback_nudge", current)
+                self.assertNotIn("feedback_nudge_history", current)
+                self.assertEqual((current["attempts"], current["session_id"], current["dispatch_key"]), (2, "2", "second"))
+                self.assertEqual(validate(data), [])
+                closure = copy.deepcopy(data)
+                execution(closure)["session_state"] = "FAILED"
+                complete(closure, TASK_ID, outcome="failed", now=NOW + timedelta(minutes=20))
+                decide(closure, {"merge_gate": {"owner_approvers": ["owner"]}}, action="resolve",
+                       task_id=TASK_ID, actor="owner", note="Reviewed terminal failure",
+                       now="2026-09-12T12:25:00Z")
+                self.assertEqual(validate(closure), [])
+                self.assertEqual(execution(closure)["feedback_nudge_attempt_history"], [saved])
+                current["feedback_nudge_attempt_history"][0]["session_id"] = "2"
+                self.assertTrue(validate(data))
+
 
     def test_dispatch_clears_the_previous_result(self):
         data = manifest(task(execution={

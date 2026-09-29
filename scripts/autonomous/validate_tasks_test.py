@@ -41,6 +41,81 @@ def manifest(*tasks, **policy) -> dict:
     return {"version": 2, "autonomous_loop_policy": loop_policy, "tasks": list(tasks)}
 
 
+class FeedbackReceiptTest(unittest.TestCase):
+    def queue(self):
+        source = {"session_id": "1", "dispatch_key": "attempt", "activity_id": "sessions/1/activities/new",
+                  "activity_created_at": "2026-09-13T12:11:00Z", "activity_sha256": "a" * 64}
+        return manifest(task(status="in_progress", task_type="project_discovery", execution={
+            "state": "dispatched", "attempts": 1, "session_id": "1", "dispatch_key": "attempt",
+            "started_at": "2026-09-13T12:00:00Z", "session_state": "AWAITING_USER_FEEDBACK",
+            "feedback_nudge_history": [{"at": "2026-09-13T12:05:00Z", "result": "sent"}],
+            "feedback_nudge": {"at": "2026-09-13T12:15:00Z", "result": "pending", "source": source},
+        }))
+
+    def test_legacy_sent_and_new_event_chain_preserve_valid_execution(self):
+        data = self.queue()
+        before = copy.deepcopy(data)
+        self.assertEqual(validate(data), [])
+        self.assertEqual(data, before)
+        for status in ("pending", "sent", "unknown", "rejected"):
+            legacy = copy.deepcopy(data)
+            execution = legacy["tasks"][0]["execution"]
+            execution.pop("feedback_nudge_history")
+            execution["feedback_nudge"] = {"at": "2026-09-13T12:05:00Z", "result": status}
+            self.assertEqual(validate(legacy), [])
+
+    def test_history_rejects_foreign_sources_replay_timestamps_and_uncertain_predecessors(self):
+        cases = [(("feedback_nudge_history",), "invalid"),
+                 (("feedback_nudge_history", 0, "result"), "unknown"),
+                 (("feedback_nudge_history", 0, "result"), "pending"),
+                 (("feedback_nudge_history", 0, "result"), "rejected"),
+                 (("feedback_nudge", "source", "session_id"), "foreign"),
+                 (("feedback_nudge", "source", "dispatch_key"), "foreign"),
+                 (("feedback_nudge", "source", "activity_id"), "sessions/other/activities/new"),
+                 (("feedback_nudge", "source", "activity_sha256"), "invalid"),
+                 (("feedback_nudge", "source", "activity_created_at"), "2026-09-13T12:05:00Z"),
+                 (("feedback_nudge", "source", "activity_created_at"), "2026-09-13T12:16:00Z"),
+                 (("feedback_nudge", "source", "activity_created_at"), "2026-09-13T11:59:00Z"),
+                 (("feedback_nudge", "at"), "2026-09-13T12:15:00"),
+                 (("feedback_nudge", "source"), None)]
+        for path, value in cases:
+            with self.subTest(path=path, value=value):
+                data = self.queue()
+                target = data["tasks"][0]["execution"]
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                self.assertTrue(validate(data))
+        replay = self.queue()
+        execution = replay["tasks"][0]["execution"]
+        prior = copy.deepcopy(execution["feedback_nudge"])
+        prior["result"] = "sent"
+        execution["feedback_nudge_history"].append(prior)
+        execution["feedback_nudge"]["at"] = "2026-09-13T12:20:00Z"
+        self.assertTrue(validate(replay))
+
+    def test_explicit_recovery_requires_exact_sent_receipt_and_unique_consumption(self):
+        data = self.queue()
+        receipt = data["tasks"][0]["execution"]["feedback_nudge"]
+        receipt["source"]["activity_created_at"] = "2026-09-13T12:01:00Z"
+        receipt["authorization"] = {"actor": "Owner", "after": "2026-09-13T12:05:00Z"}
+        self.assertEqual(validate(data), [])
+        for changes in ({"actor": ""}, {"after": "2026-09-13T12:04:00Z"}):
+            invalid = copy.deepcopy(data)
+            invalid["tasks"][0]["execution"]["feedback_nudge"]["authorization"].update(changes)
+            self.assertTrue(validate(invalid))
+        invalid = copy.deepcopy(data)
+        invalid["tasks"][0]["execution"]["feedback_nudge_history"][0]["result"] = "unknown"
+        self.assertTrue(validate(invalid))
+        duplicate = copy.deepcopy(data)
+        execution = duplicate["tasks"][0]["execution"]
+        prior = copy.deepcopy(execution["feedback_nudge"])
+        prior["result"] = "sent"
+        execution["feedback_nudge_history"].append(prior)
+        execution["feedback_nudge"]["at"] = "2026-09-13T12:20:00Z"
+        self.assertTrue(validate(duplicate))
+
+
 class DeferredIdentityTests(unittest.TestCase):
     def queue(self, *, materialized=False):
         data, text, origin = post_fixture(deliver=False)

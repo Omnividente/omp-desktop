@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       task_id:
-        description: Optional approved proposal to implement, research task, or report to recover
+        description: Optional approved proposal to implement, research task, or saved attempt to recover
         type: string
         default: ""
       recover_report:
@@ -18,6 +18,14 @@ on:
         default: false
       repair_after:
         description: Optional exact failed report_repair.at authorizing one new same-session format request
+        type: string
+        default: ""
+      recover_feedback:
+        description: Owner-only continuation of one bound session still awaiting feedback
+        type: boolean
+        default: false
+      feedback_after:
+        description: Exact sent feedback_nudge.at authorizing one new same-session instruction
         type: string
         default: ""
       focus:
@@ -46,7 +54,7 @@ permissions:
 jobs:
   dispatch:
     name: Research and collect proposals without accepting them
-    if: ${{ github.ref == 'refs/heads/main' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true) }}
+    if: ${{ github.ref == 'refs/heads/main' && (vars.JULES_LOOP_ENABLED == 'true' || inputs.recover_report == true || inputs.recover_feedback == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -81,6 +89,8 @@ jobs:
           RISK_CEILING: ${{ inputs.risk_ceiling }}
           RECOVER_REPORT: ${{ inputs.recover_report }}
           REPAIR_AFTER: ${{ inputs.repair_after }}
+          RECOVER_FEEDBACK: ${{ inputs.recover_feedback }}
+          FEEDBACK_AFTER: ${{ inputs.feedback_after }}
           RECOVERY_ACTOR: ${{ github.actor }}
           AUTOMATIC: ${{ inputs.automatic }}
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
@@ -90,6 +100,8 @@ jobs:
           options=()
           if [ "${RECOVER_REPORT}" = true ]; then options+=(--recover-report); fi
           if [ -n "${REPAIR_AFTER}" ]; then options+=(--repair-after "${REPAIR_AFTER}"); fi
+          if [ "${RECOVER_FEEDBACK}" = true ]; then options+=(--recover-feedback); fi
+          if [ -n "${FEEDBACK_AFTER}" ]; then options+=(--feedback-after "${FEEDBACK_AFTER}"); fi
           if [ "${AUTOMATIC}" = true ]; then options+=(--automatic); fi
           python3 control/scripts/autonomous/lab_controller.py \
             --repo lab --config control/autonomous-project.json \
