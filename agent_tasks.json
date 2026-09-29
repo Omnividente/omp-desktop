@@ -105158,6 +105158,10 @@
         "research_detached": {
           "at": "2026-09-29T15:56:23.336162Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-29T15:56:23.336162Z",
+          "result": "pending"
         }
       }
     }
