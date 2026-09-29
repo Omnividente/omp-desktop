@@ -97577,8 +97577,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "6299860098882870154",
         "dispatch_key": "966ba37dbf9d89c5a0237d36",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-966ba37dbf9d89c5a0237d36",
