@@ -96092,7 +96092,8 @@
             "at": "2026-09-28T19:02:15.431976Z",
             "result": "sent"
           }
-        ]
+        ],
+        "released_attempt_ref": "autonomous/attempt-8a2c8a02454d1c38a0510a6b"
       },
       "research_result": {
         "summary": "Investigated the session import, deletion, and recovery mechanisms in `src-tauri/src/sessions.rs`. Confirmed that the previously identified race condition during import has been resolved by a transaction lock. Also verified that the cold scan accurately recovers artifacts across various interrupted import phases.",
