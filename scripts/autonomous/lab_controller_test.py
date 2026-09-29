@@ -47,10 +47,17 @@ def session(identifier, key, state="IN_PROGRESS", pull_request=None):
                 {"pullRequest": {"url": f"https://github.com/{REPOSITORY}/pull/{pull_request}"}}]}
 
 
+def feedback_activity(identifier="1", activity_id="question", at=NOW, message="Which routine approach should I use?"):
+    return {"name": f"sessions/{identifier}/activities/{activity_id}", "originator": "agent",
+            "createTime": at.isoformat().replace("+00:00", "Z"),
+            "agentMessaged": {"agentMessage": message}}
+
+
 class Sessions:
     def __init__(self):
         self.values = {}
         self.activities = {}
+        self.activity_pages = {}
         self.posts = 0
         self.after_create = lambda: None
         self.gets = 0
@@ -82,6 +89,9 @@ class Sessions:
             return Response(200, {"sessions": list(self.values.values())})
         identifier = path.split("/")[3]
         if path.endswith("/activities"):
+            token = parse_qs(urlsplit(url).query).get("pageToken", [""])[0]
+            if (identifier, token) in self.activity_pages:
+                return Response(200, self.activity_pages[(identifier, token)])
             return Response(200, {"activities": self.activities.get(identifier, [])})
         return Response(200, self.values[identifier]) if identifier in self.values else Response(404)
 
@@ -477,6 +487,7 @@ class ControllerTests(unittest.TestCase):
         self.run_tick()
         self.reload()
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         waiting = self.run_tick(now=NOW + timedelta(minutes=5))
         self.assertEqual(waiting["waiting_workers"][0]["session_url"], "https://jules.google.com/session/1")
         before = copy.deepcopy(self.reload())
@@ -500,13 +511,12 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.reload()[0]["execution"]["state"], "quarantined")
         self.github.is_enabled = True
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         self.api.message_status = 0  # Lost acknowledgement cannot authorize a second send.
         self.run_tick(now=NOW + timedelta(minutes=5))
         worker = self.reload()[0]
         self.assertEqual(worker["execution"]["feedback_nudge"]["result"], "unknown")
         self.assertEqual(self.api.messages[0][0], "/v1alpha/sessions/1:sendMessage")
-        self.assertIn("no_change", self.api.messages[0][1]["prompt"])
-        self.assertIn("pull request", self.api.messages[0][1]["prompt"])
         self.assertEqual(len(self.api.messages), 1)
         self.assertEqual(worker["proposal_decision"], task("first")["proposal_decision"])
         self.assertEqual(validate(self.data), [])
@@ -525,10 +535,198 @@ class ControllerTests(unittest.TestCase):
                          ("done", "completed", "no_change"))
         self.assertEqual(len(self.api.messages), 1)
 
+    def test_new_authenticated_feedback_sends_once_with_preserved_history_and_identity(self):
+        self.run_tick()
+        identity = copy.deepcopy(self.reload()[0]["execution"])
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        first = feedback_activity()
+        self.api.activities["1"] = [first]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        receipt = copy.deepcopy(self.reload()[0]["execution"]["feedback_nudge"])
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        self.assertEqual(len(self.api.messages), 1)
+        newer = feedback_activity(activity_id="new-question", at=NOW + timedelta(minutes=11))
+        self.api.activity_pages[("1", "")] = {"activities": [first], "nextPageToken": "older"}
+        self.api.activity_pages[("1", "older")] = {"activities": [newer]}
+        self.run_tick(now=NOW + timedelta(minutes=15))
+        execution = copy.deepcopy(self.reload()[0]["execution"])
+        self.assertEqual(execution["feedback_nudge_history"], [receipt])
+        self.assertEqual(execution["feedback_nudge"]["source"]["activity_id"], newer["name"])
+        self.assertEqual(execution["session_state"], "AWAITING_USER_FEEDBACK")
+        self.assertEqual((len(self.api.messages), self.api.posts), (2, 1))
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(execution[field], identity[field])
+        self.run_tick(now=NOW + timedelta(minutes=20))
+        self.assertEqual(self.reload()[0]["execution"], execution)
+        self.assertEqual(len(self.api.messages), 2)
+
+    def test_legacy_sent_permits_only_a_verified_newer_question(self):
+        self.run_tick()
+        self.reload()
+        legacy = {"at": "2026-09-13T12:05:00Z", "result": "sent"}
+        self.data["tasks"][0]["execution"]["feedback_nudge"] = copy.deepcopy(legacy)
+        self.persist(self.data)
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
+        self.run_tick(now=NOW + timedelta(minutes=10))
+        self.assertEqual(self.api.messages, [])
+        self.api.activities["1"].append(feedback_activity(activity_id="new", at=NOW + timedelta(minutes=11)))
+        self.run_tick(now=NOW + timedelta(minutes=15))
+        execution = self.reload()[0]["execution"]
+        self.assertEqual(execution["feedback_nudge_history"], [legacy])
+        self.assertEqual(execution["feedback_nudge"]["result"], "sent")
+        self.assertEqual(len(self.api.messages), 1)
+
+    def test_owner_feedback_recovery_consumes_exact_sent_receipt_once_without_other_workers(self):
+        self.run_tick()
+        self.reload()
+        identity = copy.deepcopy(self.data["tasks"][0]["execution"])
+        legacy = {"at": "2026-09-13T12:05:00Z", "result": "sent"}
+        self.data["tasks"][0]["execution"]["feedback_nudge"] = copy.deepcopy(legacy)
+        self.data["tasks"].append(task("unrelated"))
+        anchors = copy.deepcopy(self.data["controller"])
+        unrelated = copy.deepcopy(self.data["tasks"][1])
+        self.persist(self.data)
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
+        options = {"recover_feedback": True, "feedback_after": legacy["at"], "actor": "Omnividente"}
+        outcome = self.run_tick(now=NOW + timedelta(minutes=20), **options)
+        execution = self.reload()[0]["execution"]
+        self.assertEqual(outcome["reason"], "feedback_recovery")
+        self.assertEqual(execution["feedback_nudge_history"], [legacy])
+        self.assertEqual(execution["feedback_nudge"]["authorization"],
+                         {"actor": "Omnividente", "after": legacy["at"]})
+        self.assertEqual(execution["feedback_nudge"]["result"], "sent")
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(execution[field], identity[field])
+        self.assertEqual(self.data["tasks"][1], unrelated)
+        self.assertEqual(self.data["controller"], anchors)
+        gets = self.api.gets
+        replay = self.run_tick(now=NOW + timedelta(minutes=25), **options)
+        self.assertEqual(replay["reason"], "feedback_recovery_already_consumed")
+        self.assertEqual((self.api.gets, len(self.api.messages), self.api.posts), (gets, 1, 1))
+
+    def test_owner_feedback_recovery_cannot_override_uncertainty_authorization_or_live_state(self):
+        self.run_tick()
+        self.reload()
+        original = copy.deepcopy(self.data)
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
+        options = {"recover_feedback": True, "feedback_after": "2026-09-13T12:05:00Z", "actor": "Omnividente"}
+        for status in ("pending", "unknown", "rejected"):
+            with self.subTest(status=status):
+                self.data = copy.deepcopy(original)
+                self.data["tasks"][0]["execution"]["feedback_nudge"] = {"at": options["feedback_after"], "result": status}
+                self.persist(self.data)
+                with self.assertRaises(ValueError):
+                    self.run_tick(now=NOW + timedelta(minutes=20), **options)
+                self.assertEqual(self.api.messages, [])
+        self.data = copy.deepcopy(original)
+        self.data["tasks"][0]["execution"]["feedback_nudge"] = {"at": options["feedback_after"], "result": "sent"}
+        self.persist(self.data)
+        with self.assertRaises(ValueError):
+            self.run_tick(now=NOW + timedelta(minutes=20), **{**options, "actor": "foreign"})
+        for state in ("IN_PROGRESS", "COMPLETED", "FAILED"):
+            with self.subTest(state=state):
+                self.api.values["1"]["state"] = state
+                outcome = self.run_tick(now=NOW + timedelta(minutes=20), **options)
+                self.assertTrue(outcome["attention"])
+                self.assertEqual(self.api.messages, [])
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.message_status = 0
+        self.run_tick(now=NOW + timedelta(minutes=20), **options)
+        self.assertEqual(self.reload()[0]["execution"]["feedback_nudge"]["result"], "unknown")
+        self.api.activities["1"].append(feedback_activity(activity_id="new", at=NOW + timedelta(minutes=21)))
+        self.run_tick(now=NOW + timedelta(minutes=25))
+        self.assertEqual(len(self.api.messages), 1)
+
+
+    def test_uncertain_or_rejected_receipt_blocks_every_new_event(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity(activity_id="new", at=NOW + timedelta(minutes=11))]
+        for status in ("pending", "unknown", "rejected"):
+            with self.subTest(status=status):
+                receipt = {"at": "2026-09-13T12:05:00Z", "result": status}
+                self.data["tasks"][0]["execution"]["feedback_nudge"] = receipt
+                self.persist(self.data)
+                self.run_tick(now=NOW + timedelta(minutes=15))
+                self.assertEqual(self.reload()[0]["execution"]["feedback_nudge"], receipt)
+                self.assertEqual(self.api.messages, [])
+
+    def test_next_feedback_requires_cas_and_pending_receipt_cannot_be_retried(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        first = copy.deepcopy(self.reload()[0]["execution"]["feedback_nudge"])
+        self.api.activities["1"].append(feedback_activity(activity_id="new", at=NOW + timedelta(minutes=11)))
+
+        def fail_second_intent(data):
+            if data["tasks"][0]["execution"].get("feedback_nudge_history"):
+                raise RuntimeError("CAS failed")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError):
+            self.run_tick(now=NOW + timedelta(minutes=15), persist=fail_second_intent)
+        self.assertEqual(len(self.api.messages), 1)
+        self.assertEqual(self.reload()[0]["execution"]["feedback_nudge"], first)
+
+        def lose_second_ack(data):
+            execution = data["tasks"][0]["execution"]
+            if execution.get("feedback_nudge_history") and execution["feedback_nudge"]["result"] == "sent":
+                raise RuntimeError("ack state unavailable")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError):
+            self.run_tick(now=NOW + timedelta(minutes=15), persist=lose_second_ack)
+        self.assertEqual(self.reload()[0]["execution"]["feedback_nudge"]["result"], "pending")
+        self.api.activities["1"].append(feedback_activity(activity_id="third", at=NOW + timedelta(minutes=16)))
+        self.run_tick(now=NOW + timedelta(minutes=20))
+        self.assertEqual(len(self.api.messages), 2)
+        self.assertEqual(self.reload()[0]["execution"]["feedback_nudge_history"], [first])
+
+
+    def test_feedback_sources_fail_closed_for_foreign_ambiguous_future_or_missing_events(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        invalid = [[], [feedback_activity(identifier="foreign")],
+                   [feedback_activity(at=NOW + timedelta(hours=1))],
+                   [feedback_activity(at=NOW - timedelta(minutes=1))],
+                   [dict(feedback_activity(), originator="user")],
+                   [dict(feedback_activity(), createTime="2026-09-13T12:01:00")],
+                   [feedback_activity(), feedback_activity(activity_id="tie")],
+                   [feedback_activity(), feedback_activity()]]
+        for activities in invalid:
+            with self.subTest(activities=activities):
+                self.api.activities["1"] = activities
+                outcome = self.run_tick(now=NOW + timedelta(minutes=5))
+                self.assertTrue(outcome["attention"])
+                self.assertEqual(self.api.messages, [])
+                self.assertNotIn("feedback_nudge", self.reload()[0]["execution"])
+
+    def test_rewritten_consumed_feedback_cannot_authorize_a_new_send(self):
+        self.run_tick()
+        self.reload()
+        self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
+        self.run_tick(now=NOW + timedelta(minutes=5))
+        receipt = copy.deepcopy(self.reload()[0]["execution"]["feedback_nudge"])
+        self.api.activities["1"] = [feedback_activity(message="Rewritten prior question"),
+                                   feedback_activity(activity_id="new", at=NOW + timedelta(minutes=11))]
+        outcome = self.run_tick(now=NOW + timedelta(minutes=15))
+        self.assertIn("rewritten", outcome["attention"][0]["reason"])
+        self.assertEqual(len(self.api.messages), 1)
+        self.assertEqual(self.reload()[0]["execution"]["feedback_nudge"], receipt)
+
     def test_implementation_feedback_needs_durable_intent_and_skips_existing_pr(self):
         self.run_tick()
         self.reload()
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
 
         def fail_intent(data):
             if data["tasks"][0].get("execution", {}).get("feedback_nudge"):
@@ -551,6 +749,7 @@ class ControllerTests(unittest.TestCase):
         self.data["tasks"][0].pop("proposal_decision")
         self.persist(self.data)
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         self.run_tick(now=NOW + timedelta(minutes=5))
         self.assertEqual(self.api.messages, [])
         self.assertNotIn("feedback_nudge", self.reload()[0]["execution"])
@@ -598,6 +797,7 @@ class ControllerTests(unittest.TestCase):
         self.run_tick()
         self.reload()
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         self.run_tick()
         first = copy.deepcopy(self.reload()[0])
         for number in range(40):
@@ -627,6 +827,7 @@ class ControllerTests(unittest.TestCase):
         research = self.data["tasks"][-1]
         identity = copy.deepcopy(research["execution"])
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         self.api.message_status = 0
         self.run_tick(task_id="", config=config, now=NOW + timedelta(minutes=5))
         tasks = self.reload()
@@ -658,6 +859,7 @@ class ControllerTests(unittest.TestCase):
         self.run_tick(task_id="", config=config)
         self.reload()
         self.api.values["1"]["state"] = "AWAITING_USER_FEEDBACK"
+        self.api.activities["1"] = [feedback_activity()]
         def fail_nudge_intent(data):
             if data["tasks"][-1].get("execution", {}).get("feedback_nudge"):
                 raise RuntimeError("state unavailable")

@@ -80,6 +80,8 @@ into `main`.
    CreateSession. Restarts only reconcile that intent; an ambiguous timeout or
    server reply never causes a second POST for the same attempt. A definite
    non-transient rejection closes that attempt under the bounded retry policy.
+   Authentication failover applies to reads only; mutation calls use one selected
+   key so a 401/403 cannot replay CreateSession or sendMessage with a backup key.
    Failed state persistence stops further external actions. Before POST the
    controller rechecks the switch and pinned main/lab heads.
 4. **Stopping retains uncertainty.** Stale processing or an unknown session is
@@ -112,6 +114,11 @@ into `main`.
    acknowledgement or restart never grants another send. Pending repair polls
    every five minutes for at most six hours. Rejected, failed, conflicting,
    invalid or expired repair stays parked, without a new attempt.
+   Initial requests, research completion nudges and format-only repair use the
+   same `research_completion_prompt` envelope with exact task/dispatch identities.
+   Serialize and locally parse JSON from existing observations; a literal backtick
+   is not Markdown-escaped. Formatting-only local commands are allowed, but new
+   research, network access, implementation and invented evidence are not.
    Normal polling accepts only a strictly newer activity; subsecond activity/request
    times are preserved. Explicit recovery can also reparse the exact immutable
    latest source after a parser fix. Rewritten activities are never accepted.
@@ -373,6 +380,27 @@ the separately guarded `--publish` workflow path is selected.
 No new worker or sync publication runs while disabled. Explicit report recovery
 may read a previously completed session and save its result without dispatching.
 
+The root `AGENTS.md` supplies stable project boundaries and links to the rendered
+task contracts; it does not replace a saved immutable request or owner decision.
+Publish it through a reviewed main change and checked main-to-lab synchronization
+before expecting future Jules attempts to see it. Existing attempts retain their
+original base and request.
+
+Prepare the Jules repository environment with Node.js 22, Rust stable plus
+`rustfmt`/`clippy`, `npm ci`, and the Linux Tauri packages used by `pr.yml`. Run
+and snapshot only after the setup checks succeed; refresh the snapshot after
+toolchain or lockfile changes. For rustup's Linux cross-device rename error,
+`RUSTUP_PERMIT_COPY_RENAME=1` on the install command enables its documented
+copy fallback, at the cost of some installation transaction protection. Do not
+change project dependencies to accommodate the VM. A snapshot serves future
+repository tasks, not a repair or replacement of already running sessions.
+It does not establish Windows/WebView2 behavior or replace the two-platform gate.
+
+The global Jules setting **Only respond to comments that mention @jules** makes
+PR feedback explicit. Automated review reports do not carry that invocation.
+This setting is not a documented off switch for CI Fixer or the controller's
+direct `sendMessage` API; do not assume it prevents either channel.
+
 ## Day-to-day
 
 - **Autonomous Monitor** (every 3h, or on demand) reports branch/entry-point drift,
@@ -520,15 +548,24 @@ The product seed is not an editable backlog; never change it to make a decision.
 
 `worker_awaiting_feedback`, `worker_awaiting_approval` and `worker_paused` include
 the task, safe session ID/link and observation timestamp in `waiting_workers`.
-Normal waiting is informational, not a controller failure. Quarantine, unknown
-identity, invalid reports and actual errors remain separate attention conditions.
+Brief waiting is informational. After 90 minutes without a session-state
+transition, `worker_wait_prolonged` becomes attention even if a nudge was sent.
+This does not invent a terminal result or stop unrelated detached research.
+Quarantine, unknown identity, invalid reports and actual errors remain separate.
+An unknown transition/start time is still reported as waiting, but cannot establish
+the age needed for a prolonged-wait claim.
 
 Implementation requests set `requirePlanApproval=false` and `AUTO_CREATE_PR`.
 For an owner-approved, bound implementation in `AWAITING_USER_FEEDBACK` with
-no PR, the controller persists one `execution.feedback_nudge` intent before
-instructing the **same** Jules session to decide routine in-scope details and
-either propose a PR or finish `no_change` with honest limitations. An ambiguous
-send or lost acknowledgement never triggers a blind resend. Quarantined work
+no PR, the controller persists `execution.feedback_nudge` before instructing
+the **same** Jules session to decide routine in-scope details and either propose
+a PR or finish `no_change` with honest limitations. Each new instruction requires
+the newest authenticated `agentMessaged` activity from the bound session. A
+strictly newer activity after a `sent` receipt may receive one further instruction;
+the old receipt is retained in `feedback_nudge_history`. The same activity never
+receives an automatic resend. Pending, unknown or rejected receipts block further
+sends, even for a new question. A source/hash conflict or incomplete activity
+history requires inspection. Quarantined work
 keeps its exact attempt and continues to occupy its lane until a verified
 terminal outcome or PR review. The instruction neither supplies missing facts
 nor authorizes extra tasks, plan approval, merge or release. Rejected workers,
@@ -539,12 +576,32 @@ decides whether to accept a proposed PR on GitHub, not in Jules. Unexpected
 A waiting research session on its saved immutable attempt receives a sticky
 `execution.research_detached = {at, reason}` marker. Another area/perspective may
 proceed, while the old session stays unresolved, monitored and collectible. For
-research-only `AWAITING_USER_FEEDBACK`, the controller sends at most one instruction
-to finish existing observations and report limitations, not to implement or seek
-more permission. A durable `feedback_nudge` intent is saved before the message;
-lost acknowledgement or restart never blindly resends it. It is not a fabricated
-answer, plan approval, cancellation or terminal outcome. Late resume keeps the
+research-only `AWAITING_USER_FEEDBACK`, each authorized activity receives an
+instruction to finish existing observations and report limitations, not to
+implement or seek more permission. A durable source-bound intent is saved before
+the message. Legacy `sent` receipts without sources permit only a verified newer
+activity after the recorded send time; ambiguous legacy receipts remain blocked.
+`sent` is transport acceptance, not evidence of resume. Late resume keeps the
 same identity and scope exclusion. Disabling the loop prevents new detach/nudge.
+Existing retry paths archive old attempt identities and complete receipt chains
+in `feedback_nudge_attempt_history`; they do not rebind old feedback to a new session.
+Receipt-shape validation survives a later legitimate owner `resolve` decision;
+it is historical evidence, not authorization for a new instruction.
+
+For an inspected session still waiting after a settled `sent` instruction, an
+owner may explicitly choose **Autonomous Next Task** with `task_id`,
+`recover_feedback = true` and `feedback_after = <exact feedback_nudge.at>`.
+The live session must still be bound, `AWAITING_USER_FEEDBACK` and without a PR;
+implementation additionally retains its recorded owner approval. This command
+can use the same verified older activity only under that explicit authorization.
+It CAS-saves `{actor, after}` with the new receipt before one send. The exact prior
+timestamp is consumed once; replay, lost acknowledgement or restart cannot send
+again. Pending, unknown and rejected receipts cannot be superseded this way.
+Only the selected worker is inspected; other attempts and global scheduler clocks
+remain unchanged. It never creates a session, approves a plan, cancels work or
+fabricates completion. The CLI adds `--recover-feedback --feedback-after TIMESTAMP
+--task-id ID --actor OWNER`. Observe an actual subsequent session transition and
+accepted report/PR; do not treat the send receipt as recovery proof.
 
 Queue `execution.observed_at` records session-state transitions, not every poll.
 The optional `controller.last_poll_at` records a valid worker observation;

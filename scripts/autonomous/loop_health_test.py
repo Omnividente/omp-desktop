@@ -365,8 +365,9 @@ class DecisionTest(unittest.TestCase):
                 del data["controller"]
                 overdue = health(data, config, runs=[run(NOW - timedelta(hours=3))])
                 self.assertEqual((overdue["health"], overdue["action"], overdue["reason"]),
-                                 ("ok", "next_task", reason))
-                self.assertEqual(overdue["attention"], [])
+                                 ("attention", "next_task", reason))
+                self.assertEqual(overdue["attention"][0]["reason"], "worker_wait_prolonged")
+                self.assertEqual(overdue["attention"][0]["age_seconds"], 2 * 24 * 3600)
 
     def test_recent_completion_frees_slot_for_immediate_useful_work(self):
         finished = task(status="done", execution={"state": "completed", "outcome": "no_change",
@@ -393,6 +394,44 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual(health(data)["reason"], "work_due")
         self.assertEqual(health(data, enabled=False)["action"], "none")
         self.assertEqual(health(data, runs=[run(status="in_progress")])["action"], "none")
+
+    def test_wait_without_age_is_observed_without_claiming_a_prolonged_stall(self):
+        data = queue(task(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "legacy-attempt",
+            "attempts": 1, "session_state": "AWAITING_USER_FEEDBACK",
+        }))
+        data["controller"] = {"last_tick_at": NOW.isoformat()}
+        before = copy.deepcopy(data)
+        result = health(data)
+        self.assertEqual(result["waiting_workers"][0]["reason"], "worker_awaiting_feedback")
+        self.assertFalse(any(item["reason"] == "worker_wait_prolonged" for item in result["attention"]))
+        self.assertEqual(data, before)
+
+    def test_sent_nudge_does_not_hide_prolonged_wait_or_block_detached_research(self):
+        old = NOW - timedelta(hours=2)
+        config = settings()
+        config["research"]["areas"].append({"id": "clock", "title": "Clock", "paths": ["src/clock.ts"]})
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64, "clock": "d" * 64}, now=old)
+        research = data["tasks"][0]
+        research.update(status="in_progress", execution={
+            "state": "dispatched", "session_id": "123", "dispatch_key": "research-attempt", "attempts": 1,
+            "starting_branch": "autonomous/attempt-research-attempt", "base_sha": LAB,
+            "started_at": old.isoformat(), "observed_at": old.isoformat(),
+            "session_state": "AWAITING_USER_FEEDBACK",
+            "research_detached": {"at": old.isoformat(), "reason": "AWAITING_USER_FEEDBACK"},
+            "feedback_nudge": {"at": (old + timedelta(minutes=5)).isoformat(), "result": "sent"},
+        })
+        before = copy.deepcopy(data)
+        result = health(data, config, fingerprints={"terminal": "c" * 64, "clock": "d" * 64})
+        self.assertEqual((result["health"], result["action"], result["reason"]),
+                         ("attention", "next_task", "research_due"))
+        observation = next(item for item in result["attention"] if item["reason"] == "worker_wait_prolonged")
+        self.assertEqual((observation["feedback_result"], observation["age_seconds"]), ("sent", 7200))
+        self.assertEqual(observation["session_url"], "https://jules.google.com/session/123")
+        self.assertEqual(data, before)
+        boundary = health(data, config, now=old + timedelta(minutes=90),
+                          fingerprints={"terminal": "c" * 64, "clock": "d" * 64})
+        self.assertFalse(any(item["reason"] == "worker_wait_prolonged" for item in boundary["attention"]))
 
     def test_first_waiting_research_detach_needs_tick_then_other_scope_can_run(self):
         config = settings()

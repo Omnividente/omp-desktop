@@ -13,17 +13,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from build_jules_request import build, dispatch_key, next_attempt
+from build_jules_request import build, dispatch_key, next_attempt, research_completion_prompt
 from complete_jules_task import atomic_write, bound_session, harvest, redact
 from health_snapshot import inspect_health
 from jules_dispatch import (
     DEFAULT_API_BASE, CreateRejected, KeyRing, dispatch, get_session, session_failed,
-    session_is_active, session_state, session_resource, request_with_keys, urllib_transport,
+    session_is_active, session_state, session_resource, request_with_keys, urllib_transport, list_activities,
 )
 from jules_provenance import bind_proposal, session_pull_request, trusted_pull_request
 from research_cycle import plan_research, request_context, scope_fingerprints
 from research_disposition import append_recovery_event, disposition_state, research_incident
-from research_request import saved_request, snapshot
+from research_request import saved_request, snapshot, sha256_json
 from select_task import pending_rejection, pending_report_repair, select, valid_research_detachment
 from state_store import load_state, save_state
 from proposal_backlog import authorize
@@ -31,8 +31,8 @@ from task_lifecycle import (
     awaiting_report, awaiting_review, complete, find_task, iso, quarantine, reconcile,
     parse_iso, reserve, start, sweep,
 )
-from validate_tasks import validate
-from loop_health import WAITING_REASONS, worker_observation
+from validate_tasks import validate, validate_feedback_nudges
+from loop_health import WAITING_REASONS, worker_observation, waiting_attention
 
 LAB_BRANCH = "autonomous/lab"
 
@@ -173,6 +173,7 @@ def tick(
     now: datetime | None = None, task_id: str = "", focus: str = "", risk: str = "medium",
     recover_report: bool = False, diagnostics: Path | None = None,
     automatic: bool = False, run_id: str = "", repair_after: str = "", actor: str = "",
+    recover_feedback: bool = False, feedback_after: str = "",
 ) -> dict:
     """CAS-check before effects; persist transitions, report every observation separately."""
     clock = (lambda: now) if now is not None else lambda: datetime.now(timezone.utc)
@@ -181,6 +182,32 @@ def tick(
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     result = {"observed_at": iso(now), "action": "none", "reason": "idle", "attention": [],
               "proposals": [], "observations": [], "waiting_workers": [], "research": {}, "merge_mode": "manual"}
+    targeted_recovery = recover_report or recover_feedback
+    if recover_feedback:
+        if automatic or recover_report or repair_after or not task_id or not feedback_after:
+            raise ValueError("feedback recovery requires one explicit task and exact sent receipt")
+        actor = authorize(config, actor)
+        target = find_task(manifest, task_id)
+        if target is None:
+            raise ValueError("feedback recovery requires an existing task")
+        execution = target.get("execution") or {}
+        receipts = execution.get("feedback_nudge_history", []) + [execution.get("feedback_nudge") or {}]
+        if any((item.get("authorization") or {}).get("after") == feedback_after for item in receipts):
+            return dict(result, reason="feedback_recovery_already_consumed")
+        receipt = execution.get("feedback_nudge") or {}
+        if (validate_feedback_nudges(target) or receipt.get("result") != "sent"
+                or receipt.get("at") != feedback_after or parse_iso(feedback_after) is None
+                or now <= parse_iso(feedback_after) or not execution.get("session_id")
+                or execution.get("pull_request") or awaiting_report(target)
+                or not (target.get("status") == "in_progress" or execution.get("state") == "quarantined")):
+            raise ValueError("feedback recovery requires the exact settled sent receipt on an unresolved no-PR worker")
+        if target.get("task_type") != "project_discovery":
+            decision = target.get("proposal_decision") or {}
+            if decision.get("action") != "approve":
+                raise ValueError("feedback recovery requires recorded implementation approval")
+            authorize(config, decision.get("actor", ""))
+    elif feedback_after:
+        raise ValueError("feedback-after requires explicit feedback recovery")
     if config.get("automation", {}).get("merge_mode") != "manual":
         raise ValueError("laboratory controller requires manual acceptance")
     if config.get("parallel_mode", {}).get("integration_branch") != LAB_BRANCH:
@@ -226,7 +253,7 @@ def tick(
                   or result["research"].get("research_changed")
                   or result["action"] not in ("none", "stopped"))
         # Targeted report recovery is not a poll of the other saved workers.
-        if not recover_report and useful and not result["attention"] and result["reason"] != "loop_disabled":
+        if not targeted_recovery and useful and not result["attention"] and result["reason"] != "loop_disabled":
             controller = manifest.setdefault("controller", {})
             controller["last_tick_at"] = iso(clock())
             if run_id:
@@ -273,11 +300,11 @@ def tick(
                 return dict(result, reason="attempt_already_resolved")
             disposed_recovery = True
     # Explicit recovery must not reconcile or quarantine unrelated attempts.
-    if not recover_report:
+    if not targeted_recovery:
         reconcile(manifest, now=now)
     checkpoint()
     enabled = github.enabled()
-    if not enabled and not recover_report:
+    if not enabled and not targeted_recovery:
         for task in manifest["tasks"]:
             if task.get("status") == "in_progress":
                 quarantine(manifest, task["id"], reason="loop_disabled", now=now)
@@ -296,17 +323,73 @@ def tick(
         result["attention"].append(observation)
         checkpoint()
 
+    def feedback_source(task):
+        execution = task["execution"]
+        errors = validate_feedback_nudges(task)
+        if errors:
+            raise ValueError("invalid feedback receipt chain; explicit inspection required")
+        prior = execution.get("feedback_nudge")
+        if prior and prior["result"] != "sent":
+            return None  # Even a new question cannot resolve an uncertain or rejected send.
+        activities = list_activities(transport, api_base, ring, session_resource(execution["session_id"]))
+        sources = {}
+        times = set()
+        started_at = parse_iso(execution.get("started_at"))
+        for activity in activities:
+            if "agentMessaged" not in activity:
+                continue
+            message = activity["agentMessaged"]
+            created_at = parse_iso(activity.get("createTime"))
+            identifier = activity["name"]
+            if (activity.get("originator") != "agent" or not isinstance(message, dict)
+                    or not isinstance(message.get("agentMessage"), str)
+                    or not message["agentMessage"].strip() or len(message["agentMessage"]) > 131072
+                    or len(identifier) > 512 or created_at is None
+                    or not isinstance(activity.get("createTime"), str)
+                    or "T" not in activity["createTime"]
+                    or not activity["createTime"].endswith(("Z", "+00:00"))
+                    or created_at.utcoffset() != timedelta(0) or created_at > now
+                    or started_at is None or created_at < started_at
+                    or identifier in sources or created_at in times):
+                raise ValueError("ambiguous or invalid feedback activity; explicit inspection required")
+            times.add(created_at)
+            sources[identifier] = {
+                "session_id": execution["session_id"], "dispatch_key": execution["dispatch_key"],
+                "activity_id": identifier, "activity_created_at": activity["createTime"],
+                "activity_sha256": sha256_json(activity),
+            }
+        receipts = execution.get("feedback_nudge_history", []) + ([prior] if prior else [])
+        for receipt in receipts:
+            source = receipt.get("source")
+            if source and sources.get(source["activity_id"]) != source:
+                raise ValueError("feedback source missing or rewritten; explicit inspection required")
+        if not sources:
+            raise ValueError("authenticated feedback activity unavailable; explicit inspection required")
+        source = max(sources.values(), key=lambda item: parse_iso(item["activity_created_at"]))
+        if not recover_feedback and prior and (source == prior.get("source")
+                      or parse_iso(source["activity_created_at"]) <= parse_iso(prior["at"])):
+            return None
+        return source
+
     def nudge_waiting_worker(task, prompt):
         execution = task["execution"]
-        if execution.get("feedback_nudge") or not enabled or not github.enabled():
+        if not enabled or not github.enabled():
             return
-        receipt = {"at": iso(now), "result": "pending"}
+        source = feedback_source(task)
+        if source is None:
+            return
+        prior = execution.get("feedback_nudge")
+        if prior:
+            execution.setdefault("feedback_nudge_history", []).append(copy.deepcopy(prior))
+        receipt = {"at": iso(now), "result": "pending", "source": source}
+        if recover_feedback:
+            receipt["authorization"] = {"actor": actor, "after": feedback_after}
         execution["feedback_nudge"] = receipt
-        checkpoint()  # No blind retry after a lost acknowledgement or process crash.
+        checkpoint()  # CAS every event before POST; a lost acknowledgement never permits retry.
         if not github.enabled():
             return
         response = request_with_keys(
-            transport, ring, "POST", api_base.rstrip("/") + "/"
+            transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
             + session_resource(execution["session_id"]) + ":sendMessage",
             {"prompt": prompt}, max_attempts=1,
         )
@@ -329,15 +412,7 @@ def tick(
             execution["research_detached"] = detached
             checkpoint()
         if state == "AWAITING_USER_FEEDBACK":
-            nudge_waiting_worker(task, (
-                "This session is read-only research, not implementation. Do not wait for an answer, "
-                "approval or a choice of which proposal to implement. Finish this same session now "
-                "with the observations already available, unresolved questions and environment "
-                "limitations in AUTONOMOUS_RESEARCH_BEGIN/END. Include actionable proposals only "
-                "in AUTONOMOUS_TASKS_BEGIN/END for later human review. Do not fabricate observations, "
-                "change product files, create a PR or start further work. No permission is granted "
-                "to execute any proposed change or privileged action."
-            ))
+            nudge_waiting_worker(task, research_completion_prompt(task["id"], execution["dispatch_key"], repair=True))
 
 
     def nudge_approved_implementation(task, state, number):
@@ -382,17 +457,10 @@ def tick(
         response = request_with_keys(
             transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
             + session_resource(execution["session_id"]) + ":sendMessage",
-            {"prompt": (
-                "Repackage only the observations already obtained in this same research session. "
-                "Do not investigate further, use tools, change files, create a PR, ask for approval "
-                "or implement anything. Return exactly one AUTONOMOUS_RESEARCH_BEGIN / "
-                "AUTONOMOUS_RESEARCH_END block containing a JSON object with summary (nonempty string), "
-                "observations (nonempty array of objects with nonempty scenario, evidence and result strings), "
-                "and next_hypotheses (array of strings). Preserve uncertainty and environment limitations; "
-                "do not invent evidence. Return existing actionable proposals only in one "
-                "AUTONOMOUS_TASKS_BEGIN / AUTONOMOUS_TASKS_END JSON array, using the original task schema "
-                "and product scope; use [] if none. These are proposals for later human review, not authorization. "
-                "This is a report-format repair request, not a new task or research attempt."
+            {"prompt": research_completion_prompt(
+                task["id"], execution["dispatch_key"], repair=True,
+                error_detail=redact(str((previous or {}).get("detail")
+                                        or (execution.get("report_error") or {}).get("detail", "")), ring.keys),
             )}, max_attempts=1,
         )
         receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
@@ -462,7 +530,9 @@ def tick(
         repair = execution.get("report_repair")
         number = session_pull_request(session, execution, repository)
         state = session_state(session)
-        if not recover_report:
+        if recover_feedback and (state != "AWAITING_USER_FEEDBACK" or number is not None):
+            raise ValueError("feedback recovery requires live AWAITING_USER_FEEDBACK without a PR")
+        if not targeted_recovery:
             manifest.setdefault("controller", {})["last_poll_at"] = iso(clock())
         if execution.get("session_state") != state:
             execution["session_state"] = state
@@ -524,11 +594,14 @@ def tick(
             result["attention"].append({"task_id": task["id"], "reason": "report_repair_" + current["execution"]["report_repair"]["status"]})
         detach_waiting_research(find_task(manifest, task["id"]), state)
         nudge_approved_implementation(find_task(manifest, task["id"]), state, number)
+        attention = waiting_attention(find_task(manifest, task["id"]), now)
+        if attention:
+            result["attention"].append(attention)
         checkpoint()
 
     # Only stored identities are queried. A foreign PR cannot occupy the worker.
     for identifier in [entry["id"] for entry in manifest["tasks"]]:
-        if recover_report and identifier != task_id:
+        if targeted_recovery and identifier != task_id:
             continue
         task = find_task(manifest, identifier)
         execution = task.get("execution") or {}
@@ -580,8 +653,8 @@ def tick(
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             record_error(task, exc)
 
-    if recover_report:
-        result.update(reason="report_recovery", action="reconciled")
+    if targeted_recovery:
+        result.update(reason="feedback_recovery" if recover_feedback else "report_recovery", action="reconciled")
         return finish()
     if not enabled or not github.enabled():
         result["reason"] = "loop_disabled"
@@ -720,6 +793,8 @@ def main(argv=None) -> int:
     parser.add_argument("--risk-ceiling", default="medium")
     parser.add_argument("--recover-report", action="store_true")
     parser.add_argument("--repair-after", default="", help="Exact failed report_repair.at authorizing one new format-only message")
+    parser.add_argument("--recover-feedback", action="store_true")
+    parser.add_argument("--feedback-after", default="", help="Exact sent feedback_nudge.at authorizing one owner continuation")
     parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
     parser.add_argument("--automatic", action="store_true")
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
@@ -741,14 +816,15 @@ def main(argv=None) -> int:
         return save_state(args.repo, args.manifest, args.revision_file)
 
     try:
-        if args.automatic and (args.task_id or args.focus or args.recover_report or args.repair_after or args.quarantine_all):
+        if args.automatic and (args.task_id or args.focus or args.recover_report or args.repair_after
+                               or args.recover_feedback or args.feedback_after or args.quarantine_all):
             raise ValueError("automatic ticks cannot select, recover or quarantine a task")
         if args.run_id and not re.fullmatch(r"[1-9][0-9]*", args.run_id):
             raise ValueError("invalid workflow run id")
         if "GITHUB_ACTOR" in os.environ and args.actor.casefold() != os.environ["GITHUB_ACTOR"].casefold():
             raise ValueError("--actor must match GITHUB_ACTOR")
         config = json.loads(args.config.read_text(encoding="utf-8"))
-        if args.recover_report:
+        if args.recover_report or args.recover_feedback:
             authorize(config, args.actor)
         manifest = load_state(args.repo, args.manifest, args.revision_file)
         loaded = True
@@ -766,7 +842,8 @@ def main(argv=None) -> int:
                           github=GitHub(config["repository"]), persist=persist,
                           api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
                           recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics"),
-                          automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor)
+                          automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor,
+                          recover_feedback=args.recover_feedback, feedback_after=args.feedback_after)
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",
                   "reason": "state_write_failed" if isinstance(exc, StateWriteError) else "controller_error",

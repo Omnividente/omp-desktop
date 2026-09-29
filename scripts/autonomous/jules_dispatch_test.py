@@ -87,6 +87,16 @@ class CreateTest(unittest.TestCase):
                 self.assertNotIn("PRIVATE_BODY", str(caught.exception))
                 self.assertEqual([method for method, _ in transport.calls], ["GET", "POST"])
 
+    def test_auth_rejection_cannot_rotate_and_duplicate_create_post(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                transport = FakeTransport([sessions_response()],
+                                          [Response(status), Response(200, session("QUEUED"))])
+                with self.assertRaises(CreateRejected) as caught:
+                    run(transport, keys=("primary", "backup"))
+                self.assertEqual(caught.exception.status, status)
+                self.assertEqual([method for method, _ in transport.calls], ["GET", "POST"])
+
     def test_uncertain_create_failure_does_not_spend_another_post(self):
         for status in (0, 200, 408, 409, 429, 500, 501, 503):
             with self.subTest(status=status):

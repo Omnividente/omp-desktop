@@ -202,6 +202,18 @@ def park_report(manifest: dict, task_id: str, *, code: str, detail: str,
             "status": STATUS_BLOCKED, "attempts": attempts_of(task)}
 
 
+def _archive_feedback(block: dict) -> None:
+    if "feedback_nudge" not in block:
+        return
+    record = {field: copy.deepcopy(block[field]) for field in (
+        "attempts", "session_id", "dispatch_key", "started_at", "base_sha", "starting_branch",
+        "feedback_nudge", "feedback_nudge_history",
+    ) if field in block}
+    block["feedback_nudge_attempt_history"] = [*block.get("feedback_nudge_attempt_history", []), record]
+    block.pop("feedback_nudge")
+    block.pop("feedback_nudge_history", None)
+
+
 def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
             starting_branch: str, research_request: dict | None = None,
             now: datetime | None = None) -> dict:
@@ -230,6 +242,7 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
     if not selection["selected"]:
         raise ValueError("task is not available for reservation: " + selection["reason"])
     block = dict(task.get("execution") or {})
+    _archive_feedback(block)
     if "research_request" in block:
         previous = {field: copy.deepcopy(block[field]) for field in ATTEMPT_FIELDS if field in block}
         block["research_request_history"] = [*block.get("research_request_history", []), previous]
@@ -244,7 +257,6 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
     block.pop("provenance", None)
     block.pop("session_state", None)
     block.pop("research_detached", None)
-    block.pop("feedback_nudge", None)
     errors = validate_task_request(dict(task, status=STATUS_IN_PROGRESS, execution=block))
     if errors:
         raise ValueError("invalid reserved research request: " + "; ".join(errors))
@@ -320,6 +332,7 @@ def start(
         raise ValueError("another worker in this lane is active or quarantined")
     moment = now or utcnow()
     block = _execution(task)
+    _archive_feedback(block)
     block["state"] = "dispatched"
     block["session_id"] = str(session_id or "")
     block["dispatch_key"] = str(dispatch_key or "")
@@ -334,7 +347,6 @@ def start(
     block.pop("provenance", None)
     block.pop("session_state", None)
     block.pop("research_detached", None)
-    block.pop("feedback_nudge", None)
     task["status"] = STATUS_IN_PROGRESS
     return {
         "changed": True,

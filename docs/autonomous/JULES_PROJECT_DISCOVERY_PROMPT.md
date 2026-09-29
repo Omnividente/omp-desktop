@@ -70,83 +70,39 @@ area with the accumulated observations. Never manufacture null checks, tests,
 refactors or duplicate tasks to meet a quota. Prefer meaningful untested scenarios
 as `next_hypotheses`; a hypothesis is not yet an implementation task.
 
-Finish with the exact task and dispatch markers from the top of this prompt and
-the machine-readable blocks below. Put the **complete final report together in
-one final agent message**, not fragmented across progress updates. The importer
-uses the latest agent report; malformed or missing evidence is not `no_change`.
+Use the controller's completion contract above: it supplies the **exact task ID,
+dispatch key, ordered literal delimiters and JSON schema** for this attempt.
+Return the entire completed envelope in **one final agent message**, not a
+progress summary or separate fragments. The importer reads the latest agent
+report; malformed or missing evidence is not `no_change`. The controller's blank
+shape is deliberately not a valid observation: fill it only with facts actually
+obtained in this session, preserving uncertainty and environment limitations.
 
-```text
-AUTONOMOUS_TASK_ID: {{TASK_ID}}
-AUTONOMOUS_DISPATCH_KEY: <copy the exact key from the top of this prompt>
-```
+Serialize the research object and proposal array with `json.dumps` (using
+`allow_nan=False`), `JSON.stringify` or an equivalent local serializer, then
+parse each payload with `json.loads`, `JSON.parse` or equivalent and check its
+required fields before sending. JSON is not Markdown: literal backticks need no
+escape, while backslashes, quotes and control characters need JSON escaping.
+Never insert Markdown escapes, fences or comments inside the JSON payloads.
+Keep the literal controller delimiters outside the serialized JSON.
 
-```text
-<!-- AUTONOMOUS_RESEARCH_BEGIN -->
-{
-  "summary": "Short conclusion for this area and scenario",
-  "observations": [
-    {
-      "scenario": "The exact user action, boundary or workload exercised",
-      "evidence": "Command or interaction, relevant files, actual result or measurements",
-      "result": "What this establishes and what it does not establish"
-    }
-  ],
-  "next_hypotheses": ["A distinct scenario worth investigating next"]
-}
-<!-- AUTONOMOUS_RESEARCH_END -->
-<!-- AUTONOMOUS_TASKS_BEGIN -->
-[]
-<!-- AUTONOMOUS_TASKS_END -->
-```
+An empty proposal array is valid. With no actionable findings, the task block
+may instead be omitted entirely, but the complete research block with real
+observations is mandatory. If either task delimiter is present, both ordered
+delimiters and a valid JSON array are required. Findings must describe actual
+commands or interactions, isolated synthetic inputs and observed results on
+`{{BASE_COMMIT}}`; keep environment limitations and the scope of what actually
+ran in the evidence. Do not claim an unavailable native scenario ran.
 
-The task array may be omitted entirely when there are no actionable findings,
-but the complete research block with real observations remains mandatory. If
-either task delimiter is present, both ordered delimiters and a valid JSON array
-are required. A malformed final report parks this same completed attempt. The
-controller may request one formatting-only repair using observations already
-obtained in the same session. Do not investigate further, use tools, implement or
-open a PR for that request. It never authorizes a new research attempt or fallback
-to an older report.
-
-Replace the empty task array only when there are actionable findings. Each entry
-must contain `title`, `task_type` (`bugfix` or `product_improvement`), `risk`,
-`priority` (1–90), and non-empty string arrays `focus`, `target_paths` and
-`acceptance`. Paths must be concrete and repository-relative. `acceptance` must
-be an array even for one criterion, never a string. Include `evidence.source`,
-`evidence.detail` and an actionable `evidence.reproduction` object: a non-empty
-`steps` array of nonblank strings, and nonblank `expected` and `actual` strings.
-Give exact commands or interactions, isolated synthetic inputs and the observed
-result on `{{BASE_COMMIT}}`; put environment limitations and the scope of what was
-actually exercised in `detail`. Do not claim an unavailable native scenario ran.
-
-For example, the task block for an actually observed finding has this shape
-(replace this illustrative scenario with your own observations; do not copy it
-as a finding):
-
-```text
-<!-- AUTONOMOUS_TASKS_BEGIN -->
-[
-  {
-    "title": "Refresh the displayed clock after resume",
-    "task_type": "bugfix",
-    "risk": "low",
-    "priority": 45,
-    "focus": ["quality"],
-    "target_paths": ["src/clock.ts"],
-    "acceptance": ["Resuming refreshes the clock to the current system time"],
-    "evidence": {
-      "source": "product_research",
-      "detail": "Native desktop observation with an empty synthetic profile; no real user data. Only resume was exercised.",
-      "reproduction": {
-        "steps": ["Launch the pinned base with an empty synthetic profile and note the displayed time", "Suspend the host for two minutes, then resume and inspect the displayed time"],
-        "expected": "The clock displays the current system time after resume",
-        "actual": "The clock still displays the time recorded before suspend"
-      }
-    }
-  }
-]
-<!-- AUTONOMOUS_TASKS_END -->
-```
+A malformed final report parks this same completed attempt. The controller may
+request a formatting-only repair using observations already obtained in this
+same session. **Only local JSON serialization/validation of those existing
+observations and proposals is permitted during repair**, including a local
+formatting command. Do not use tools for new research, inspect more product
+data, make network requests, change product files, implement or open a PR.
+Repair never authorizes a new attempt, fabricated evidence, an older-report
+fallback or permission to execute a proposed change. Return the entire repaired
+envelope in one final message, not merely a correction or progress summary.
 
 The controller imports actionable findings as **proposed**, with evidence still
 **reported**, never verified. Self-assigned status, approval or review flags carry no authority.
