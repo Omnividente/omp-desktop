@@ -104737,7 +104737,7 @@
       "id": "research-diagnostics-resources-reliability-13",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -104972,16 +104972,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2820347012782964821",
         "dispatch_key": "08accb41578ca1044a1e269c",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-08accb41578ca1044a1e269c",
         "started_at": "2026-09-29T15:32:50.274105Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T16:06:24.793625Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -105153,8 +105153,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-29T15:56:23.336162Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T16:06:24.793625Z",
         "research_detached": {
           "at": "2026-09-29T15:56:23.336162Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -105162,6 +105162,703 @@
         "feedback_nudge": {
           "at": "2026-09-29T15:56:23.336162Z",
           "result": "sent"
+        }
+      },
+      "research_result": {
+        "summary": "Investigated memory management and incident retention limits within runtime incidents under high-throughput fallback scenarios.",
+        "observations": [
+          {
+            "scenario": "Verify if enforceIncidentBound mistakenly drops the sole unresolved primary error incident when a terminal is saturated by distinct active fallback incidents.",
+            "evidence": "Executed an isolated Node TS script on bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06 injecting one active modelError followed by 100 distinct fallbackApplied events onto a single terminal. The state bound of 100 incidents resulted in the original modelError being dropped. The activePerTerminal threshold (>1) makes the error incident a candidate for removal because the terminal has multiple active incidents, and being older, it gets dropped.",
+            "result": "Establishes a logic bug where a single persistent primary error incident is lost if overwhelmed by a flood of fallback transitions on the same terminal, causing the system to lose context of the original failure."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if concurrent unmounts in ResourceHealthPanel can still result in orphaned Rust event loops or resource sampling deadlocks."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T16:06:24.793625Z",
+        "source": {
+          "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+          "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+          "activity_created_at": "2026-09-29T15:58:40.000590Z",
+          "session_id": "2820347012782964821",
+          "dispatch_key": "08accb41578ca1044a1e269c"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 100 fallback incidents and losing the original error.\", \"expected\": \"The older modelError incident is retained because it is the only non-fallback error for the terminal, dropping the oldest fallback instead.\", \"steps\": [\"Create a new runtime incident state.\", \"Apply a modelError incident to terminal-0.\", \"Apply 100 distinct fallbackApplied/modelChange incidents to terminal-0 to saturate the 100-item MAX_RUNTIME_INCIDENTS limit.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+            ],
+            "deferred_id": "cbb5e58beb2cea6b5899711dbc73b18d38b18ef5f801f279071332400bc19100",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "risk": "low",
+              "priority": 40,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a new runtime incident state.",
+                    "Apply a modelError incident to terminal-0.",
+                    "Apply 100 distinct fallbackApplied/modelChange incidents to terminal-0 to saturate the 100-item MAX_RUNTIME_INCIDENTS limit."
+                  ],
+                  "expected": "The older modelError incident is retained because it is the only non-fallback error for the terminal, dropping the oldest fallback instead.",
+                  "actual": "The modelError incident is dropped, leaving 100 fallback incidents and losing the original error."
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-940b5f71f3979b02",
+                  "action": "resolve",
+                  "decision_at": "2026-09-27T22:13:58Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-reliability-13",
+              "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+              "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+              "activity_created_at": "2026-09-29T15:58:40.000590Z",
+              "session_id": "2820347012782964821",
+              "dispatch_key": "08accb41578ca1044a1e269c"
+            }
+          },
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ],
+            "deferred_id": "9cc32600dfd62927b72ac313cd20eb6408057d2f52d269c09ed63dc3e25627d6",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "risk": "low",
+              "priority": 30,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                    "Focus the <summary> element and trigger a Tab keypress."
+                  ],
+                  "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                  "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                  "observation_refs": [],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                      "why_previous_reason_no_longer_explains": "The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic."
+                    },
+                    {
+                      "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                      "why_previous_reason_no_longer_explains": "The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:04:39Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-b82daad4c8b8b9f9",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:11:05Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-reliability-13",
+              "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+              "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+              "activity_created_at": "2026-09-29T15:58:40.000590Z",
+              "session_id": "2820347012782964821",
+              "dispatch_key": "08accb41578ca1044a1e269c"
+            }
+          },
+          {
+            "title": "Fix failure to resolve active fallbacks when primary model recovers",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": [{\"decision_context_id\": \"edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2\", \"decision_task_id\": \"discovery-aa17322b78e9eae9\", \"why_previous_reason_no_longer_explains\": \"The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+            ],
+            "deferred_id": "8290b72437d9f3665846f7333dee2be7d781e4e92ab5baf77a1f4253a0de9c6b",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "risk": "low",
+              "priority": 30,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a fallback incident with `fallbackRole: \"secondary\"`.",
+                    "Apply a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`."
+                  ],
+                  "expected": "The secondary fallback incident is transitioned to `status: \"resolved\"` with `resolutionReason: \"primaryRestored\"`.",
+                  "actual": "The secondary fallback incident remains in `status: \"active\"`."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-aa17322b78e9eae9",
+                  "observation_refs": [],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-aa17322b78e9eae9",
+                      "decision_context_id": "edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2",
+                      "why_previous_reason_no_longer_explains": "The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                  "action": "reject",
+                  "decision_at": "2026-09-28T20:41:24Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-aa17322b78e9eae9",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:08:43Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-reliability-13",
+              "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+              "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+              "activity_created_at": "2026-09-29T15:58:40.000590Z",
+              "session_id": "2820347012782964821",
+              "dispatch_key": "08accb41578ca1044a1e269c"
+            }
+          },
+          {
+            "title": "Fix duplicate fallback toasts from differing provider aliases",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated test script simulating identical fallback edges via different providers on the `runtimeFeedbackDedupeKey` function.\", \"reproduction\": {\"actual\": \"The function returns different keys because it embeds the raw provider prefixes (`anthropic/` vs `bedrock/`) in the key.\", \"expected\": \"The function returns identical string keys since the underlying base models in the fallback edge are identical.\", \"steps\": [\"Generate a runtime fallback event with fallbackFrom set to `anthropic/claude-3-5-sonnet`.\", \"Generate an identical event with fallbackFrom set to `bedrock/claude-3-5-sonnet`.\", \"Call `runtimeFeedbackDedupeKey` on both events.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The deduplication function intentionally leaves the provider prefix on fallbackFrom/To which creates distinct keys for aliases that point to the exact same fallback edge. Stripping the provider ensures aliases match.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-c4e350673db03db4\", \"responses\": [{\"decision_context_id\": \"8e13785a6dd047e31fbc46c4448877a6799c55c94a1cfc737408dcfb9aee866b\", \"decision_task_id\": \"discovery-c4e350673db03db4\", \"why_previous_reason_no_longer_explains\": \"The rejection stated anthropic and bedrock are distinct providers. However, for deduplication purposes, emitting multiple toasts for the exact same underlying fallback edge model is redundant and confusing to the user. Stripping the provider prefix groups identical models together.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeEvents.ts"
+            ],
+            "acceptance": [
+              "When a fallback incident is created for the same source/target edge via different provider aliases (e.g., anthropic vs bedrock), it yields the same deduplication key and prevents duplicate toasts."
+            ],
+            "deferred_id": "dd58710cbaa6b95ae807505214419953418a52c233af8be2b16982964b1a2ab4",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix duplicate fallback toasts from differing provider aliases",
+              "risk": "low",
+              "priority": 30,
+              "focus": [
+                "quality"
+              ],
+              "target_paths": [
+                "src/runtimeEvents.ts"
+              ],
+              "acceptance": [
+                "When a fallback incident is created for the same source/target edge via different provider aliases (e.g., anthropic vs bedrock), it yields the same deduplication key and prevents duplicate toasts."
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Isolated test script simulating identical fallback edges via different providers on the `runtimeFeedbackDedupeKey` function.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Generate a runtime fallback event with fallbackFrom set to `anthropic/claude-3-5-sonnet`.",
+                    "Generate an identical event with fallbackFrom set to `bedrock/claude-3-5-sonnet`.",
+                    "Call `runtimeFeedbackDedupeKey` on both events."
+                  ],
+                  "expected": "The function returns identical string keys since the underlying base models in the fallback edge are identical.",
+                  "actual": "The function returns different keys because it embeds the raw provider prefixes (`anthropic/` vs `bedrock/`) in the key."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The deduplication function intentionally leaves the provider prefix on fallbackFrom/To which creates distinct keys for aliases that point to the exact same fallback edge. Stripping the provider ensures aliases match.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-c4e350673db03db4",
+                  "observation_refs": [],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-c4e350673db03db4",
+                      "decision_context_id": "8e13785a6dd047e31fbc46c4448877a6799c55c94a1cfc737408dcfb9aee866b",
+                      "why_previous_reason_no_longer_explains": "The rejection stated anthropic and bedrock are distinct providers. However, for deduplication purposes, emitting multiple toasts for the exact same underlying fallback edge model is redundant and confusing to the user. Stripping the provider prefix groups identical models together."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-c4e350673db03db4",
+                  "action": "reject",
+                  "decision_at": "2026-09-28T20:40:48Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-reliability-13",
+              "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+              "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+              "activity_created_at": "2026-09-29T15:58:40.000590Z",
+              "session_id": "2820347012782964821",
+              "dispatch_key": "08accb41578ca1044a1e269c"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+          "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+          "activity_created_at": "2026-09-29T15:58:40.000590Z",
+          "session_id": "2820347012782964821",
+          "dispatch_key": "08accb41578ca1044a1e269c"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-c3c404bd71dbb2bb",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-940b5f71f3979b02"
+            },
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            },
+            {
+              "id": "discovery-aa17322b78e9eae9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11"
+            },
+            {
+              "id": "discovery-c4e350673db03db4",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-c4e350673db03db4"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 100 fallback incidents and losing the original error.\", \"expected\": \"The older modelError incident is retained because it is the only non-fallback error for the terminal, dropping the oldest fallback instead.\", \"steps\": [\"Create a new runtime incident state.\", \"Apply a modelError incident to terminal-0.\", \"Apply 100 distinct fallbackApplied/modelChange incidents to terminal-0 to saturate the 100-item MAX_RUNTIME_INCIDENTS limit.\"]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "deferred_id": "cbb5e58beb2cea6b5899711dbc73b18d38b18ef5f801f279071332400bc19100",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "risk": "low",
+                "priority": 40,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Isolated Node.js script testing `applyRuntimeIncidentEvent` and `enforceIncidentBound` by injecting a massive volume of synthetic distinct fallback incidents.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a new runtime incident state.",
+                      "Apply a modelError incident to terminal-0.",
+                      "Apply 100 distinct fallbackApplied/modelChange incidents to terminal-0 to saturate the 100-item MAX_RUNTIME_INCIDENTS limit."
+                    ],
+                    "expected": "The older modelError incident is retained because it is the only non-fallback error for the terminal, dropping the oldest fallback instead.",
+                    "actual": "The modelError incident is dropped, leaving 100 fallback incidents and losing the original error."
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-940b5f71f3979b02",
+                    "action": "resolve",
+                    "decision_at": "2026-09-27T22:13:58Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-reliability-13",
+                "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+                "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+                "activity_created_at": "2026-09-29T15:58:40.000590Z",
+                "session_id": "2820347012782964821",
+                "dispatch_key": "08accb41578ca1044a1e269c"
+              }
+            },
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "deferred_id": "9cc32600dfd62927b72ac313cd20eb6408057d2f52d269c09ed63dc3e25627d6",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "risk": "low",
+                "priority": 30,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                      "Focus the <summary> element and trigger a Tab keypress."
+                    ],
+                    "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                    "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                    "observation_refs": [],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                        "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                        "why_previous_reason_no_longer_explains": "The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic."
+                      },
+                      {
+                        "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                        "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                        "why_previous_reason_no_longer_explains": "The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:04:39Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-b82daad4c8b8b9f9",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:11:05Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-reliability-13",
+                "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+                "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+                "activity_created_at": "2026-09-29T15:58:40.000590Z",
+                "session_id": "2820347012782964821",
+                "dispatch_key": "08accb41578ca1044a1e269c"
+              }
+            },
+            {
+              "title": "Fix failure to resolve active fallbacks when primary model recovers",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": [{\"decision_context_id\": \"edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2\", \"decision_task_id\": \"discovery-aa17322b78e9eae9\", \"why_previous_reason_no_longer_explains\": \"The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+              ],
+              "deferred_id": "8290b72437d9f3665846f7333dee2be7d781e4e92ab5baf77a1f4253a0de9c6b",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "risk": "low",
+                "priority": 30,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a fallback incident with `fallbackRole: \"secondary\"`.",
+                      "Apply a `modelChange` event with `modelRole: \"primary\"` and `resolvedModelIsFallback: false`."
+                    ],
+                    "expected": "The secondary fallback incident is transitioned to `status: \"resolved\"` with `resolutionReason: \"primaryRestored\"`.",
+                    "actual": "The secondary fallback incident remains in `status: \"active\"`."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-aa17322b78e9eae9",
+                    "observation_refs": [],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-aa17322b78e9eae9",
+                        "decision_context_id": "edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2",
+                        "why_previous_reason_no_longer_explains": "The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11",
+                    "action": "reject",
+                    "decision_at": "2026-09-28T20:41:24Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-aa17322b78e9eae9",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:08:43Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-reliability-13",
+                "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+                "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+                "activity_created_at": "2026-09-29T15:58:40.000590Z",
+                "session_id": "2820347012782964821",
+                "dispatch_key": "08accb41578ca1044a1e269c"
+              }
+            },
+            {
+              "title": "Fix duplicate fallback toasts from differing provider aliases",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated test script simulating identical fallback edges via different providers on the `runtimeFeedbackDedupeKey` function.\", \"reproduction\": {\"actual\": \"The function returns different keys because it embeds the raw provider prefixes (`anthropic/` vs `bedrock/`) in the key.\", \"expected\": \"The function returns identical string keys since the underlying base models in the fallback edge are identical.\", \"steps\": [\"Generate a runtime fallback event with fallbackFrom set to `anthropic/claude-3-5-sonnet`.\", \"Generate an identical event with fallbackFrom set to `bedrock/claude-3-5-sonnet`.\", \"Call `runtimeFeedbackDedupeKey` on both events.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The deduplication function intentionally leaves the provider prefix on fallbackFrom/To which creates distinct keys for aliases that point to the exact same fallback edge. Stripping the provider ensures aliases match.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-c4e350673db03db4\", \"responses\": [{\"decision_context_id\": \"8e13785a6dd047e31fbc46c4448877a6799c55c94a1cfc737408dcfb9aee866b\", \"decision_task_id\": \"discovery-c4e350673db03db4\", \"why_previous_reason_no_longer_explains\": \"The rejection stated anthropic and bedrock are distinct providers. However, for deduplication purposes, emitting multiple toasts for the exact same underlying fallback edge model is redundant and confusing to the user. Stripping the provider prefix groups identical models together.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeEvents.ts"
+              ],
+              "acceptance": [
+                "When a fallback incident is created for the same source/target edge via different provider aliases (e.g., anthropic vs bedrock), it yields the same deduplication key and prevents duplicate toasts."
+              ],
+              "deferred_id": "dd58710cbaa6b95ae807505214419953418a52c233af8be2b16982964b1a2ab4",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix duplicate fallback toasts from differing provider aliases",
+                "risk": "low",
+                "priority": 30,
+                "focus": [
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/runtimeEvents.ts"
+                ],
+                "acceptance": [
+                  "When a fallback incident is created for the same source/target edge via different provider aliases (e.g., anthropic vs bedrock), it yields the same deduplication key and prevents duplicate toasts."
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Isolated test script simulating identical fallback edges via different providers on the `runtimeFeedbackDedupeKey` function.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Generate a runtime fallback event with fallbackFrom set to `anthropic/claude-3-5-sonnet`.",
+                      "Generate an identical event with fallbackFrom set to `bedrock/claude-3-5-sonnet`.",
+                      "Call `runtimeFeedbackDedupeKey` on both events."
+                    ],
+                    "expected": "The function returns identical string keys since the underlying base models in the fallback edge are identical.",
+                    "actual": "The function returns different keys because it embeds the raw provider prefixes (`anthropic/` vs `bedrock/`) in the key."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The deduplication function intentionally leaves the provider prefix on fallbackFrom/To which creates distinct keys for aliases that point to the exact same fallback edge. Stripping the provider ensures aliases match.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-c4e350673db03db4",
+                    "observation_refs": [],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-c4e350673db03db4",
+                        "decision_context_id": "8e13785a6dd047e31fbc46c4448877a6799c55c94a1cfc737408dcfb9aee866b",
+                        "why_previous_reason_no_longer_explains": "The rejection stated anthropic and bedrock are distinct providers. However, for deduplication purposes, emitting multiple toasts for the exact same underlying fallback edge model is redundant and confusing to the user. Stripping the provider prefix groups identical models together."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-c4e350673db03db4",
+                    "action": "reject",
+                    "decision_at": "2026-09-28T20:40:48Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-reliability-13",
+                "activity_id": "sessions/2820347012782964821/activities/4844f88b25554dd8982880d4f04fe8ea",
+                "report_sha256": "55f662eef5fed28d1a99828f839ed84d244ede7e04d69c0ac70b24f24ad7e0fe",
+                "activity_created_at": "2026-09-29T15:58:40.000590Z",
+                "session_id": "2820347012782964821",
+                "dispatch_key": "08accb41578ca1044a1e269c"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "4 task entry/entries parsed"
         }
       }
     },
@@ -105475,7 +106172,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T16:06:50.125554Z",
+    "last_poll_at": "2026-09-29T16:06:56.808576Z",
     "last_tick_at": "2026-09-29T15:59:57.077671Z",
     "run_id": "36593922018"
   }
