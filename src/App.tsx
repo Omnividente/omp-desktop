@@ -1637,10 +1637,14 @@ function App() {
         const currentRecovery = switchInputRecoveryDetails(error)
         setTabs((current) =>
           current.map((candidate) =>
-            candidate.id === terminalId
+            candidate.id === terminalId && candidate.switchRecovery?.token === recovery.token
               ? {
                   ...candidate,
-                  switchRecovery: currentRecovery ?? candidate.switchRecovery,
+                  // A generic failure may follow an uncertain PTY write. Never offer a second send.
+                  switchRecovery: currentRecovery ?? {
+                    ...candidate.switchRecovery,
+                    state: "failedSend",
+                  },
                 }
               : candidate,
           ),

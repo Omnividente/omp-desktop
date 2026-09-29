@@ -2665,6 +2665,11 @@ button:disabled {
   width: min(640px, 94vw);
 }
 
+.codex-import-panel .settings-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
 .import-mode-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
@@ -2713,8 +2718,13 @@ button:disabled {
 }
 
 .codex-list {
-  display: grid;
-  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.codex-list-contents {
+  position: relative;
 }
 
 .codex-item {

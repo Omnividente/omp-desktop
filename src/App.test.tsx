@@ -44,6 +44,9 @@ vi.mock("./api", async (importOriginal) => ({
   loadOmpConfig: vi.fn(),
   saveSettingsBundle: vi.fn(),
   startTerminal: vi.fn(),
+  switchTerminal: vi.fn(),
+  sendSwitchInputRecovery: vi.fn(),
+  discardSwitchInputRecovery: vi.fn(),
   setTerminalPrimaryProviderPin: vi.fn(),
   checkOmpUpdate: vi.fn().mockResolvedValue({ hasUpdate: false }),
   sampleResourceHealth: vi.fn().mockRejectedValue(new Error("No resource sample in this fixture")),
@@ -391,6 +394,9 @@ describe("App lifecycle serialization", () => {
     vi.mocked(api.loadOmpConfig).mockReset().mockResolvedValue(config("Initial"))
     vi.mocked(api.saveSettingsBundle).mockReset()
     vi.mocked(api.startTerminal).mockReset().mockResolvedValue(started)
+    vi.mocked(api.switchTerminal).mockReset()
+    vi.mocked(api.sendSwitchInputRecovery).mockReset()
+    vi.mocked(api.discardSwitchInputRecovery).mockReset().mockResolvedValue(undefined)
     vi.mocked(api.checkOmpUpdate).mockReset().mockResolvedValue({
       hasUpdate: false,
       currentVersion: "18.1.19",
@@ -908,6 +914,60 @@ describe("App lifecycle serialization", () => {
     expect(pin.disabled).toBe(false)
     await act(async () => pin.click())
     expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
+  })
+
+  it("lets the user discard preserved input after an unstructured send failure without offering a duplicate send", async () => {
+    const initial = config("Initial")
+    const alternate = config("Alternate").models[0]
+    vi.mocked(api.loadOmpConfig).mockResolvedValue({
+      ...initial,
+      models: [...initial.models, alternate],
+    })
+    const recovery = {
+      terminalId: started.terminalId,
+      generation: 3,
+      token: "opaque-recovery",
+      byteCount: 25,
+      state: "pending" as const,
+    }
+    vi.mocked(api.switchTerminal).mockRejectedValue({
+      code: "terminal_switch_input_recovery",
+      message: "Preserved draft",
+      recovery,
+    })
+    const send = deferred<void>()
+    vi.mocked(api.sendSwitchInputRecovery).mockReturnValue(send.promise)
+    await mountAndResume()
+    act(() => {
+      const selector = element<HTMLSelectElement>(".session-model-select")
+      selector.value = alternate.selector
+      selector.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await act(async () => {})
+    const actions = () => element(".switch-input-recovery-actions")
+    const buttons = () => actions().querySelectorAll<HTMLButtonElement>("button")
+    expect(buttons()[0].disabled).toBe(false)
+    await act(async () => buttons()[0].click())
+    expect(api.sendSwitchInputRecovery).toHaveBeenCalledWith(
+      started.terminalId,
+      recovery.generation,
+      recovery.token,
+    )
+    expect(buttons()[1].disabled).toBe(true)
+    await act(async () => send.reject(new Error("Transport dropped after write")))
+    expect(buttons()[0].disabled).toBe(true)
+    expect(buttons()[1].disabled).toBe(false)
+    expect(actions().closest(".switch-input-recovery")?.classList.contains("is-failedSend")).toBe(
+      true,
+    )
+    await act(async () => buttons()[1].click())
+    expect(api.discardSwitchInputRecovery).toHaveBeenCalledWith(
+      started.terminalId,
+      recovery.generation,
+      recovery.token,
+    )
+    expect(api.sendSwitchInputRecovery).toHaveBeenCalledTimes(1)
+    expect(container.querySelector(".switch-input-recovery")).toBeNull()
   })
 
   it("keeps post-save models when initial App and Settings requests resolve late after a save without config", async () => {

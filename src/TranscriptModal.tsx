@@ -115,6 +115,7 @@ export function TranscriptModal({
 
   const pendingRestoreRef = useRef<ReadingPosition | null>(null)
   const pendingLatestRef = useRef(false)
+  const followLatestRef = useRef(false)
   const readingContextRef = useRef<{
     path: string
     mode: TranscriptModalProps["transcriptMode"]
@@ -125,6 +126,7 @@ export function TranscriptModal({
     const previous = readingContextRef.current
     if (previous?.path !== transcriptSession.filePath) {
       pendingLatestRef.current = initialPosition === "end"
+      followLatestRef.current = pendingLatestRef.current
       pendingRestoreRef.current =
         transcriptSearch || pendingLatestRef.current
           ? null
@@ -132,10 +134,12 @@ export function TranscriptModal({
     } else if (previous.latestRequest !== latestRequest) {
       pendingRestoreRef.current = null
       pendingLatestRef.current = true
+      followLatestRef.current = true
     } else if (previous.mode !== transcriptMode || previous.search !== transcriptSearch) {
       // Explicit filtering/find navigation always wins over an unfinished restore.
       pendingRestoreRef.current = null
       pendingLatestRef.current = false
+      followLatestRef.current = false
     }
     readingContextRef.current = {
       path: transcriptSession.filePath,
@@ -156,7 +160,13 @@ export function TranscriptModal({
     const index = visibleEntries.length - 1
     pendingRestoreRef.current =
       index >= 0
-        ? { entryId: visibleEntries[index].id, index, offset: 0, mode: transcriptMode, sourceMode }
+        ? {
+            entryId: visibleEntries[index].id,
+            index,
+            offset: Infinity,
+            mode: transcriptMode,
+            sourceMode,
+          }
         : null
     pendingLatestRef.current = false
   })
@@ -300,6 +310,15 @@ export function TranscriptModal({
       return
     }
     const rowBounds = row.getBoundingClientRect()
+    if (
+      saved.offset === Infinity &&
+      Math.abs(
+        rowBounds.height - (virtualItems.find((item) => item.index === index)?.height ?? 0),
+      ) > 0.5
+    ) {
+      // Wait for the actual final row height before settling the bottom anchor.
+      return
+    }
     const offset =
       saved.mode === transcriptMode && saved.sourceMode === sourceMode && anchorIndex >= 0
         ? Math.min(saved.offset, Math.max(0, rowBounds.height - 1))
@@ -320,6 +339,24 @@ export function TranscriptModal({
     })
     return () => window.cancelAnimationFrame(frame)
   })
+  useLayoutEffect(() => {
+    if (
+      !followLatestRef.current ||
+      pendingRestoreRef.current ||
+      transcriptLoading ||
+      transcriptError ||
+      transcript?.session.filePath !== transcriptSession.filePath
+    )
+      return
+    const scroll = scrollRef.current
+    if (!scroll) return
+    const bottom = Math.max(0, scroll.scrollHeight - scroll.clientHeight)
+    if (scroll.scrollTop !== bottom) {
+      scroll.scrollTop = bottom
+      scroll.dispatchEvent(new Event("scroll"))
+    }
+  }, [totalHeight, transcript, transcriptError, transcriptLoading, transcriptSession.filePath])
+
   useEffect(() => {
     setMenu(null)
   }, [sessionPath, transcript, transcriptMode, transcriptSearch])
@@ -334,6 +371,7 @@ export function TranscriptModal({
     dismissMenu(true)
   }
   const preservePosition = () => {
+    followLatestRef.current = false
     rememberPosition()
     pendingRestoreRef.current = transcriptSearch
       ? null
@@ -452,6 +490,16 @@ export function TranscriptModal({
                 aria-label={t(lang, "transcriptSearch")}
                 ref={searchRef}
                 onKeyDown={(event) => {
+                  if (
+                    event.key === "Escape" &&
+                    transcriptSearch &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    clearSearch()
+                    return
+                  }
                   if (event.key !== "Enter" || event.nativeEvent.isComposing) return
                   event.preventDefault()
                   event.stopPropagation()
@@ -562,7 +610,16 @@ export function TranscriptModal({
           tabIndex={0}
           role="region"
           aria-labelledby="transcript-title"
-          onScroll={rememberPosition}
+          onScroll={() => {
+            const scroll = scrollRef.current
+            if (
+              scroll &&
+              !pendingRestoreRef.current &&
+              scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight - 1
+            )
+              followLatestRef.current = false
+            rememberPosition()
+          }}
           onMouseDownCapture={(event) => {
             if (event.button !== 2) return
             const selection = window.getSelection()
