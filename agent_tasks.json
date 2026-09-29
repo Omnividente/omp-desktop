@@ -101081,7 +101081,7 @@
       "id": "research-workspace-navigation-performance-13",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -101263,16 +101263,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "16326946347596633865",
         "dispatch_key": "d6c27f7fecb0b648f26970fa",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-d6c27f7fecb0b648f26970fa",
         "started_at": "2026-09-29T10:40:23.880634Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T11:17:33.299897Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -101442,24 +101442,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T11:08:15.714598Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-29T11:03:26.032369Z",
-          "source": {
-            "activity_id": "sessions/16326946347596633865/activities/82abcc394f794c5caea20e382783752c",
-            "report_sha256": "3210bc1114c78f28feab323b7fcc303392be84071b9618673e0104563b437601",
-            "activity_created_at": "2026-09-29T10:50:42.489570Z",
-            "session_id": "16326946347596633865",
-            "dispatch_key": "d6c27f7fecb0b648f26970fa"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T11:17:33.299897Z",
         "report_repair": {
           "at": "2026-09-29T11:04:01.068582Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/16326946347596633865/activities/82abcc394f794c5caea20e382783752c",
             "report_sha256": "3210bc1114c78f28feab323b7fcc303392be84071b9618673e0104563b437601",
@@ -101468,6 +101456,34 @@
             "dispatch_key": "d6c27f7fecb0b648f26970fa"
           }
         }
+      },
+      "research_result": {
+        "summary": "Measured ProjectRail and TerminalWorkspace rendering performance with 500-1000 items. Found linear DOM growth in ProjectRail but no unhandled memory leak, confirming previous decisions that 500+ scale is not a supported target for virtualization.",
+        "observations": [
+          {
+            "scenario": "Simulated rendering 500 and 1,000 workspaces in ProjectRail without virtualization to measure latency and DOM nodes.",
+            "evidence": "Wrote synthetic vitest DOM tests (test-memory-virtualization) mounting ProjectRail with large datasets. 500 workspaces generated 11,571 DOM nodes and took ~890ms to mount. 1,000 workspaces generated 23,071 DOM nodes and took ~2000ms. Changing the active selection with 1,000 workspaces took ~720ms.",
+            "result": "Establishes that DOM node count scales linearly with the number of workspaces. However, as previously decided by the owner (context_id 8e80272467b75e38887d1c161329a4e41830b7154de27ecf5bcbc614e85b9284), 500/1000-workspace scale is not a supported user-visible bottleneck, so list virtualization is unwarranted."
+          },
+          {
+            "scenario": "Simulated rendering 5,000 sessions inside TerminalWorkspace.",
+            "evidence": "Wrote a synthetic vitest DOM test mounting TerminalWorkspace with a workspace containing 5,000 sessions. It mounted in ~70ms and produced only 95 initial DOM nodes, as TerminalWorkspace primarily handles the active tabs and delegates large list rendering to other components.",
+            "result": "Establishes that the TerminalWorkspace component itself is well-bounded and does not eagerly render session DOM nodes that would consume excessive memory."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory lifecycle of older PTY sessions left open in background tabs for extended periods."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T11:17:33.299897Z",
+        "source": {
+          "activity_id": "sessions/16326946347596633865/activities/bac2c6e2f7c24a1a9dda2b7a074a1039",
+          "report_sha256": "6cdf18221998990dadbcf27a7768dd19345ddcf8414550ccf46df0da789c37ab",
+          "activity_created_at": "2026-09-29T11:04:48.672131Z",
+          "session_id": "16326946347596633865",
+          "dispatch_key": "d6c27f7fecb0b648f26970fa"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -101885,7 +101901,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T11:18:00.240044Z",
+    "last_poll_at": "2026-09-29T11:18:06.503417Z",
     "last_tick_at": "2026-09-29T11:11:03.990292Z",
     "run_id": "36559802780"
   }
