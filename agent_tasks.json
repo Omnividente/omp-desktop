@@ -98365,7 +98365,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T02:02:43.386798Z"
+        "observed_at": "2026-09-29T02:02:43.386798Z",
+        "released_attempt_ref": "autonomous/attempt-c844c564972e5e608e8fb0e4"
       },
       "research_result": {
         "summary": "Investigated the behavior of `sendRecoveredSwitchInput` during generic network failures. Found that the switch recovery state is improperly mutated and locked into 'sending' without a fallback.",
