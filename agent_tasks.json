@@ -104005,7 +104005,7 @@
       "id": "research-transcript-links-ux-13",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -104115,16 +104115,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12722272516481930644",
         "dispatch_key": "d2aebf567ea7bfeba6399333",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-d2aebf567ea7bfeba6399333",
         "started_at": "2026-09-29T14:18:20.284642Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T15:01:09.256001Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -104295,8 +104295,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T14:51:19.195313Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T15:01:09.256001Z",
         "research_detached": {
           "at": "2026-09-29T14:43:00.343237Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -104305,6 +104305,34 @@
           "at": "2026-09-29T14:43:00.343237Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Verified the accessibility, keyboard navigation, and structural state reporting for transcript rendering and content links.",
+        "observations": [
+          {
+            "scenario": "Analyzed empty and error states in TranscriptModal for screen reader accessibility.",
+            "evidence": "Ran isolated jsdom tests using Testing Library to render TranscriptModal with `transcript=null` and `transcriptError='error'`. Verified that the empty state renders a container with `role=\"status\"` and the error state uses `role=\"alert\"`.",
+            "result": "Establishes that empty and error states provide the correct semantic ARIA roles for screen reader announcements. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Evaluated keyboard navigation and accessibility of content links parsed from transcript messages.",
+            "evidence": "Rendered TranscriptModal with markdown content containing URLs in an isolated jsdom test. Verified that the `contentLinks` parser correctly processes text into standard `<a>` tags with valid `href` attributes, which natively receive keyboard focus and handle interaction events like 'Enter' keydowns via standard browser behavior.",
+            "result": "Establishes that content URLs embedded in transcripts generate structurally accessible anchors and do not require custom keyboard handlers. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if rapidly swapping session paths while a transcript is actively streaming/loading causes memory leaks or state inconsistency in useTranscript."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T15:01:09.256001Z",
+        "source": {
+          "activity_id": "sessions/12722272516481930644/activities/a2eb580188604eae806ba91267a8fb11",
+          "report_sha256": "94940985d53b76f155648efceedc504a28bd8f125344d2df1c2e0af35b1b9645",
+          "activity_created_at": "2026-09-29T14:44:12.178958Z",
+          "session_id": "12722272516481930644",
+          "dispatch_key": "d2aebf567ea7bfeba6399333"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -104611,7 +104639,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T15:01:33.590732Z",
+    "last_poll_at": "2026-09-29T15:01:42.193990Z",
     "last_tick_at": "2026-09-29T14:54:45.560618Z",
     "run_id": "36585676534"
   }
