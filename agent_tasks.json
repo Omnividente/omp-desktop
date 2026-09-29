@@ -97989,6 +97989,196 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-behavior-13",
+      "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-29T01:40:21Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "behavior",
+        "fingerprint": "1a55709da33dcca1b702ba015aa6c4f84b52a2b64cc951d2b50c3d98a0018c52",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Verified that workspace rename and deletion operations handle backend failures gracefully without corrupting frontend state.",
+            "observations": [
+              {
+                "scenario": "Simulate a failure during workspace rename (e.g. backend rejects the new name).",
+                "evidence": "Inspected `submitWorkspaceRename` in App.tsx and executed a Vitest JS DOM simulation where `renameWorkspace` throws an error. The state correctly resets `renamingWorkspaceKey` to null and `workspaceBusyKey` to null before the network call resolves. On failure, the UI gracefully falls back to displaying the original workspace name.",
+                "result": "Establishes that failed rename operations do not corrupt the workspace list or lock the UI in an edit state permanently. Any typed text is discarded upon failure, requiring the user to re-initiate the rename."
+              },
+              {
+                "scenario": "Simulate a failure during workspace deletion.",
+                "evidence": "Inspected `removeWorkspace` in App.tsx and executed a Vitest JS DOM simulation where `removeWorkspaceFromList` throws an error. The workspace remains in the UI and the busy indicator (`workspaceBusyKey`) is cleared in the `finally` block.",
+                "result": "Establishes that deletion failures leave the UI in a recoverable state allowing the user to retry the operation without duplicate requests or stuck loading states."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session launch failures properly clean up terminal continuity and lease claims before aborting.",
+              "Investigate the robustness of `refreshRuntimeState` when concurrent rename or remove operations mutate the workspace list."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T10:04:52.151604Z",
+            "source": {
+              "activity_id": "sessions/15446768781289860447/activities/d03c2b474de74259beee243d010545e7",
+              "report_sha256": "e575651ad24d516517835399d513a7f8301b0a2007945dffd610744d769ad7f0",
+              "activity_created_at": "2026-09-28T09:33:34.245935Z",
+              "session_id": "15446768781289860447",
+              "dispatch_key": "4fce0166d77c6e39e4a3b7bc"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching performance across large datasets. Discovered a measurable performance bottleneck in 'formatRelative' caused by repeatedly instantiating 'Intl' formatters.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering 1,000 workspaces in `ProjectRail` and 5,000 sessions in `TerminalWorkspace` / `App`.",
+                "evidence": "Observed that while `Array.find` for `selectedWorkspace` and iterative rendering of workspaces and session trees scale well (taking <100ms for large lists), the `formatRelative` function in `src/uiUtils.ts` takes ~700-800ms for 5,000 calls. This is due to creating new instances of `Intl.RelativeTimeFormat` and `Intl.DateTimeFormat` on every invocation.",
+                "result": "Establishes that `formatRelative` constitutes a significant portion of rendering latency when displaying large lists of workspaces or sessions. Caching the `Intl` formatters by language key dramatically reduces execution time (from ~750ms to ~30ms for 5,000 calls)."
+              },
+              {
+                "scenario": "Analyzed `TerminalWorkspace` rendering performance with 5,000 sessions, specifically focusing on `buildSessionTree`.",
+                "evidence": "Wrote a synthetic test demonstrating `buildSessionTree` parses and groups 5,000 sessions in ~25-30ms.",
+                "result": "Establishes that constructing the session tree dynamically is fast and does not represent a user-visible bottleneck, refuting the hypothesis that session grouping requires web worker offloading at current scales."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualizing the workspace list in `ProjectRail` yields measurable memory reductions when 500+ workspaces are loaded, even if render latency is primarily bound by `formatRelative` overhead."
+            ],
+            "proposed_task_ids": [
+              "discovery-0d1360aaaa775a55"
+            ],
+            "completed_at": "2026-09-28T11:06:59.672438Z",
+            "source": {
+              "activity_id": "sessions/6153294401714548361/activities/6633950fb40643c7af101a72e8d679cb",
+              "report_sha256": "1b4ab3cf815c584e20d7afed994bf26fead9686ce6bb1051c70d50a91a62b6c4",
+              "activity_created_at": "2026-09-28T10:55:11.922933Z",
+              "session_id": "6153294401714548361",
+              "dispatch_key": "71d8c09b2ac914433345128a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that ProjectRail and SessionList lack native keyboard arrow navigation, leaving focus static when navigating vertically.",
+            "observations": [
+              {
+                "scenario": "Simulate pressing ArrowDown to navigate vertically between workspace items within the ProjectRail component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`ProjectRail.a11y.test.tsx`) that rendered the `ProjectRail` component with multiple workspace items. Explicitly focused the first workspace's `.project-item` button and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original button.",
+                "result": "Establishes that the `ProjectRail` workspaces pane does not natively support up/down keyboard focus navigation across workspace items."
+              },
+              {
+                "scenario": "Simulate pressing ArrowDown to navigate vertically between session items within the SessionList component.",
+                "evidence": "Wrote a synthetic vitest DOM test (`SessionList.a11y.test.tsx`) that rendered the `SessionList` component with multiple session items. Explicitly focused the first session's `.session-select` element and fired a synthetic `ArrowDown` key event on it. Observed that the active document element did not change; focus remained statically on the original element.",
+                "result": "Establishes that the `SessionList` sessions pane also lacks native up/down keyboard focus navigation, similarly to the ProjectRail component."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity correctly handles scenarios where the underlying PTY session returns a generic failure during sendRecoveredSwitchInput."
+            ],
+            "proposed_task_ids": [
+              "discovery-b9434cdba341d96a"
+            ],
+            "completed_at": "2026-09-28T11:29:10.892593Z",
+            "source": {
+              "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+              "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+              "activity_created_at": "2026-09-28T11:19:42.206616Z",
+              "session_id": "18256682279471561662",
+              "dispatch_key": "ef6b94c32d8b124045953c20"
+            },
+            "deferred_findings": [
+              {
+                "title": "Implement arrow key navigation in SessionList",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.\", \"reproduction\": {\"actual\": \"Focus remains on the first session element.\", \"expected\": \"Focus moves to the `.session-select` element of the second session.\", \"steps\": [\"Render the SessionList component with multiple sessions.\", \"Focus the `.session-select` element of the first session.\", \"Press the ArrowDown key.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/SessionList.tsx",
+                  "src/SessionRow.tsx"
+                ],
+                "acceptance": [
+                  "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+                ],
+                "deferred_id": "7716b763ff33a36b00d550834251c804b443b7ff04f6afb1959124c37ce4bc3c",
+                "candidate": {
+                  "task_type": "product_improvement",
+                  "title": "Implement arrow key navigation in SessionList",
+                  "risk": "low",
+                  "priority": 40,
+                  "focus": [
+                    "a11y",
+                    "ux"
+                  ],
+                  "target_paths": [
+                    "src/SessionList.tsx",
+                    "src/SessionRow.tsx"
+                  ],
+                  "acceptance": [
+                    "Pressing ArrowDown and ArrowUp navigates focus vertically between session items in SessionList"
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Verified via Vitest DOM simulation on static synthetic data that pressing ArrowDown on a focused session item does not move focus to the next item.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Render the SessionList component with multiple sessions.",
+                        "Focus the `.session-select` element of the first session.",
+                        "Press the ArrowDown key."
+                      ],
+                      "expected": "Focus moves to the `.session-select` element of the second session.",
+                      "actual": "Focus remains on the first session element."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-6c68ffa0e4ecce1f",
+                      "action": "reject",
+                      "decision_at": "2026-09-27T21:09:46Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-workspace-navigation-ux-12",
+                  "activity_id": "sessions/18256682279471561662/activities/87211e9f175f427481d6d0cb1e01afaa",
+                  "report_sha256": "0bc8999692f1f30ef4aae75c84f9be3387e50711ce23e4073444f298c42386b0",
+                  "activity_created_at": "2026-09-28T11:19:42.206616Z",
+                  "session_id": "18256682279471561662",
+                  "dispatch_key": "ef6b94c32d8b124045953c20"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
