@@ -99116,7 +99116,7 @@
       "id": "research-terminal-input-performance-13",
       "title": "Investigate Terminal input, output and continuity: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -99480,16 +99480,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7184556701131603684",
         "dispatch_key": "26474d8657783fce1b0064f8",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-26474d8657783fce1b0064f8",
         "started_at": "2026-09-29T08:29:25.375569Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T08:52:10.389096Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -99664,13 +99664,46 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T08:29:25.375569Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T08:52:10.389096Z"
+      },
+      "research_result": {
+        "summary": "Measured terminal output batching bounds and decode processing under massive payload load; found performance characteristics safe and strictly bounded.",
+        "observations": [
+          {
+            "scenario": "Rapid massive payload ingestion through createTerminalOutputBatcher exceeding the 256KB batch limit before the 16ms timer expires.",
+            "evidence": "Executed an isolated native Node script simulating 100,000 PTY chunks enqueued consecutively (25MB total payload). The batcher's `writePending` method was correctly triggered synchronously each time the 256KB limit was reached. Memory usage remained strictly bounded (~9MB peak heap use) without unhandled growth in the chunks array.",
+            "result": "Establishes that the frontend output batcher safely constrains memory during un-throttled PTY bursts, avoiding unbounded iteration."
+          },
+          {
+            "scenario": "Evaluated the TerminalView `decodeBase64` processing latency for incoming output chunks.",
+            "evidence": "Benchmarked the current `charCodeAt` implementation against alternatives like `Uint8Array.from(atob(data))`. The custom allocation was found to execute significantly faster (~250ms for 100,000 iterations of 256-byte chunks) compared to native iterator approaches (~9000ms), and native `Buffer` is inaccessible in the React context.",
+            "result": "Establishes that the current synchronous base64 processing is optimal and bounds the JS thread blocking correctly without native capabilities."
+          },
+          {
+            "scenario": "Evaluated iterator overhead for `for..of` vs `for` index loop within `createTerminalOutputBatcher`.",
+            "evidence": "Benchmarked iterating over array chunks using both constructs. While index-based looping avoids transient iterator allocation and reduces execution time by ~20%, the absolute duration per flush is on the order of sub-microseconds and does not introduce measurable latency under real PTY workloads.",
+            "result": "Establishes that loop constructs do not present an observable limitation, requiring no product change."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate terminal shortcut input handling latency when processing long continuous text streams."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T08:52:10.389096Z",
+        "source": {
+          "activity_id": "sessions/7184556701131603684/activities/fda6e5ec167e46f99a9e7c3d57f755ff",
+          "report_sha256": "a9bd52b41fca3f9ffb9ba2b71ec83d6f38d62cf657311e82a118c8939488d7e3",
+          "activity_created_at": "2026-09-29T08:43:58.638579Z",
+          "session_id": "7184556701131603684",
+          "dispatch_key": "26474d8657783fce1b0064f8"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T08:52:45.472756Z",
+    "last_poll_at": "2026-09-29T08:52:51.093767Z",
     "last_tick_at": "2026-09-29T08:45:57.922693Z",
     "run_id": "36544644524"
   }
