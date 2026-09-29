@@ -347,7 +347,8 @@ def dispatch(
     if not allow_create:
         return _result("deferred", {})
 
-    response = request_with_keys(transport, ring, "POST", api_base.rstrip("/") + "/sessions", dict(request_body))
+    response = request_with_keys(transport, KeyRing([ring.current]), "POST",
+                                 api_base.rstrip("/") + "/sessions", dict(request_body), max_attempts=1)
     if response.status // 100 == 2 and isinstance(response.payload, dict):
         current = response.payload
         if session_id(current) and session_matches(current, key):

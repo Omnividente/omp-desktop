@@ -134,6 +134,98 @@ def _validate_proposal(task: dict, prefix: str) -> list:
     return errors
 
 
+def validate_feedback_nudges(task: dict, prefix: str = "execution") -> list:
+    """Preserve receipts; newer API events or exact owner recovery authorize sends."""
+    execution = task.get("execution") or {}
+    errors = []
+    archive = execution.get("feedback_nudge_attempt_history", [])
+    if not isinstance(archive, list):
+        errors.append(prefix + ".feedback_nudge_attempt_history must be an ordered array")
+    else:
+        previous_attempt = 0
+        previous_keys = set()
+        previous_sessions = set()
+        for index, record in enumerate(archive):
+            item = prefix + ".feedback_nudge_attempt_history[" + str(index) + "]"
+            if (not isinstance(record, dict) or type(record.get("attempts")) is not int
+                    or type(execution.get("attempts")) is not int
+                    or not previous_attempt < record["attempts"] < execution["attempts"]
+                    or not _nonblank(record.get("dispatch_key")) or not _nonblank(record.get("session_id"))
+                    or record["dispatch_key"] == execution.get("dispatch_key")
+                    or record["session_id"] == execution.get("session_id")
+                    or record["dispatch_key"] in previous_keys or record["session_id"] in previous_sessions
+                    or "feedback_nudge" not in record or "feedback_nudge_attempt_history" in record):
+                errors.append(item + " must retain a distinct earlier attempt and its receipts")
+                continue
+            previous_attempt = record["attempts"]
+            previous_keys.add(record["dispatch_key"])
+            previous_sessions.add(record["session_id"])
+            errors.extend(validate_feedback_nudges(dict(task, execution=record), item))
+    if "feedback_nudge" not in execution and "feedback_nudge_history" not in execution:
+        return errors
+    history = execution.get("feedback_nudge_history", [])
+    if not isinstance(history, list) or not isinstance(execution.get("feedback_nudge"), dict):
+        return errors + [prefix + ".feedback_nudge_history requires a current receipt and an ordered array"]
+    decision = task.get("proposal_decision") or {}
+    authorized = (task.get("task_type") == "project_discovery"
+                  or isinstance(decision, dict) and decision.get("action") in ("approve", "reject", "resolve"))
+    resource = "sessions/" + str(execution.get("session_id") or "").removeprefix("sessions/")
+    if (not authorized or not re.fullmatch(r"sessions/[A-Za-z0-9_-]{1,128}", resource)
+            or not _nonblank(execution.get("dispatch_key"))
+            or type(execution.get("attempts")) is not int or execution["attempts"] < 1):
+        errors.append(prefix + ".feedback_nudge requires a bound authorized session")
+    previous = None
+    seen = set()
+    consumed = set()
+    for index, receipt in enumerate(history + [execution["feedback_nudge"]]):
+        item = prefix + ".feedback_nudge_chain[" + str(index) + "]"
+        if (not isinstance(receipt, dict) or receipt.get("result") not in ("pending", "sent", "unknown", "rejected")
+                or not _utc_timestamp(receipt.get("at"))):
+            errors.append(item + " requires UTC at and a durable result")
+            previous = None
+            continue
+        at = datetime.fromisoformat(receipt["at"].replace("Z", "+00:00"))
+        source = receipt.get("source")
+        authorization = receipt.get("authorization")
+        recovery = False
+        if authorization is not None:
+            if (not isinstance(authorization, dict) or not _nonblank(authorization.get("actor"))
+                    or previous is None or previous["result"] != "sent"
+                    or authorization.get("after") != previous["at"] or authorization.get("after") in consumed
+                    or source is None):
+                errors.append(item + ".authorization requires an owner actor and the exact unconsumed preceding sent receipt")
+            else:
+                consumed.add(authorization["after"])
+                recovery = True
+        if source is None:
+            if index != 0:
+                errors.append(item + " requires a source after the legacy receipt")
+        elif (not isinstance(source, dict)
+              or source.get("session_id") != execution.get("session_id")
+              or source.get("dispatch_key") != execution.get("dispatch_key")
+              or not isinstance(source.get("activity_id"), str) or len(source["activity_id"]) > 512
+              or not re.fullmatch(re.escape(resource) + r"/activities/[^/]+", source["activity_id"])
+              or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("activity_sha256") or ""))
+              or not _utc_timestamp(source.get("activity_created_at"))):
+            errors.append(item + ".source requires a session-bound activity, UTC createTime and SHA-256")
+        else:
+            created = datetime.fromisoformat(source["activity_created_at"].replace("Z", "+00:00"))
+            started = execution.get("started_at")
+            if (created > at or not _utc_timestamp(started)
+                    or created < datetime.fromisoformat(started.replace("Z", "+00:00"))):
+                errors.append(item + ".source must fall within the saved attempt before the send")
+            if source["activity_id"] in seen and not recovery:
+                errors.append(item + ".source must not replay a consumed activity")
+            seen.add(source["activity_id"])
+            if previous and not recovery and created <= datetime.fromisoformat(previous["at"].replace("Z", "+00:00")):
+                errors.append(item + ".source must be strictly newer than the preceding sent receipt")
+        if previous and (previous["result"] != "sent"
+                         or at <= datetime.fromisoformat(previous["at"].replace("Z", "+00:00"))):
+            errors.append(item + " cannot follow an uncertain, rejected or nonchronological receipt")
+        previous = receipt
+    return errors
+
+
 def _validate_report_source(source: Any, prefix: str) -> list:
     if not isinstance(source, dict):
         return [prefix + " must be an object"]
@@ -672,18 +764,7 @@ def validate(manifest: Any) -> list:
         if isinstance(execution, dict):
             if "research_detached" in execution and not valid_research_detachment(task):
                 errors.append(prefix + ".execution.research_detached requires a pinned research attempt and UTC wait record")
-            if "feedback_nudge" in execution:
-                nudge = execution["feedback_nudge"]
-                decision = task.get("proposal_decision") or {}
-                authorized = (task.get("task_type") == "project_discovery"
-                              or isinstance(decision, dict) and decision.get("action") in ("approve", "reject"))
-                if (not authorized or not _nonblank(execution.get("session_id"))
-                        or not _nonblank(execution.get("dispatch_key"))
-                        or type(execution.get("attempts")) is not int or execution["attempts"] < 1
-                        or not isinstance(nudge, dict)
-                        or nudge.get("result") not in ("pending", "sent", "unknown", "rejected")
-                        or not _utc_timestamp(nudge.get("at"))):
-                    errors.append(prefix + ".execution.feedback_nudge requires a bound authorized session, UTC at and a durable result")
+            errors.extend(validate_feedback_nudges(task, prefix + ".execution"))
             if "rejection_stop" in execution:
                 stop = execution["rejection_stop"]
                 decision = task.get("proposal_decision") or {}

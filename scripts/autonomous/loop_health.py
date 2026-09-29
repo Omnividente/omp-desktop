@@ -45,6 +45,20 @@ def worker_observation(task: Mapping[str, Any], now: datetime) -> dict:
             "reason": WAITING_REASONS.get(state, "worker_running")}
 
 
+def waiting_attention(task: Mapping[str, Any], now: datetime) -> dict | None:
+    """Sending an instruction is not evidence that the worker resumed."""
+    execution = task.get("execution") or {}
+    if not is_unresolved(task) or execution.get("session_state") not in WAITING_REASONS:
+        return None
+    changed_at = _time(execution.get("observed_at")) or _time(execution.get("started_at"))
+    if changed_at is None or now - changed_at <= STALL_AFTER:
+        return None
+    receipt = execution.get("feedback_nudge") or {}
+    return {**worker_observation(task, now), "reason": "worker_wait_prolonged",
+            "age_seconds": max(0, int((now - changed_at).total_seconds())),
+            "feedback_result": receipt.get("result"), "feedback_at": receipt.get("at")}
+
+
 def poll_due_at(tasks: Sequence[dict], useful_at: datetime | None, now: datetime) -> datetime:
     deadlines = []
     for task in tasks:
@@ -157,6 +171,9 @@ def assess_health(
             attention.append({"reason": "quarantined", "task_id": task["id"], "age_seconds": age})
         elif not waiting and task.get("status") == "in_progress" and (age is None or age > 24 * 3600):
             attention.append({"reason": "worker_stale", "task_id": task["id"], "age_seconds": age})
+        prolonged = waiting_attention(task, now)
+        if prolonged:
+            attention.append(prolonged)
         for pr in pull_requests:
             if pr.get("state") != "open" or not trusted_pull_request(task, pr, repository, "autonomous/lab"):
                 continue
