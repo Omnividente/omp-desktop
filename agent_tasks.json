@@ -101081,7 +101081,7 @@
       "id": "research-workspace-navigation-performance-13",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -101263,7 +101263,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "16326946347596633865",
         "dispatch_key": "d6c27f7fecb0b648f26970fa",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
@@ -101271,8 +101271,8 @@
         "started_at": "2026-09-29T10:40:23.880634Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -101442,8 +101442,32 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T10:40:23.880634Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T11:03:26.032369Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-09-29T11:03:26.032369Z",
+          "source": {
+            "activity_id": "sessions/16326946347596633865/activities/82abcc394f794c5caea20e382783752c",
+            "report_sha256": "3210bc1114c78f28feab323b7fcc303392be84071b9618673e0104563b437601",
+            "activity_created_at": "2026-09-29T10:50:42.489570Z",
+            "session_id": "16326946347596633865",
+            "dispatch_key": "d6c27f7fecb0b648f26970fa"
+          }
+        },
+        "report_repair": {
+          "at": "2026-09-29T11:04:01.068582Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/16326946347596633865/activities/82abcc394f794c5caea20e382783752c",
+            "report_sha256": "3210bc1114c78f28feab323b7fcc303392be84071b9618673e0104563b437601",
+            "activity_created_at": "2026-09-29T10:50:42.489570Z",
+            "session_id": "16326946347596633865",
+            "dispatch_key": "d6c27f7fecb0b648f26970fa"
+          }
+        }
       }
     },
     {
@@ -101490,7 +101514,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T11:03:53.614287Z",
+    "last_poll_at": "2026-09-29T11:03:59.504257Z",
     "last_tick_at": "2026-09-29T10:57:06.228830Z",
     "run_id": "36558572905"
   }
