@@ -99665,7 +99665,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T08:52:10.389096Z"
+        "observed_at": "2026-09-29T08:52:10.389096Z",
+        "released_attempt_ref": "autonomous/attempt-26474d8657783fce1b0064f8"
       },
       "research_result": {
         "summary": "Measured terminal output batching bounds and decode processing under massive payload load; found performance characteristics safe and strictly bounded.",
