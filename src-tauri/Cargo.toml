@@ -30,7 +30,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
-base64 = "0.22"
+base64 = "0.23"
 fs2 = "0.4.3"
 portable-pty = "0.9.0"
 time = { version = "0.3.53", features = ["formatting", "parsing"] }
