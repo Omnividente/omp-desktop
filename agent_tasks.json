@@ -96514,7 +96514,8 @@
             },
             "detail": "research report is not valid JSON: Invalid \\escape: line 6 column 188 (char 737)"
           }
-        ]
+        ],
+        "released_attempt_ref": "autonomous/attempt-12b3f563d46225d4b4525a2f"
       },
       "research_result": {
         "summary": "Investigated transcript text matching and virtual list positioning issues. Discovered a catastrophic ReDoS vulnerability in the MARKDOWN_LINK regex when matching sequences of unclosed '[' characters, causing O(N^2) blocking. Verified the reported layout anchoring bug hiding the bottom of excessively tall messages when clicking 'Latest message'.",
