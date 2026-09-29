@@ -98419,7 +98419,7 @@
       "id": "discovery-f94013eee0f81537",
       "title": "Fix switch recovery state lockup on generic failures",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -98453,6 +98453,12 @@
         "activity_created_at": "2026-09-29T01:51:02.432617Z",
         "session_id": "3874607795049470568",
         "dispatch_key": "c844c564972e5e608e8fb0e4"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-09-29T08:12:25Z",
+        "note": "Duplicate of accepted discovery-708891cade391524: identical generic switchRecovery sending lockup in App.tsx; one reviewed implementation/regression for v0.9.7 will resolve original. No separate code change or execution needed."
       }
     },
     {
