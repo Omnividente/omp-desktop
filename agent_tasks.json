@@ -100614,7 +100614,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T09:45:32.368798Z"
+        "observed_at": "2026-09-29T09:45:32.368798Z",
+        "released_attempt_ref": "autonomous/attempt-d13571da723636bb6bc95d80"
       },
       "research_result": {
         "summary": "Measured terminal shortcut input and selection formatting latency under massive load; found performance characteristics strictly bounded and safe.",
