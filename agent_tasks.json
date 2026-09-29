@@ -91448,7 +91448,7 @@
       "id": "research-sessions-persistence-behavior-13",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -91573,16 +91573,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12801908420617606988",
         "dispatch_key": "4b7e44584078b10a61872b0a",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-4b7e44584078b10a61872b0a",
         "started_at": "2026-09-28T12:02:23.418508Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T23:12:10.631605Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -91754,8 +91754,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T22:44:55.489523Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T23:12:10.631605Z",
         "research_detached": {
           "at": "2026-09-28T12:24:50.214833Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -91781,6 +91781,40 @@
             "result": "sent"
           }
         ]
+      },
+      "research_result": {
+        "summary": "Investigated if synchronization is required for session mutations (title updates and pinning) to prevent concurrent writes from destroying JSONL updates. Confirmed no additional JSONL synchronization is needed.",
+        "observations": [
+          {
+            "scenario": "Session title pinning initiated by the user.",
+            "evidence": "Source inspection of `set_session_title_pin` in `src-tauri/src/lib.rs` and `apply_session_title_pin` in `src-tauri/src/sessions.rs`.",
+            "result": "Establishes that title pinning mutates `settings.json` via `with_settings_transaction` (which uses a mutex for synchronization) rather than mutating the session JSONL file directly. Therefore, pinning cannot corrupt concurrent JSONL file writes."
+          },
+          {
+            "scenario": "Automatic title updates generated during active sessions.",
+            "evidence": "Source inspection of terminal output handling (`route_output`, `session_title_for_emit` in `src-tauri/src/terminal.rs`) and session parsing.",
+            "result": "Establishes that session titles are updated by appending `{\"type\":\"title_change\",...}` events to the JSONL file via the PTY writer. Because this is an append-only operation managed by the terminal stream, there is no read-modify-write cycle that would require a file-level lock."
+          },
+          {
+            "scenario": "General session mutations and file persistence operations.",
+            "evidence": "Source inspection of `atomic_write_file` and `atomic_write_private_file` in `src-tauri/src/sessions.rs`.",
+            "result": "Establishes that all full-file replacements (such as those during session imports) utilize OS-level atomic moves (`fs::rename` or `MoveFileExW`) and are explicitly protected by `IMPORT_TRANSACTION_LOCK`. No unprotected read-modify-write mutations exist for active session JSONL files."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+          "Investigate the memory and latency footprint of the SessionList component (which displays active workspaces) when dealing with deeply nested session hierarchies to determine if the virtualizer breaks."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T23:12:10.631605Z",
+        "source": {
+          "activity_id": "sessions/12801908420617606988/activities/1462909eb02749aa88812d2ac934d048",
+          "report_sha256": "1d3d79af05a1f7551d76993c9187485329745f2016e1a6a8d33cc5c301fe7d0d",
+          "activity_created_at": "2026-09-29T22:44:22.617196Z",
+          "session_id": "12801908420617606988",
+          "dispatch_key": "4b7e44584078b10a61872b0a"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -108918,7 +108952,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T23:12:26.108320Z",
+    "last_poll_at": "2026-09-29T23:12:33.620340Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
