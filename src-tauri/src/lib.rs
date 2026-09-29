@@ -835,6 +835,7 @@ pub fn run() {
                 Err(error) => eprintln!("OMP Desktop logging unavailable: {error}"),
             }
             app.manage(SettingsState::new_uninitialized());
+            app.manage(omp_bridge::ModelCatalogState::default());
             app.manage(StartupWorkspace(Mutex::new(startup_workspace(
                 &std::env::args().collect::<Vec<_>>(),
             ))));

@@ -381,6 +381,82 @@ describe("SettingsPanel configuration generations", () => {
     container.remove()
   })
 
+  it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
+    const oldModel = {
+      provider: "catalog",
+      id: "old",
+      selector: "catalog/old",
+      name: "Old model",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+    }
+    const newModel = { ...oldModel, id: "new", selector: "catalog/new", name: "New model" }
+    const initial = {
+      ...ompConfig,
+      models: [oldModel],
+      roles: [
+        {
+          role: "default",
+          selector: oldModel.selector,
+          model: oldModel,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+    }
+    loadOmpConfigMock.mockResolvedValueOnce(initial)
+    const refreshed = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refreshed.promise)
+    saveSettingsBundleMock.mockResolvedValue(saveResult(initial))
+    await renderPanel()
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    changeExecutable("draft-omp.exe")
+    expectAdvisorDraft(false)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    await act(async () => refreshed.resolve({ ...initial, models: [oldModel, newModel] }))
+    expectAdvisorDraft(true)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() => container.querySelector<HTMLButtonElement>(".model-picker-trigger")!.click())
+    const newOption = [
+      ...container.querySelectorAll<HTMLButtonElement>(".model-picker-option"),
+    ].find((option) => option.textContent?.includes("New model"))!
+    act(() => newOption.click())
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ ompExecutable: "draft-omp.exe" }),
+        ompConfig: expect.objectContaining({
+          advisorEnabled: true,
+          roles: { default: "catalog/new" },
+        }),
+      }),
+    )
+  })
+
+  it("keeps the usable catalog and a dirty draft visible when refresh rejects", async () => {
+    refreshOmpConfigMock.mockRejectedValueOnce(new Error("Catalog refresh failed"))
+    await renderPanel()
+    expectAdvisorDraft(false)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+    )
+    expectAdvisorDraft(true)
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Catalog refresh failed",
+    )
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    expect(container.textContent).toContain("codex-lb")
+  })
+
   it.each(["resolve", "reject"] as const)(
     "keeps the post-save draft when the pre-save initial load later %ss",
     async (settlement) => {
@@ -602,6 +678,17 @@ describe("SettingsPanel configuration generations", () => {
     await act(async () => replayed.resolve({ ...ompConfig, advisorEnabled: true }))
     expectAdvisorDraft(true)
     expect(container.querySelector(".settings-loading-banner")).toBeNull()
+  })
+
+  it("seeds fresh drafts after switching away from a fully loaded runtime", async () => {
+    await renderPanel()
+    expectAdvisorDraft(false)
+    loadOmpConfigMock.mockResolvedValueOnce({ ...ompConfig, advisorEnabled: true })
+    await renderPanel({ ...runtime, ompExecutable: "new-runtime.exe" })
+    expectAdvisorDraft(true)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
   })
 })
 
