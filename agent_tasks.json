@@ -102028,8 +102028,8 @@
             }
           ]
         },
-        "session_state": "COMPLETED",
-        "observed_at": "2026-09-29T11:38:53.321779Z",
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-09-29T22:44:55.489523Z",
         "report_error": {
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
@@ -108888,7 +108888,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T22:45:42.782700Z",
+    "last_poll_at": "2026-09-29T22:45:48.711983Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
