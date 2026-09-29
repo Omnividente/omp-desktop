@@ -104732,6 +104732,244 @@
         "session_id": "15564505969197262178",
         "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
       }
+    },
+    {
+      "id": "research-diagnostics-resources-reliability-13",
+      "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-09-29T15:32:50Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "reliability",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Investigated the hypothesis that high-throughput terminal output could block the event loop via overlapping `redact_text` invocations. Confirmed this does not occur in practice because raw terminal output chunks are not passed to `redact_text`; the transient backend detector only emits small metadata strings.",
+            "observations": [
+              {
+                "scenario": "Verify if concurrent high-throughput terminal outputs cause overlapping `redact_text` invocations that block the Tauri IPC event loop.",
+                "evidence": "Source code inspection of `terminal.rs` and `diagnostics.rs`. Terminal outputs are processed by `route_output` which calls `transient_backend_detector.observe(data)`. This detector only issues `diagnostics::warn` with a small pre-formatted string (`terminal_id=...; category=...`) when a pattern is matched, rather than logging the entire terminal output payload.",
+                "result": "Establishes that `redact_text` is never invoked on large terminal output streams, and thus cannot block the Tauri IPC event loop during high-throughput output. The hypothesis is unsupported."
+              },
+              {
+                "scenario": "Verify if `redact_text` processing time scales poorly with extremely large strings containing sensitive markers.",
+                "evidence": "Executed an isolated Rust test (`test_diagnostics_10.rs`, `test_diagnostics_14.rs`) passing megabyte-sized strings padded with spaces and sensitive markers into `redact_text`. The function processed 10MB of text in ~760ms to ~9 seconds depending on line splits.",
+                "result": "Establishes that while `redact_text` performs heavy string allocations, it operates within an acceptable linear time bound. Since it is only invoked on small warnings and bounded error messages, this performance profile is safe and does not require immediate optimization."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the lack of bounds checking before `diagnostics::redact_text` in `models::sanitize_error_text` could lead to a massive temporary memory allocation spike if an underlying OS command or API request returns an unexpectedly large multi-megabyte error message."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-28T16:22:41.696728Z",
+            "source": {
+              "activity_id": "sessions/7367919261731182012/activities/724fb70e47764d7b8c5f262a83453d88",
+              "report_sha256": "d98ea5173bb7cb573d8b371311fd4046aeb70229345a49e947fbf7cf582ce3df",
+              "activity_created_at": "2026-09-28T15:50:18.198888Z",
+              "session_id": "7367919261731182012",
+              "dispatch_key": "258d095a9581b2f5ee651d1c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that `diagnostics::redact_text` scales linearly with the size of the input regardless of content, blocking the Tauri event loop for large payloads. Investigated previously deferred findings, crafting the required structured revisit rationale for both.",
+            "observations": [
+              {
+                "scenario": "Verify if `redact_text` performance degrades linearly when passed extremely large text inputs that contain no sensitive tokens.",
+                "evidence": "Executed isolated Rust scripts passing 100,000 clean lines to `redact_text`. The current implementation took >1.1 seconds. A prototype fast-path skipping per-line allocation when `lower.contains` reveals no sensitive substrings took <20ms.",
+                "result": "Establishes a performance bug where `redact_text` allocates and splits every single line and whitespace-separated token of large log files unconditionally, which blocks the Tauri IPC event loop when processing large diagnostic files containing no secrets."
+              },
+              {
+                "scenario": "Verify if `runtimeFeedbackDedupeKey` fails to coalesce identical fallback edge error messages that arrive via different providers.",
+                "evidence": "Executed an isolated node TS test verifying that two fallback events from `anthropic/claude-3-5-sonnet` and `bedrock/claude-3-5-sonnet` produce different deduplication keys.",
+                "result": "Re-verified the logical bug where duplicate fallback toasts are emitted for the same underlying edge model. The fallback edge provider needs to be stripped using `splitSelector(...).base.split('/').at(-1)` similar to the feedback model."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `enforceIncidentBound` handles memory cleanup correctly when removing incidents, ensuring long-running instances don't leak memory."
+            ],
+            "proposed_task_ids": [
+              "discovery-2f466cea5a5c36d8"
+            ],
+            "completed_at": "2026-09-28T16:39:52.090079Z",
+            "source": {
+              "activity_id": "sessions/187760068886555318/activities/188f9c0a297a4030a84cff999655c121",
+              "report_sha256": "be7c6de9a964d5580522e0ea94e92a1b533f181f1b4f0fdc9244eddec0bec8f1",
+              "activity_created_at": "2026-09-28T16:16:11.384009Z",
+              "session_id": "187760068886555318",
+              "dispatch_key": "5ccb46e44a60d1355f24450d"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix duplicate fallback toasts from differing provider aliases",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-c4e350673db03db4; not established as a duplicate. {\"detail\": \"Isolated test script simulating identical fallback edges via different providers on the `runtimeFeedbackDedupeKey` function.\", \"reproduction\": {\"actual\": \"The function returns different keys because it embeds the raw provider prefixes (`anthropic/` vs `bedrock/`) in the key.\", \"expected\": \"The function returns identical string keys since the underlying base models in the fallback edge are identical.\", \"steps\": [\"Generate a runtime fallback event with fallbackFrom set to `anthropic/claude-3-5-sonnet`.\", \"Generate an identical event with fallbackFrom set to `bedrock/claude-3-5-sonnet`.\", \"Call `runtimeFeedbackDedupeKey` on both events.\"]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeEvents.ts"
+                ],
+                "acceptance": [
+                  "When a fallback incident is created for the same source/target edge via different provider aliases (e.g., anthropic vs bedrock), it yields the same deduplication key and prevents duplicate toasts."
+                ]
+              },
+              {
+                "title": "Fix failure to resolve active fallbacks when primary model recovers",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-f3cc22ddc28ee38ecdcb7904f8593c0ce1fab41792c66d41d76d0289f28feb11; not established as a duplicate. {\"detail\": \"Isolated observation on the `applyRuntimeIncidentEvent` state machine function using synthetic runtime events.\", \"reproduction\": {\"actual\": \"The secondary fallback incident remains in `status: \\\"active\\\"`.\", \"expected\": \"The secondary fallback incident is transitioned to `status: \\\"resolved\\\"` with `resolutionReason: \\\"primaryRestored\\\"`.\", \"steps\": [\"Create a fallback incident with `fallbackRole: \\\"secondary\\\"`.\", \"Apply a `modelChange` event with `modelRole: \\\"primary\\\"` and `resolvedModelIsFallback: false`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous rejection assumed clearing fallbacks indiscriminately resolves unrelated roles, but secondary fallbacks are related to the primary and should be cleared upon primary recovery. Strict role matching prevents secondary fallbacks from being cleared.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-aa17322b78e9eae9\", \"responses\": [{\"decision_context_id\": \"edebd6e06b4d37822cc8da53f281af628d2f5104b8c59e2436438414edc262d2\", \"decision_task_id\": \"discovery-aa17322b78e9eae9\", \"why_previous_reason_no_longer_explains\": \"The rejection stated clearing fallbacks on primary recovery incorrectly resolves unrelated roles. However, the proposed bug fix specifically targets clearing 'secondary' role fallbacks on 'primary' recovery since they are related, which the current `incident.role === role` check prevents.\"}]}, \"source\": \"product_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When a `modelChange` event indicates the primary model is restored (`resolvedModelIsFallback: false`), all active fallback incidents for that terminal are correctly marked as resolved with reason 'primaryRestored', including secondary fallbacks."
+                ]
+              },
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop.\", \"expected\": \"Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.\", \"steps\": [\"Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).\", \"Focus the <summary> element and trigger a Tab keypress.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "deferred_id": "070b3aec69bc52dce50a43b2dfe20b243ba5cf6bdf20c9db848084768f496031",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                  "risk": "low",
+                  "priority": 30,
+                  "focus": [
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/IncidentCenter.tsx",
+                    "src/ResourceHealthPanel.tsx"
+                  ],
+                  "acceptance": [
+                    "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                  ],
+                  "evidence": {
+                    "source": "product_research",
+                    "detail": "Native React jsdom testing isolated on the focus trap logic of IncidentCenter and ResourceHealthPanel using `@testing-library/user-event`.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Render IncidentCenter or ResourceHealthPanel with a closed <details> element containing a focusable element (e.g. a button).",
+                        "Focus the <summary> element and trigger a Tab keypress."
+                      ],
+                      "expected": "Focus ignores the hidden elements inside the closed details and correctly cycles to the start or end of the visually active modal elements.",
+                      "actual": "Focus attempts to target the hidden element inside the details tag because it lacks a true hidden attribute, breaking the trap loop."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "rationale_reassessment",
+                      "difference": "The rejections incorrectly assumed the components use useModalFocus. They actually implement custom inline handleKeyDown logic that misses the closed details check entirely.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "observation_refs": [],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                          "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                          "why_previous_reason_no_longer_explains": "The rejection asserts useModalFocus controlAvailable handles collapsed details. However, neither component uses useModalFocus. They have custom inline focus traps that lack this logic."
+                        },
+                        {
+                          "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                          "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                          "why_previous_reason_no_longer_explains": "The rejection asserts the modal focus walk already excludes descendants hidden in closed details. This is false for these two components as their custom trap loops do not check for `.closest('details:not([open])')`."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "action": "reject",
+                      "decision_at": "2026-09-27T21:04:39Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-b82daad4c8b8b9f9",
+                      "action": "reject",
+                      "decision_at": "2026-09-24T07:11:05Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-diagnostics-resources-performance-12",
+                  "activity_id": "sessions/187760068886555318/activities/188f9c0a297a4030a84cff999655c121",
+                  "report_sha256": "be7c6de9a964d5580522e0ea94e92a1b533f181f1b4f0fdc9244eddec0bec8f1",
+                  "activity_created_at": "2026-09-28T16:16:11.384009Z",
+                  "session_id": "187760068886555318",
+                  "dispatch_key": "5ccb46e44a60d1355f24450d"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the performance of error text sanitization and memory management for runtime incidents.",
+            "observations": [
+              {
+                "scenario": "Verify if the lack of bounds checking before diagnostics::redact_text in models::sanitize_error_text causes a massive temporary memory allocation spike and performance hit if an underlying API returns an unexpectedly large multi-megabyte error message.",
+                "evidence": "Executed an isolated Rust test on c934a275012765dde5834c99048cf6297f059110 comparing the current sanitize_error_text implementation against an optimized version that applies a length bound before redaction. The current implementation took ~911ms to process a 100MB string due to allocating a full redacted copy of the entire string before truncation. Reversing the order to truncate first took <1ms.",
+                "result": "Establishes a performance and memory bug where sanitize_error_text processes the entirety of unbounded error strings before truncating them to 8KB. Since this runs on the Tauri IPC event loop, a large error payload could cause a temporary memory spike and block the UI."
+              },
+              {
+                "scenario": "Verify if enforceIncidentBound handles memory cleanup correctly when continuously dropping older incidents under high throughput.",
+                "evidence": "Executed an isolated node TS test on c934a275012765dde5834c99048cf6297f059110 applying 50,000 synthetic runtime error events sequentially to applyRuntimeIncidentEvent, triggering enforceIncidentBound. Monitored V8 heap usage during the test.",
+                "result": "Establishes that the incident array correctly bounds itself to 100 elements without leaking memory references over time, effectively garbage collecting older incidents."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if enforceIncidentBound mistakenly drops unresolved primary incidents when a high volume of identical fallback occurrences saturate the 100-incident bound."
+            ],
+            "proposed_task_ids": [
+              "discovery-7c33165d9d4290a0"
+            ],
+            "completed_at": "2026-09-28T18:55:11.824631Z",
+            "source": {
+              "activity_id": "sessions/13838146669907269334/activities/820e0828c39746bb9c7b6465ac2f3277",
+              "report_sha256": "1f7e429a54a2ff9d4a5de2335d01edb31feadcfefcc2c767a079ed09efa9b150",
+              "activity_created_at": "2026-09-28T18:42:26.593813Z",
+              "session_id": "13838146669907269334",
+              "dispatch_key": "57320e9261ec1e2e10ec4bef"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
