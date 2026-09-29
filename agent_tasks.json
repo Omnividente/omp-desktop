@@ -98725,7 +98725,7 @@
       "id": "research-transcript-links-behavior-12",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -98833,16 +98833,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "6658890549132550599",
         "dispatch_key": "4e9d859c1639592ae33bdef2",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-4e9d859c1639592ae33bdef2",
         "started_at": "2026-09-29T04:10:14.150143Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T23:12:10.631605Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_json",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -99014,8 +99014,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T22:44:55.489523Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T23:12:10.631605Z",
         "research_detached": {
           "at": "2026-09-29T04:26:26.975879Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -99024,22 +99024,10 @@
           "at": "2026-09-29T04:26:26.975879Z",
           "result": "sent"
         },
-        "report_error": {
-          "code": "research_json",
-          "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 104 (char 1361)",
-          "reported_at": "2026-09-29T04:58:40.527892Z",
-          "source": {
-            "activity_id": "sessions/6658890549132550599/activities/d07c8cbf03644db884ea5b3192dff7cb",
-            "report_sha256": "494829744f6588c079a0680f867a2a37eb509d0b0bcc876a004a07dc033a3a3f",
-            "activity_created_at": "2026-09-29T04:28:26.486878Z",
-            "session_id": "6658890549132550599",
-            "dispatch_key": "4e9d859c1639592ae33bdef2"
-          }
-        },
         "report_repair": {
           "at": "2026-09-29T22:37:40.542675Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "actor": "Omnividente",
           "after": "2026-09-29T04:59:11.172874Z",
           "source": {
@@ -99065,6 +99053,59 @@
             "detail": "research report is not valid JSON: Invalid \\escape: line 11 column 124 (char 1381)"
           }
         ]
+      },
+      "research_result": {
+        "summary": "Investigated transcript empty state interactions and content link parsing. Identified a misleading UI state where search UI components are presented to fix a mode-filtered empty state, and a regex overlap issue where URLs can consume markdown link brackets and break rendering.",
+        "observations": [
+          {
+            "scenario": "Clicking the 'Clear search' button when the transcript has zero visible entries due to the 'Dialogue only' mode.",
+            "evidence": "Static analysis of TranscriptModal.tsx. visibleEntries is filtered only by transcriptMode, not by transcriptSearch. When visibleEntries.length === 0 (e.g., no dialogue entries), the UI renders a 'Nothing found' state with a 'Clear search' button if a search query is present. Clicking it clears the search but does not restore entries, because the entries were hidden by the mode, not the search.",
+            "result": "Establishes that the empty state incorrectly attributes missing entries to the search query, confusing the user by offering a non-functional remedy for a mode-based filter. (Evidence mode: static_analysis)"
+          },
+          {
+            "scenario": "Rendering a plain URL immediately followed by a markdown link, e.g., http://example.com/[Label](local://something).",
+            "evidence": "Isolated node script testing CONTENT_URL_PATTERN and contentLinks. The regex allows '[' inside URLs. It matches http://example.com/[Label, which starts at index 0 and ends at 25. The markdown link spans 19-45. contentLinks pushes the URL because it starts before the markdown span. MarkdownContent renders the URL and skips the overlapping markdown link, leaving ](local://something) as raw text.",
+            "result": "Establishes that the URL parser improperly consumes markdown link syntax, breaking the markdown link rendering and leaking raw syntax to the user. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if extremely long or deeply nested markdown links can cause a catastrophic backtracking scenario in MARKDOWN_LINK regex."
+        ],
+        "proposed_task_ids": [
+          "discovery-0bf555f965eef312",
+          "discovery-3a195f089e608aaa"
+        ],
+        "completed_at": "2026-09-29T23:12:10.631605Z",
+        "source": {
+          "activity_id": "sessions/6658890549132550599/activities/acffea472bec441f94e8dab0c820b2a9",
+          "report_sha256": "3d243a7bcced5b053096c43bdb9f1ad56ade8516778a79d10ec617a5e2974241",
+          "activity_created_at": "2026-09-29T22:39:59.895591Z",
+          "session_id": "6658890549132550599",
+          "dispatch_key": "4e9d859c1639592ae33bdef2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6658890549132550599/activities/acffea472bec441f94e8dab0c820b2a9",
+          "report_sha256": "3d243a7bcced5b053096c43bdb9f1ad56ade8516778a79d10ec617a5e2974241",
+          "activity_created_at": "2026-09-29T22:39:59.895591Z",
+          "session_id": "6658890549132550599",
+          "dispatch_key": "4e9d859c1639592ae33bdef2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-0bf555f965eef312",
+            "discovery-3a195f089e608aaa"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     },
     {
@@ -109108,10 +109149,94 @@
         "session_id": "11846649909323179230",
         "dispatch_key": "12b3f563d46225d4b4525a2f"
       }
+    },
+    {
+      "id": "discovery-0bf555f965eef312",
+      "title": "Remove misleading search state and Clear button when transcript mode hides all entries",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-09-29T23:12:10.631605Z",
+      "acceptance": [
+        "The empty state for zero visible entries explains that the active mode hides them, rather than blaming the search query or offering a non-functional Clear search button"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Static analysis and mock observation. Search does not filter visibleEntries; it only finds/highlights text. Yet, when visibleEntries.length === 0 (e.g., all entries filtered out by 'Dialogue only' mode), the UI shows a search icon, 'Nothing found', and a 'Clear search' button if a search query exists. Clicking 'Clear' clears the query but cannot reveal entries, leaving the UI inexplicably empty.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a session containing only system/tool messages (no dialogue)",
+            "Enter a search query in the search input",
+            "Toggle the filter to 'Dialogue only' mode",
+            "Observe the UI says 'Nothing found' and presents a 'Clear search' button",
+            "Click the 'Clear search' button"
+          ],
+          "expected": "The empty state should attribute the lack of entries to the selected mode (e.g., 'No dialogue entries') and not offer a 'Clear search' button that won't reveal entries.",
+          "actual": "The UI attributes the emptiness to the search, offers a 'Clear search' button, and clicking it does not reveal any entries, leaving the view empty."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-12",
+        "activity_id": "sessions/6658890549132550599/activities/acffea472bec441f94e8dab0c820b2a9",
+        "report_sha256": "3d243a7bcced5b053096c43bdb9f1ad56ade8516778a79d10ec617a5e2974241",
+        "activity_created_at": "2026-09-29T22:39:59.895591Z",
+        "session_id": "6658890549132550599",
+        "dispatch_key": "4e9d859c1639592ae33bdef2"
+      }
+    },
+    {
+      "id": "discovery-3a195f089e608aaa",
+      "title": "Fix URL parser consuming markdown link syntax",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 50,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-09-29T23:12:10.631605Z",
+      "acceptance": [
+        "URL pattern matching does not consume markdown link syntax brackets, preventing overlapping link destruction"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Static analysis and mock observation. The CONTENT_URL_PATTERN regex allows '[' inside the URL. If a valid URL is immediately followed by a markdown link (e.g., http://example.com/[Label](local://path)), the URL regex consumes [Label, starting before the markdown span. contentLinks pushes both, but MarkdownContent skips the markdown link because its start is earlier than the URL's end, rendering a broken link and raw ](local://path) text.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Send or view a message with a URL immediately preceding a markdown link: http://example.com/[Label](local://something)",
+            "Observe the rendered transcript output"
+          ],
+          "expected": "The URL http://example.com/ is linked, and the markdown link Label (pointing to local://something) is rendered separately, or the entire block is handled without breaking the markdown syntax.",
+          "actual": "The text http://example.com/[Label is rendered as a single URL link, and the trailing markdown syntax ](local://something) is rendered as raw text, destroying the markdown link."
+        }
+      },
+      "target_paths": [
+        "src/contentLinks.ts",
+        "src/contentLinks.test.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-behavior-12",
+        "activity_id": "sessions/6658890549132550599/activities/acffea472bec441f94e8dab0c820b2a9",
+        "report_sha256": "3d243a7bcced5b053096c43bdb9f1ad56ade8516778a79d10ec617a5e2974241",
+        "activity_created_at": "2026-09-29T22:39:59.895591Z",
+        "session_id": "6658890549132550599",
+        "dispatch_key": "4e9d859c1639592ae33bdef2"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T23:12:53.673973Z",
+    "last_poll_at": "2026-09-29T23:13:01.031836Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
