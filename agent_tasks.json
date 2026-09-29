@@ -108314,8 +108314,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "9411379613305910136",
         "dispatch_key": "c7ceb9894ccf132dc798b972",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-c7ceb9894ccf132dc798b972",
