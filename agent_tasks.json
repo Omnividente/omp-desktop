@@ -60995,8 +60995,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T23:25:13.250341Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T23:34:09.697345Z",
         "report_error": {
           "code": "research_invalid",
           "detail": "expected exactly one ordered research report block",
@@ -61012,16 +61012,17 @@
         "report_repair": {
           "at": "2026-09-29T23:21:35.593853Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "actor": "Omnividente",
           "after": "2026-09-29T22:40:49.741588Z",
           "source": {
-            "activity_id": "sessions/17879934277856105325/activities/57327597c980431f8200115036af0361",
-            "report_sha256": "8f9fed9c33be872b6a10e1873419ff251b4a76a6098579f624abf53743fc8f02",
-            "activity_created_at": "2026-09-29T22:42:06.151285Z",
+            "activity_id": "sessions/17879934277856105325/activities/fe1383c05ed444fe83071f479e60d1bf",
+            "report_sha256": "0eac3b3ccd3173351cc5d9cdefed85ded6a5d072a27dedf28730317a3d0bcf70",
+            "activity_created_at": "2026-09-29T23:22:39.113600Z",
             "session_id": "17879934277856105325",
             "dispatch_key": "d3cad401c918ebb3dd2960a5"
-          }
+          },
+          "detail": "expected exactly one ordered research report block"
         },
         "report_repair_history": [
           {
@@ -109285,7 +109286,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T23:25:40.858692Z",
+    "last_poll_at": "2026-09-29T23:34:11.927118Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
