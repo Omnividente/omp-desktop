@@ -92114,16 +92114,17 @@
         "report_repair": {
           "at": "2026-09-29T22:36:47.642559Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "actor": "Omnividente",
           "after": "2026-09-28T12:47:39.181126Z",
           "source": {
-            "activity_id": "sessions/11544834674981126535/activities/c998c47c2fef4196ab4197141ef4d330",
-            "report_sha256": "aac04f149b7130ff29bdc1440311a0744288f4a566cd459db1533b8a4d475860",
-            "activity_created_at": "2026-09-28T12:48:52.170961Z",
+            "activity_id": "sessions/11544834674981126535/activities/1decb15dcebe4fdca3a832e74d8acb06",
+            "report_sha256": "6f49e483d4fc787e68099bfc43b222c570ce6cf82a394d43f1462d4a83022503",
+            "activity_created_at": "2026-09-29T22:38:05.017394Z",
             "session_id": "11544834674981126535",
             "dispatch_key": "7dd2710a89d604f07b6221a5"
-          }
+          },
+          "detail": "expected exactly one ordered research report block"
         },
         "report_repair_history": [
           {
@@ -108887,7 +108888,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T22:45:17.466324Z",
+    "last_poll_at": "2026-09-29T22:45:23.324268Z",
     "last_tick_at": "2026-09-29T22:14:51.592875Z",
     "run_id": "36638289711"
   }
