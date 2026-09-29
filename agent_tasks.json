@@ -100142,7 +100142,7 @@
       "id": "research-terminal-input-ux-13",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -100429,16 +100429,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1788108418632648320",
         "dispatch_key": "d13571da723636bb6bc95d80",
         "base_sha": "c934a275012765dde5834c99048cf6297f059110",
         "starting_branch": "autonomous/attempt-d13571da723636bb6bc95d80",
         "started_at": "2026-09-29T09:15:56.843517Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T09:45:32.368798Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "d659001d1ec8a70fa982b88ce77de1e9c8621544",
@@ -100613,13 +100613,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-29T09:15:56.843517Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T09:45:32.368798Z"
+      },
+      "research_result": {
+        "summary": "Measured terminal shortcut input and selection formatting latency under massive load; found performance characteristics strictly bounded and safe.",
+        "observations": [
+          {
+            "scenario": "Evaluated the terminalShortcutInput latency when processing high-frequency keystrokes or massive input streams.",
+            "evidence": "Executed an isolated native Node script simulating 100,000 keydown events passed to terminalShortcutInput. The execution completed in ~10ms, indicating sub-microsecond latency per event.",
+            "result": "Establishes that the synchronous keyboard shortcut rewriting path does not introduce measurable latency during rapid bursts, bounding the JS thread execution safely."
+          },
+          {
+            "scenario": "Evaluated formatSelectionReply performance when processing extremely large multi-line clipboard selections.",
+            "evidence": "Executed a benchmark passing a 20,000-line selection string to formatSelectionReply. The parsing, regex scrubbing, and formatting took ~10ms to produce a 160,000+ character output.",
+            "result": "Establishes that selection cleanup efficiently processes enormous blocks of text, avoiding regex catastrophic backtracking on safe whitespace payloads."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate terminal shortcut focus restoration state on external view switches."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-29T09:45:32.368798Z",
+        "source": {
+          "activity_id": "sessions/1788108418632648320/activities/efcfc96aea324008a286e63ea0751ea5",
+          "report_sha256": "965ca84a7767d68e2d22190919853d62e23699629bf5d23d2b3251596c4d0543",
+          "activity_created_at": "2026-09-29T09:34:53.598533Z",
+          "session_id": "1788108418632648320",
+          "dispatch_key": "d13571da723636bb6bc95d80"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T09:46:01.382346Z",
+    "last_poll_at": "2026-09-29T09:46:06.755238Z",
     "last_tick_at": "2026-09-29T09:39:24.400522Z",
     "run_id": "36550455977"
   }
