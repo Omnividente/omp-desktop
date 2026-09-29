@@ -106176,7 +106176,8 @@
         "feedback_nudge": {
           "at": "2026-09-29T16:13:31.122891Z",
           "result": "sent"
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-81a9d1b0acdadab02e2b9afa"
       },
       "research_result": {
         "summary": "Investigated the focus behavior in SessionControls when toggling the primary provider pin on the active tab.",
