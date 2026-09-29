@@ -105867,7 +105867,7 @@
       "id": "research-sessions-persistence-performance-14",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -105987,16 +105987,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4721148774950394326",
         "dispatch_key": "81a9d1b0acdadab02e2b9afa",
         "base_sha": "bcab3d4953e83b7bfae900e7af0f6aa7f36e1a06",
         "starting_branch": "autonomous/attempt-81a9d1b0acdadab02e2b9afa",
         "started_at": "2026-09-29T15:56:23.336162Z",
-        "finished_at": "",
+        "finished_at": "2026-09-29T16:46:39.187912Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "df856f35322b24776766dee1bb0823c20ec64bbd",
@@ -106167,8 +106167,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-29T16:13:31.122891Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-29T16:46:39.187912Z",
         "research_detached": {
           "at": "2026-09-29T16:13:31.122891Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -106177,11 +106177,98 @@
           "at": "2026-09-29T16:13:31.122891Z",
           "result": "sent"
         }
+      },
+      "research_result": {
+        "summary": "Investigated the focus behavior in SessionControls when toggling the primary provider pin on the active tab.",
+        "observations": [
+          {
+            "scenario": "Toggling the primary provider pin on an active session in SessionControls.",
+            "evidence": "Created a synthetic React/jsdom test `src/SessionControlsFocus.test.tsx` mounting `SessionControls`. Focused the `.primary-provider-pin` button and simulated a click, which triggered the toggle callback. The component was re-rendered with `primaryProviderPinPending: true`. As the `disabled` property becomes true on the button due to `tab.primaryProviderPinPending`, the native DOM drops keyboard focus from the newly disabled button back to `document.body`.",
+            "result": "Establishes a reproducible accessibility regression where toggling the primary provider pin drops focus to the document body because the button immediately becomes disabled during the pending restart, severing the keyboard context."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if synchronization (e.g. locking) is required for session mutations (such as title updates and title pinning) in `sessions.rs` to prevent concurrent writes from destroying concurrent JSONL updates, similar to the import boundary.",
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+        ],
+        "proposed_task_ids": [
+          "discovery-bbd895a33d52b5c5"
+        ],
+        "completed_at": "2026-09-29T16:46:39.187912Z",
+        "source": {
+          "activity_id": "sessions/4721148774950394326/activities/3b5ddd3ec4b444948304d504aab77b1a",
+          "report_sha256": "02e9b4336375a0800f9068d5a40f839fce9fcd3da951bdfc9f183d9131ff15bc",
+          "activity_created_at": "2026-09-29T16:24:59.330141Z",
+          "session_id": "4721148774950394326",
+          "dispatch_key": "81a9d1b0acdadab02e2b9afa"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4721148774950394326/activities/3b5ddd3ec4b444948304d504aab77b1a",
+          "report_sha256": "02e9b4336375a0800f9068d5a40f839fce9fcd3da951bdfc9f183d9131ff15bc",
+          "activity_created_at": "2026-09-29T16:24:59.330141Z",
+          "session_id": "4721148774950394326",
+          "dispatch_key": "81a9d1b0acdadab02e2b9afa"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-bbd895a33d52b5c5"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-bbd895a33d52b5c5",
+      "title": "Retain keyboard focus when toggling the primary provider pin",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-09-29T16:46:39.187912Z",
+      "acceptance": [
+        "Focus does not fall back to document.body when the primary provider pin is toggled and becomes pending"
+      ],
+      "evidence": {
+        "source": "product_research",
+        "detail": "Frontend Vitest regression test using jsdom. Verified that the `primary-provider-pin` button loses focus to the document body because it immediately becomes disabled during the `primaryProviderPinPending` state update.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open an active session tab and focus the primary provider pin toggle button",
+            "Activate the toggle button (e.g., using Space/Enter or click)",
+            "Wait for the session restart/pin operation to begin and check the document's active element"
+          ],
+          "expected": "Focus is retained within a logical interactive element (e.g., by utilizing a focus container or delaying the disabled state or safely catching focus)",
+          "actual": "Focus drops to the document body as the button immediately becomes disabled"
+        }
+      },
+      "target_paths": [
+        "src/SessionControls.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-14",
+        "activity_id": "sessions/4721148774950394326/activities/3b5ddd3ec4b444948304d504aab77b1a",
+        "report_sha256": "02e9b4336375a0800f9068d5a40f839fce9fcd3da951bdfc9f183d9131ff15bc",
+        "activity_created_at": "2026-09-29T16:24:59.330141Z",
+        "session_id": "4721148774950394326",
+        "dispatch_key": "81a9d1b0acdadab02e2b9afa"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-29T16:47:06.127334Z",
+    "last_poll_at": "2026-09-29T16:47:12.060006Z",
     "last_tick_at": "2026-09-29T16:14:21.581856Z",
     "run_id": "36596078793"
   }
