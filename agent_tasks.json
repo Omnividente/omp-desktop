@@ -120922,7 +120922,7 @@
       "id": "research-diagnostics-resources-ux-14",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -121224,16 +121224,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13079958587473219327",
         "dispatch_key": "4e866b8c0822f67dba2516da",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-4e866b8c0822f67dba2516da",
         "started_at": "2026-09-30T20:08:06.082486Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T20:31:52.094531Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -121405,13 +121405,249 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T20:17:41.407084Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T20:31:52.094531Z"
+      },
+      "research_result": {
+        "summary": "Investigated the focus trap behavior in IncidentCenter and ResourceHealthPanel modals. Discovered that the inline `handleKeyDown` focus trap implementation queries focusable elements but only checks `!element.hidden`. This incorrectly captures elements inside collapsed `<details>` tags because they don't gain the standard `hidden` DOM attribute, thus allowing keyboard traversal to escape visible bounds. Developed a proven solution that manually checks for ancestors wrapped in a closed `<details>` block.",
+        "observations": [
+          {
+            "scenario": "Verify if the inline focus trap logic in `IncidentCenter` and `ResourceHealthPanel` incorrectly focuses hidden elements wrapped in closed `<details>` tags.",
+            "evidence": "Inspected `src/IncidentCenter.tsx` and `src/ResourceHealthPanel.tsx`. Both contain an inline `handleKeyDown` method querying `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. It maps through elements and filters out those with `element.hidden`. Standard HTML `<details>` blocks do not set `hidden` on their children. Validated locally by rewriting the filter to traverse up the DOM tree checking for `ancestor instanceof HTMLDetailsElement && !ancestor.open`, which resolves the issue and passes all frontend unit tests.",
+            "result": "Establishes a UI accessibility bug where the inline focus trap manually implemented in these two components attempts to target visually hidden elements inside closed `<details>` tags. "
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-30T20:31:52.094531Z",
+        "source": {
+          "activity_id": "sessions/13079958587473219327/activities/44415caa3b5449ecb86f7eaad9ab1c9a",
+          "report_sha256": "674efcac85ed2fce131ff81372ba4442f8330d3407e9aaa48deb32cf2d9f8759",
+          "activity_created_at": "2026-09-30T20:22:39.643191Z",
+          "session_id": "13079958587473219327",
+          "dispatch_key": "4e866b8c0822f67dba2516da"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Native React jsdom testing isolated on the inline focus trap logic of IncidentCenter and ResourceHealthPanel which queries `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)` without checking if parents are closed details tags.\", \"reproduction\": {\"actual\": \"Focus escapes the visible bounds and attempts to target hidden elements because the inline trap lacks a check for closed `<details>` ancestors.\", \"expected\": \"Focus correctly bounds and ignores focusable content hidden inside the closed `<details>` tags.\", \"steps\": [\"Open the IncidentCenter modal with an incident containing a long reasoning string (creating a collapsed `<details>` wrapper).\", \"Perform keyboard Tab traversal.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the components directly manage their focus trapping with custom code and lack a check for parents wrapped in a closed `<details>` element.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement`. However, IncidentCenter and ResourceHealthPanel are NOT using `useModalFocus` for the keyboard trap logic-they use an inline `handleKeyDown` bound manually which filters only via `!element.hasAttribute(\\\"disabled\\\") && !element.hidden`. This logic remains broken.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+            ],
+            "deferred_id": "b85233077a44478d1babb2b03742712cab1ad0188beb97f8d32f44b9d6c70406",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "risk": "low",
+              "priority": 60,
+              "focus": [
+                "quality",
+                "a11y"
+              ],
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "evidence": {
+                "source": "product_research",
+                "detail": "Native React jsdom testing isolated on the inline focus trap logic of IncidentCenter and ResourceHealthPanel which queries `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)` without checking if parents are closed details tags.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Open the IncidentCenter modal with an incident containing a long reasoning string (creating a collapsed `<details>` wrapper).",
+                    "Perform keyboard Tab traversal."
+                  ],
+                  "expected": "Focus correctly bounds and ignores focusable content hidden inside the closed `<details>` tags.",
+                  "actual": "Focus escapes the visible bounds and attempts to target hidden elements because the inline trap lacks a check for closed `<details>` ancestors."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "new_evidence",
+                  "difference": "The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the components directly manage their focus trapping with custom code and lack a check for parents wrapped in a closed `<details>` element.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                  "observation_refs": [
+                    0
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                      "why_previous_reason_no_longer_explains": "The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement`. However, IncidentCenter and ResourceHealthPanel are NOT using `useModalFocus` for the keyboard trap logic-they use an inline `handleKeyDown` bound manually which filters only via `!element.hasAttribute(\"disabled\") && !element.hidden`. This logic remains broken."
+                    },
+                    {
+                      "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                      "why_previous_reason_no_longer_explains": "The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:04:39Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-b82daad4c8b8b9f9",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:11:05Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-ux-14",
+              "activity_id": "sessions/13079958587473219327/activities/44415caa3b5449ecb86f7eaad9ab1c9a",
+              "report_sha256": "674efcac85ed2fce131ff81372ba4442f8330d3407e9aaa48deb32cf2d9f8759",
+              "activity_created_at": "2026-09-30T20:22:39.643191Z",
+              "session_id": "13079958587473219327",
+              "dispatch_key": "4e866b8c0822f67dba2516da"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13079958587473219327/activities/44415caa3b5449ecb86f7eaad9ab1c9a",
+          "report_sha256": "674efcac85ed2fce131ff81372ba4442f8330d3407e9aaa48deb32cf2d9f8759",
+          "activity_created_at": "2026-09-30T20:22:39.643191Z",
+          "session_id": "13079958587473219327",
+          "dispatch_key": "4e866b8c0822f67dba2516da"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Native React jsdom testing isolated on the inline focus trap logic of IncidentCenter and ResourceHealthPanel which queries `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)` without checking if parents are closed details tags.\", \"reproduction\": {\"actual\": \"Focus escapes the visible bounds and attempts to target hidden elements because the inline trap lacks a check for closed `<details>` ancestors.\", \"expected\": \"Focus correctly bounds and ignores focusable content hidden inside the closed `<details>` tags.\", \"steps\": [\"Open the IncidentCenter modal with an incident containing a long reasoning string (creating a collapsed `<details>` wrapper).\", \"Perform keyboard Tab traversal.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the components directly manage their focus trapping with custom code and lack a check for parents wrapped in a closed `<details>` element.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement`. However, IncidentCenter and ResourceHealthPanel are NOT using `useModalFocus` for the keyboard trap logic-they use an inline `handleKeyDown` bound manually which filters only via `!element.hasAttribute(\\\"disabled\\\") && !element.hidden`. This logic remains broken.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler.\"}]}, \"source\": \"product_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+              ],
+              "deferred_id": "b85233077a44478d1babb2b03742712cab1ad0188beb97f8d32f44b9d6c70406",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "risk": "low",
+                "priority": 60,
+                "focus": [
+                  "quality",
+                  "a11y"
+                ],
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals"
+                ],
+                "evidence": {
+                  "source": "product_research",
+                  "detail": "Native React jsdom testing isolated on the inline focus trap logic of IncidentCenter and ResourceHealthPanel which queries `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)` without checking if parents are closed details tags.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Open the IncidentCenter modal with an incident containing a long reasoning string (creating a collapsed `<details>` wrapper).",
+                      "Perform keyboard Tab traversal."
+                    ],
+                    "expected": "Focus correctly bounds and ignores focusable content hidden inside the closed `<details>` tags.",
+                    "actual": "Focus escapes the visible bounds and attempts to target hidden elements because the inline trap lacks a check for closed `<details>` ancestors."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "new_evidence",
+                    "difference": "The focus logic error reproduces with inline handleKeyDown function directly embedded in the React component which queries nodes via `panel.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)`. Although useModalFocus is available in the codebase, the components directly manage their focus trapping with custom code and lack a check for parents wrapped in a closed `<details>` element.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                    "observation_refs": [
+                      0
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                        "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                        "why_previous_reason_no_longer_explains": "The rejection reason states that `useModalFocus controlAvailable already excludes descendants of collapsed HTMLDetailsElement`. However, IncidentCenter and ResourceHealthPanel are NOT using `useModalFocus` for the keyboard trap logic-they use an inline `handleKeyDown` bound manually which filters only via `!element.hasAttribute(\"disabled\") && !element.hidden`. This logic remains broken."
+                      },
+                      {
+                        "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                        "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                        "why_previous_reason_no_longer_explains": "The reviewer incorrectly assumed a modal focus walk on main uses proper exclusions for closed details. The specific components (`IncidentCenter.tsx` and `ResourceHealthPanel.tsx`) have their own local event listeners bounding focus manually, and do not use the globally robust focus walk handler."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:04:39Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-b82daad4c8b8b9f9",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:11:05Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-ux-14",
+                "activity_id": "sessions/13079958587473219327/activities/44415caa3b5449ecb86f7eaad9ab1c9a",
+                "report_sha256": "674efcac85ed2fce131ff81372ba4442f8330d3407e9aaa48deb32cf2d9f8759",
+                "activity_created_at": "2026-09-30T20:22:39.643191Z",
+                "session_id": "13079958587473219327",
+                "dispatch_key": "4e866b8c0822f67dba2516da"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T20:25:04.547583Z",
+    "last_poll_at": "2026-09-30T20:32:14.230759Z",
     "last_tick_at": "2026-09-30T20:25:10.264977Z",
     "run_id": "36772341187"
   }
