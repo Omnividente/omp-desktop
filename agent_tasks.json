@@ -114524,6 +114524,142 @@
         "session_id": "14761483836212938920",
         "dispatch_key": "a9b92358664085639532f705"
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-14",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-09-30T11:13:48Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "61cd8504e589e3b2e9fe528ef30c3af9dff246096299973eb7366cdf83e41be3",
+        "cycle": 14,
+        "previous_reports": [
+          {
+            "summary": "Measured ProjectRail and TerminalWorkspace rendering performance with 500-1000 items. Found linear DOM growth in ProjectRail but no unhandled memory leak, confirming previous decisions that 500+ scale is not a supported target for virtualization.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering 500 and 1,000 workspaces in ProjectRail without virtualization to measure latency and DOM nodes.",
+                "evidence": "Wrote synthetic vitest DOM tests (test-memory-virtualization) mounting ProjectRail with large datasets. 500 workspaces generated 11,571 DOM nodes and took ~890ms to mount. 1,000 workspaces generated 23,071 DOM nodes and took ~2000ms. Changing the active selection with 1,000 workspaces took ~720ms.",
+                "result": "Establishes that DOM node count scales linearly with the number of workspaces. However, as previously decided by the owner (context_id 8e80272467b75e38887d1c161329a4e41830b7154de27ecf5bcbc614e85b9284), 500/1000-workspace scale is not a supported user-visible bottleneck, so list virtualization is unwarranted."
+              },
+              {
+                "scenario": "Simulated rendering 5,000 sessions inside TerminalWorkspace.",
+                "evidence": "Wrote a synthetic vitest DOM test mounting TerminalWorkspace with a workspace containing 5,000 sessions. It mounted in ~70ms and produced only 95 initial DOM nodes, as TerminalWorkspace primarily handles the active tabs and delegates large list rendering to other components.",
+                "result": "Establishes that the TerminalWorkspace component itself is well-bounded and does not eagerly render session DOM nodes that would consume excessive memory."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory lifecycle of older PTY sessions left open in background tabs for extended periods."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T11:17:33.299897Z",
+            "source": {
+              "activity_id": "sessions/16326946347596633865/activities/bac2c6e2f7c24a1a9dda2b7a074a1039",
+              "report_sha256": "6cdf18221998990dadbcf27a7768dd19345ddcf8414550ccf46df0da789c37ab",
+              "activity_created_at": "2026-09-29T11:04:48.672131Z",
+              "session_id": "16326946347596633865",
+              "dispatch_key": "d6c27f7fecb0b648f26970fa"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace and session rename failure behavior, as well as the reconciliation of slow addWorkspace operations with concurrent selections.",
+            "observations": [
+              {
+                "scenario": "Simulated a failure during a session rename operation initiated from the SessionList context via `App.tsx`.",
+                "evidence": "Observed via synthetic vitest integration tests mimicking user input and UI transitions. `submitRenameSession` eagerly clears `renamingSessionId` before awaiting `updateSessionTitlePin`. This synchronously removes the rename input field from the UI. If the subsequent `setSessionTitlePin` network/disk operation fails, an error is reported but the UI state is irrevocably lost.",
+                "result": "Establishes a user experience defect: similar to workspace renames, if a session rename fails, the user's intended text is discarded and the rename dialog closes prematurely, preventing correction or retry without starting over."
+              },
+              {
+                "scenario": "Simulated a slow, blocking `addWorkspace` operation initiated via `openFolder` while the user simultaneously selects an existing workspace.",
+                "evidence": "Observed via synthetic vitest integration tests driving `App.tsx`. In `App.tsx`, `openFolder` snapshots `++workspaceSelectionRequestRef.current` before awaiting `addWorkspace`. Selecting a workspace concurrently (e.g. via ProjectRail) increments the ref again. When `addWorkspace` resolves, it checks if the saved snapshot equals `workspaceSelectionRequestRef.current`. Since they differ, `applyPayload` skips forcing the selection.",
+                "result": "Establishes that concurrent workspace selections successfully reconcile; a blocked open request safely adds the new workspace to the payload without hijacking the user's later selection."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory lifecycle of older PTY sessions left open in background tabs for extended periods."
+            ],
+            "proposed_task_ids": [
+              "discovery-b343e6c8e66ef195"
+            ],
+            "completed_at": "2026-09-29T15:32:50.274105Z",
+            "source": {
+              "activity_id": "sessions/15564505969197262178/activities/6c58eabd340041f190490fdcc7ae4783",
+              "report_sha256": "fa537a5f71f55886b3bc04b66f28c59e0542a127ab971aa35a1fab130498b82c",
+              "activity_created_at": "2026-09-29T15:21:47.752615Z",
+              "session_id": "15564505969197262178",
+              "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated session rename failure behavior, workspace rename behavior, single instance reconciliation, and background save queue behavior. Confirmed that session renaming suffers from eager-state-clearing bug on failure. Confirmed that if an asynchronous `addWorkspace` call blocks on a slow filesystem (via single instance), its error handling logic swallows errors if it's superseded by a later request.",
+            "observations": [
+              {
+                "scenario": "Simulated a failure during a workspace and session rename operations initiated from UI actions in App.tsx.",
+                "evidence": "Executed manual code review and targeted synthesis checks on App.tsx lines 653-670 (submitWorkspaceRename) and 1911-1919 (submitRenameSession). Both eagerly clear rename state (setRenamingWorkspaceKey(null) / setRenamingSessionId(null)) before awaiting the API result. If the API request fails, the user loses their entered text. This conforms to previous findings.",
+                "result": "Establishes a user experience defect: if a session or workspace rename fails, the user's intended text is discarded prematurely. This confirms the earlier hypothesized session rename regression."
+              },
+              {
+                "scenario": "Simulated repeated single-instance workspace arguments where an earlier addWorkspace request blocks, then fails, but is superseded by a newer single-instance request.",
+                "evidence": "Executed Vitest scenario in src/test-single-instance-error.test.tsx. Passed a sequence of 'single-instance' events: one requesting 'pathA' and another requesting 'pathB'. 'pathB' completes, then 'pathA' fails. App.tsx:810 `if (!disposed && request === latestRequest)` skips displaying the error for 'pathA' because `latestRequest` has moved on.",
+                "result": "Establishes a defect in single-instance routing: if an asynchronous addWorkspace operation is superseded by a later one, any failure of the earlier operation is silently ignored, rather than reporting the file/network error to the user."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal creation (startTerminal) swallows generic backend network/disk failures when superseded by a background tab close.",
+              "Investigate the exact memory impact of older PTY sessions left open in background tabs for extended periods."
+            ],
+            "proposed_task_ids": [
+              "discovery-9ed762c2644c4940"
+            ],
+            "completed_at": "2026-09-30T11:13:48.794755Z",
+            "source": {
+              "activity_id": "sessions/14761483836212938920/activities/477f0e87a93e4774a7cca5bacffa6caa",
+              "report_sha256": "f2fa30d8e372af3cf584ed8a9a9ce93bf7f172815e42b51b980869d69180af74",
+              "activity_created_at": "2026-09-30T11:02:17.352488Z",
+              "session_id": "14761483836212938920",
+              "dispatch_key": "a9b92358664085639532f705"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix eager state clearing in session and workspace renames on failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-5577ea4e9ef26ca2; not established as a duplicate. {\"detail\": \"Observed via App.tsx review and synthetic vitest checking that submitWorkspaceRename and submitRenameSession immediately clear their renaming state keys synchronously before API promises settle.\", \"reproduction\": {\"actual\": \"The rename state is discarded, hiding the input field, even on failure.\", \"expected\": \"The rename state is preserved and the input field remains open when an error is caught.\", \"steps\": [\"Open App.tsx and locate submitWorkspaceRename and submitRenameSession.\", \"Notice that they synchronously set state (e.g. setRenamingWorkspaceKey(null) or setRenamingSessionId(null)) prior to awaiting.\", \"If the await rejects, the catch block shows an error, but the input field is already unmounted.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Session and workspace rename state should only be cleared after a successful backend response.",
+                  "If the network/disk operation fails, the rename text box and dialog remain open with the user's text intact."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
