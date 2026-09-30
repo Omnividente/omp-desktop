@@ -112640,7 +112640,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T09:33:41.853672Z"
+        "observed_at": "2026-09-30T09:33:41.853672Z",
+        "released_attempt_ref": "autonomous/attempt-d34898f71c7dce64eebb6c9c"
       },
       "research_result": {
         "summary": "Measured terminal batcher output and shortcut execution performance, and verified continuity baseline corruption on stale output events with proposed structured fix.",
