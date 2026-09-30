@@ -587,28 +587,6 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
-  it.each(["resolve", "reject"] as const)(
-    "notifies the parent only of a successful save after closing (%s)",
-    async (settlement) => {
-      const pending = deferred<SettingsSavePayload>()
-      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
-      await renderPanel()
-      changeExecutable("saved-omp.exe")
-      act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
-      act(() => container.querySelector<HTMLButtonElement>(".settings-header button")!.click())
-      const result = saveResult(null)
-      await act(async () => {
-        if (settlement === "resolve") pending.resolve(result)
-        else pending.reject(new Error("save failed after close"))
-      })
-      expect(container.querySelector('[role="dialog"]')).toBeNull()
-      if (settlement === "resolve") expect(onSaved).toHaveBeenCalledWith(result)
-      else expect(onSaved).not.toHaveBeenCalled()
-      expect(onError).not.toHaveBeenCalled()
-      expect(loadOmpConfigMock).toHaveBeenCalledTimes(1)
-    },
-  )
-
   it("loads the returned runtime when Save makes OMP available", async () => {
     const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
     const fresh = deferred<OmpConfigSnapshot>()

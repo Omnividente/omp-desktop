@@ -422,6 +422,51 @@ it("finds offscreen occurrences, scrolls inside one tall message and wraps in bo
   expect(currentOccurrence()?.dataset.matchIndex).toBe("2")
 })
 
+it("reindexes rendered and source text without shifting Unicode highlights or selection", async () => {
+  const source = "😀**K** [k](local://k.txt)"
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: [{ ...transcript.entries[0], text: source, dialogueText: source }],
+  })
+  await click("Reread file")
+  await searchFor("k")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("K")
+  expect(currentOccurrence()?.closest("strong")).not.toBeNull()
+  await click("Previous match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("1")
+  expect(currentOccurrence()?.closest("a")?.getAttribute("href")).toBe("local://k.txt")
+
+  await click("Source")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 3")
+  const pre = container.querySelector<HTMLElement>("pre.markdown-source")!
+  expect(pre.textContent).toBe(source)
+  const marks = Array.from(pre.querySelectorAll("mark"))
+  expect(marks.map((mark) => [mark.dataset.matchIndex, mark.textContent])).toEqual([
+    ["0", "K"],
+    ["1", "k"],
+    ["2", "k"],
+  ])
+  expect(marks[0].previousSibling?.textContent).toBe("😀**")
+  expect(marks[0].nextSibling?.textContent).toBe("** [")
+  expect(marks[1].nextSibling?.textContent).toBe("](local://")
+  expect(marks[2].nextSibling?.textContent).toBe(".txt)")
+  const range = document.createRange()
+  range.selectNodeContents(pre)
+  window.getSelection()!.removeAllRanges()
+  window.getSelection()!.addRange(range)
+  expect(window.getSelection()!.toString()).toBe(source)
+  window.getSelection()!.removeAllRanges()
+
+  await click("Previous match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("2")
+  await click("Next match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("0")
+  await click("Formatted")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("K")
+})
+
 it("allows manual scrolling after find and returns to a lone match on Next", async () => {
   await searchFor("needle")
   await click("Dialogue only")
