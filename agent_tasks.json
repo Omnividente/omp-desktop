@@ -117693,8 +117693,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "6207213441139149470",
         "dispatch_key": "d166a94a8d1ba207a505cf83",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-d166a94a8d1ba207a505cf83",
