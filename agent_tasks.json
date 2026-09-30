@@ -118369,7 +118369,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T15:49:12.049988Z"
+        "observed_at": "2026-09-30T15:49:12.049988Z",
+        "released_attempt_ref": "autonomous/attempt-c799330c2134a73d9dbc26e5"
       },
       "research_result": {
         "summary": "Investigated scroll anchoring behavior for 'Latest message' in useVirtualList on oversized transcript elements. Confirmed via isolated jsdom vitest that `scrollToIndex` anchors using the top offset of an item. For items whose heights exceed the viewport, this results in newly generated bottom content remaining unseen without relying on a delayed secondary measurement correction. Adding an alignment parameter ('start' vs 'end') could solve this.",
