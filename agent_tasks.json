@@ -114095,7 +114095,7 @@
       "id": "research-workspace-navigation-reliability-14",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -114215,16 +114215,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14761483836212938920",
         "dispatch_key": "a9b92358664085639532f705",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-a9b92358664085639532f705",
         "started_at": "2026-09-30T10:50:41.576595Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T11:13:48.794755Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -114394,13 +114394,139 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T11:00:14.425805Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T11:13:48.794755Z"
+      },
+      "research_result": {
+        "summary": "Investigated session rename failure behavior, workspace rename behavior, single instance reconciliation, and background save queue behavior. Confirmed that session renaming suffers from eager-state-clearing bug on failure. Confirmed that if an asynchronous `addWorkspace` call blocks on a slow filesystem (via single instance), its error handling logic swallows errors if it's superseded by a later request.",
+        "observations": [
+          {
+            "scenario": "Simulated a failure during a workspace and session rename operations initiated from UI actions in App.tsx.",
+            "evidence": "Executed manual code review and targeted synthesis checks on App.tsx lines 653-670 (submitWorkspaceRename) and 1911-1919 (submitRenameSession). Both eagerly clear rename state (setRenamingWorkspaceKey(null) / setRenamingSessionId(null)) before awaiting the API result. If the API request fails, the user loses their entered text. This conforms to previous findings.",
+            "result": "Establishes a user experience defect: if a session or workspace rename fails, the user's intended text is discarded prematurely. This confirms the earlier hypothesized session rename regression."
+          },
+          {
+            "scenario": "Simulated repeated single-instance workspace arguments where an earlier addWorkspace request blocks, then fails, but is superseded by a newer single-instance request.",
+            "evidence": "Executed Vitest scenario in src/test-single-instance-error.test.tsx. Passed a sequence of 'single-instance' events: one requesting 'pathA' and another requesting 'pathB'. 'pathB' completes, then 'pathA' fails. App.tsx:810 `if (!disposed && request === latestRequest)` skips displaying the error for 'pathA' because `latestRequest` has moved on.",
+            "result": "Establishes a defect in single-instance routing: if an asynchronous addWorkspace operation is superseded by a later one, any failure of the earlier operation is silently ignored, rather than reporting the file/network error to the user."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal creation (startTerminal) swallows generic backend network/disk failures when superseded by a background tab close.",
+          "Investigate the exact memory impact of older PTY sessions left open in background tabs for extended periods."
+        ],
+        "proposed_task_ids": [
+          "discovery-9ed762c2644c4940"
+        ],
+        "completed_at": "2026-09-30T11:13:48.794755Z",
+        "source": {
+          "activity_id": "sessions/14761483836212938920/activities/477f0e87a93e4774a7cca5bacffa6caa",
+          "report_sha256": "f2fa30d8e372af3cf584ed8a9a9ce93bf7f172815e42b51b980869d69180af74",
+          "activity_created_at": "2026-09-30T11:02:17.352488Z",
+          "session_id": "14761483836212938920",
+          "dispatch_key": "a9b92358664085639532f705"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix eager state clearing in session and workspace renames on failure",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-5577ea4e9ef26ca2; not established as a duplicate. {\"detail\": \"Observed via App.tsx review and synthetic vitest checking that submitWorkspaceRename and submitRenameSession immediately clear their renaming state keys synchronously before API promises settle.\", \"reproduction\": {\"actual\": \"The rename state is discarded, hiding the input field, even on failure.\", \"expected\": \"The rename state is preserved and the input field remains open when an error is caught.\", \"steps\": [\"Open App.tsx and locate submitWorkspaceRename and submitRenameSession.\", \"Notice that they synchronously set state (e.g. setRenamingWorkspaceKey(null) or setRenamingSessionId(null)) prior to awaiting.\", \"If the await rejects, the catch block shows an error, but the input field is already unmounted.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Session and workspace rename state should only be cleared after a successful backend response.",
+              "If the network/disk operation fails, the rename text box and dialog remain open with the user's text intact."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/14761483836212938920/activities/477f0e87a93e4774a7cca5bacffa6caa",
+          "report_sha256": "f2fa30d8e372af3cf584ed8a9a9ce93bf7f172815e42b51b980869d69180af74",
+          "activity_created_at": "2026-09-30T11:02:17.352488Z",
+          "session_id": "14761483836212938920",
+          "dispatch_key": "a9b92358664085639532f705"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-9ed762c2644c4940"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-fb6e96c1219a5f21",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-5577ea4e9ef26ca2"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix eager state clearing in session and workspace renames on failure",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-5577ea4e9ef26ca2; not established as a duplicate. {\"detail\": \"Observed via App.tsx review and synthetic vitest checking that submitWorkspaceRename and submitRenameSession immediately clear their renaming state keys synchronously before API promises settle.\", \"reproduction\": {\"actual\": \"The rename state is discarded, hiding the input field, even on failure.\", \"expected\": \"The rename state is preserved and the input field remains open when an error is caught.\", \"steps\": [\"Open App.tsx and locate submitWorkspaceRename and submitRenameSession.\", \"Notice that they synchronously set state (e.g. setRenamingWorkspaceKey(null) or setRenamingSessionId(null)) prior to awaiting.\", \"If the await rejects, the catch block shows an error, but the input field is already unmounted.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Session and workspace rename state should only be cleared after a successful backend response.",
+                "If the network/disk operation fails, the rename text box and dialog remain open with the user's text intact."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-9ed762c2644c4940",
+      "title": "Report single-instance workspace loading errors even when superseded",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "reliability"
+      ],
+      "created_at": "2026-09-30T11:13:48.794755Z",
+      "acceptance": [
+        "Users see an error dialog/notification if a single-instance addWorkspace command fails, even if they issued a newer single-instance command before it failed.",
+        "The reconciliation logic (needsReconcile) still runs correctly after errors are displayed."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via vitest integration that if single-instance request 1 fails while single-instance request 2 is pending/complete, request 1's error is squashed.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Run App.tsx with two rapid 'single-instance' events.",
+            "First request 'pathA', then request 'pathB'.",
+            "If 'pathA' addWorkspace rejects, its error is swallowed by the `request === latestRequest` check at line 810."
+          ],
+          "expected": "The error for pathA is shown to the user.",
+          "actual": "The error is silently ignored."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-14",
+        "activity_id": "sessions/14761483836212938920/activities/477f0e87a93e4774a7cca5bacffa6caa",
+        "report_sha256": "f2fa30d8e372af3cf584ed8a9a9ce93bf7f172815e42b51b980869d69180af74",
+        "activity_created_at": "2026-09-30T11:02:17.352488Z",
+        "session_id": "14761483836212938920",
+        "dispatch_key": "a9b92358664085639532f705"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T11:07:22.374936Z",
+    "last_poll_at": "2026-09-30T11:14:08.204224Z",
     "last_tick_at": "2026-09-30T11:07:27.043520Z",
     "run_id": "36706478336"
   }
