@@ -115674,7 +115674,8 @@
             "activity_created_at": "2026-09-30T12:34:26.816851Z",
             "activity_sha256": "52e5ec5b63642ba3413f56f065897019bb06480c58bf8ba3131201a2f3e0d700"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-2a82cb6d178c165ce1719b2c"
       },
       "research_result": {
         "summary": "Investigated multiple distinct components: ModelPicker focus behavior, SettingsRecoveryScreen error handling, SettingsPanel stale provider handling, and backend proxy overlay generation for disabled providers.",
