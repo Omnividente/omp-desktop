@@ -110619,7 +110619,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T01:18:43.444260Z"
+        "observed_at": "2026-09-30T01:18:43.444260Z",
+        "released_attempt_ref": "autonomous/attempt-6b344c9c95f35d8f2a195989"
       },
       "research_result": {
         "summary": "Investigated the memory and latency footprint of the SessionList component displaying active workspaces with deeply nested session hierarchies and huge quantities of items. Verified that the component renders 100,000 synthetic items without crashing and effectively implements virtualization boundaries. The underlying virtualizer bounds the DOM node count, drastically limiting the number of elements rendered.",
