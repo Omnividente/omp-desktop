@@ -110295,6 +110295,147 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-behavior-14",
+      "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-30T00:55:49Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "behavior",
+        "fingerprint": "221b812c5a32087785d47f2abf42ad86c29ee437c48c11271fb0929e29465d5f",
+        "cycle": 14,
+        "previous_reports": [
+          {
+            "summary": "Investigated if synchronization is required for session mutations (title updates and pinning) to prevent concurrent writes from destroying JSONL updates. Confirmed no additional JSONL synchronization is needed.",
+            "observations": [
+              {
+                "scenario": "Session title pinning initiated by the user.",
+                "evidence": "Source inspection of `set_session_title_pin` in `src-tauri/src/lib.rs` and `apply_session_title_pin` in `src-tauri/src/sessions.rs`.",
+                "result": "Establishes that title pinning mutates `settings.json` via `with_settings_transaction` (which uses a mutex for synchronization) rather than mutating the session JSONL file directly. Therefore, pinning cannot corrupt concurrent JSONL file writes."
+              },
+              {
+                "scenario": "Automatic title updates generated during active sessions.",
+                "evidence": "Source inspection of terminal output handling (`route_output`, `session_title_for_emit` in `src-tauri/src/terminal.rs`) and session parsing.",
+                "result": "Establishes that session titles are updated by appending `{\"type\":\"title_change\",...}` events to the JSONL file via the PTY writer. Because this is an append-only operation managed by the terminal stream, there is no read-modify-write cycle that would require a file-level lock."
+              },
+              {
+                "scenario": "General session mutations and file persistence operations.",
+                "evidence": "Source inspection of `atomic_write_file` and `atomic_write_private_file` in `src-tauri/src/sessions.rs`.",
+                "result": "Establishes that all full-file replacements (such as those during session imports) utilize OS-level atomic moves (`fs::rename` or `MoveFileExW`) and are explicitly protected by `IMPORT_TRANSACTION_LOCK`. No unprotected read-modify-write mutations exist for active session JSONL files."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+              "Investigate the memory and latency footprint of the SessionList component (which displays active workspaces) when dealing with deeply nested session hierarchies to determine if the virtualizer breaks."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T23:12:10.631605Z",
+            "source": {
+              "activity_id": "sessions/12801908420617606988/activities/1462909eb02749aa88812d2ac934d048",
+              "report_sha256": "1d3d79af05a1f7551d76993c9187485329745f2016e1a6a8d33cc5c301fe7d0d",
+              "activity_created_at": "2026-09-29T22:44:22.617196Z",
+              "session_id": "12801908420617606988",
+              "dispatch_key": "4b7e44584078b10a61872b0a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the session import, deletion, and recovery mechanisms in `src-tauri/src/sessions.rs`. Confirmed that the previously identified race condition during import has been resolved by a transaction lock. Also verified that the cold scan accurately recovers artifacts across various interrupted import phases.",
+            "observations": [
+              {
+                "scenario": "Session deletion concurrently with an import operation.",
+                "evidence": "Static analysis of `src-tauri/src/sessions.rs`. `delete_session` acquires `IMPORT_TRANSACTION_LOCK` before proceeding. This lock is also acquired by `commit_import_with` during the critical JSONL and artifact staging phase, preventing a concurrent deletion from destroying newly imported artifacts.",
+                "result": "Establishes that the race condition between `delete_session` and `import_sessions` has been mitigated in this branch. No further action is required for this previously identified vulnerability."
+              },
+              {
+                "scenario": "Cold scan recovery of an interrupted artifact import phase.",
+                "evidence": "Inspection of `cold_scan_recovers_each_interrupted_artifact_import_phase` test in `src-tauri/src/sessions.rs`. It explicitly covers recovering from interruptions during 'prepared', 'backed-up', 'swapped', 'committed', and 'new-import' phases. The `recover_import_transaction` function successfully cleans up or restores the correct session and artifact state based on the transactional marker (`.session.import-txn.*`).",
+                "result": "Establishes that the underlying persistence and recovery logic for session imports handles all intermediate phases of atomic file system swaps robustly."
+              },
+              {
+                "scenario": "Failed metadata write during session lease reclaim in `src-tauri/src/session_lease.rs`.",
+                "evidence": "Inspection of `failed_write_metadata_during_reclaim_preserves_stale_confirmation_requirement` test in `session_lease.rs`. The test simulates a failure when writing new owner metadata during an explicit reclaim of a stale lease. It validates that `reclaim_pending_path` retains the journal and a subsequent normal acquisition attempt without force still fails with a stale confirmation requirement.",
+                "result": "Establishes that the `session_lease.rs` implementation safely fails closed when it cannot complete a reclaim, preserving the necessary manual confirmation barrier rather than corrupting the lock."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `set_session_title_pin` (which modifies the shared `SettingsState`) and `delete_session` have a race condition when run concurrently, as `set_session_title_pin` acquires the settings lock but not `IMPORT_TRANSACTION_LOCK`.",
+              "Investigate whether rapid succession of `delete_session` and `import_session` with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T23:12:10.631605Z",
+            "source": {
+              "activity_id": "sessions/5162758749953566608/activities/813d44eda33b4d54b28fc35728a02d77",
+              "report_sha256": "2f9b481a6a68340b3499523122de93b0e535b9002262edf9d7b8513565c48b1c",
+              "activity_created_at": "2026-09-29T22:43:32.179269Z",
+              "session_id": "5162758749953566608",
+              "dispatch_key": "8a2c8a02454d1c38a0510a6b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the accessibility regression where toggling the primary provider pin drops focus to the document body. Found that this is caused by the button becoming instantly disabled when primaryProviderPinPending is true. The current implementation lacks focus restoration or redirection for this control during the active pending phase.",
+            "observations": [
+              {
+                "scenario": "Toggling the primary provider pin on an active session in SessionControls.",
+                "evidence": "Ran a React jsdom test (src/SessionControlsFocus.test.tsx) asserting the activeElement before and after calling the toggle button. Before toggle, activeElement is the button. Immediately after toggle, primaryProviderPinPending becomes true, disabling the button. Consequently, document.activeElement defaults to document.body. This severs the keyboard context without redirecting focus, creating an accessibility regression.",
+                "result": "Reproduced the accessibility issue where focus drops to the body because the button immediately becomes disabled. This matches the previous session findings."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if we can safely manage focus restoration via a temporary fallback element or by delaying the disabled state visually without dropping native focus, similar to other focus recovery patterns used during session list deletions.",
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T00:29:06.366947Z",
+            "source": {
+              "activity_id": "sessions/11401437102161833302/activities/2c0afd582f0a46fc8a1a2f178fa5ece1",
+              "report_sha256": "65dd15f2730d0284751d3a69c2385838435157483a3f5b8b27690d1ffe3b2cf3",
+              "activity_created_at": "2026-09-30T00:20:14.896898Z",
+              "session_id": "11401437102161833302",
+              "dispatch_key": "eaf51fbeecfc8fdc161bdf8e"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx"
+                ],
+                "acceptance": [
+                  "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+                  "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
