@@ -113847,7 +113847,8 @@
             "activity_created_at": "2026-09-30T10:24:37.006088Z",
             "activity_sha256": "11b82fd654a6f35539b42f20c49040d2e4d8efeb3f2e6ddd26c73d0c36326669"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-309d4f8b9fbf98ad4c6c510f"
       },
       "research_result": {
         "summary": "Investigated terminal input editing for Unicode graphemes and terminal UI recovery state handling. Verified that terminalInputBlocked does not trap input during switchRecovery, and that handleExit correctly clears switchRecovery state on process termination. Also verified continuity baseline corruption on stale output events.",
