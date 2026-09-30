@@ -111280,7 +111280,7 @@
       "id": "research-sessions-persistence-reliability-14",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -111409,16 +111409,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "3720681951043794412",
         "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-b7c8cf1a64a1ea038d2d8e0a",
         "started_at": "2026-09-30T04:12:11.629736Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T04:55:21.257192Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -111589,24 +111589,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T04:48:39.853562Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-30T04:41:42.945768Z",
-          "source": {
-            "activity_id": "sessions/3720681951043794412/activities/c0968b0a708344a7ad1ffd944da2618b",
-            "report_sha256": "380538eae826f02613fff3242ee8b69511cb1f156b3f742456844d3161f7f889",
-            "activity_created_at": "2026-09-30T04:30:22.295168Z",
-            "session_id": "3720681951043794412",
-            "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T04:55:21.257192Z",
         "report_repair": {
           "at": "2026-09-30T04:42:02.174404Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/3720681951043794412/activities/c0968b0a708344a7ad1ffd944da2618b",
             "report_sha256": "380538eae826f02613fff3242ee8b69511cb1f156b3f742456844d3161f7f889",
@@ -111615,11 +111603,91 @@
             "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated the settings transaction boundaries for session modification and deletion, as well as the focus loss regression in SessionControls.",
+        "observations": [
+          {
+            "scenario": "Concurrent execution of set_session_title_pin and delete_session.",
+            "evidence": "Static analysis of src-tauri/src/lib.rs. Both set_session_title_pin and delete_session wrap their settings metadata updates (adding or removing a title pin) in with_settings_transaction. delete_session removes the title pin from the settings snapshot within the transaction, and only after the settings transaction commits does it physically delete the session files. If set_session_title_pin runs concurrently, it either runs before the deletion transaction (in which case the pin is correctly removed) or after (in which case validated_session_file will fail if the file is already deleted, or an orphaned pin might briefly exist before garbage collection).",
+            "result": "Establishes that the shared SettingsState transaction safely serializes settings metadata changes, preventing memory corruption or critical race conditions between session deletion and title pinning."
+          },
+          {
+            "scenario": "Focus preservation when toggling the primary provider pin in SessionControls.",
+            "evidence": "Ran a React jsdom test (locally as src/SessionControlsFocus.test.tsx) asserting the activeElement before and after calling the toggle button. Before toggle, activeElement is the button. Immediately after toggle, primaryProviderPinPending becomes true, disabling the button. Consequently, document.activeElement defaults to document.body, severing the keyboard context without redirecting focus.",
+            "result": "Reproduced the accessibility issue where focus drops to the body because the button immediately becomes disabled. This confirms the previously deferred finding and creates a concrete case for focus redirection."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+          "Investigate whether rapid succession of delete_session and import_session with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-30T04:55:21.257192Z",
+        "source": {
+          "activity_id": "sessions/3720681951043794412/activities/974dd158274a4047a7b57eb0268e1a0c",
+          "report_sha256": "0b2e8133dfa99180e60216b1ff10cb591623683013149852cf62f46a5340251b",
+          "activity_created_at": "2026-09-30T04:44:16.224151Z",
+          "session_id": "3720681951043794412",
+          "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionControls.tsx"
+            ],
+            "acceptance": [
+              "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+              "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3720681951043794412/activities/974dd158274a4047a7b57eb0268e1a0c",
+          "report_sha256": "0b2e8133dfa99180e60216b1ff10cb591623683013149852cf62f46a5340251b",
+          "activity_created_at": "2026-09-30T04:44:16.224151Z",
+          "session_id": "3720681951043794412",
+          "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-822de17b30286422",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-bbd895a33d52b5c5"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionControls.tsx"
+              ],
+              "acceptance": [
+                "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+                "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T04:48:56.653855Z",
+    "last_poll_at": "2026-09-30T04:55:40.640545Z",
     "last_tick_at": "2026-09-30T04:49:03.056102Z",
     "run_id": "36670465154"
   }
