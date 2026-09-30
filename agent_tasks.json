@@ -119349,6 +119349,145 @@
           }
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-15",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-09-30T16:51:12Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "221b812c5a32087785d47f2abf42ad86c29ee437c48c11271fb0929e29465d5f",
+        "cycle": 15,
+        "previous_reports": [
+          {
+            "summary": "Investigated the accessibility regression where toggling the primary provider pin drops focus to the document body. Found that this is caused by the button becoming instantly disabled when primaryProviderPinPending is true. The current implementation lacks focus restoration or redirection for this control during the active pending phase.",
+            "observations": [
+              {
+                "scenario": "Toggling the primary provider pin on an active session in SessionControls.",
+                "evidence": "Ran a React jsdom test (src/SessionControlsFocus.test.tsx) asserting the activeElement before and after calling the toggle button. Before toggle, activeElement is the button. Immediately after toggle, primaryProviderPinPending becomes true, disabling the button. Consequently, document.activeElement defaults to document.body. This severs the keyboard context without redirecting focus, creating an accessibility regression.",
+                "result": "Reproduced the accessibility issue where focus drops to the body because the button immediately becomes disabled. This matches the previous session findings."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if we can safely manage focus restoration via a temporary fallback element or by delaying the disabled state visually without dropping native focus, similar to other focus recovery patterns used during session list deletions.",
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T00:29:06.366947Z",
+            "source": {
+              "activity_id": "sessions/11401437102161833302/activities/2c0afd582f0a46fc8a1a2f178fa5ece1",
+              "report_sha256": "65dd15f2730d0284751d3a69c2385838435157483a3f5b8b27690d1ffe3b2cf3",
+              "activity_created_at": "2026-09-30T00:20:14.896898Z",
+              "session_id": "11401437102161833302",
+              "dispatch_key": "eaf51fbeecfc8fdc161bdf8e"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx"
+                ],
+                "acceptance": [
+                  "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+                  "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the memory and latency footprint of the SessionList component displaying active workspaces with deeply nested session hierarchies and huge quantities of items. Verified that the component renders 100,000 synthetic items without crashing and effectively implements virtualization boundaries. The underlying virtualizer bounds the DOM node count, drastically limiting the number of elements rendered.",
+            "observations": [
+              {
+                "scenario": "SessionList rendering a massive list of 100,000 items.",
+                "evidence": "Ran a synthetic React component test using Vitest and jsdom (temporarily created as src/SessionListVirtualization.test.tsx). The test generated 100,000 session objects and asserted that the initial render completes without throwing an Out-Of-Memory or Call Stack error. Furthermore, it asserted that the total number of items rendered into the DOM with the component class .session-item was strictly bounded to less than 100 despite having 100,000 total items in state.",
+                "result": "Establishes that the underlying virtualizer correctly bounds DOM nodes regardless of the input dataset size. The frontend component can handle deeply nested or massive flat hierarchies without crashing, meaning no further structural bounds inside the specific component are strictly required to avoid out of memory issues for pure item count."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+              "Investigate if `set_session_title_pin` (which modifies the shared `SettingsState`) and `delete_session` have a race condition when run concurrently, as `set_session_title_pin` acquires the settings lock but not `IMPORT_TRANSACTION_LOCK`.",
+              "Investigate whether rapid succession of `delete_session` and `import_session` with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T01:18:43.444260Z",
+            "source": {
+              "activity_id": "sessions/16918823435969185888/activities/ce2f400a476c44eebc563b119823bb8f",
+              "report_sha256": "743a7f07069dfc88fad374c56427e3e0aac578b518de313bd60d464500fb2a32",
+              "activity_created_at": "2026-09-30T01:09:29.696707Z",
+              "session_id": "16918823435969185888",
+              "dispatch_key": "6b344c9c95f35d8f2a195989"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the settings transaction boundaries for session modification and deletion, as well as the focus loss regression in SessionControls.",
+            "observations": [
+              {
+                "scenario": "Concurrent execution of set_session_title_pin and delete_session.",
+                "evidence": "Static analysis of src-tauri/src/lib.rs. Both set_session_title_pin and delete_session wrap their settings metadata updates (adding or removing a title pin) in with_settings_transaction. delete_session removes the title pin from the settings snapshot within the transaction, and only after the settings transaction commits does it physically delete the session files. If set_session_title_pin runs concurrently, it either runs before the deletion transaction (in which case the pin is correctly removed) or after (in which case validated_session_file will fail if the file is already deleted, or an orphaned pin might briefly exist before garbage collection).",
+                "result": "Establishes that the shared SettingsState transaction safely serializes settings metadata changes, preventing memory corruption or critical race conditions between session deletion and title pinning."
+              },
+              {
+                "scenario": "Focus preservation when toggling the primary provider pin in SessionControls.",
+                "evidence": "Ran a React jsdom test (locally as src/SessionControlsFocus.test.tsx) asserting the activeElement before and after calling the toggle button. Before toggle, activeElement is the button. Immediately after toggle, primaryProviderPinPending becomes true, disabling the button. Consequently, document.activeElement defaults to document.body, severing the keyboard context without redirecting focus.",
+                "result": "Reproduced the accessibility issue where focus drops to the body because the button immediately becomes disabled. This confirms the previously deferred finding and creates a concrete case for focus redirection."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+              "Investigate whether rapid succession of delete_session and import_session with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T04:55:21.257192Z",
+            "source": {
+              "activity_id": "sessions/3720681951043794412/activities/974dd158274a4047a7b57eb0268e1a0c",
+              "report_sha256": "0b2e8133dfa99180e60216b1ff10cb591623683013149852cf62f46a5340251b",
+              "activity_created_at": "2026-09-30T04:44:16.224151Z",
+              "session_id": "3720681951043794412",
+              "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx"
+                ],
+                "acceptance": [
+                  "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+                  "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
