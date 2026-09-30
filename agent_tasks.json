@@ -115253,7 +115253,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T12:06:31.990156Z"
+        "observed_at": "2026-09-30T12:06:31.990156Z",
+        "released_attempt_ref": "autonomous/attempt-1d51a0a44f15eee02fec0dfb"
       },
       "research_result": {
         "summary": "Investigated workspace navigation interactions focusing on unlocalized/hardcoded keyboard shortcuts for Windows/macOS. Discovered that shortcuts (Ctrl + Shift + O, Ctrl + B) are hardcoded text and not localized/adapted for macOS users (where ⌘ should be displayed instead of Ctrl).",
