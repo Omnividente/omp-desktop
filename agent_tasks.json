@@ -111998,7 +111998,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T09:09:34.761666Z"
+        "observed_at": "2026-09-30T09:09:34.761666Z",
+        "released_attempt_ref": "autonomous/attempt-68705996fb66f06a0b6af4a4"
       },
       "research_result": {
         "summary": "Investigated transcript rendering, scrolling, and content links for observable behavior and contracts. Identified incorrect viewport anchoring for oversized messages, ReDoS vulnerability with markdown links regex, and incorrect clear search state. Rapid session path swapping operates safely due to correct dependency arrays and refs.",
