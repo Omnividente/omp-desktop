@@ -109598,7 +109598,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T00:29:06.366947Z"
+        "observed_at": "2026-09-30T00:29:06.366947Z",
+        "released_attempt_ref": "autonomous/attempt-eaf51fbeecfc8fdc161bdf8e"
       },
       "research_result": {
         "summary": "Investigated the accessibility regression where toggling the primary provider pin drops focus to the document body. Found that this is caused by the button becoming instantly disabled when primaryProviderPinPending is true. The current implementation lacks focus restoration or redirection for this control during the active pending phase.",
