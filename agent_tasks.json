@@ -111602,7 +111602,8 @@
             "session_id": "3720681951043794412",
             "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b7c8cf1a64a1ea038d2d8e0a"
       },
       "research_result": {
         "summary": "Investigated the settings transaction boundaries for session modification and deletion, as well as the focus loss regression in SessionControls.",
