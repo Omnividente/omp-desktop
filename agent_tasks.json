@@ -119672,7 +119672,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T17:23:53.617335Z"
+        "observed_at": "2026-09-30T17:23:53.617335Z",
+        "released_attempt_ref": "autonomous/attempt-a07a9f05ae0cb9e156ca620f"
       },
       "research_result": {
         "summary": "Investigated the session import boundaries, latency for large files, and resilience to settings transactions. Confirmed that memory and CPU bounds correctly safeguard against massive inputs and race conditions during session removal, without causing deadlocks.",
