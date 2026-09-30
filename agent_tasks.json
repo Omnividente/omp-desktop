@@ -120881,7 +120881,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T20:04:20.800124Z"
+        "observed_at": "2026-09-30T20:04:20.800124Z",
+        "released_attempt_ref": "autonomous/attempt-ab81fcc306f881ff839b26c9"
       },
       "research_result": {
         "summary": "Verified performance metrics in Rust diagnostics (redact_text), resource sampling, and TypeScript incident handling. Confirmed that redact_text linearly scales but takes ~60ms for 100k length text due to the lack of a fast-path, which is noticeable on the event loop for extremely long lines. However, a previous hypothesis to add a simplistic prefix fast-path to redact_text was rejected for security risks, demanding a real bounded production case instead. No regressions were observed in enforceIncidentBound.",
