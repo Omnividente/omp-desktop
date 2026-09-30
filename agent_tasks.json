@@ -120185,7 +120185,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T19:22:33.665825Z"
+        "observed_at": "2026-09-30T19:22:33.665825Z",
+        "released_attempt_ref": "autonomous/attempt-455b9472ae8a51f764113acc"
       },
       "research_result": {
         "summary": "Investigated the focus trap behavior in IncidentCenter and ResourceHealthPanel modals, isolating a bug where visually hidden elements within collapsed details tags are incorrectly included as focusable.",
