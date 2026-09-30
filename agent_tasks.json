@@ -118801,6 +118801,17 @@
         "research_detached": {
           "at": "2026-09-30T16:20:25.006976Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-09-30T16:20:25.006976Z",
+          "result": "pending",
+          "source": {
+            "session_id": "11431104841937568038",
+            "dispatch_key": "6a09e7226b112e43690f1503",
+            "activity_id": "sessions/11431104841937568038/activities/7fcd984db6c94c4882d0167c3531c516",
+            "activity_created_at": "2026-09-30T16:18:13.573826Z",
+            "activity_sha256": "67c5d000725d95741ba703c6249049ff22407bb30f285da66287476321191c26"
+          }
         }
       }
     }
