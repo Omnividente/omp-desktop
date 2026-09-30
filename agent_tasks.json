@@ -111685,6 +111685,136 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-behavior-13",
+      "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-30T08:14:57Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "behavior",
+        "fingerprint": "1c4320648f81eb0860b156400a5491f46223323d5de3655df26c8710b62dcfbc",
+        "cycle": 13,
+        "previous_reports": [
+          {
+            "summary": "Verified the accessibility, keyboard navigation, and structural state reporting for transcript rendering and content links.",
+            "observations": [
+              {
+                "scenario": "Analyzed empty and error states in TranscriptModal for screen reader accessibility.",
+                "evidence": "Ran isolated jsdom tests using Testing Library to render TranscriptModal with `transcript=null` and `transcriptError='error'`. Verified that the empty state renders a container with `role=\"status\"` and the error state uses `role=\"alert\"`.",
+                "result": "Establishes that empty and error states provide the correct semantic ARIA roles for screen reader announcements. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Evaluated keyboard navigation and accessibility of content links parsed from transcript messages.",
+                "evidence": "Rendered TranscriptModal with markdown content containing URLs in an isolated jsdom test. Verified that the `contentLinks` parser correctly processes text into standard `<a>` tags with valid `href` attributes, which natively receive keyboard focus and handle interaction events like 'Enter' keydowns via standard browser behavior.",
+                "result": "Establishes that content URLs embedded in transcripts generate structurally accessible anchors and do not require custom keyboard handlers. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if rapidly swapping session paths while a transcript is actively streaming/loading causes memory leaks or state inconsistency in useTranscript."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-29T15:01:09.256001Z",
+            "source": {
+              "activity_id": "sessions/12722272516481930644/activities/a2eb580188604eae806ba91267a8fb11",
+              "report_sha256": "94940985d53b76f155648efceedc504a28bd8f125344d2df1c2e0af35b1b9645",
+              "activity_created_at": "2026-09-29T14:44:12.178958Z",
+              "session_id": "12722272516481930644",
+              "dispatch_key": "d2aebf567ea7bfeba6399333"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated transcript empty state interactions and content link parsing. Identified a misleading UI state where search UI components are presented to fix a mode-filtered empty state, and a regex overlap issue where URLs can consume markdown link brackets and break rendering.",
+            "observations": [
+              {
+                "scenario": "Clicking the 'Clear search' button when the transcript has zero visible entries due to the 'Dialogue only' mode.",
+                "evidence": "Static analysis of TranscriptModal.tsx. visibleEntries is filtered only by transcriptMode, not by transcriptSearch. When visibleEntries.length === 0 (e.g., no dialogue entries), the UI renders a 'Nothing found' state with a 'Clear search' button if a search query is present. Clicking it clears the search but does not restore entries, because the entries were hidden by the mode, not the search.",
+                "result": "Establishes that the empty state incorrectly attributes missing entries to the search query, confusing the user by offering a non-functional remedy for a mode-based filter. (Evidence mode: static_analysis)"
+              },
+              {
+                "scenario": "Rendering a plain URL immediately followed by a markdown link, e.g., http://example.com/[Label](local://something).",
+                "evidence": "Isolated node script testing CONTENT_URL_PATTERN and contentLinks. The regex allows '[' inside URLs. It matches http://example.com/[Label, which starts at index 0 and ends at 25. The markdown link spans 19-45. contentLinks pushes the URL because it starts before the markdown span. MarkdownContent renders the URL and skips the overlapping markdown link, leaving ](local://something) as raw text.",
+                "result": "Establishes that the URL parser improperly consumes markdown link syntax, breaking the markdown link rendering and leaking raw syntax to the user. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if extremely long or deeply nested markdown links can cause a catastrophic backtracking scenario in MARKDOWN_LINK regex."
+            ],
+            "proposed_task_ids": [
+              "discovery-0bf555f965eef312",
+              "discovery-3a195f089e608aaa"
+            ],
+            "completed_at": "2026-09-29T23:12:10.631605Z",
+            "source": {
+              "activity_id": "sessions/6658890549132550599/activities/acffea472bec441f94e8dab0c820b2a9",
+              "report_sha256": "3d243a7bcced5b053096c43bdb9f1ad56ade8516778a79d10ec617a5e2974241",
+              "activity_created_at": "2026-09-29T22:39:59.895591Z",
+              "session_id": "6658890549132550599",
+              "dispatch_key": "4e9d859c1639592ae33bdef2"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated transcript text matching and virtual list positioning issues. Discovered a catastrophic ReDoS vulnerability in the MARKDOWN_LINK regex when matching sequences of unclosed '[' characters, causing O(N^2) blocking. Verified the reported layout anchoring bug hiding the bottom of excessively tall messages when clicking 'Latest message'.",
+            "observations": [
+              {
+                "scenario": "Simulated regex parsing over strings containing excessive unclosed markdown brackets (e.g., `[[[[...`) to evaluate thread blocking risks.",
+                "evidence": "Ran an isolated Node script executing `text.matchAll(MARKDOWN_LINK)` against strings of repeated '[' characters. The runtime scales quadratically (O(N^2)) because `[^\\]\\n]+` matches eagerly to the end of the string, fails at the missing ']', and then retries the entire process starting from the subsequent '['. A 200,000 character string took ~70 seconds to process.",
+                "result": "Establishes that maliciously crafted or accidentally malformed chat content can completely block the main thread and freeze the application via regex backtracking. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+                "evidence": "Observed via the task report hypothesis that when scrolling to the last index in a virtualized container, `useVirtualList` sets `offset: 0` for `anchoredScrollTop`. Because `Math.min(anchor.offset, Math.max(0, anchorHeight - 1))` processes an `offset` of 0, it aligns the top of the oversized element with the top of the viewport. The user's goal of seeing the 'latest' portion of the message (the bottom) is unfulfilled.",
+                "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, confirming the previous task's observation. (Evidence mode: hypothesis)"
+              },
+              {
+                "scenario": "Tested string sequences with overlapping valid `CONTENT_URL_PATTERN` characters to look for further ReDoS issues.",
+                "evidence": "Created strings with varying length that trigger `/(?:https?|file|local|artifact):\\/\\/[^\\s\"'!*(){}|\\\\^<>`]*[^\\s\"':;,.!?{}|\\\\^~\\[\\]`()<>]/gi` backtrack behavior and measured the execution time. Ran synthetic payloads up to 16MB.",
+                "result": "Establishes that `CONTENT_URL_PATTERN` and `MAIL_LINK` regex patterns match in linear time (O(N)) and are not vulnerable to extreme ReDoS attacks. (Evidence mode: real_runtime)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+            ],
+            "proposed_task_ids": [
+              "discovery-c9c737b0f3c2f5a7",
+              "discovery-2a158a6f04197055"
+            ],
+            "completed_at": "2026-09-29T23:12:10.631605Z",
+            "source": {
+              "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+              "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+              "activity_created_at": "2026-09-29T22:39:43.587153Z",
+              "session_id": "11846649909323179230",
+              "dispatch_key": "12b3f563d46225d4b4525a2f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
