@@ -114395,7 +114395,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T11:13:48.794755Z"
+        "observed_at": "2026-09-30T11:13:48.794755Z",
+        "released_attempt_ref": "autonomous/attempt-a9b92358664085639532f705"
       },
       "research_result": {
         "summary": "Investigated session rename failure behavior, workspace rename behavior, single instance reconciliation, and background save queue behavior. Confirmed that session renaming suffers from eager-state-clearing bug on failure. Confirmed that if an asynchronous `addWorkspace` call blocks on a slow filesystem (via single instance), its error handling logic swallows errors if it's superseded by a later request.",
