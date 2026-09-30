@@ -115339,7 +115339,7 @@
       "id": "research-settings-models-performance-14",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -115479,16 +115479,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11044497663003173201",
         "dispatch_key": "2a82cb6d178c165ce1719b2c",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-2a82cb6d178c165ce1719b2c",
         "started_at": "2026-09-30T12:12:50.344897Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T12:58:34.678194Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -115658,8 +115658,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-09-30T12:36:48.357880Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T12:58:34.678194Z",
         "research_detached": {
           "at": "2026-09-30T12:36:48.357880Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -115675,11 +115675,219 @@
             "activity_sha256": "52e5ec5b63642ba3413f56f065897019bb06480c58bf8ba3131201a2f3e0d700"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated multiple distinct components: ModelPicker focus behavior, SettingsRecoveryScreen error handling, SettingsPanel stale provider handling, and backend proxy overlay generation for disabled providers.",
+        "observations": [
+          {
+            "scenario": "Keyboard navigation in ModelPicker using Arrow keys during search.",
+            "evidence": "Observed via synthetic Vitest testing (`ModelPicker.roving.test.tsx`) and source inspection of `src/ModelPicker.tsx`. When ArrowDown is pressed in the search input, `optionRefs.current[nextIndex]?.focus()` is called. This forcibly moves DOM focus away from the search input and onto the listbox option button, interrupting continuous typing and rendering the existing `aria-activedescendant` strategy redundant.",
+            "result": "Establishes that the custom listbox implementation interrupts seamless typing-and-navigating workflows. Roving focus should be removed in favor of proper `aria-activedescendant`."
+          },
+          {
+            "scenario": "Handling a generic (non-settings) error during startWithDefaults in the SettingsRecoveryScreen.",
+            "evidence": "Observed via synthetic Vitest testing (`App.recovery.test.tsx`) and source inspection of `src/App.tsx`. When `startWithDefaults()` rejects with a generic error message rather than a `settings_unavailable` payload, the catch block in `App.tsx` calls `showError()` to display a toast but fails to clear `settingsRecovery`. The screen remains permanently stuck showing the initial failure.",
+            "result": "Establishes that the UI becomes visually stuck on an outdated recovery state if a subsequent non-settings error occurs during the recovery process."
+          },
+          {
+            "scenario": "Saving settings after removing a custom proxy provider in SettingsPanel.tsx.",
+            "evidence": "Observed via synthetic Vitest testing (`SettingsPanel.proxy.test.tsx`) and source inspection of `src/SettingsPanel.tsx`. The `saveSettingsBundle` payload builds `proxyProviders` directly from the `proxyProviders` state without filtering out IDs stored in `removedCustomProviders`. The backend correctly handles this on its end by stripping them, but the frontend sends stale data.",
+            "result": "Establishes that `SettingsPanel.tsx` does not synchronize its local `proxyProviders` array with deletions before saving."
+          },
+          {
+            "scenario": "Generating proxy provider overlays for OMP during terminal startup.",
+            "evidence": "Observed via source inspection of `src-tauri/src/terminal.rs`. In `initial_agent_args_with_config` setup, the proxy overlay is unconditionally generated using `ensure_proxy_provider_overlay(&app, &settings.proxy_providers)`. It never filters the proxy providers against the set of disabled providers (which must be retrieved via `load_config_snapshot`). Consequently, toggling a proxy provider off continues to inject its overlay into the startup arguments.",
+            "result": "Establishes that disabling a proxy provider from the UI fails to actually exclude it from the proxy chain given to OMP, violating expected behavior."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if removing roving tabIndex entirely and assigning `aria-activedescendant` pointing from the search input to the listbox options (linked via `aria-controls`) improves screen reader announcements safely without invoking a full combobox contract."
+        ],
+        "proposed_task_ids": [
+          "discovery-5994f186e2d442af",
+          "discovery-f18dbebb2de355a7"
+        ],
+        "completed_at": "2026-09-30T12:58:34.678194Z",
+        "source": {
+          "activity_id": "sessions/11044497663003173201/activities/a1cfcd5927c340c387bb71c8b81248ee",
+          "report_sha256": "f144f61d21bde01418ca0b6b77beef6d86a1e2b32d584d038177cff051e11e72",
+          "activity_created_at": "2026-09-30T12:39:31.017706Z",
+          "session_id": "11044497663003173201",
+          "dispatch_key": "2a82cb6d178c165ce1719b2c"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during recovery",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-31392473c06b5573; not established as a duplicate. {\"detail\": \"In App.tsx's `recoverSettingsWithDefaults` catch block, if `settingsUnavailableDetails(error)` is falsy, it calls `showError()` but leaves `settingsRecovery` populated, effectively locking the UI on a stale error view.\", \"reproduction\": {\"actual\": \"A toast appears, but the recovery screen remains open showing the initial parse error indefinitely.\", \"expected\": \"A toast appears with the network error, and the recovery screen closes.\", \"steps\": [\"Simulate a settings parsing failure to trigger the recovery screen.\", \"Simulate an unhandled network or generic I/O error during the 'Start with Defaults' backend call.\", \"Click the 'Start with Defaults' button.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not yield settingsUnavailableDetails, the settingsRecovery state is cleared.",
+              "The user is returned to the main UI and shown the error in a standard toast, rather than being stuck."
+            ]
+          },
+          {
+            "title": "Exclude disabled proxy providers from OMP proxy-providers.yml overlay generation",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-f7cec393fa805278; not established as a duplicate. {\"detail\": \"Observed in `src-tauri/src/terminal.rs`. The `ensure_proxy_provider_overlay` function takes `settings.proxy_providers` directly, completely ignoring disabled providers (which must be fetched via `omp_bridge::load_config_snapshot`). This means a provider flagged as a proxy but disabled globally will still route OMP requests.\", \"reproduction\": {\"actual\": \"The disabled provider remains in the overlay, actively hijacking OMP routing.\", \"expected\": \"The disabled provider is absent from the proxy-providers.yml overlay.\", \"steps\": [\"Configure a proxy provider and verify OMP routes through it.\", \"Toggle the provider to 'disabled' in the UI and save.\", \"Restart the OMP process and inspect `/tmp/proxy-providers.yml` or proxy chains.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Direct verification in terminal.rs shows the startup arguments unconditionally include the full settings.proxy_providers set. The existing discovery task discovery-f7cec393fa805278 suspected this in settings.rs, but the logic actually needs to be patched in terminal.rs by loading the config snapshot to access disabled_providers.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-f7cec393fa805278\", \"responses\": [{\"decision_context_id\": \"none_provided_but_referencing_previous\", \"decision_task_id\": \"discovery-f7cec393fa805278\", \"why_previous_reason_no_longer_explains\": \"The previous research identified a possible duplicate, but the issue is a genuine missing behavior in terminal.rs that requires loading the OmpConfig to compute the intersection.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/terminal.rs"
+            ],
+            "acceptance": [
+              "Proxy overlays are generated by subtracting disabled_providers from proxy_providers, so disabled proxies do not affect OMP runtimes."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11044497663003173201/activities/a1cfcd5927c340c387bb71c8b81248ee",
+          "report_sha256": "f144f61d21bde01418ca0b6b77beef6d86a1e2b32d584d038177cff051e11e72",
+          "activity_created_at": "2026-09-30T12:39:31.017706Z",
+          "session_id": "11044497663003173201",
+          "dispatch_key": "2a82cb6d178c165ce1719b2c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5994f186e2d442af",
+            "discovery-f18dbebb2de355a7"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-77bfd4e756c7cfd1",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-31392473c06b5573"
+            },
+            {
+              "id": "discovery-0c5f88f3d6d3a7c5",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-f7cec393fa805278"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during recovery",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-31392473c06b5573; not established as a duplicate. {\"detail\": \"In App.tsx's `recoverSettingsWithDefaults` catch block, if `settingsUnavailableDetails(error)` is falsy, it calls `showError()` but leaves `settingsRecovery` populated, effectively locking the UI on a stale error view.\", \"reproduction\": {\"actual\": \"A toast appears, but the recovery screen remains open showing the initial parse error indefinitely.\", \"expected\": \"A toast appears with the network error, and the recovery screen closes.\", \"steps\": [\"Simulate a settings parsing failure to trigger the recovery screen.\", \"Simulate an unhandled network or generic I/O error during the 'Start with Defaults' backend call.\", \"Click the 'Start with Defaults' button.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not yield settingsUnavailableDetails, the settingsRecovery state is cleared.",
+                "The user is returned to the main UI and shown the error in a standard toast, rather than being stuck."
+              ]
+            },
+            {
+              "title": "Exclude disabled proxy providers from OMP proxy-providers.yml overlay generation",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-f7cec393fa805278; not established as a duplicate. {\"detail\": \"Observed in `src-tauri/src/terminal.rs`. The `ensure_proxy_provider_overlay` function takes `settings.proxy_providers` directly, completely ignoring disabled providers (which must be fetched via `omp_bridge::load_config_snapshot`). This means a provider flagged as a proxy but disabled globally will still route OMP requests.\", \"reproduction\": {\"actual\": \"The disabled provider remains in the overlay, actively hijacking OMP routing.\", \"expected\": \"The disabled provider is absent from the proxy-providers.yml overlay.\", \"steps\": [\"Configure a proxy provider and verify OMP routes through it.\", \"Toggle the provider to 'disabled' in the UI and save.\", \"Restart the OMP process and inspect `/tmp/proxy-providers.yml` or proxy chains.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Direct verification in terminal.rs shows the startup arguments unconditionally include the full settings.proxy_providers set. The existing discovery task discovery-f7cec393fa805278 suspected this in settings.rs, but the logic actually needs to be patched in terminal.rs by loading the config snapshot to access disabled_providers.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-f7cec393fa805278\", \"responses\": [{\"decision_context_id\": \"none_provided_but_referencing_previous\", \"decision_task_id\": \"discovery-f7cec393fa805278\", \"why_previous_reason_no_longer_explains\": \"The previous research identified a possible duplicate, but the issue is a genuine missing behavior in terminal.rs that requires loading the OmpConfig to compute the intersection.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/terminal.rs"
+              ],
+              "acceptance": [
+                "Proxy overlays are generated by subtracting disabled_providers from proxy_providers, so disabled proxies do not affect OMP runtimes."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "4 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-5994f186e2d442af",
+      "title": "Unify ModelPicker keyboard navigation using aria-activedescendant instead of roving focus",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 80,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "perf"
+      ],
+      "created_at": "2026-09-30T12:58:34.678194Z",
+      "acceptance": [
+        "Pressing ArrowDown or ArrowUp in the search input updates the active index without changing document.activeElement.",
+        "The input retains focus, allowing the user to seamlessly interleave typing and navigating.",
+        "The container listbox is correctly targeted via aria-controls and aria-activedescendant.",
+        "Unit tests pass successfully after adjusting assertions to reflect the input maintaining focus."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "When a user types in the ModelPicker and then presses ArrowDown to navigate, focus jumps to the list item. Any further typing is ignored by the input. The implementation already attempts to use `aria-activedescendant` but contradicts it with explicit `.focus()` calls.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open the ModelPicker and click on the search input.",
+            "Type 'gpt'.",
+            "Press the ArrowDown key once.",
+            "Type '4'."
+          ],
+          "expected": "The input continues to accept typing ('gpt4') while highlighting the next result.",
+          "actual": "The focus leaves the input, and the '4' keypress is either ignored or triggers native button search, disrupting the flow."
+        }
+      },
+      "target_paths": [
+        "src/ModelPicker.tsx",
+        "src/ModelPicker.test.ts"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-14",
+        "activity_id": "sessions/11044497663003173201/activities/a1cfcd5927c340c387bb71c8b81248ee",
+        "report_sha256": "f144f61d21bde01418ca0b6b77beef6d86a1e2b32d584d038177cff051e11e72",
+        "activity_created_at": "2026-09-30T12:39:31.017706Z",
+        "session_id": "11044497663003173201",
+        "dispatch_key": "2a82cb6d178c165ce1719b2c"
+      }
+    },
+    {
+      "id": "discovery-f18dbebb2de355a7",
+      "title": "Exclude removed custom providers from SettingsPanel proxyProviders payload",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-09-30T12:58:34.678194Z",
+      "acceptance": [
+        "The frontend strips IDs present in removedCustomProviders from proxyProviders and disabledProviders before saving."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "In SettingsPanel.tsx, when the `saveSettingsBundle` payload is constructed, `proxyProviders` and `disabledProviders` are passed without filtering out elements from `removedCustomProviders`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open settings and remove a custom provider that was previously configured as a proxy.",
+            "Save the settings."
+          ],
+          "expected": "The save payload sent to the backend omits the removed provider from the `proxyProviders` list.",
+          "actual": "The save payload sends the removed provider in the `proxyProviders` list (although the backend later drops it correctly)."
+        }
+      },
+      "target_paths": [
+        "src/SettingsPanel.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-performance-14",
+        "activity_id": "sessions/11044497663003173201/activities/a1cfcd5927c340c387bb71c8b81248ee",
+        "report_sha256": "f144f61d21bde01418ca0b6b77beef6d86a1e2b32d584d038177cff051e11e72",
+        "activity_created_at": "2026-09-30T12:39:31.017706Z",
+        "session_id": "11044497663003173201",
+        "dispatch_key": "2a82cb6d178c165ce1719b2c"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T12:37:13.097437Z",
+    "last_poll_at": "2026-09-30T12:58:56.663984Z",
     "last_tick_at": "2026-09-30T12:37:37.310900Z",
     "run_id": "36715793590"
   }
