@@ -118796,8 +118796,8 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T16:44:16.025174Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T16:51:12.309726Z",
         "research_detached": {
           "at": "2026-09-30T16:20:25.006976Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -118828,14 +118828,15 @@
         "report_repair": {
           "at": "2026-09-30T16:37:26.493909Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/11431104841937568038/activities/017708deca0b407b843b01d70acc7dbb",
-            "report_sha256": "2ee949c32a36be724dee377fca91dde8cfd64649383bca02685c2be9e1675584",
-            "activity_created_at": "2026-09-30T16:23:14.167897Z",
+            "activity_id": "sessions/11431104841937568038/activities/d3400eb75cd6442482a5f7d76f4a6592",
+            "report_sha256": "357c2abc5e8d71874403634fbe0fe5a4abb593a67c9f1ece4b1d527c20861b1e",
+            "activity_created_at": "2026-09-30T16:39:34.460272Z",
             "session_id": "11431104841937568038",
             "dispatch_key": "6a09e7226b112e43690f1503"
-          }
+          },
+          "detail": "expected exactly one ordered research report block"
         }
       }
     },
@@ -119327,7 +119328,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T16:44:42.705345Z",
+    "last_poll_at": "2026-09-30T16:51:36.438848Z",
     "last_tick_at": "2026-09-30T16:44:49.156123Z",
     "run_id": "36746282653"
   }
