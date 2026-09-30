@@ -114943,7 +114943,7 @@
       "id": "research-workspace-navigation-performance-14",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -115073,16 +115073,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13913767570439652833",
         "dispatch_key": "1d51a0a44f15eee02fec0dfb",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-1d51a0a44f15eee02fec0dfb",
         "started_at": "2026-09-30T11:37:03.382436Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T12:06:31.990156Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -115252,13 +115252,91 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T11:45:53.438526Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T12:06:31.990156Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation interactions focusing on unlocalized/hardcoded keyboard shortcuts for Windows/macOS. Discovered that shortcuts (Ctrl + Shift + O, Ctrl + B) are hardcoded text and not localized/adapted for macOS users (where ⌘ should be displayed instead of Ctrl).",
+        "observations": [
+          {
+            "scenario": "Simulated rendering of WorkspaceHome and ProjectRail components on macOS and Windows to observe keyboard shortcut hints.",
+            "evidence": "Wrote synthetic vitest tests verifying that `WorkspaceHome` hardcodes `<span className=\"shortcut-hint\">Ctrl + Shift + O</span>` and `ProjectRail` hardcodes `<span>Ctrl + B</span>`. On macOS, these shortcuts should conventionally use the Command key (⌘) instead of Control (Ctrl). In `src/i18n.ts`, the shortcut translation is also hardcoded: `railModeShortcut: \"Ctrl + B — show or hide the sidebar\"`.",
+            "result": "Establishes a minor user experience and internationalization/platform-awareness defect: shortcut text is hardcoded to 'Ctrl', presenting incorrect keyboard hints to macOS users where '⌘' is expected."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the accessibility of the workspace rename input field to see if screen readers correctly announce validation errors during failures."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-30T12:06:31.990156Z",
+        "source": {
+          "activity_id": "sessions/13913767570439652833/activities/20ad330e727143058ee7496e2617b508",
+          "report_sha256": "ce4317d77d5b1f19bd779ba1f7fe5fde9fe013c462934b7e3994f94b46f40032",
+          "activity_created_at": "2026-09-30T11:54:58.432840Z",
+          "session_id": "13913767570439652833",
+          "dispatch_key": "1d51a0a44f15eee02fec0dfb"
+        },
+        "deferred_findings": [
+          {
+            "title": "Localize hardcoded workspace shortcuts for macOS",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Observed via code review and vitest synthetic checks that shortcut hints in WorkspaceHome and ProjectRail are hardcoded to 'Ctrl + Shift + O' and 'Ctrl + B'.\", \"reproduction\": {\"actual\": \"Shortcut text is hardcoded to use 'Ctrl' on all platforms.\", \"expected\": \"Shortcut text dynamically adjusts to use '⌘' (Command key) instead of 'Ctrl' on macOS.\", \"steps\": [\"Open WorkspaceHome.tsx and find the hardcoded 'Ctrl + Shift + O' hint.\", \"Open ProjectRail.tsx and find the hardcoded 'Ctrl + B' hint.\", \"Note that runtime platform is available to WorkspaceHome via `runtime.platform` and to ProjectRail via `sessionList.platform`.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/WorkspaceHome.tsx",
+              "src/ProjectRail.tsx"
+            ],
+            "acceptance": [
+              "Shortcut hints in WorkspaceHome should display '⌘ + Shift + O' on macOS, and 'Ctrl + Shift + O' on Windows/Linux.",
+              "Shortcut hints in ProjectRail should display '⌘ + B' on macOS, and 'Ctrl + B' on Windows/Linux.",
+              "Tooltips and aria-labels that reference shortcuts should reflect the correct platform keys."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13913767570439652833/activities/20ad330e727143058ee7496e2617b508",
+          "report_sha256": "ce4317d77d5b1f19bd779ba1f7fe5fde9fe013c462934b7e3994f94b46f40032",
+          "activity_created_at": "2026-09-30T11:54:58.432840Z",
+          "session_id": "13913767570439652833",
+          "dispatch_key": "1d51a0a44f15eee02fec0dfb"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-47799e83a647884f",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7ea0512cd4985404"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Localize hardcoded workspace shortcuts for macOS",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Observed via code review and vitest synthetic checks that shortcut hints in WorkspaceHome and ProjectRail are hardcoded to 'Ctrl + Shift + O' and 'Ctrl + B'.\", \"reproduction\": {\"actual\": \"Shortcut text is hardcoded to use 'Ctrl' on all platforms.\", \"expected\": \"Shortcut text dynamically adjusts to use '⌘' (Command key) instead of 'Ctrl' on macOS.\", \"steps\": [\"Open WorkspaceHome.tsx and find the hardcoded 'Ctrl + Shift + O' hint.\", \"Open ProjectRail.tsx and find the hardcoded 'Ctrl + B' hint.\", \"Note that runtime platform is available to WorkspaceHome via `runtime.platform` and to ProjectRail via `sessionList.platform`.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/WorkspaceHome.tsx",
+                "src/ProjectRail.tsx"
+              ],
+              "acceptance": [
+                "Shortcut hints in WorkspaceHome should display '⌘ + Shift + O' on macOS, and 'Ctrl + Shift + O' on Windows/Linux.",
+                "Shortcut hints in ProjectRail should display '⌘ + B' on macOS, and 'Ctrl + B' on Windows/Linux.",
+                "Tooltips and aria-labels that reference shortcuts should reflect the correct platform keys."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T12:00:02.292804Z",
+    "last_poll_at": "2026-09-30T12:06:50.941113Z",
     "last_tick_at": "2026-09-30T12:00:07.554606Z",
     "run_id": "36711864586"
   }
