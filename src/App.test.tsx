@@ -14,6 +14,7 @@ import type {
   ImportSessionRequest,
   OmpConfigSnapshot,
   SingleInstanceEvent,
+  PtySessionEvent,
   TerminalStarted,
 } from "./types"
 
@@ -339,7 +340,7 @@ describe("App lifecycle serialization", () => {
     receive({
       event: "single-instance",
       id: 1,
-      payload: { args: ["omp-desktop", "--workspace", `C:/fixture/${name}`] },
+      payload: { workspace: `C:/fixture/${name}`, error: null },
     })
   }
 
@@ -644,7 +645,7 @@ describe("App lifecycle serialization", () => {
     expect(subscription).toBeDefined()
     const receive = subscription![1] as EventCallback<SingleInstanceEvent>
     await act(async () => {
-      receive({ event: "single-instance", id: 2, payload: { args: ["omp-desktop"] } })
+      receive({ event: "single-instance", id: 2, payload: { workspace: null, error: null } })
     })
     expect(container.querySelector(".transcript-panel")).toBeNull()
   })
@@ -968,6 +969,146 @@ describe("App lifecycle serialization", () => {
     )
     expect(api.sendSwitchInputRecovery).toHaveBeenCalledTimes(1)
     expect(container.querySelector(".switch-input-recovery")).toBeNull()
+  })
+
+  it("keeps the current project and reports a repeat-launch path resolution failure", async () => {
+    await act(async () => root.render(<App />))
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({
+        event: "single-instance",
+        id: 1,
+        payload: { workspace: null, error: "Audit launch path needs an absolute directory" },
+      }),
+    )
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+    expect(container.querySelector(".error-toast")?.textContent).toContain(
+      "Audit launch path needs an absolute directory",
+    )
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+  })
+
+  it.each(["newer", "unchanged"] as const)(
+    "reconciles a late pty-session bootstrap with %s user selection",
+    async (choice) => {
+      const projects = {
+        ...bootstrap,
+        sessions: [
+          bootstrap.sessions[0],
+          {
+            ...bootstrap.sessions[0],
+            id: "second-session",
+            title: "Second session",
+            filePath: "C:/fixture/sessions/second.jsonl",
+            updatedAt: 0,
+          },
+        ],
+      }
+      const pending = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockResolvedValueOnce(projects).mockReturnValueOnce(pending.promise)
+      await mountAndResume()
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      if (choice === "newer") {
+        act(() => element('.session-select[aria-label="Second session"]').click())
+      }
+      await act(async () => pending.resolve(projects))
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        choice === "newer" ? "Second session" : projects.sessions[0].title,
+      )
+    },
+  )
+
+  it.each(["close", "escape", "backdrop", "cancel", "incidents", "resources"] as const)(
+    "shows a late Save failure after Settings leaves through %s",
+    async (route) => {
+      const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() => element(".settings-actions .primary").click())
+      await act(async () => {
+        if (route === "escape") {
+          element(".settings-panel").dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          )
+        } else if (route === "backdrop") {
+          element(".settings-backdrop").dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true }),
+          )
+        } else {
+          const selectors = {
+            close: ".settings-header button",
+            cancel: ".settings-actions .secondary",
+            incidents: ".incident-center-trigger",
+            resources: ".resource-health-trigger",
+          }
+          element(selectors[route]).click()
+        }
+      })
+      expect(container.querySelector('[aria-labelledby="settings-title"]')).toBeNull()
+      await act(async () => pending.reject(new Error("Audit Save failure after unmount")))
+      expect(container.querySelector(".error-toast")?.textContent).toContain(
+        "Audit Save failure after unmount",
+      )
+      expect(document.documentElement.style.fontSize).toBe("16px")
+    },
+  )
+
+  it("applies a successful Save after closing Settings without reopening it", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    await openAndChangeSettings()
+    act(() => element(".settings-actions .primary").click())
+    act(() => element(".settings-header button").click())
+    await act(async () =>
+      pending.resolve({
+        bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } },
+        ompConfig: config("Saved"),
+      }),
+    )
+    expect(container.querySelector(".settings-panel")).toBeNull()
+    expect(document.documentElement.style.fontSize).toBe("18px")
+    await act(async () => element(".runtime-pill").click())
+    expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
+  })
+
+  it("presents a Save-triggered settings-unavailable failure on Recovery without a duplicate toast", async () => {
+    const actual = await vi.importActual<typeof api>("./api")
+    vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
+    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    invokeMock.mockImplementation((command) =>
+      command === "save_settings_bundle" ? pending.promise : Promise.resolve(),
+    )
+    await act(async () => root.render(<App />))
+    await openAndChangeSettings()
+    act(() => element(".settings-actions .primary").click())
+    await act(async () =>
+      pending.reject({
+        code: "settings_unavailable",
+        message: "Audit settings storage unavailable",
+        details: "Audit disk unavailable",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      }),
+    )
+    expect(container.querySelector(".settings-panel")).toBeNull()
+    expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+      "Audit disk unavailable",
+    )
+    expect(container.querySelector(".error-toast")).toBeNull()
   })
 
   it("keeps post-save models when initial App and Settings requests resolve late after a save without config", async () => {

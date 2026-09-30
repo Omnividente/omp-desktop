@@ -751,10 +751,10 @@ export function SettingsPanel({
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
     } catch (error) {
-      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
-      setSaveError(message)
       onError(message)
+      if (disposedRef.current) return
+      setSaveError(message)
       if (reloadConfigOnFailure && generation === configGenerationRef.current) {
         void refreshConfig(false, configRuntimeRef.current ?? runtime)
       }

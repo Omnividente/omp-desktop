@@ -80,43 +80,6 @@ export function reorderTerminalTabs(
   reordered.splice(targetIndex, 0, moved)
   return reordered
 }
-export function extractSingleInstanceWorkspace(args: string[] | undefined): string | null {
-  const list = args ?? []
-  const clean = (value: string | undefined): string | null => {
-    const trimmed = value?.trim() ?? ""
-    return trimmed || null
-  }
-
-  for (let i = 1; i < list.length; i++) {
-    const arg = list[i].trim()
-    if (arg === "--project" || arg === "-p" || arg === "--workspace" || arg === "-w") {
-      const next = list[i + 1]?.trim()
-      if (next && next !== "--" && !next.startsWith("-")) return clean(next)
-      continue
-    }
-    if (
-      arg.startsWith("--project=") ||
-      arg.startsWith("--workspace=") ||
-      arg.startsWith("-p=") ||
-      arg.startsWith("-w=")
-    ) {
-      const value = arg.slice(arg.indexOf("=") + 1)
-      const result = clean(value)
-      if (result) return result
-    }
-  }
-
-  for (let i = 1; i < list.length; i++) {
-    const arg = list[i].trim()
-    if (!arg) continue
-    if (arg === "--") return clean(list[i + 1])
-    if (arg.startsWith("-")) continue
-    if (["run", "dev", "open"].includes(arg.toLowerCase())) continue
-    return arg
-  }
-
-  return null
-}
 
 export function mergeSessionIntoPayload(
   payload: BootstrapPayload,
@@ -173,19 +136,47 @@ export interface FlattenedSessionTreeItem {
 function latestTreeActivity(node: SessionTreeNode, cache: Map<string, number>): number {
   const cached = cache.get(node.session.id)
   if (cached !== undefined) return cached
-  const latest = node.children.reduce(
-    (current, child) => Math.max(current, latestTreeActivity(child, cache)),
-    node.session.updatedAt,
-  )
-  cache.set(node.session.id, latest)
+  const stack = [{ node, nextChild: 0, latest: node.session.updatedAt }]
+  let latest = node.session.updatedAt
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]
+    if (frame.nextChild < frame.node.children.length) {
+      const child = frame.node.children[frame.nextChild++]
+      const childActivity = cache.get(child.session.id)
+      if (childActivity !== undefined) {
+        frame.latest = Math.max(frame.latest, childActivity)
+      } else {
+        stack.push({ node: child, nextChild: 0, latest: child.session.updatedAt })
+      }
+      continue
+    }
+    latest = frame.latest
+    cache.set(frame.node.session.id, latest)
+    stack.pop()
+    if (stack.length > 0) {
+      const parent = stack[stack.length - 1]
+      parent.latest = Math.max(parent.latest, latest)
+    }
+  }
   return latest
 }
 
 export function latestSessionInTree(node: SessionTreeNode): SessionSummary {
+  const stack = [{ node, nextChild: 0, latest: node.session }]
   let latest = node.session
-  for (const child of node.children) {
-    const candidate = latestSessionInTree(child)
-    if (candidate.updatedAt > latest.updatedAt) latest = candidate
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]
+    if (frame.nextChild < frame.node.children.length) {
+      const child = frame.node.children[frame.nextChild++]
+      stack.push({ node: child, nextChild: 0, latest: child.session })
+      continue
+    }
+    latest = frame.latest
+    stack.pop()
+    if (stack.length > 0) {
+      const parent = stack[stack.length - 1]
+      if (latest.updatedAt > parent.latest.updatedAt) parent.latest = latest
+    }
   }
   return latest
 }
@@ -208,15 +199,22 @@ export function buildSessionTree(sessions: SessionSummary[], platform: string): 
     }
   }
 
-  const createsCycle = (sessionId: string): boolean => {
-    const seen = new Set([sessionId])
-    let previous = previousById.get(sessionId)
-    while (previous) {
-      if (seen.has(previous.session.id)) return true
-      seen.add(previous.session.id)
-      previous = previousById.get(previous.session.id)
+  // Each previous-session edge is visited once. Mark the whole path, not only
+  // cycle members: sessions leading into a cycle must also remain unlinked.
+  const lineageState = new Map<string, "visiting" | "acyclic" | "cyclic">()
+  for (const node of nodes) {
+    if (lineageState.has(node.session.id)) continue
+    const path: string[] = []
+    let current: SessionTreeNode | undefined = node
+    while (current && !lineageState.has(current.session.id)) {
+      const id = current.session.id
+      lineageState.set(id, "visiting")
+      path.push(id)
+      current = previousById.get(id)
     }
-    return false
+    const state = current && lineageState.get(current.session.id)
+    const settled = state === "visiting" || state === "cyclic" ? "cyclic" : "acyclic"
+    for (const id of path) lineageState.set(id, settled)
   }
 
   // OMP stores the previous session in child.parentSession. The UI puts the
@@ -224,7 +222,7 @@ export function buildSessionTree(sessions: SessionSummary[], platform: string): 
   const newerByPreviousId = new Map<string, SessionTreeNode[]>()
   for (const node of nodes) {
     const previous = previousById.get(node.session.id)
-    if (!previous || createsCycle(node.session.id)) continue
+    if (!previous || lineageState.get(node.session.id) === "cyclic") continue
     const newerSessions = newerByPreviousId.get(previous.session.id)
     if (newerSessions) newerSessions.push(node)
     else newerByPreviousId.set(previous.session.id, [node])
@@ -250,11 +248,12 @@ export function buildSessionTree(sessions: SessionSummary[], platform: string): 
     latestTreeActivity(right, activityCache) - latestTreeActivity(left, activityCache) ||
     right.session.updatedAt - left.session.updatedAt ||
     left.session.id.localeCompare(right.session.id)
-  const sortChildren = (node: SessionTreeNode) => {
-    node.children.forEach(sortChildren)
+  const pending = [...roots]
+  while (pending.length > 0) {
+    const node = pending.pop()!
     node.children.sort(sortByLatestActivity)
+    for (const child of node.children) pending.push(child)
   }
-  roots.forEach(sortChildren)
   roots.sort(sortByLatestActivity)
   return roots
 }
@@ -263,11 +262,23 @@ export function filterSessionTree(
   nodes: SessionTreeNode[],
   matchingSessionIds: ReadonlySet<string>,
 ): SessionTreeNode[] {
-  return nodes.flatMap((node) => {
-    const children = filterSessionTree(node.children, matchingSessionIds)
-    if (!matchingSessionIds.has(node.session.id) && children.length === 0) return []
-    return [{ session: node.session, children }]
-  })
+  const filtered: SessionTreeNode[] = []
+  for (const node of nodes) {
+    const stack = [{ node, nextChild: 0, children: [] as SessionTreeNode[] }]
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]
+      if (frame.nextChild < frame.node.children.length) {
+        const child = frame.node.children[frame.nextChild++]
+        stack.push({ node: child, nextChild: 0, children: [] })
+        continue
+      }
+      stack.pop()
+      if (!matchingSessionIds.has(frame.node.session.id) && frame.children.length === 0) continue
+      const target = stack.length > 0 ? stack[stack.length - 1].children : filtered
+      target.push({ session: frame.node.session, children: frame.children })
+    }
+  }
+  return filtered
 }
 
 export function flattenSessionTree(
@@ -276,46 +287,49 @@ export function flattenSessionTree(
   forceExpand = false,
 ): FlattenedSessionTreeItem[] {
   const items: FlattenedSessionTreeItem[] = []
-  const visit = (node: SessionTreeNode, depth: number) => {
+  const stack = [{ nodes, index: 0 }]
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]
+    if (frame.index === frame.nodes.length) {
+      stack.pop()
+      continue
+    }
+    const node = frame.nodes[frame.index++]
     const hasChildren = node.children.length > 0
     const expanded = hasChildren && (forceExpand || expandedSessionIds.has(node.session.id))
-    items.push({ session: node.session, depth, hasChildren, expanded })
-    if (expanded) node.children.forEach((child) => visit(child, depth + 1))
+    items.push({ session: node.session, depth: stack.length - 1, hasChildren, expanded })
+    if (expanded) stack.push({ nodes: node.children, index: 0 })
   }
-  nodes.forEach((node) => visit(node, 0))
   return items
 }
 
-export function sessionAncestorIds(nodes: SessionTreeNode[], sessionId: string): string[] {
-  const visit = (node: SessionTreeNode): string[] | null => {
-    if (node.session.id === sessionId) return []
-    for (const child of node.children) {
-      const descendants = visit(child)
-      if (descendants) return [node.session.id, ...descendants]
+function sessionTreePath(nodes: SessionTreeNode[], sessionId: string): SessionTreeNode[] {
+  const path: SessionTreeNode[] = []
+  const stack = [{ nodes, index: 0 }]
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]
+    if (frame.index === frame.nodes.length) {
+      stack.pop()
+      path.pop()
+      continue
     }
-    return null
+    const node = frame.nodes[frame.index++]
+    path.push(node)
+    if (node.session.id === sessionId) return path
+    if (node.children.length > 0) stack.push({ nodes: node.children, index: 0 })
+    else path.pop()
   }
+  return path
+}
 
-  for (const node of nodes) {
-    const ancestors = visit(node)
-    if (ancestors) return ancestors
-  }
-  return []
+export function sessionAncestorIds(nodes: SessionTreeNode[], sessionId: string): string[] {
+  const path = sessionTreePath(nodes, sessionId)
+  path.pop()
+  return path.map((node) => node.session.id)
 }
 
 export function sessionGroupExpansionIds(nodes: SessionTreeNode[], sessionId: string): string[] {
-  const visit = (node: SessionTreeNode): string[] | null => {
-    if (node.session.id === sessionId) return node.children.length > 0 ? [node.session.id] : []
-    for (const child of node.children) {
-      const descendants = visit(child)
-      if (descendants) return [node.session.id, ...descendants]
-    }
-    return null
-  }
-
-  for (const node of nodes) {
-    const expansion = visit(node)
-    if (expansion) return expansion
-  }
-  return []
+  const path = sessionTreePath(nodes, sessionId)
+  if (path.length > 0 && path[path.length - 1].children.length === 0) path.pop()
+  return path.map((node) => node.session.id)
 }
