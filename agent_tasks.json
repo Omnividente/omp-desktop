@@ -110300,7 +110300,7 @@
       "id": "research-sessions-persistence-behavior-14",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -110438,16 +110438,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16918823435969185888",
         "dispatch_key": "6b344c9c95f35d8f2a195989",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-6b344c9c95f35d8f2a195989",
         "started_at": "2026-09-30T00:55:49.850470Z",
-        "finished_at": "",
+        "finished_at": "2026-09-30T01:18:43.444260Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -110618,13 +110618,38 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-09-30T01:05:04.212028Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-09-30T01:18:43.444260Z"
+      },
+      "research_result": {
+        "summary": "Investigated the memory and latency footprint of the SessionList component displaying active workspaces with deeply nested session hierarchies and huge quantities of items. Verified that the component renders 100,000 synthetic items without crashing and effectively implements virtualization boundaries. The underlying virtualizer bounds the DOM node count, drastically limiting the number of elements rendered.",
+        "observations": [
+          {
+            "scenario": "SessionList rendering a massive list of 100,000 items.",
+            "evidence": "Ran a synthetic React component test using Vitest and jsdom (temporarily created as src/SessionListVirtualization.test.tsx). The test generated 100,000 session objects and asserted that the initial render completes without throwing an Out-Of-Memory or Call Stack error. Furthermore, it asserted that the total number of items rendered into the DOM with the component class .session-item was strictly bounded to less than 100 despite having 100,000 total items in state.",
+            "result": "Establishes that the underlying virtualizer correctly bounds DOM nodes regardless of the input dataset size. The frontend component can handle deeply nested or massive flat hierarchies without crashing, meaning no further structural bounds inside the specific component are strictly required to avoid out of memory issues for pure item count."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+          "Investigate if `set_session_title_pin` (which modifies the shared `SettingsState`) and `delete_session` have a race condition when run concurrently, as `set_session_title_pin` acquires the settings lock but not `IMPORT_TRANSACTION_LOCK`.",
+          "Investigate whether rapid succession of `delete_session` and `import_session` with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-09-30T01:18:43.444260Z",
+        "source": {
+          "activity_id": "sessions/16918823435969185888/activities/ce2f400a476c44eebc563b119823bb8f",
+          "report_sha256": "743a7f07069dfc88fad374c56427e3e0aac578b518de313bd60d464500fb2a32",
+          "activity_created_at": "2026-09-30T01:09:29.696707Z",
+          "session_id": "16918823435969185888",
+          "dispatch_key": "6b344c9c95f35d8f2a195989"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-09-30T01:12:16.351462Z",
+    "last_poll_at": "2026-09-30T01:19:02.921168Z",
     "last_tick_at": "2026-09-30T01:12:21.293762Z",
     "run_id": "36653896619"
   }
