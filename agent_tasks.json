@@ -121406,7 +121406,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T20:31:52.094531Z"
+        "observed_at": "2026-09-30T20:31:52.094531Z",
+        "released_attempt_ref": "autonomous/attempt-4e866b8c0822f67dba2516da"
       },
       "research_result": {
         "summary": "Investigated the focus trap behavior in IncidentCenter and ResourceHealthPanel modals. Discovered that the inline `handleKeyDown` focus trap implementation queries focusable elements but only checks `!element.hidden`. This incorrectly captures elements inside collapsed `<details>` tags because they don't gain the standard `hidden` DOM attribute, thus allowing keyboard traversal to escape visible bounds. Developed a proven solution that manually checks for ancestors wrapped in a closed `<details>` block.",
