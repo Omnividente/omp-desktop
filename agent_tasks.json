@@ -116240,7 +116240,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-09-30T13:22:01.598252Z"
+        "observed_at": "2026-09-30T13:22:01.598252Z",
+        "released_attempt_ref": "autonomous/attempt-2668659ed1477ab31609d97d"
       },
       "research_result": {
         "summary": "Investigated Settings recovery error handling, proxy provider overlay generation, and ModelPicker focus management.",
