@@ -116796,7 +116796,8 @@
             "session_id": "5827325986971358126",
             "dispatch_key": "5af800f3a1260bc8a741ed9f"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-5af800f3a1260bc8a741ed9f"
       },
       "research_result": {
         "summary": "Investigated three issues regarding Settings recovery stuck state, backend proxy overlay generation for disabled providers, and ModelPicker focus management interrupting user typing.",
