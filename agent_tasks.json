@@ -117504,6 +117504,193 @@
           "detail": "3 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-reliability-14",
+      "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-09-30T14:52:40Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "reliability",
+        "fingerprint": "1c4320648f81eb0860b156400a5491f46223323d5de3655df26c8710b62dcfbc",
+        "cycle": 14,
+        "previous_reports": [
+          {
+            "summary": "Investigated transcript text matching and virtual list positioning issues. Discovered a catastrophic ReDoS vulnerability in the MARKDOWN_LINK regex when matching sequences of unclosed '[' characters, causing O(N^2) blocking. Verified the reported layout anchoring bug hiding the bottom of excessively tall messages when clicking 'Latest message'.",
+            "observations": [
+              {
+                "scenario": "Simulated regex parsing over strings containing excessive unclosed markdown brackets (e.g., `[[[[...`) to evaluate thread blocking risks.",
+                "evidence": "Ran an isolated Node script executing `text.matchAll(MARKDOWN_LINK)` against strings of repeated '[' characters. The runtime scales quadratically (O(N^2)) because `[^\\]\\n]+` matches eagerly to the end of the string, fails at the missing ']', and then retries the entire process starting from the subsequent '['. A 200,000 character string took ~70 seconds to process.",
+                "result": "Establishes that maliciously crafted or accidentally malformed chat content can completely block the main thread and freeze the application via regex backtracking. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message has content significantly larger than the available viewport height.",
+                "evidence": "Observed via the task report hypothesis that when scrolling to the last index in a virtualized container, `useVirtualList` sets `offset: 0` for `anchoredScrollTop`. Because `Math.min(anchor.offset, Math.max(0, anchorHeight - 1))` processes an `offset` of 0, it aligns the top of the oversized element with the top of the viewport. The user's goal of seeing the 'latest' portion of the message (the bottom) is unfulfilled.",
+                "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, confirming the previous task's observation. (Evidence mode: hypothesis)"
+              },
+              {
+                "scenario": "Tested string sequences with overlapping valid `CONTENT_URL_PATTERN` characters to look for further ReDoS issues.",
+                "evidence": "Created strings with varying length that trigger `/(?:https?|file|local|artifact):\\/\\/[^\\s\"'!*(){}|\\\\^<>`]*[^\\s\"':;,.!?{}|\\\\^~\\[\\]`()<>]/gi` backtrack behavior and measured the execution time. Ran synthetic payloads up to 16MB.",
+                "result": "Establishes that `CONTENT_URL_PATTERN` and `MAIL_LINK` regex patterns match in linear time (O(N)) and are not vulnerable to extreme ReDoS attacks. (Evidence mode: real_runtime)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized list navigation (using page up / page down keys) handles oversized list items safely without getting stuck in a measurement loop."
+            ],
+            "proposed_task_ids": [
+              "discovery-c9c737b0f3c2f5a7",
+              "discovery-2a158a6f04197055"
+            ],
+            "completed_at": "2026-09-29T23:12:10.631605Z",
+            "source": {
+              "activity_id": "sessions/11846649909323179230/activities/14ed62597bd445d4b0dc7593c221bdee",
+              "report_sha256": "540131628eb5d4ad5e9c8a8109dad93d5293f6b42311b949b64a5de6ff989cf8",
+              "activity_created_at": "2026-09-29T22:39:43.587153Z",
+              "session_id": "11846649909323179230",
+              "dispatch_key": "12b3f563d46225d4b4525a2f"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated transcript rendering, scrolling, and content links for observable behavior and contracts. Identified incorrect viewport anchoring for oversized messages, ReDoS vulnerability with markdown links regex, and incorrect clear search state. Rapid session path swapping operates safely due to correct dependency arrays and refs.",
+            "observations": [
+              {
+                "scenario": "Simulated clicking the 'Latest message' button in TranscriptModal when the last visible message is excessively large (larger than viewport height) and previously unmeasured.",
+                "evidence": "Ran an isolated jsdom vitest testing layout offset measurement in TranscriptModal by mocking getBoundingClientRect for an oversized transcript entry. Observed that when latestRequest state causes virtualList to scrollToIndex on the last entry, the scroll sets `scrollTop = layout.offsets[index]`, meaning the viewport is anchored to the TOP of the oversized message, hiding the actual latest content at the bottom of the message.",
+                "result": "Establishes that 'Latest message' navigation incorrectly anchors the top of long messages rather than their bottom, confirming a previous hypothesis. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Clicking the 'Clear search' button when the transcript has zero visible entries due to the 'Dialogue only' mode (with an active search).",
+                "evidence": "Rendered TranscriptModal with dialogue mode on a transcript consisting only of non-dialogue entries, with an active search query. The UI renders the 'Nothing found' state and displays a 'Clear' search button. Clicking the button correctly clears the search string (verified by firing the click event in vitest), but because `visibleEntries` length remains 0 due to the mode filter, the empty state text 'No matches in the selected transcript content' persists, incorrectly attributing the lack of entries to search rather than mode.",
+                "result": "Establishes that the empty state offers a non-functional remedy for a mode-based filter, verifying the previous task observation. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Rapidly swapping session paths while a transcript is actively streaming or loading.",
+                "evidence": "Ran isolated jsdom tests using Testing Library. Mocked `readSessionTranscript` to return unresolved promises, and called `loadTranscriptPath` sequentially with two different paths ('path1', 'path2'). Resolved the 'path1' promise after 'path2' was requested. The state correctly ignored the 'path1' result because `useTranscript` checks `requestRef.current === requestId` before updating state.",
+                "result": "Establishes that rapid path swapping safely avoids race conditions and memory leaks by validating request sequence before committing state. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Simulated regex parsing over strings containing excessive unclosed markdown brackets (e.g., `[[[[...`) to evaluate catastrophic backtracking.",
+                "evidence": "Ran isolated Node scripts executing `text.matchAll(MARKDOWN_LINK)` against strings of repeated '[' characters. A 200,000 character string took ~70 seconds to process. Changing the first capture group to limit backtracking scope (e.g., matching a bounded length like `{1,1000}`) successfully limits the catastrophic O(N^2) delay.",
+                "result": "Establishes that maliciously crafted chat content can completely block the main thread via regex backtracking, confirming the previous task's findings. (Evidence mode: real_runtime)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if scrolling up quickly past oversized, unmeasured items causes scroll jumps due to `resizeAnchor` recalculations in `useVirtualList`."
+            ],
+            "proposed_task_ids": [
+              "discovery-482c04fbc014fcd9"
+            ],
+            "completed_at": "2026-09-30T09:09:34.761666Z",
+            "source": {
+              "activity_id": "sessions/14435770682200383938/activities/58c53fb2fd2549f9954f08bd5db59ba7",
+              "report_sha256": "406e2d2bbe50d8188c9c8b57a73abcafa941a65f407f573c9e92aa08dd657307",
+              "activity_created_at": "2026-09-30T08:56:51.025516Z",
+              "session_id": "14435770682200383938",
+              "dispatch_key": "68705996fb66f06a0b6af4a4"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-2a158a6f04197055; not established as a duplicate. {\"detail\": \"Observed via jsdom vitest simulation that `useVirtualList` scrollToIndex correctly anchors to the top offset of an element. However, when 'Latest message' is triggered, if the final message height exceeds the viewport, scrolling to the element's top hides its newly generated content at the bottom.\", \"reproduction\": {\"actual\": \"The viewport scrolls to align with the top of the final message, leaving the latest output unseen.\", \"expected\": \"The viewport scrolls to the bottom of the final message.\", \"steps\": [\"Load a transcript with a final message that is significantly taller than the viewport.\", \"Click the 'Latest message' button.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this previously in PR #98. The task is being re-proposed because the resolution was closed against main and needs to be verified on the current branch, or it represents a regression if the fix is not present.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"The PR #98 merged into main df856f35322b24776766dee1bb0823c20ec64bbd is not reflected in the current repository pin (888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2). The bug is fully observable via testing script on the current base.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx",
+                  "src/useVirtualList.ts"
+                ],
+                "acceptance": [
+                  "Clicking 'Latest message' navigates to the bottom of the final visible message, not its top, ensuring users see the most recent content of oversized messages."
+                ]
+              },
+              {
+                "title": "Prevent main thread block on massive transcript regex search",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-c9c737b0f3c2f5a7; not established as a duplicate. {\"detail\": \"Measured O(N^2) catastrophic backtracking in `contentLinks.ts` due to `MARKDOWN_LINK` parsing. A malicious or malformed chat entry containing 200,000 unclosed '[' characters causes Node.js to block the main thread for over 70 seconds.\", \"reproduction\": {\"actual\": \"Regex execution takes over 70,000 milliseconds (70 seconds) due to quadratic backtracking.\", \"expected\": \"Regex execution completes almost instantly, returning no matches.\", \"steps\": [\"Execute `Array.from(text.matchAll(MARKDOWN_LINK))` where `text` is 200,000 '[' characters.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner previously rejected bounding the number of matches or making regex cap changes that complete transcript search behavior, stating no bounded-session native freeze was demonstrated. However, a crafted single message of 200,000 characters is within realistic AI hallucination bounds or paste bounds, and it freezes the thread via regex backtracking natively regardless of total match caps.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-7ca21f00652b62dd\", \"responses\": [{\"decision_context_id\": \"7c2ec5ff9f4731347fd5eef88ae96065eacdd1a89a71f38254ce435cdea1bfd7\", \"decision_task_id\": \"discovery-7ca21f00652b62dd\", \"why_previous_reason_no_longer_explains\": \"The regex ReDoS is independent of the number of visible matches bounded in UI logic. An O(N^2) regex backtracking scenario allows a single malformed chat message to freeze the native application for over a minute, warranting a regex structure adjustment to avoid quadratic time without omitting legitimate matches.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/contentLinks.ts"
+                ],
+                "acceptance": [
+                  "The MARKDOWN_LINK regex parses large strings (e.g. 200,000 characters of repeating '[' brackets) without blocking the thread for more than a few milliseconds."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated ReDoS vulnerabilities in MARKDOWN_LINK regex and scroll anchoring behavior for 'Latest message' with oversized items. Confirmed that MARKDOWN_LINK suffers from O(N^2) evaluation time due to greedy unbounded quantifiers combined with string matchAll semantics, blocking the main thread for over a minute on strings of 200,000 unclosed bracket characters. Also observed that `useVirtualList` scrollToIndex anchors the top of items by default, resulting in oversized latest messages initially hiding their newly generated content below the viewport until TranscriptModal's secondary correction logic runs.",
+            "observations": [
+              {
+                "scenario": "Executing text.matchAll(MARKDOWN_LINK) against a malicious or malformed string of 200,000 repeated '[' characters in Node.js.",
+                "evidence": "Ran an isolated Node script with the exact MARKDOWN_LINK regex. The execution took over 70,000 milliseconds (70 seconds) due to quadratic backtracking. By changing the unbounded capture quantifiers `+` to bounded limits like `{1,256}` and `{1,1024}`, the execution time dropped to ~300 milliseconds without losing legitimate pattern matches.",
+                "result": "Establishes that the unbounded MARKDOWN_LINK regex allows a single excessively long malformed markdown sequence to freeze the native UI thread, confirming the previously reported vulnerability. (Evidence mode: real_runtime)"
+              },
+              {
+                "scenario": "Triggering 'Latest message' navigation in TranscriptModal for a final message whose height exceeds the viewport.",
+                "evidence": "Static analysis of useVirtualList.ts and TranscriptModal.tsx layout effects, supported by prior task jsdom evidence. When TranscriptModal lacks a mounted row, it invokes `scrollToIndex(index)`. The implementation of `scrollToIndex` forces `container.scrollTop = layout.offsets[index]`, inherently anchoring the viewport to the top of the element regardless of its relative height to the viewport. For oversized messages, this behavior initially hides the message's bottom content.",
+                "result": "Establishes that scrollToIndex in useVirtualList intrinsically aligns oversized items by their top offset, causing the user to miss the newest bottom content before measurement correction routines intervene. (Evidence mode: static_analysis)"
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if adding an explicit 'align' argument (e.g. 'start' | 'end') to scrollToIndex would allow TranscriptModal to immediately anchor to the bottom of the virtual estimate without relying on a delayed secondary measurement correction."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T10:06:42.798377Z",
+            "source": {
+              "activity_id": "sessions/12200551183802916448/activities/9ce595689c45477891f9af00903d44d0",
+              "report_sha256": "9451404eae765a71cb0590f17bc807c12a3a7c394d1e6f632fb1e6c477ff4cc2",
+              "activity_created_at": "2026-09-30T09:58:43.456882Z",
+              "session_id": "12200551183802916448",
+              "dispatch_key": "720f3decef0961caf72b444e"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent main thread block on massive transcript regex search",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-c9c737b0f3c2f5a7; not established as a duplicate. {\"detail\": \"Measured O(N^2) catastrophic backtracking in `contentLinks.ts` due to `MARKDOWN_LINK` parsing. A malicious or malformed chat entry containing 200,000 unclosed '[' characters causes Node.js to block the main thread for over 70 seconds.\", \"reproduction\": {\"actual\": \"Regex execution takes over 70,000 milliseconds (70 seconds) due to quadratic backtracking.\", \"expected\": \"Regex execution completes almost instantly, returning no matches.\", \"steps\": [\"Execute `Array.from(text.matchAll(MARKDOWN_LINK))` where `text` is 200,000 '[' characters.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner previously rejected bounding the number of matches or making regex cap changes that complete transcript search behavior, stating no bounded-session native freeze was demonstrated. However, a crafted single message of 200,000 characters is within realistic AI hallucination bounds or paste bounds, and it freezes the thread via regex backtracking natively regardless of total match caps.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-7ca21f00652b62dd\", \"responses\": [{\"decision_context_id\": \"7c2ec5ff9f4731347fd5eef88ae96065eacdd1a89a71f38254ce435cdea1bfd7\", \"decision_task_id\": \"discovery-7ca21f00652b62dd\", \"why_previous_reason_no_longer_explains\": \"The regex ReDoS is independent of the number of visible matches bounded in UI logic. An O(N^2) regex backtracking scenario allows a single malformed chat message to freeze the native application for over a minute, warranting a regex structure adjustment to avoid quadratic time without omitting legitimate matches.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/contentLinks.ts"
+                ],
+                "acceptance": [
+                  "The MARKDOWN_LINK regex parses large malformed strings (e.g. 200,000 characters of repeating '[' brackets) without blocking the thread for more than a few milliseconds, by bounding capture lengths."
+                ]
+              },
+              {
+                "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-2a158a6f04197055; not established as a duplicate. {\"detail\": \"Observed via static analysis and jsdom vitest simulation that `useVirtualList` scrollToIndex correctly anchors to the top offset of an element. However, when 'Latest message' is triggered, if the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom.\", \"reproduction\": {\"actual\": \"The viewport scrolls to align with the top of the final message, leaving the latest output unseen.\", \"expected\": \"The viewport scrolls to the bottom of the final message.\", \"steps\": [\"Load a transcript with a final message that is significantly taller than the viewport.\", \"Click the 'Latest message' button.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this previously in PR #98. The task is being re-proposed because the resolution was closed against main and needs to be verified on the current branch, or it represents a regression if the fix is not present.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"The PR #98 merged into main df856f35322b24776766dee1bb0823c20ec64bbd is not reflected in the current repository pin (888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2). The bug is fully observable on the current base.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx",
+                  "src/useVirtualList.ts"
+                ],
+                "acceptance": [
+                  "Clicking 'Latest message' navigates to the bottom of the final visible message, not its top, ensuring users see the most recent content of oversized messages."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
