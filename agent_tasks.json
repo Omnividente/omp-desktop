@@ -126203,8 +126203,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "13482054989641665506",
         "dispatch_key": "07c0046e1b8b2f81025dfe74",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-07c0046e1b8b2f81025dfe74",
