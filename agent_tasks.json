@@ -134504,7 +134504,8 @@
             "session_id": "5927933596702188306",
             "dispatch_key": "f06e6262926b1f3edef588a6"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-f06e6262926b1f3edef588a6"
       },
       "research_result": {
         "summary": "Investigated the keyboard focus trapping logic within `IncidentCenter` and `ResourceHealthPanel`. Discovered that their inline `handleKeyDown` implementations currently gather focusable elements but incorrectly exclude visibility checks beyond the `!element.hidden` condition. Specifically, they fail to account for elements nested within collapsed `<details>` tags (which are visually hidden but do not have the explicit DOM `hidden` attribute). Formulated an accurate DOM traversal condition to prevent focus from escaping visually rendered bounds.",
