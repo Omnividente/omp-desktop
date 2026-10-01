@@ -25,7 +25,7 @@ from research_cycle import plan_research, request_context, scope_fingerprints
 from research_disposition import append_recovery_event, disposition_state, research_incident
 from research_request import saved_request, snapshot, sha256_json
 from select_task import pending_rejection, pending_report_repair, select, valid_research_detachment
-from state_store import load_state, save_state
+from state_store import load_state
 from proposal_backlog import authorize
 from task_lifecycle import (
     awaiting_report, awaiting_review, complete, find_task, iso, quarantine, reconcile,
@@ -33,6 +33,8 @@ from task_lifecycle import (
 )
 from validate_tasks import validate, validate_feedback_nudges
 from loop_health import WAITING_REASONS, worker_observation, waiting_attention
+from dispatch_journal import JournalStore
+from workflow_admission import add_arguments, context, recheck_context, substantive_manifest
 
 LAB_BRANCH = "autonomous/lab"
 
@@ -173,7 +175,7 @@ def tick(
     now: datetime | None = None, task_id: str = "", focus: str = "", risk: str = "medium",
     recover_report: bool = False, diagnostics: Path | None = None,
     automatic: bool = False, run_id: str = "", repair_after: str = "", actor: str = "",
-    recover_feedback: bool = False, feedback_after: str = "",
+    recover_feedback: bool = False, feedback_after: str = "", observer_context=None,
 ) -> dict:
     """CAS-check before effects; persist transitions, report every observation separately."""
     clock = (lambda: now) if now is not None else lambda: datetime.now(timezone.utc)
@@ -235,7 +237,7 @@ def tick(
         if lab_sha != current_lab:
             return dict(result, reason="product_moved", skipped=True)
         readiness = inspect_health(manifest, config, repo=repo, enabled=True,
-                                   now=now, current_run_id=run_id)
+                                   now=now, current_run_id=run_id, observer_context=observer_context)
         result["scheduler"] = readiness["scheduler"]
         if readiness["action"] != "next_task":
             return dict(result, reason=readiness["reason"], skipped=True)
@@ -798,22 +800,20 @@ def main(argv=None) -> int:
     parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
     parser.add_argument("--automatic", action="store_true")
     parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
+    add_arguments(parser, run_id=False)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--quarantine-all", action="store_true")
     args = parser.parse_args(argv)
     config = {}
     loaded = False
+    store = JournalStore(args.repo, args.manifest, args.revision_file)
     api_keys = [os.environ.get("JULES_API_KEY", ""), os.environ.get("JULES_API_KEY_BACKUP", "")]
 
     def persist(data):
         errors = validate(data)
         if errors:
             raise ValueError("invalid transition: " + "; ".join(errors))
-        content = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-        # First migration preserves original bytes even if no semantic change.
-        if json.loads(args.manifest.read_bytes()) != data:
-            atomic_write(args.manifest, content)
-        return save_state(args.repo, args.manifest, args.revision_file)
+        return store.save_manifest(data)
 
     try:
         if args.automatic and (args.task_id or args.focus or args.recover_report or args.repair_after
@@ -826,24 +826,59 @@ def main(argv=None) -> int:
         config = json.loads(args.config.read_text(encoding="utf-8"))
         if args.recover_report or args.recover_feedback:
             authorize(config, args.actor)
-        manifest = load_state(args.repo, args.manifest, args.revision_file)
-        loaded = True
         if args.quarantine_all:
+            authorize(config, args.actor)
+            store.current()  # Stopping does not manufacture an execution/effect frontier.
+            manifest = load_state(args.repo, args.manifest, args.revision_file)
             for task in manifest["tasks"]:
                 if task.get("status") == "in_progress":
                     quarantine(manifest, task["id"], reason="owner_disabled_loop")
             persist(manifest)
             result = {"reason": "loop_disabled", "merge_mode": "manual"}
-        else:
-            if args.recover_report and not args.task_id:
-                raise ValueError("report recovery requires a task id")
-            result = tick(manifest, config, repo=args.repo,
-                          templates=args.config.parent / "docs" / "autonomous",
-                          github=GitHub(config["repository"]), persist=persist,
-                          api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
-                          recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics"),
-                          automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor,
-                          recover_feedback=args.recover_feedback, feedback_after=args.feedback_after)
+            atomic_write(args.out, json.dumps(result, indent=2) + "\n")
+            return 0
+        binding = context(args, "autonomous_next_task.yml", config)
+        inputs = {"task_id": args.task_id, "focus": args.focus, "risk_ceiling": args.risk_ceiling,
+                  "recover_report": args.recover_report, "repair_after": args.repair_after,
+                  "recover_feedback": args.recover_feedback, "feedback_after": args.feedback_after,
+                  "automatic": args.automatic}
+        intent, capability = binding.admit(store, inputs)
+        manifest = load_state(args.repo, args.manifest, args.revision_file)
+        loaded = True
+        if capability is None:
+            result = {"action": "none", "reason": "execution_already_claimed", "merge_mode": "manual"}
+            atomic_write(args.out, json.dumps(result, indent=2) + "\n")
+            return 0
+        before_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
+        before = substantive_manifest(manifest)
+        if not (args.recover_report or args.recover_feedback or args.quarantine_all) and not GitHub(config["repository"]).enabled():
+            raise ValueError("loop disabled before execution")
+        recheck_context(binding)
+        capability.consume()
+        if args.recover_report and not args.task_id:
+            raise ValueError("report recovery requires a task id")
+        result = tick(manifest, config, repo=args.repo,
+                      templates=args.config.parent / "docs" / "autonomous",
+                      github=GitHub(config["repository"]), persist=persist,
+                      api_keys=api_keys, task_id=args.task_id, focus=args.focus, risk=args.risk_ceiling,
+                      recover_report=args.recover_report, diagnostics=args.out.with_name("research-diagnostics"),
+                      automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor,
+                      recover_feedback=args.recover_feedback, feedback_after=args.feedback_after,
+                      observer_context=capability.observer_context())
+        after_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
+        poll_observations = [{field: observation[field] for field in
+                              ("task_id", "session_id", "session_state", "observed_at")}
+                             for observation in result.get("observations", [])
+                             if observation.get("reason") in {"worker_running", "worker_awaiting_feedback",
+                                                              "worker_awaiting_approval", "worker_paused"}
+                             and observation.get("session_id") and observation.get("session_state") != "UNKNOWN"]
+        if substantive_manifest(manifest) != before or poll_observations:
+            receipt = store.record_effect(capability, "controller_checkpoint", {
+                "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
+                "poll_observations": poll_observations,
+            })
+            result["effect_receipt_id"] = receipt["receipt_id"]
+        result["decision_id"] = intent["decision_id"]
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",
                   "reason": "state_write_failed" if isinstance(exc, StateWriteError) else "controller_error",

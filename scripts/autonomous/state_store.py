@@ -29,6 +29,10 @@ class StateConflict(RuntimeError):
     """Another writer advanced the queue; reload, do not overwrite it."""
 
 
+class StateUncertain(RuntimeError):
+    """Publication may be durable, but no effect capability may be issued."""
+
+
 def _git(repo: Path, *args: str, data: bytes | None = None, check: bool = True):
     result = subprocess.run(
         ["git", "-C", str(repo), "-c", "core.hooksPath=" + os.devnull, *args],
@@ -132,7 +136,7 @@ def _commit(repo: Path, raw: bytes, parent: str = "") -> str:
 
 def save_state(
     repo: Path, manifest_path: Path, revision_path: Path,
-    branch: str = STATE_BRANCH,
+    branch: str = STATE_BRANCH, *, require_ack: bool = False,
 ) -> str:
     """Publish one validated queue revision using compare-and-swap."""
     repo, manifest_path, revision_path = map(Path, (repo, manifest_path, revision_path))
@@ -183,8 +187,10 @@ def save_state(
             archived = {field: old[field] for field in ATTEMPT_FIELDS if field in old}
             if new.get("research_request_history") != [*old.get("research_request_history", []), archived]:
                 raise ValueError("a new attempt must retain the previous research request")
+        from dispatch_journal import preserve_journal
+        preserve_journal(previous, data)
         commit = _commit(repo, raw, parent)
-    for attempt in range(3):
+    for attempt in range(1 if require_ack else 3):
         try:
             result = _git(
                 repo, "-c", "http.https://github.com/.extraheader=", "-c", "credential.helper=",
@@ -197,11 +203,15 @@ def save_state(
         observed = _remote_head(repo, branch)
         if observed == commit:
             _record(revision_path, revision=commit, raw=raw, branch=branch, source="state")
+            if require_ack and (result is None or result.returncode != 0):
+                raise StateUncertain("state claim acknowledgement was lost; no effect is authorized")
             return commit
         if observed != expected:
             raise StateConflict("state changed during publication; local result retained")
         if result is not None and result.returncode == 0:
             raise RuntimeError("state publication could not be verified")
+        if require_ack:
+            raise StateUncertain("state claim was not acknowledged; reconcile before any effect")
         if attempt < 2:
             time.sleep(attempt + 1)
     raise RuntimeError("state publication failed; durable attempt must be reconciled before retry")

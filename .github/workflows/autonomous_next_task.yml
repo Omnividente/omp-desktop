@@ -45,6 +45,10 @@ on:
         description: Correlation key for an automatic handoff
         type: string
         default: ""
+      control_sha:
+        description: Frozen trusted controller revision for an internal dispatch
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -63,11 +67,13 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ${{ inputs.continuation_key }}
     steps:
       - name: Check out the trusted controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           path: control
           persist-credentials: false
 
@@ -131,18 +137,21 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ${{ inputs.continuation_key }}
     steps:
       - name: Check out the trusted continuation controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           path: control
           persist-credentials: false
       - name: Hand off outside the queue writer lock
         run: >-
           python3 control/scripts/autonomous/continue_loop.py
           --repo control --config control/autonomous-project.json
-          --handoff --out continuation-result.json
+          --handoff --source-workflow autonomous_next_task.yml
+          --out continuation-result.json
       - name: Retain observed handoff
         if: ${{ always() && hashFiles('continuation-result.json') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dispatch_journal import CONTINUE, NEXT, SYNC, materialize
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
 from research_disposition import acknowledged_disposition, disposition_state
 from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, pending_report_repair, select, valid_research_detachment
@@ -107,13 +108,143 @@ def _sync_main(run: Mapping[str, Any]) -> str:
     return match[1] if match else str(run.get("head_sha") or "")
 
 
+def journal_health(manifest: Mapping[str, Any], runs_by_workflow: Mapping[str, Sequence[dict]],
+                   now: datetime, current_run_id: str = "", observer_context=None) -> dict:
+    """Observe the validated frontier; delivery metadata never grants new rights."""
+    journal = manifest.get("dispatch_journal")
+    view = {"initialized": journal is not None, "active_intent": None, "attention": [],
+            "current_executor": False, "current_sender": False, "completed_receipts": 0}
+    if journal is None:
+        return view
+    state = materialize(journal)
+    view["frontier_seq"] = state["frontier_seq"]
+    view["completed_receipts"] = len(state.get("completed_receipts", ()))
+    intent = state["active_intent"]
+    if intent is None:
+        return view
+    decision_id = intent["decision_id"]
+    send = state["send_claims"].get(decision_id)
+    executor = state["executor_claims"].get(decision_id)
+    effect = state["effects"].get(decision_id)
+    completion = state.get("completions", {}).get(decision_id)
+    observations = []
+    for event in journal["events"]:
+        if event["type"] != "DeliveryObservation" or event.get("decision_id") != decision_id:
+            continue
+        metadata = event["observation"]
+        if not isinstance(metadata.get("kind"), str) or metadata["kind"] not in {"post_unknown", "post_acknowledged", "run_observed"}:
+            continue
+        observed = _time(metadata.get("observed_at")) or _time(event["at"])
+        safe = {"kind": metadata["kind"], "observed_at": _iso(observed)}
+        for field in ("run_id", "run_attempt"):
+            value = str(metadata.get(field, ""))
+            if re.fullmatch(r"[1-9][0-9]*", value):
+                safe[field] = value
+        status = metadata.get("run_status", metadata.get("status"))
+        if isinstance(status, str) and status in ACTIVE_RUN_STATUSES | {"completed"}:
+            safe["status"] = status
+        conclusion = metadata.get("conclusion")
+        if isinstance(conclusion, str) and conclusion in FAILED_CONCLUSIONS | {"success", "neutral", "skipped"}:
+            safe["conclusion"] = conclusion
+        observations.append(safe)
+    delivery = observations[-1] if observations else None
+    delivered_run = next((item for item in reversed(observations) if item.get("run_id")), None)
+    trigger = executor["trigger"] if executor else delivered_run or {}
+    run_id = str(trigger.get("run_id", ""))
+    attempt = str(trigger.get("run_attempt", ""))
+    known = next((run for run in runs_by_workflow.get(intent["workflow"], ())
+                  if str(run.get("id")) == run_id
+                  and (not attempt or not run.get("run_attempt")
+                       or str(run["run_attempt"]) == attempt)), None)
+    # Saved delivery observations remain history, never proof of current liveness.
+    def owns(claim, kind):
+        return bool(claim and isinstance(observer_context, dict)
+                    and observer_context.get("kind") == kind
+                    and observer_context.get("decision_id") == decision_id
+                    and observer_context.get("claim_id") == claim["claim_id"]
+                    and observer_context.get("trigger") == claim["trigger"]
+                    and observer_context.get("control_sha") == intent["control_sha"]
+                    and str(claim["trigger"]["run_id"]) == str(current_run_id))
+    owner = owns(executor, "execute")
+    view["current_executor"] = owner
+    view["current_sender"] = bool(owns(send, "send") and not executor and not effect
+                                  and not completion and not observations)
+    live = bool(known and known.get("status") in ACTIVE_RUN_STATUSES)
+    failed = bool(known and known.get("status") == "completed"
+                  and known.get("conclusion") in FAILED_CONCLUSIONS)
+    anchor = executor or send or intent
+    age = max(0, int((now - _time(anchor["at"])).total_seconds()))
+    overdue = now - _time(anchor["at"]) > POLL_INTERVAL
+    missing = []
+    if not executor:
+        missing.append("executor_claim")
+    if not effect and not completion:
+        missing.append("terminal_receipt")
+    if not effect:
+        missing.append("useful_effect")
+    active = {"decision_id": decision_id, "workflow": intent["workflow"],
+              "correlation_key": intent["correlation_key"], "control_sha": intent["control_sha"],
+              "input_hash": intent["input_hash"], "source_kind": intent["source_kind"],
+              "main_sha": intent["normalized_inputs"].get("main_sha"),
+              "lab_sha": intent["normalized_inputs"].get("lab_sha"),
+              "source_run_id": intent["first_source_trigger"]["run_id"],
+              "source_run_attempt": intent["first_source_trigger"]["run_attempt"],
+              "intent_at": intent["at"], "age_seconds": age,
+              "send_claim_consumed": send is not None, "executor_claim_consumed": executor is not None,
+              "send_claim_id": send["claim_id"] if send else None,
+              "send_run_id": send["trigger"]["run_id"] if send else None,
+              "send_run_attempt": send["trigger"]["run_attempt"] if send else None,
+              "executor_claim_id": executor["claim_id"] if executor else None,
+              "executor_run_id": executor["trigger"]["run_id"] if executor else None,
+              "executor_run_attempt": executor["trigger"]["run_attempt"] if executor else None,
+              "before_state_sha": executor["before_state_sha"] if executor else None,
+              "effect_kind": effect["kind"] if effect else None,
+              "completion_kind": completion.get("kind") if completion else None,
+              "missing": missing, "delivery_observations": observations, "run": _run_summary(known)}
+    active["execution_phase"] = ("sync_finalize" if state["phase_claims"].get(decision_id) else
+                                 "sync_prepared" if any(stage["decision_id"] == decision_id
+                                                        for stage in state["stages"].values()) else
+                                 "execute" if executor else None)
+    diagnostic = None
+    if effect or completion:
+        phase = "awaiting_advance"
+        receipt = effect or completion
+        if now - _time(receipt["at"]) > POLL_INTERVAL:
+            diagnostic = "journal_advance_overdue"
+    elif executor:
+        phase = "executing" if live or owner else "executor_spent"
+        if failed:
+            diagnostic = "journal_run_failed"
+        elif not live and not owner and (overdue or known and known.get("status") == "completed"):
+            diagnostic = "journal_executor_without_receipt"
+    elif failed:
+        phase, diagnostic = "delivery_failed", "journal_run_failed"
+    elif delivery and delivery["kind"] == "post_unknown" and not live:
+        phase, diagnostic = "delivery_unknown", "journal_delivery_unknown"
+    elif send:
+        phase = "awaiting_executor" if delivery else "send_spent"
+        if overdue:
+            diagnostic = "journal_executor_overdue" if delivery else "journal_send_spent_without_receipt"
+    else:
+        phase = "pending"
+        if overdue:
+            diagnostic = "journal_send_claim_missing" if intent["source_kind"] == "sender" else "journal_executor_overdue"
+    active["phase"] = phase
+    view["active_intent"] = active
+    if diagnostic:
+        view["attention"].append({"reason": diagnostic, "decision_id": decision_id,
+                                  "workflow": intent["workflow"], "age_seconds": age,
+                                  "run": _run_summary(known)})
+    return view
+
+
 def assess_health(
     manifest: Mapping[str, Any], config: Mapping[str, Any], *,
     main_sha: str, lab_sha: str, main_is_ancestor: bool,
     fingerprints: Mapping[str, str], runs: Sequence[dict], sync_runs: Sequence[dict],
     pull_requests: Sequence[dict], enabled: bool, now: datetime,
     state_sha: str = "", sync_result: Mapping[str, Any] | None = None,
-    wakeup_runs: Sequence[dict] = (), current_run_id: str = "",
+    wakeup_runs: Sequence[dict] = (), current_run_id: str = "", observer_context=None,
 ) -> dict:
     """Plan against a private queue copy, never mint, reconcile or dispatch work."""
     if now.tzinfo is None:
@@ -135,6 +266,8 @@ def assess_health(
              and run.get("event") in {"schedule", "workflow_dispatch"}]
     syncs = [run for run in sync_runs if trusted(run)]
     wakeups = [run for run in wakeup_runs if trusted(run)]
+    journal = journal_health(manifest, {NEXT: ticks, SYNC: syncs, CONTINUE: wakeups},
+                             now, current_run_id, observer_context)
     minimum = datetime.min.replace(tzinfo=timezone.utc)
     latest = max(ticks, key=lambda run: _run_time(run) or minimum, default=None)
     last_at = _run_time(latest) if latest else None
@@ -147,6 +280,7 @@ def assess_health(
     last_useful = useful_at or worker_at
     failures = {run.get("id"): run for run in ticks
                 if run.get("status") == "completed" and run.get("conclusion") in FAILED_CONCLUSIONS
+                and not (journal["current_executor"] and str(run.get("id")) == str(current_run_id))
                 and (at := _run_time(run)) is not None and (last_tick is None or at > last_tick)}
     failed_at = max((_run_time(run) for run in failures.values()), default=None)
     retry_at = failed_at + (POLL_INTERVAL if len(failures) == 1 else
@@ -227,10 +361,12 @@ def assess_health(
     failed_sync = failed_sync or bool(observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"))
     if failed_sync:
         attention.append({"reason": "sync_failed", "main_sha": main_sha, "run": _run_summary(last_sync)})
+    attention.extend(journal["attention"])
     result = {
         "health": "ok", "action": "none", "reason": "idle", "delay_seconds": 0,
         "main_sha": main_sha, "lab_sha": lab_sha, "main_is_ancestor": main_is_ancestor,
         "code_sha": lab_sha, "state_sha": state_sha, "sync_outcome": observed_sync,
+        "dispatch_journal": journal,
         "proposals": proposals,
         "pending_proposals": sum(
             task.get("task_type") != DISCOVERY_TYPE
@@ -261,9 +397,11 @@ def assess_health(
                                 if run.get("status") != "in_progress"],
         },
     }
-    # A nonempty id is only supplied under the shared queue writer mutex. Other
-    # in-progress workflows may be waiting for that mutex or finishing handoff.
-    active_next = not current_run_id and any(run.get("status") in ACTIVE_RUN_STATUSES for run in ticks)
+    # Only the exact active admitted executor ignores its own workflow run.
+    # Every other active NEXT remains a subject-matter readiness blocker.
+    active_next = any(run.get("status") in ACTIVE_RUN_STATUSES
+                      and not (journal["current_executor"] and str(run.get("id")) == str(current_run_id))
+                      for run in ticks)
 
     def decision(reason: str, action: str = "none", *, due: bool = False, delay: int = 0) -> dict:
         deadline = _time(result["due_at"])
@@ -287,6 +425,10 @@ def assess_health(
         stalled = due and not delay and (not known_deadline or now - deadline > STALL_AFTER)
         if active_next:
             action, reason = "none", "next_task_running"
+        if journal["active_intent"] and not (journal["current_executor"] or journal["current_sender"]):
+            action, reason = "none", "dispatch_journal_" + journal["active_intent"]["phase"]
+            stalled = False
+            result["scheduler"]["state"] = "blocked"
         result.update(reason=reason, action=action, delay_seconds=delay,
                       health="attention" if attention else "stalled" if stalled else "ok")
         if stalled:
@@ -313,7 +455,9 @@ def assess_health(
         result.update(health="disabled", reason="loop_disabled")
         result["scheduler"]["state"] = "disabled"
         return result
-    if any(run.get("status") in ACTIVE_RUN_STATUSES for run in syncs):
+    if any(run.get("status") in ACTIVE_RUN_STATUSES
+           and not (journal["current_executor"] and str(run.get("id")) == str(current_run_id))
+           for run in syncs):
         return decision("sync_running")
 
     data = copy.deepcopy(manifest)
