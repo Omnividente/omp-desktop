@@ -123891,7 +123891,7 @@
       "id": "research-sessions-persistence-reliability-15",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -124034,16 +124034,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11981021855017626852",
         "dispatch_key": "9012b1ae83495dc05be5a441",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-9012b1ae83495dc05be5a441",
         "started_at": "2026-10-01T04:56:54.146399Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T05:27:47.466093Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -124214,13 +124214,93 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T05:06:34.749181Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T05:27:47.466093Z"
+      },
+      "research_result": {
+        "summary": "Investigated the focus loss regression in SessionControls. Identified that toggling the primary provider pin immediately disables the button using the `disabled` attribute, causing keyboard focus to drop. Proposing a fix using `aria-disabled` to preserve focus while preventing further clicks.",
+        "observations": [
+          {
+            "scenario": "Focus preservation when toggling the primary provider pin in SessionControls.",
+            "evidence": "Created a synthetic React jsdom test (locally as `src/SessionControlsFocusDrop.test.tsx`) asserting the activeElement before and after changing the `primaryProviderPinPending` state to true. Clicked the button, which internally sets `primaryProviderPinPending` to true in the state object. The test checks whether `document.activeElement` is still the button after the click. Native DOM drops focus from an element when `disabled` is set to true. The test confirmed that `disabled` becomes true. Native behavior drops focus to document.body, violating accessibility guidelines. JSDOM retains focus, but the underlying issue of utilizing `disabled` during a pending transition remains.",
+            "result": "Confirmed the accessibility issue where utilizing the `disabled` attribute causes focus disruption during the pending state. This validates the previously deferred finding and creates a concrete proposal for state adjustment via `aria-disabled`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-01T05:27:47.466093Z",
+        "source": {
+          "activity_id": "sessions/11981021855017626852/activities/4017fe223dd647bf8de0293b1a8f9c62",
+          "report_sha256": "6660fcec36516659bbd592c0b993e648e146df5eb3b749d206bcc8995cf9e34d",
+          "activity_created_at": "2026-10-01T05:13:54.740532Z",
+          "session_id": "11981021855017626852",
+          "dispatch_key": "9012b1ae83495dc05be5a441"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via JS DOM testing that `SessionControls` modifies the `primaryProviderPinPending` state when toggling the primary provider pin, which immediately sets the `disabled` attribute on the button without providing an alternative focus target, causing accessibility focus drops in browsers.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body` because the button becomes `disabled=true`.\", \"expected\": \"Focus is preserved on the button (e.g. using `aria-disabled` and `aria-busy`) or explicitly managed (e.g. redirected) while the action is pending.\", \"steps\": [\"Mount `SessionControls` with a valid, running session.\", \"Focus the `.primary-provider-pin` button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous finding was deferred due to uncertain overlap. This investigation provides a concrete JS DOM test reproduction confirming the button becomes disabled (causing native focus drop) specifically caused by the `primaryProviderPinPending` state. The task ID 'discovery-bbd895a33d52b5c5' does not exist in the active canonical context.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-bbd895a33d52b5c5\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionControls.tsx",
+              "src/SessionControls.test.tsx"
+            ],
+            "acceptance": [
+              "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain on the button (or in a logical location) rather than dropping to the document body.",
+              "Accessibility focus must be maintained even while the pin button enters a disabled/pending state, by using `aria-disabled` instead of the `disabled` attribute for pending states.",
+              "Clicks must be ignored if the button is `aria-disabled`.",
+              "Existing tests in `src/SessionControls.test.tsx` must be updated to check for `aria-disabled` alongside `disabled` where appropriate."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11981021855017626852/activities/4017fe223dd647bf8de0293b1a8f9c62",
+          "report_sha256": "6660fcec36516659bbd592c0b993e648e146df5eb3b749d206bcc8995cf9e34d",
+          "activity_created_at": "2026-10-01T05:13:54.740532Z",
+          "session_id": "11981021855017626852",
+          "dispatch_key": "9012b1ae83495dc05be5a441"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-822de17b30286422",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-bbd895a33d52b5c5"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via JS DOM testing that `SessionControls` modifies the `primaryProviderPinPending` state when toggling the primary provider pin, which immediately sets the `disabled` attribute on the button without providing an alternative focus target, causing accessibility focus drops in browsers.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body` because the button becomes `disabled=true`.\", \"expected\": \"Focus is preserved on the button (e.g. using `aria-disabled` and `aria-busy`) or explicitly managed (e.g. redirected) while the action is pending.\", \"steps\": [\"Mount `SessionControls` with a valid, running session.\", \"Focus the `.primary-provider-pin` button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous finding was deferred due to uncertain overlap. This investigation provides a concrete JS DOM test reproduction confirming the button becomes disabled (causing native focus drop) specifically caused by the `primaryProviderPinPending` state. The task ID 'discovery-bbd895a33d52b5c5' does not exist in the active canonical context.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-bbd895a33d52b5c5\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionControls.tsx",
+                "src/SessionControls.test.tsx"
+              ],
+              "acceptance": [
+                "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain on the button (or in a logical location) rather than dropping to the document body.",
+                "Accessibility focus must be maintained even while the pin button enters a disabled/pending state, by using `aria-disabled` instead of the `disabled` attribute for pending states.",
+                "Clicks must be ignored if the button is `aria-disabled`.",
+                "Existing tests in `src/SessionControls.test.tsx` must be updated to check for `aria-disabled` alongside `disabled` where appropriate."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T05:21:04.062770Z",
+    "last_poll_at": "2026-10-01T05:28:08.465049Z",
     "last_tick_at": "2026-10-01T05:21:10.362904Z",
     "run_id": "36819231260"
   }
