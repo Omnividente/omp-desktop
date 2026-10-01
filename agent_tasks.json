@@ -123653,7 +123653,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T02:29:56.127178Z"
+        "observed_at": "2026-10-01T02:29:56.127178Z",
+        "released_attempt_ref": "autonomous/attempt-57560f34abb630c0c2db6632"
       },
       "research_result": {
         "summary": "Investigated if stale applyTerminalOutputEvent calls can corrupt or interleave terminal output batching beyond continuity tracking by validating the outputBatcher queue state.",
