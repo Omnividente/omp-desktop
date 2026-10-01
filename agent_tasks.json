@@ -124215,7 +124215,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T05:27:47.466093Z"
+        "observed_at": "2026-10-01T05:27:47.466093Z",
+        "released_attempt_ref": "autonomous/attempt-9012b1ae83495dc05be5a441"
       },
       "research_result": {
         "summary": "Investigated the focus loss regression in SessionControls. Identified that toggling the primary provider pin immediately disables the button using the `disabled` attribute, causing keyboard focus to drop. Proposing a fix using `aria-disabled` to preserve focus while preventing further clicks.",
