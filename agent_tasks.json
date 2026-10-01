@@ -127704,6 +127704,17 @@
         "research_detached": {
           "at": "2026-10-01T12:30:35.656119Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-10-01T12:30:35.656119Z",
+          "result": "pending",
+          "source": {
+            "session_id": "4196192501706598744",
+            "dispatch_key": "1ee74225be4cb49dc0741b0f",
+            "activity_id": "sessions/4196192501706598744/activities/1c67d3589eb94c52bb3f09f8abd89127",
+            "activity_created_at": "2026-10-01T12:27:15.536483Z",
+            "activity_sha256": "3b5854e4cf3f4208f427fa213da1ea3ffa2b8c17b0de9dbdf6f54acc3ffad45f"
+          }
         }
       }
     }
