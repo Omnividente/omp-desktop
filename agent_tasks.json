@@ -126429,7 +126429,7 @@
       "id": "research-workspace-navigation-reliability-15",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -126568,16 +126568,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4289861665690494192",
         "dispatch_key": "68bac224b87b7a866886de96",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-68bac224b87b7a866886de96",
         "started_at": "2026-10-01T11:23:16.132719Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T11:46:33.028352Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -126747,13 +126747,131 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T11:32:30.172412Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T11:46:33.028352Z"
+      },
+      "research_result": {
+        "summary": "Investigated eager state clearing bug on session rename failures, and hardcoded shortcuts on macOS.",
+        "observations": [
+          {
+            "scenario": "Workspace rename failure simulation via static analysis",
+            "evidence": "In `src/App.tsx`, `submitWorkspaceRename` calls `setRenamingWorkspaceKey(null)` synchronously before `applyPayload(await renameWorkspace(workspace.path, name))`. If `renameWorkspace` throws, the user's input is lost because the component exits the renaming state immediately.",
+            "result": "Establishes a user experience defect: if a workspace rename fails, the user's input is discarded prematurely, hiding the input field."
+          },
+          {
+            "scenario": "Session rename failure simulation via static analysis",
+            "evidence": "In `src/App.tsx`, `submitRenameSession` calls `setRenamingSessionId(null)` synchronously before `void updateSessionTitlePin(session, trimmed)`. If `updateSessionTitlePin` fails, the user's input is lost because the component exits the renaming state immediately.",
+            "result": "Establishes a user experience defect: if a session rename fails, the user's input is discarded prematurely, hiding the input field."
+          },
+          {
+            "scenario": "Keyboard shortcut platform check simulation",
+            "evidence": "In `src/WorkspaceHome.tsx` and `src/ProjectRail.tsx`, keyboard shortcuts like `Ctrl + Shift + O` and `Ctrl + B` are hardcoded in the JSX elements. They do not query `runtime.platform` to use `⌘` on macOS.",
+            "result": "Establishes a minor UX/i18n defect: shortcuts on macOS display 'Ctrl' instead of '⌘'."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal creation (startTerminal) swallows generic backend network/disk failures when superseded by a background tab close.",
+          "Investigate the exact memory impact of older PTY sessions left open in background tabs for extended periods."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-01T11:46:33.028352Z",
+        "source": {
+          "activity_id": "sessions/4289861665690494192/activities/34c64ce8303a40379534ac0464f2e6d3",
+          "report_sha256": "954f393e5061f9197737bafa4328e100ded2cc78edd17405da7a4f36e28a736a",
+          "activity_created_at": "2026-10-01T11:34:53.515469Z",
+          "session_id": "4289861665690494192",
+          "dispatch_key": "68bac224b87b7a866886de96"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix eager state clearing in session and workspace renames on failure",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-5577ea4e9ef26ca2; not established as a duplicate. {\"detail\": \"Observed via App.tsx code review that submitWorkspaceRename and submitRenameSession immediately clear their renaming state keys synchronously before API promises settle.\", \"reproduction\": {\"actual\": \"The rename state is discarded, hiding the input field, even on failure.\", \"expected\": \"The rename state is preserved and the input field remains open when an error is caught.\", \"steps\": [\"Open App.tsx and locate submitWorkspaceRename and submitRenameSession.\", \"Notice that they synchronously set state (setRenamingWorkspaceKey(null) or setRenamingSessionId(null)) prior to awaiting.\", \"If the await rejects, the catch block shows an error, but the input field is already unmounted.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Session and workspace rename state should only be cleared after a successful backend response.",
+              "If the network/disk operation fails, the rename text box and dialog remain open with the user's text intact."
+            ]
+          },
+          {
+            "title": "Localize hardcoded workspace shortcuts for macOS",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Observed via code review and vitest synthetic checks that shortcut hints in WorkspaceHome and ProjectRail are hardcoded to 'Ctrl + Shift + O' and 'Ctrl + B'.\", \"reproduction\": {\"actual\": \"Shortcut text is hardcoded to use 'Ctrl' on all platforms.\", \"expected\": \"Shortcut text dynamically adjusts to use '⌘' (Command key) instead of 'Ctrl' on macOS.\", \"steps\": [\"Open WorkspaceHome.tsx and find the hardcoded 'Ctrl + Shift + O' hint.\", \"Open ProjectRail.tsx and find the hardcoded 'Ctrl + B' hint.\", \"Note that runtime platform is available to WorkspaceHome via `runtime.platform` and to ProjectRail via `sessionList.platform`.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/WorkspaceHome.tsx",
+              "src/ProjectRail.tsx"
+            ],
+            "acceptance": [
+              "Shortcut hints in WorkspaceHome should display '⌘ + Shift + O' on macOS, and 'Ctrl + Shift + O' on Windows/Linux.",
+              "Shortcut hints in ProjectRail should display '⌘ + B' on macOS, and 'Ctrl + B' on Windows/Linux.",
+              "Tooltips and aria-labels that reference shortcuts should reflect the correct platform keys."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4289861665690494192/activities/34c64ce8303a40379534ac0464f2e6d3",
+          "report_sha256": "954f393e5061f9197737bafa4328e100ded2cc78edd17405da7a4f36e28a736a",
+          "activity_created_at": "2026-10-01T11:34:53.515469Z",
+          "session_id": "4289861665690494192",
+          "dispatch_key": "68bac224b87b7a866886de96"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-fb6e96c1219a5f21",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-5577ea4e9ef26ca2"
+            },
+            {
+              "id": "discovery-47799e83a647884f",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7ea0512cd4985404"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix eager state clearing in session and workspace renames on failure",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-5577ea4e9ef26ca2; not established as a duplicate. {\"detail\": \"Observed via App.tsx code review that submitWorkspaceRename and submitRenameSession immediately clear their renaming state keys synchronously before API promises settle.\", \"reproduction\": {\"actual\": \"The rename state is discarded, hiding the input field, even on failure.\", \"expected\": \"The rename state is preserved and the input field remains open when an error is caught.\", \"steps\": [\"Open App.tsx and locate submitWorkspaceRename and submitRenameSession.\", \"Notice that they synchronously set state (setRenamingWorkspaceKey(null) or setRenamingSessionId(null)) prior to awaiting.\", \"If the await rejects, the catch block shows an error, but the input field is already unmounted.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Session and workspace rename state should only be cleared after a successful backend response.",
+                "If the network/disk operation fails, the rename text box and dialog remain open with the user's text intact."
+              ]
+            },
+            {
+              "title": "Localize hardcoded workspace shortcuts for macOS",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Observed via code review and vitest synthetic checks that shortcut hints in WorkspaceHome and ProjectRail are hardcoded to 'Ctrl + Shift + O' and 'Ctrl + B'.\", \"reproduction\": {\"actual\": \"Shortcut text is hardcoded to use 'Ctrl' on all platforms.\", \"expected\": \"Shortcut text dynamically adjusts to use '⌘' (Command key) instead of 'Ctrl' on macOS.\", \"steps\": [\"Open WorkspaceHome.tsx and find the hardcoded 'Ctrl + Shift + O' hint.\", \"Open ProjectRail.tsx and find the hardcoded 'Ctrl + B' hint.\", \"Note that runtime platform is available to WorkspaceHome via `runtime.platform` and to ProjectRail via `sessionList.platform`.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/WorkspaceHome.tsx",
+                "src/ProjectRail.tsx"
+              ],
+              "acceptance": [
+                "Shortcut hints in WorkspaceHome should display '⌘ + Shift + O' on macOS, and 'Ctrl + Shift + O' on Windows/Linux.",
+                "Shortcut hints in ProjectRail should display '⌘ + B' on macOS, and 'Ctrl + B' on Windows/Linux.",
+                "Tooltips and aria-labels that reference shortcuts should reflect the correct platform keys."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T11:39:49.359241Z",
+    "last_poll_at": "2026-10-01T11:46:51.401482Z",
     "last_tick_at": "2026-10-01T11:39:55.857730Z",
     "run_id": "36856636320"
   }
