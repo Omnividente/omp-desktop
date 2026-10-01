@@ -130833,7 +130833,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T16:15:29.103497Z"
+        "observed_at": "2026-10-01T16:15:29.103497Z",
+        "released_attempt_ref": "autonomous/attempt-6b38c78c65cad164f517a4a6"
       },
       "research_result": {
         "summary": "Investigated workspace shortcut key bindings for macOS and eager state clearing during workspace/session renaming.",
