@@ -132594,5 +132594,22 @@
     "last_poll_at": "2026-10-01T18:04:38.257110Z",
     "last_tick_at": "2026-10-01T18:04:57.978341Z",
     "run_id": "36903960779"
+  },
+  "dispatch_journal": {
+    "version": 1,
+    "events": [
+      {
+        "type": "Init",
+        "at": "2026-10-01T19:47:39.305609Z",
+        "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+        "basis": {
+          "kind": "fenced_bootstrap",
+          "legacy_senders_fenced": true,
+          "pending_legacy": "none",
+          "state_sha": "c22fd0f055a8cd76d3954de4fa5a89e86c4337de"
+        },
+        "event_id": "11d56597085eb8a7cb0c21f49a7fdfe682cfd87c560ae4d5a6a3dd67b4b8f2c3"
+      }
+    ]
   }
 }
