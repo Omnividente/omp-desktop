@@ -124682,7 +124682,7 @@
         },
         "report_repair": {
           "at": "2026-10-01T09:35:03.062917Z",
-          "result": "pending",
+          "result": "sent",
           "status": "pending",
           "source": {
             "activity_id": "sessions/2909471176662592502/activities/fb2881d3bf8340a49647cfd9dc54d134",
