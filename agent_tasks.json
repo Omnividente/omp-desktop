@@ -123099,7 +123099,8 @@
             "activity_created_at": "2026-10-01T01:36:46.162152Z",
             "activity_sha256": "521c2a281dc6fa6c43da6a2a63b692db0f99df32e5e04c916155abdfd05ecac2"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-b8b4c28fb7cf3b209623c162"
       },
       "research_result": {
         "summary": "Investigated the focus loss regression in SessionControls. Identified that toggling the primary provider pin immediately disables the button, causing keyboard focus to drop to document.body. Proposing a fix using aria-disabled to preserve focus while preventing further clicks. Also analyzed import/delete concurrency for metadata.",
