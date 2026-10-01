@@ -132789,6 +132789,26 @@
         },
         "stage_id": "3132b9b2690a08d486a381c8ec66f0b623061280b83ba05d1ce6ea6608df35bc",
         "event_id": "61cc1e0e385588a48fd3445d8e5ed0b06fa527bf591ea8c9fcd413ce11287c6f"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-01T20:14:32.920148Z",
+        "decision_id": "d279b3547d66a08c1b2ccb44e431140d7ff93a12c0d82773936fb869abc2683b",
+        "executor_claim_id": "caa2666c7e03a9cfabb67987f15dbfac31addad8db86a15ce9a15e0381b80a79",
+        "phase_claim_id": "2da10bab09c73c292ef83e060b9527338ceb205d52bf6fac8f4882462d1991c4",
+        "kind": "sync_publication",
+        "evidence": {
+          "stage_id": "3132b9b2690a08d486a381c8ec66f0b623061280b83ba05d1ce6ea6608df35bc",
+          "main_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "lab_sha": "d2b33e7ab0e8cdec06adcc1f0d9c37742dff2585",
+          "candidate_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
+          "published_lab_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
+          "queue_blob": "076585bc9ffdfc4be0a571714e4cc0605d51dde3",
+          "candidate_branch": "autonomous/sync-36918821214-1",
+          "quality_gate": "success"
+        },
+        "receipt_id": "40acbaf6c3b0b80dc0371bf6c4fbbc29f351d19bdbfb6bd2f584a009d48e1915",
+        "event_id": "32de05e95af2ccba9c2ec275ea71daccd5157ea00cc3c484f0fb2b8fe3b70c14"
       }
     ]
   }
