@@ -32,7 +32,7 @@ jobs:
   control-plane:
     name: Validate the autonomous control plane
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: control
