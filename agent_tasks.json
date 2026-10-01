@@ -132704,6 +132704,54 @@
         "receipt_id": "79bc911c3e5f4b31bacce6e34673cb0c6b319baaeac40caddcfed29b71d90348",
         "frontier_seq": 1,
         "event_id": "eb2d1d7a55959d797ed1b6aecbc5616963387491d0c40abe634dd115d68c9399"
+      },
+      {
+        "type": "Intent",
+        "at": "2026-10-01T20:04:34.052806Z",
+        "decision_id": "d279b3547d66a08c1b2ccb44e431140d7ff93a12c0d82773936fb869abc2683b",
+        "frontier_seq": 1,
+        "predecessor_decision_id": "812737a5784dbdf6a746904eeb2bf05f72e252d2a9ddeb41022411a1e88aeb89",
+        "workflow": "autonomous_sync.yml",
+        "normalized_inputs": {
+          "main_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "lab_sha": "d2b33e7ab0e8cdec06adcc1f0d9c37742dff2585"
+        },
+        "input_hash": "009bd1757f2342ea3251aa0e4b37943edf7eef68ec4fbf74222b5a4725aff884",
+        "basis": {
+          "kind": "external_ingress",
+          "state_sha": "8919167cd3946f6370dfe3bdaef91a89cf25a719"
+        },
+        "first_source_trigger": {
+          "run_id": "36918821214",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "source_identity": "77a8e5551f64c9fdce4f743b9bd371db07230ac4dbc2d28275a6b278fcf5768e",
+        "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+        "correlation_key": "e1843242bebb45d35c23cb220aeb3bf2",
+        "source_kind": "external",
+        "event_id": "5b00ef8349afef78f46b2faf16afcda376a7f748810a89cfd4b0f9b6752240cd"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-01T20:04:34.226980Z",
+        "decision_id": "d279b3547d66a08c1b2ccb44e431140d7ff93a12c0d82773936fb869abc2683b",
+        "claim_id": "caa2666c7e03a9cfabb67987f15dbfac31addad8db86a15ce9a15e0381b80a79",
+        "trigger": {
+          "run_id": "36918821214",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "",
+        "before_state_sha": "8919167cd3946f6370dfe3bdaef91a89cf25a719",
+        "before_digest": "194b1ab28f7a0357a4a339740e1b711852128656f57bb80182d1dce5d516e236",
+        "event_id": "7a374dba0a5b0b5c895cfea63d0ede560964ad15c7683dc817e0796e7b791302"
       }
     ]
   }
