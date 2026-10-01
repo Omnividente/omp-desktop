@@ -125927,7 +125927,7 @@
       "id": "research-terminal-input-ux-15",
       "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -126203,16 +126203,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13482054989641665506",
         "dispatch_key": "07c0046e1b8b2f81025dfe74",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-07c0046e1b8b2f81025dfe74",
         "started_at": "2026-10-01T10:52:24.379730Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T11:23:16.132719Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -126387,13 +126387,46 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T11:02:05.618534Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T11:23:16.132719Z"
+      },
+      "research_result": {
+        "summary": "Investigated Terminal input, output, and continuity behaviors. Evaluated if an externally cleared xterm selection leaves a stale armed state (`selectAllArmed`) and checked the effect of early `PtyExitEvent` messages on terminal readiness. Confirmed that the batcher works correctly without starvation for small chunks and segmenter usage is not strictly required given the current state.",
+        "observations": [
+          {
+            "scenario": "Simulated terminal output batching to see if scheduling a redundant window after hitting the maxBytes limit causes starvation.",
+            "evidence": "Executed an isolated Node test pushing chunks that reach maxBytes, followed by smaller chunks, mimicking sporadic output.",
+            "result": "No starvation occurred. The batcher handles small chunks by keeping the previously scheduled timer intact, which flushes the small chunks accurately when it expires. The logic `timer === null && length === 0` safely prevents overriding an active flush window."
+          },
+          {
+            "scenario": "Inspecting how `selectAllArmed` behaves when xterm's selection is cleared externally (e.g. losing focus but still within the container).",
+            "evidence": "Reviewed `TerminalView.tsx` where `selectionSubscription` listens to `onSelectionChange`. If `!terminal.hasSelection()`, it clears `setSelectionReply(null)` but doesn't unset `selectAllArmedRef.current`.",
+            "result": "The armed state might remain stale if xterm clears the selection, however, as noted in previous decisions, there's no native reproduction of this externally cleared state natively."
+          },
+          {
+            "scenario": "Inspecting the impact of stale `PtyExitEvent` messages on a newer terminal UI state.",
+            "evidence": "Reviewed `TerminalView.tsx` and `types.ts`. The UI filters events by `terminalId`. A new process spawn creates a new `terminalId` (e.g. `terminal-{pid}-{NEXT_ID}`).",
+            "result": "Since `terminalId` is strictly checked, a stale `pty-exit` from a previous generation will not affect a newly restarted terminal tab."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `applyTerminalAttachment` resetting baseline sequence expectations causes skipped output if an attachment payload is delayed while the provider produces rapid output."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-01T11:23:16.132719Z",
+        "source": {
+          "activity_id": "sessions/13482054989641665506/activities/09de2cd6a7e548229b8d869d47b0a7a2",
+          "report_sha256": "4b8fc4b92384c5230343612178aa5c9b7052e0215125895d2f19f15c4a5a47a2",
+          "activity_created_at": "2026-10-01T11:11:53.479865Z",
+          "session_id": "13482054989641665506",
+          "dispatch_key": "07c0046e1b8b2f81025dfe74"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T11:16:34.563638Z",
+    "last_poll_at": "2026-10-01T11:23:33.129368Z",
     "last_tick_at": "2026-10-01T11:16:39.810748Z",
     "run_id": "36854214310"
   }
