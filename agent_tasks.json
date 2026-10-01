@@ -129960,7 +129960,7 @@
       "id": "research-transcript-links-reliability-15",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -130134,16 +130134,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "11067119282659689473",
         "dispatch_key": "8e83740f5c96da7e14d5f9a8",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-8e83740f5c96da7e14d5f9a8",
         "started_at": "2026-10-01T15:18:20.455815Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T16:00:37.946926Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -130314,24 +130314,12 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T15:50:34.045970Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-10-01T15:43:11.821793Z",
-          "source": {
-            "activity_id": "sessions/11067119282659689473/activities/2651f0f48b614d15a48500a2fb43b418",
-            "report_sha256": "9853a2325a64a609aa2fc04698efa20246e14ed6638b6364804bc3e9e7c3fe3a",
-            "activity_created_at": "2026-10-01T15:29:58.167706Z",
-            "session_id": "11067119282659689473",
-            "dispatch_key": "8e83740f5c96da7e14d5f9a8"
-          }
-        },
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T16:00:37.946926Z",
         "report_repair": {
           "at": "2026-10-01T15:43:39.099441Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/11067119282659689473/activities/2651f0f48b614d15a48500a2fb43b418",
             "report_sha256": "9853a2325a64a609aa2fc04698efa20246e14ed6638b6364804bc3e9e7c3fe3a",
@@ -130339,6 +130327,112 @@
             "session_id": "11067119282659689473",
             "dispatch_key": "8e83740f5c96da7e14d5f9a8"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated ReDoS vulnerabilities in MARKDOWN_LINK regex and scroll anchoring behavior for 'Latest message' with oversized items. Confirmed that MARKDOWN_LINK suffers from O(N^2) evaluation time due to greedy unbounded quantifiers combined with string matchAll semantics, blocking the main thread for over 17 seconds on strings of 100,000 unclosed bracket characters. Also observed that `useVirtualList` scrollToIndex anchors the top of items by default, resulting in oversized latest messages initially hiding their newly generated content below the viewport.",
+        "observations": [
+          {
+            "scenario": "Executing Array.from(text.matchAll(MARKDOWN_LINK)) on a string of 100,000 unclosed '[' characters using the current regex pattern in contentLinks.ts.",
+            "evidence": "Ran a Node.js performance test. The current unbounded regex took over 17,900 ms to execute due to O(N^2) backtracking. Changing the capture group quantifier from `+` to bounded limits (e.g., `{1,1024}`) reduced execution time to ~680 ms without omitting valid matches.",
+            "result": "Establishes that the current MARKDOWN_LINK regex is vulnerable to catastrophic backtracking which can freeze the main thread, and bounding capture lengths mitigates this. (Evidence mode: real_runtime)"
+          },
+          {
+            "scenario": "Triggering scrollToIndex(index) via 'Latest message' for an element whose height exceeds the viewport.",
+            "evidence": "Static analysis of useVirtualList.ts `scrollToIndex` shows it assigns `container.scrollTop = next` where `next` is based on `layout.offsets[index]`, inherently anchoring the viewport to the element's top. The offset for the last element (index 9) with estimated row height 1000 and gap 10 is 9090. Max scroll top is 9590. It scrolls to min(9090, 9590) -> 9090. If the element were 1000px tall and viewport 500px, its bottom 500px would be hidden initially.",
+            "result": "Establishes that scrollToIndex lacks an alignment strategy ('start' vs 'end'), causing latest messages that are taller than the viewport to have their newest content hidden initially. (Evidence mode: static_analysis)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if providing 'align: end' to scrollToIndex resolves the issue where the user misses the newest bottom content before measurement correction routines intervene in TranscriptModal."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-01T16:00:37.946926Z",
+        "source": {
+          "activity_id": "sessions/11067119282659689473/activities/4ca4b0bd2f774ffa9fec4e512aae5e18",
+          "report_sha256": "d607464fe35025638dde2be1524064ecf385c8c2c5398a42fe22a33d42f78fbb",
+          "activity_created_at": "2026-10-01T15:45:11.444337Z",
+          "session_id": "11067119282659689473",
+          "dispatch_key": "8e83740f5c96da7e14d5f9a8"
+        },
+        "deferred_findings": [
+          {
+            "title": "Prevent main thread block on massive transcript regex search",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-431acae01e82042ff88dc3b9143ffddd91f0e4cf1adbf6c1190f66c3cca2c922; not established as a duplicate. {\"detail\": \"Measured O(N^2) catastrophic backtracking in `contentLinks.ts` due to `MARKDOWN_LINK` parsing. A malicious or malformed chat entry containing 100,000 unclosed '[' characters causes Node.js to block the main thread for over 17 seconds.\", \"reproduction\": {\"actual\": \"Regex execution takes over 17,900 milliseconds due to quadratic backtracking.\", \"expected\": \"Regex execution completes quickly, returning no matches.\", \"steps\": [\"Execute `Array.from(text.matchAll(MARKDOWN_LINK))` where `text` is 100,000 '[' characters.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner previously rejected bounding the number of matches or making regex cap changes that complete transcript search behavior, stating no bounded-session native freeze was demonstrated. However, a crafted single message of 100,000 characters is within realistic AI hallucination bounds or paste bounds, and it freezes the thread via regex backtracking natively regardless of total match caps. Bounding match length inside the regex rather than bounding matches does not truncate the search semantics but prevents a UI thread freeze.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-7ca21f00652b62dd\", \"responses\": [{\"decision_context_id\": \"7c2ec5ff9f4731347fd5eef88ae96065eacdd1a89a71f38254ce435cdea1bfd7\", \"decision_task_id\": \"discovery-7ca21f00652b62dd\", \"why_previous_reason_no_longer_explains\": \"The regex ReDoS is independent of the number of visible matches bounded in UI logic. An O(N^2) regex backtracking scenario allows a single malformed chat message to freeze the native application for over 17 seconds, warranting a regex structure adjustment to avoid quadratic time without omitting legitimate matches.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/contentLinks.ts"
+            ],
+            "acceptance": [
+              "The MARKDOWN_LINK regex parses large strings (e.g. 100,000 characters of repeating '[' brackets) without blocking the thread for more than a few milliseconds, by bounding capture lengths."
+            ]
+          },
+          {
+            "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-2a158a6f04197055; not established as a duplicate. {\"detail\": \"Observed via static analysis that `useVirtualList` scrollToIndex correctly anchors to the top offset of an element. However, when 'Latest message' is triggered, if the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom.\", \"reproduction\": {\"actual\": \"The viewport scrolls to align with the top of the final message, leaving the latest output unseen.\", \"expected\": \"The viewport scrolls to the bottom of the final message.\", \"steps\": [\"Load a transcript with a final message that is significantly taller than the viewport.\", \"Click the 'Latest message' button.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this previously in PR #98. The task is being re-proposed because the resolution was closed against main and needs to be verified on the current branch, or it represents a regression if the fix is not present.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"The PR #98 merged into main df856f35322b24776766dee1bb0823c20ec64bbd is not reflected in the current repository pin (888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2). The bug is fully observable on the current base.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TranscriptModal.tsx",
+              "src/useVirtualList.ts"
+            ],
+            "acceptance": [
+              "Clicking 'Latest message' navigates to the bottom of the final visible message, not its top, ensuring users see the most recent content of oversized messages."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11067119282659689473/activities/4ca4b0bd2f774ffa9fec4e512aae5e18",
+          "report_sha256": "d607464fe35025638dde2be1524064ecf385c8c2c5398a42fe22a33d42f78fbb",
+          "activity_created_at": "2026-10-01T15:45:11.444337Z",
+          "session_id": "11067119282659689473",
+          "dispatch_key": "8e83740f5c96da7e14d5f9a8"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-7ca21f00652b62dd",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-431acae01e82042ff88dc3b9143ffddd91f0e4cf1adbf6c1190f66c3cca2c922"
+            },
+            {
+              "id": "discovery-84ebe14b2ef5320a",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-2a158a6f04197055"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Prevent main thread block on massive transcript regex search",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-431acae01e82042ff88dc3b9143ffddd91f0e4cf1adbf6c1190f66c3cca2c922; not established as a duplicate. {\"detail\": \"Measured O(N^2) catastrophic backtracking in `contentLinks.ts` due to `MARKDOWN_LINK` parsing. A malicious or malformed chat entry containing 100,000 unclosed '[' characters causes Node.js to block the main thread for over 17 seconds.\", \"reproduction\": {\"actual\": \"Regex execution takes over 17,900 milliseconds due to quadratic backtracking.\", \"expected\": \"Regex execution completes quickly, returning no matches.\", \"steps\": [\"Execute `Array.from(text.matchAll(MARKDOWN_LINK))` where `text` is 100,000 '[' characters.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner previously rejected bounding the number of matches or making regex cap changes that complete transcript search behavior, stating no bounded-session native freeze was demonstrated. However, a crafted single message of 100,000 characters is within realistic AI hallucination bounds or paste bounds, and it freezes the thread via regex backtracking natively regardless of total match caps. Bounding match length inside the regex rather than bounding matches does not truncate the search semantics but prevents a UI thread freeze.\", \"evidence_mode\": \"real_runtime\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-7ca21f00652b62dd\", \"responses\": [{\"decision_context_id\": \"7c2ec5ff9f4731347fd5eef88ae96065eacdd1a89a71f38254ce435cdea1bfd7\", \"decision_task_id\": \"discovery-7ca21f00652b62dd\", \"why_previous_reason_no_longer_explains\": \"The regex ReDoS is independent of the number of visible matches bounded in UI logic. An O(N^2) regex backtracking scenario allows a single malformed chat message to freeze the native application for over 17 seconds, warranting a regex structure adjustment to avoid quadratic time without omitting legitimate matches.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/contentLinks.ts"
+              ],
+              "acceptance": [
+                "The MARKDOWN_LINK regex parses large strings (e.g. 100,000 characters of repeating '[' brackets) without blocking the thread for more than a few milliseconds, by bounding capture lengths."
+              ]
+            },
+            {
+              "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-2a158a6f04197055; not established as a duplicate. {\"detail\": \"Observed via static analysis that `useVirtualList` scrollToIndex correctly anchors to the top offset of an element. However, when 'Latest message' is triggered, if the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom.\", \"reproduction\": {\"actual\": \"The viewport scrolls to align with the top of the final message, leaving the latest output unseen.\", \"expected\": \"The viewport scrolls to the bottom of the final message.\", \"steps\": [\"Load a transcript with a final message that is significantly taller than the viewport.\", \"Click the 'Latest message' button.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this previously in PR #98. The task is being re-proposed because the resolution was closed against main and needs to be verified on the current branch, or it represents a regression if the fix is not present.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"The PR #98 merged into main df856f35322b24776766dee1bb0823c20ec64bbd is not reflected in the current repository pin (888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2). The bug is fully observable on the current base.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TranscriptModal.tsx",
+                "src/useVirtualList.ts"
+              ],
+              "acceptance": [
+                "Clicking 'Latest message' navigates to the bottom of the final visible message, not its top, ensuring users see the most recent content of oversized messages."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
         }
       }
     },
@@ -130743,7 +130837,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T15:53:52.997186Z",
+    "last_poll_at": "2026-10-01T16:01:02.735364Z",
     "last_tick_at": "2026-10-01T15:53:58.159793Z",
     "run_id": "36887277429"
   }
