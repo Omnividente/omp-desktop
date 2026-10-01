@@ -123192,7 +123192,7 @@
       "id": "research-terminal-input-reliability-15",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -123468,16 +123468,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4253556237357747194",
         "dispatch_key": "57560f34abb630c0c2db6632",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-57560f34abb630c0c2db6632",
         "started_at": "2026-10-01T02:05:44.489894Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T02:29:56.127178Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -123652,13 +123652,243 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T02:15:38.688614Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T02:29:56.127178Z"
+      },
+      "research_result": {
+        "summary": "Investigated if stale applyTerminalOutputEvent calls can corrupt or interleave terminal output batching beyond continuity tracking by validating the outputBatcher queue state.",
+        "observations": [
+          {
+            "scenario": "Simulating a sequence where an active terminal at generation 2 receives a stale output event from generation 1.",
+            "evidence": "Executed an isolated synthetic Node script (`test_batcher_with_continuity.js`) that creates an output batcher and sets a continuity baseline at generation 2. It processes a normal generation 2 event (seq 6) and enqueues it, then processes a stale generation 1 event (seq 10).",
+            "result": "The stale event is accepted (accept: true) due to the flawed applyTerminalOutputEvent logic, and it is subsequently enqueued into the output batcher. Flushing the batcher yields ['normal event', 'stale event'], confirming that stale output interleaved directly into the terminal stream, corrupting the UI."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the impact of stale `PtyExitEvent` messages on active terminals, since an older exited process might incorrectly terminate a newer generation's UI state."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-01T02:29:56.127178Z",
+        "source": {
+          "activity_id": "sessions/4253556237357747194/activities/c4683d09cc244216982121ae76a93300",
+          "report_sha256": "c0ebe1bf7a71c3bdd9fc60be3d52b70a3d88b51a8bb618db236366e4028be605",
+          "activity_created_at": "2026-10-01T02:16:12.952270Z",
+          "session_id": "4253556237357747194",
+          "dispatch_key": "57560f34abb630c0c2db6632"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix terminal continuity generation changes during failure recovery",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Isolated node execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map. This also leads to stale output interleaving directly into the terminal stream, corrupting the UI.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, the internal baseline is corrupted back to generation 1, and the output batcher enqueues the stale data.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2. The output batcher doesn't enqueue the stale data.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result, the internal baseline map, and the output batcher\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections focused on the absence of a thrown exception (discovery-2e...28d) and claimed generation overlaps do not happen (discovery-ee...e31). This synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline. It also proves the UI gets corrupted by interleaving older stream data.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale stated continuity requires synthetic mock events for this to happen. Even if rare or synthetic, the state machine should logically reject an older generation if one is received to prevent baseline and UI corruption.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/terminalContinuity.ts",
+              "src/terminalContinuity.test.ts"
+            ],
+            "acceptance": [
+              "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map",
+              "applyTerminalAttachment rejects attachments with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+            ],
+            "deferred_id": "993b9f1d4c64a6665bd55b495bdac5d0a74ed7e001c919a18971321ce60f8331",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix terminal continuity generation changes during failure recovery",
+              "risk": "medium",
+              "priority": 60,
+              "focus": [
+                "quality",
+                "reliability"
+              ],
+              "target_paths": [
+                "src/terminalContinuity.ts",
+                "src/terminalContinuity.test.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map",
+                "applyTerminalAttachment rejects attachments with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Isolated node execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map. This also leads to stale output interleaving directly into the terminal stream, corrupting the UI.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Establish a generation 2 baseline using applyTerminalAttachment",
+                    "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                    "Observe the result, the internal baseline map, and the output batcher"
+                  ],
+                  "expected": "The decision has accept: false, and the internal baseline remains generation 2. The output batcher doesn't enqueue the stale data.",
+                  "actual": "The decision has accept: true, generationChanged: true, the internal baseline is corrupted back to generation 1, and the output batcher enqueues the stale data."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "rationale_reassessment",
+                  "difference": "The rejections focused on the absence of a thrown exception (discovery-2e...28d) and claimed generation overlaps do not happen (discovery-ee...e31). This synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline. It also proves the UI gets corrupted by interleaving older stream data.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                  "observation_refs": [
+                    0
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                      "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                      "why_previous_reason_no_longer_explains": "The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued."
+                    },
+                    {
+                      "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                      "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                      "why_previous_reason_no_longer_explains": "The rationale stated continuity requires synthetic mock events for this to happen. Even if rare or synthetic, the state machine should logically reject an older generation if one is received to prevent baseline and UI corruption."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                  "action": "reject",
+                  "decision_at": "2026-09-21T20:12:25Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-terminal-input-reliability-15",
+              "activity_id": "sessions/4253556237357747194/activities/c4683d09cc244216982121ae76a93300",
+              "report_sha256": "c0ebe1bf7a71c3bdd9fc60be3d52b70a3d88b51a8bb618db236366e4028be605",
+              "activity_created_at": "2026-10-01T02:16:12.952270Z",
+              "session_id": "4253556237357747194",
+              "dispatch_key": "57560f34abb630c0c2db6632"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4253556237357747194/activities/c4683d09cc244216982121ae76a93300",
+          "report_sha256": "c0ebe1bf7a71c3bdd9fc60be3d52b70a3d88b51a8bb618db236366e4028be605",
+          "activity_created_at": "2026-10-01T02:16:12.952270Z",
+          "session_id": "4253556237357747194",
+          "dispatch_key": "57560f34abb630c0c2db6632"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-5640a0d5b2031811",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix terminal continuity generation changes during failure recovery",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Isolated node execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map. This also leads to stale output interleaving directly into the terminal stream, corrupting the UI.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, the internal baseline is corrupted back to generation 1, and the output batcher enqueues the stale data.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2. The output batcher doesn't enqueue the stale data.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment\", \"Call applyTerminalOutputEvent with a stale output event from generation 1\", \"Observe the result, the internal baseline map, and the output batcher\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The rejections focused on the absence of a thrown exception (discovery-2e...28d) and claimed generation overlaps do not happen (discovery-ee...e31). This synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline. It also proves the UI gets corrupted by interleaving older stream data.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued.\"}, {\"decision_context_id\": \"43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434\", \"decision_task_id\": \"discovery-ee7a41f1c14f7d31\", \"why_previous_reason_no_longer_explains\": \"The rationale stated continuity requires synthetic mock events for this to happen. Even if rare or synthetic, the state machine should logically reject an older generation if one is received to prevent baseline and UI corruption.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/terminalContinuity.ts",
+                "src/terminalContinuity.test.ts"
+              ],
+              "acceptance": [
+                "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map",
+                "applyTerminalAttachment rejects attachments with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+              ],
+              "deferred_id": "993b9f1d4c64a6665bd55b495bdac5d0a74ed7e001c919a18971321ce60f8331",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "risk": "medium",
+                "priority": 60,
+                "focus": [
+                  "quality",
+                  "reliability"
+                ],
+                "target_paths": [
+                  "src/terminalContinuity.ts",
+                  "src/terminalContinuity.test.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation older than the current baseline without overwriting the newer generation in the baselines map",
+                  "applyTerminalAttachment rejects attachments with a generation older than the current baseline without overwriting the newer generation in the baselines map"
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Isolated node execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map. This also leads to stale output interleaving directly into the terminal stream, corrupting the UI.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Establish a generation 2 baseline using applyTerminalAttachment",
+                      "Call applyTerminalOutputEvent with a stale output event from generation 1",
+                      "Observe the result, the internal baseline map, and the output batcher"
+                    ],
+                    "expected": "The decision has accept: false, and the internal baseline remains generation 2. The output batcher doesn't enqueue the stale data.",
+                    "actual": "The decision has accept: true, generationChanged: true, the internal baseline is corrupted back to generation 1, and the output batcher enqueues the stale data."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "rationale_reassessment",
+                    "difference": "The rejections focused on the absence of a thrown exception (discovery-2e...28d) and claimed generation overlaps do not happen (discovery-ee...e31). This synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline. It also proves the UI gets corrupted by interleaving older stream data.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                    "observation_refs": [
+                      0
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                        "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+                        "why_previous_reason_no_longer_explains": "The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued."
+                      },
+                      {
+                        "decision_task_id": "discovery-ee7a41f1c14f7d31",
+                        "decision_context_id": "43ab38c523015fc21cc5dbf5577a0218a4d6bf77eb0266825223d2966a306434",
+                        "why_previous_reason_no_longer_explains": "The rationale stated continuity requires synthetic mock events for this to happen. Even if rare or synthetic, the state machine should logically reject an older generation if one is received to prevent baseline and UI corruption."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+                    "action": "reject",
+                    "decision_at": "2026-09-21T20:12:25Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-terminal-input-reliability-15",
+                "activity_id": "sessions/4253556237357747194/activities/c4683d09cc244216982121ae76a93300",
+                "report_sha256": "c0ebe1bf7a71c3bdd9fc60be3d52b70a3d88b51a8bb618db236366e4028be605",
+                "activity_created_at": "2026-10-01T02:16:12.952270Z",
+                "session_id": "4253556237357747194",
+                "dispatch_key": "57560f34abb630c0c2db6632"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T02:22:40.456711Z",
+    "last_poll_at": "2026-10-01T02:30:13.945036Z",
     "last_tick_at": "2026-10-01T02:22:45.803927Z",
     "run_id": "36805458286"
   }
