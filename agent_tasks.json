@@ -128918,7 +128918,7 @@
       "id": "research-settings-models-ux-15",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -129090,7 +129090,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "11563050521169356669",
         "dispatch_key": "8dc16ab1d4e1dcf571b293b0",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
@@ -129098,8 +129098,8 @@
         "started_at": "2026-10-01T13:59:44.897487Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -129269,13 +129269,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T14:09:28.288668Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T14:23:55.489099Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-10-01T14:23:55.489099Z",
+          "source": {
+            "activity_id": "sessions/11563050521169356669/activities/8ef5c502b5c04357aee488e0d6f6dcf5",
+            "report_sha256": "6db02f5e56b259197d6f938368f7b8a18b2b888bc686ecdb83e86d90b4365f61",
+            "activity_created_at": "2026-10-01T14:12:15.440764Z",
+            "session_id": "11563050521169356669",
+            "dispatch_key": "8dc16ab1d4e1dcf571b293b0"
+          }
+        },
+        "report_repair": {
+          "at": "2026-10-01T14:24:17.718417Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/11563050521169356669/activities/8ef5c502b5c04357aee488e0d6f6dcf5",
+            "report_sha256": "6db02f5e56b259197d6f938368f7b8a18b2b888bc686ecdb83e86d90b4365f61",
+            "activity_created_at": "2026-10-01T14:12:15.440764Z",
+            "session_id": "11563050521169356669",
+            "dispatch_key": "8dc16ab1d4e1dcf571b293b0"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T14:17:06.061303Z",
+    "last_poll_at": "2026-10-01T14:24:15.676566Z",
     "last_tick_at": "2026-10-01T14:17:11.758461Z",
     "run_id": "36874953932"
   }
