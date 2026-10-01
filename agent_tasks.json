@@ -125149,7 +125149,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T09:59:18.828957Z"
+        "observed_at": "2026-10-01T09:59:18.828957Z",
+        "released_attempt_ref": "autonomous/attempt-a5e2b7996de470fd09196aeb"
       },
       "research_result": {
         "summary": "Investigated Terminal input, output, and continuity performance. Measured throughput of terminalOutputBatcher with a large number of chunks, and measured the overhead of createMouseSelectionEdit boundary checks with maximum allowable selection lengths.",
