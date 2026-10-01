@@ -132154,7 +132154,7 @@
       "id": "research-sessions-persistence-performance-16",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -132309,16 +132309,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3560624228044212840",
         "dispatch_key": "c4bae223476808c7bb916d28",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-c4bae223476808c7bb916d28",
         "started_at": "2026-10-01T17:25:39.055731Z",
-        "finished_at": "",
+        "finished_at": "2026-10-01T18:04:11.071295Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -132489,13 +132489,108 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-01T17:36:00.154334Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-01T18:04:11.071295Z"
+      },
+      "research_result": {
+        "summary": "Investigated the performance of session import, focusing on OMP and Codex session parsing. Found that line-by-line `serde_json::from_str::<Value>` parsing allocates excessively, resulting in high latency for large import files (~100,000 lines). Demonstrated that replacing unconditional parsing with simple string containment pre-checks (e.g., checking if the line contains `\"type\":\"title\"` or `\"type\": \"session\"`) combined with targeted structural parsing dramatically reduces processing time from ~1000ms to ~200ms in benchmarks.",
+        "observations": [
+          {
+            "scenario": "Importing a large (100,000 lines) OMP format session file.",
+            "evidence": "Ran a synthetic benchmark (`bench_import_omp_session`) on a generated 100K line `.jsonl` file. `import_omp_session` took ~1000ms to process the body. In a modified version, checking `line.contains(\"type\")` before invoking `serde_json::from_str::<Value>` reduced processing time to ~200ms. The original implementation parses every single line into a full JSON `Value` tree just to check if its `type` is `title` or `session`.",
+            "result": "Unconditional JSON parsing of every line in `import_omp_session` introduces significant parsing overhead. A fast-path string pre-check substantially reduces CPU time and allocations."
+          },
+          {
+            "scenario": "Importing a large (100,000 lines) Codex format session file.",
+            "evidence": "Ran a synthetic benchmark (`bench_import_codex_session_manual`) on a generated 100K line `.jsonl` file containing `response_item` events. `import_codex_session` processes large codex sessions much faster overall, but still spends ~650ms parsing every line into `Value`. Using string containment pre-checks for `\"response_item\"` reduced time to ~360ms.",
+            "result": "Similar to OMP imports, Codex imports also benefit from avoiding unconditional JSON `Value` parsing for every line by using simple string containment pre-checks."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory usage footprint of large session loads into memory on the frontend.",
+          "Investigate using `serde_json::from_str::<Struct>` for structural parsing of just the `type` field instead of `serde_json::Value` for even faster skipping of irrelevant lines."
+        ],
+        "proposed_task_ids": [
+          "discovery-4c16b7af622c16a3"
+        ],
+        "completed_at": "2026-10-01T18:04:11.071295Z",
+        "source": {
+          "activity_id": "sessions/3560624228044212840/activities/1c5d7e1b494e4db690cc6b36ae1b436b",
+          "report_sha256": "1537b10a35925072030a2b8d1a0ebe355b582315a6d9a942e4caebb571404f65",
+          "activity_created_at": "2026-10-01T17:51:14.533554Z",
+          "session_id": "3560624228044212840",
+          "dispatch_key": "c4bae223476808c7bb916d28"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3560624228044212840/activities/1c5d7e1b494e4db690cc6b36ae1b436b",
+          "report_sha256": "1537b10a35925072030a2b8d1a0ebe355b582315a6d9a942e4caebb571404f65",
+          "activity_created_at": "2026-10-01T17:51:14.533554Z",
+          "session_id": "3560624228044212840",
+          "dispatch_key": "c4bae223476808c7bb916d28"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-4c16b7af622c16a3"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-4c16b7af622c16a3",
+      "title": "Optimize large session imports by avoiding unconditional JSON parsing",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "refactor"
+      ],
+      "created_at": "2026-10-01T18:04:11.071295Z",
+      "acceptance": [
+        "In `import_omp_session`, use string `contains` checks for `\"type\":\"title\"` and `\"type\":\"session\"` (including whitespace variations) before parsing lines as JSON.",
+        "In `import_codex_session`, use string `contains` checks for `\"type\":\"response_item\"` and similar heavily repeated types before parsing.",
+        "Verify that imports still succeed correctly without regression in the final `.jsonl` artifacts produced."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Benchmarks demonstrated that line-by-line `serde_json::from_str::<Value>` parsing allocates excessively, resulting in ~1000ms latency for a 100,000-line OMP session file. Pre-checking the string for `\"type\"` keywords reduced this to ~200ms.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a very large synthetic `.jsonl` OMP session with 100,000 message lines.",
+            "Import the session via `import_sessions`.",
+            "Measure CPU time elapsed during `import_omp_session`."
+          ],
+          "expected": "Parsing completes quickly without fully deserializing every line into a generic `Value` object.",
+          "actual": "Parsing deserializes every line into a `Value` tree, taking ~1s on test hardware."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-16",
+        "activity_id": "sessions/3560624228044212840/activities/1c5d7e1b494e4db690cc6b36ae1b436b",
+        "report_sha256": "1537b10a35925072030a2b8d1a0ebe355b582315a6d9a942e4caebb571404f65",
+        "activity_created_at": "2026-10-01T17:51:14.533554Z",
+        "session_id": "3560624228044212840",
+        "dispatch_key": "c4bae223476808c7bb916d28"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-01T17:57:24.161916Z",
+    "last_poll_at": "2026-10-01T18:04:38.257110Z",
     "last_tick_at": "2026-10-01T17:57:32.002741Z",
     "run_id": "36903071188"
   }
