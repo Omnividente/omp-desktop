@@ -121645,6 +121645,135 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-ux-15",
+      "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-01T00:30:36Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "ux",
+        "fingerprint": "221b812c5a32087785d47f2abf42ad86c29ee437c48c11271fb0929e29465d5f",
+        "cycle": 15,
+        "previous_reports": [
+          {
+            "summary": "Investigated the memory and latency footprint of the SessionList component displaying active workspaces with deeply nested session hierarchies and huge quantities of items. Verified that the component renders 100,000 synthetic items without crashing and effectively implements virtualization boundaries. The underlying virtualizer bounds the DOM node count, drastically limiting the number of elements rendered.",
+            "observations": [
+              {
+                "scenario": "SessionList rendering a massive list of 100,000 items.",
+                "evidence": "Ran a synthetic React component test using Vitest and jsdom (temporarily created as src/SessionListVirtualization.test.tsx). The test generated 100,000 session objects and asserted that the initial render completes without throwing an Out-Of-Memory or Call Stack error. Furthermore, it asserted that the total number of items rendered into the DOM with the component class .session-item was strictly bounded to less than 100 despite having 100,000 total items in state.",
+                "result": "Establishes that the underlying virtualizer correctly bounds DOM nodes regardless of the input dataset size. The frontend component can handle deeply nested or massive flat hierarchies without crashing, meaning no further structural bounds inside the specific component are strictly required to avoid out of memory issues for pure item count."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+              "Investigate if `set_session_title_pin` (which modifies the shared `SettingsState`) and `delete_session` have a race condition when run concurrently, as `set_session_title_pin` acquires the settings lock but not `IMPORT_TRANSACTION_LOCK`.",
+              "Investigate whether rapid succession of `delete_session` and `import_session` with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T01:18:43.444260Z",
+            "source": {
+              "activity_id": "sessions/16918823435969185888/activities/ce2f400a476c44eebc563b119823bb8f",
+              "report_sha256": "743a7f07069dfc88fad374c56427e3e0aac578b518de313bd60d464500fb2a32",
+              "activity_created_at": "2026-09-30T01:09:29.696707Z",
+              "session_id": "16918823435969185888",
+              "dispatch_key": "6b344c9c95f35d8f2a195989"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the settings transaction boundaries for session modification and deletion, as well as the focus loss regression in SessionControls.",
+            "observations": [
+              {
+                "scenario": "Concurrent execution of set_session_title_pin and delete_session.",
+                "evidence": "Static analysis of src-tauri/src/lib.rs. Both set_session_title_pin and delete_session wrap their settings metadata updates (adding or removing a title pin) in with_settings_transaction. delete_session removes the title pin from the settings snapshot within the transaction, and only after the settings transaction commits does it physically delete the session files. If set_session_title_pin runs concurrently, it either runs before the deletion transaction (in which case the pin is correctly removed) or after (in which case validated_session_file will fail if the file is already deleted, or an orphaned pin might briefly exist before garbage collection).",
+                "result": "Establishes that the shared SettingsState transaction safely serializes settings metadata changes, preventing memory corruption or critical race conditions between session deletion and title pinning."
+              },
+              {
+                "scenario": "Focus preservation when toggling the primary provider pin in SessionControls.",
+                "evidence": "Ran a React jsdom test (locally as src/SessionControlsFocus.test.tsx) asserting the activeElement before and after calling the toggle button. Before toggle, activeElement is the button. Immediately after toggle, primaryProviderPinPending becomes true, disabling the button. Consequently, document.activeElement defaults to document.body, severing the keyboard context without redirecting focus.",
+                "result": "Reproduced the accessibility issue where focus drops to the body because the button immediately becomes disabled. This confirms the previously deferred finding and creates a concrete case for focus redirection."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions.",
+              "Investigate whether rapid succession of delete_session and import_session with the same session ID can result in orphaned settings metadata (like title pins) if the deletion clears the settings but the new import immediately replaces the file before settings sync completes."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T04:55:21.257192Z",
+            "source": {
+              "activity_id": "sessions/3720681951043794412/activities/974dd158274a4047a7b57eb0268e1a0c",
+              "report_sha256": "0b2e8133dfa99180e60216b1ff10cb591623683013149852cf62f46a5340251b",
+              "activity_created_at": "2026-09-30T04:44:16.224151Z",
+              "session_id": "3720681951043794412",
+              "dispatch_key": "b7c8cf1a64a1ea038d2d8e0a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via jsdom testing that SessionControls drops focus to document.body when toggling the primary provider pin because it immediately disables the button without providing an alternative focus target.\", \"reproduction\": {\"actual\": \"Focus drops to document.body because the button becomes disabled=true.\", \"expected\": \"Focus is preserved or explicitly managed (e.g. redirected to a visually identical but structurally focusable surrogate or the session search field) while the action is pending.\", \"steps\": [\"Mount SessionControls with a valid, running session.\", \"Focus the .primary-provider-pin button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx"
+                ],
+                "acceptance": [
+                  "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain in a logical location rather than dropping to the document body.",
+                  "Accessibility focus must be maintained even while the pin button enters a disabled/pending state."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the session import boundaries, latency for large files, and resilience to settings transactions. Confirmed that memory and CPU bounds correctly safeguard against massive inputs and race conditions during session removal, without causing deadlocks.",
+            "observations": [
+              {
+                "scenario": "Importing a 500 MB session file with a massive amount of JSONL entries.",
+                "evidence": "Ran existing rust tests (five_hundred_megabyte_summary_stays_within_two_second_budget). The system explicitly caps the memory boundary for session bodies using read_bounded_import_source against MAX_IMPORT_BYTES (256 MB) and rapidly scans the file using reverse chunked streaming. Parsing 500 MB finishes in about 50ms, comfortably within the 2 second budget, preventing application lockup during bootstrap operations.",
+                "result": "The current Rust layer is robust against unbounded memory growth during imports and discovery scans, correctly utilizing boundaries without requiring additional application-level constraints."
+              },
+              {
+                "scenario": "Session deletion concurrently interacting with settings transaction metadata updates (title/provider pins).",
+                "evidence": "Read through src-tauri/src/sessions.rs and src-tauri/src/lib.rs. The delete_session command uses with_settings_transaction to immediately mutate the memory candidate (removing settings), attempts to save the settings, and then commits the actual deletion by invoking terminal.prepare_inactive_session_deletion().commit(). It resolves the transaction safely. If deletion fails, resolve_transaction initiates a rollback.",
+                "result": "Safe execution order prevents dangling settings pointers, confirming previous assumptions that the transaction model works appropriately and race conditions are mitigated by synchronous disk interactions inside the locked scopes."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-09-30T17:23:53.617335Z",
+            "source": {
+              "activity_id": "sessions/18115397881600138423/activities/5b385da3acc4449abe03444b55f898df",
+              "report_sha256": "d7f75f6e14911834821abdb54ae438645529dfd353ad14bbb91e13cc526af28c",
+              "activity_created_at": "2026-09-30T17:11:56.390102Z",
+              "session_id": "18115397881600138423",
+              "dispatch_key": "a07a9f05ae0cb9e156ca620f"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
