@@ -143137,6 +143137,16 @@
           "actor": "Omnividente"
         },
         "event_id": "19e01422f17cf95a1baceac84f99298d66efeeba786fb78ba482dc1d5ff05f50"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-01T22:13:54.579960Z",
+        "decision_id": "c39b477c1442dd1f4121cb03ade1528f5197d91fb139be71b8d6f1fe74692486",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-01T22:13:53.912053Z"
+        },
+        "event_id": "76156b9e8f1710c25540eba03c6a753a8d177cb6bdaa4e8b06507784b8ea188c"
       }
     ]
   }
