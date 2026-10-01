@@ -134310,8 +134310,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "5927933596702188306",
         "dispatch_key": "f06e6262926b1f3edef588a6",
         "base_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
         "starting_branch": "autonomous/attempt-f06e6262926b1f3edef588a6",
