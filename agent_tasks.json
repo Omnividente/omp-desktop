@@ -133769,7 +133769,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T21:20:36.652126Z"
+        "observed_at": "2026-10-01T21:20:36.652126Z",
+        "released_attempt_ref": "autonomous/attempt-ca95442384bfbe4421af9d47"
       },
       "research_result": {
         "summary": "Investigated performance and resource usage across Runtime incidents and resource health paths. Found that sampling system resource health takes negligible time (baseline ~673µs, 1000 processes ~1.4ms) and `enforceIncidentBound` handles 1,000 incidents with a single drop in ~1.1ms, demonstrating efficient bounded logic. On the rust side, log redaction for 100k lines completes in ~1.8s (without an invasive fast path, retaining security). Also tested the active focus trap bug from the deferred backlog and verified a comprehensive fix using a helper function to ignore nodes hidden in a collapsed HTML details element.",
