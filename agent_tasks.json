@@ -127210,7 +127210,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T12:02:52.641823Z"
+        "observed_at": "2026-10-01T12:02:52.641823Z",
+        "released_attempt_ref": "autonomous/attempt-dd7447389129a341dd11dbf7"
       },
       "research_result": {
         "summary": "Investigated workspace navigation interactions focusing on unlocalized/hardcoded keyboard shortcuts for Windows/macOS and early state clearing during rename failures.",
