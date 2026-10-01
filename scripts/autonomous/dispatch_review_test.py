@@ -285,14 +285,15 @@ ReviewSequences.checkout = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, default=ReviewSequences.checkout)
-    parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--report", type=Path, help="Optional JSON report; tests run without it.")
     args = parser.parse_args()
     ReviewSequences.checkout = args.checkout.resolve()
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ReviewSequences))
     report = {"tests_run": result.testsRun, "failures": len(result.failures), "errors": len(result.errors),
               "success": result.wasSuccessful(), "scenarios": ReviewSequences.results,
               "limits": ["GitHub queue is a workflow-derived local model; no hosted concurrency or platform gates"]}
-    write_json(args.report, report)
+    if args.report:
+        write_json(args.report, report)
     return 0 if result.wasSuccessful() else 1
 
 
