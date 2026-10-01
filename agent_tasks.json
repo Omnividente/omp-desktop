@@ -129812,7 +129812,8 @@
             "session_id": "16875379087313077910",
             "dispatch_key": "3c9f86c33549a0186f8d1310"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-3c9f86c33549a0186f8d1310"
       },
       "research_result": {
         "summary": "Investigated Settings recovery error handling, proxy provider overlay generation, and ModelPicker focus management. Validated that unhandled fallback failures trap the UI in the SettingsRecoveryScreen, disabled proxies are ignored during startup overlay generation, and ModelPicker's keyboard navigation interrupts typing.",
