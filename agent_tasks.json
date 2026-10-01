@@ -125767,7 +125767,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T10:31:04.215159Z"
+        "observed_at": "2026-10-01T10:31:04.215159Z",
+        "released_attempt_ref": "autonomous/attempt-9325460697f0ed2b9756f45c"
       },
       "research_result": {
         "summary": "Investigated ReDoS vulnerabilities in MARKDOWN_LINK regex and scroll anchoring behavior for 'Latest message' with oversized items. Confirmed that MARKDOWN_LINK suffers from O(N^2) evaluation time due to greedy unbounded quantifiers combined with string matchAll semantics, blocking the main thread for over a minute on strings of 100,000 unclosed bracket characters. Also observed that `useVirtualList` scrollToIndex anchors the top of items by default, resulting in oversized latest messages initially hiding their newly generated content below the viewport until TranscriptModal's secondary correction logic runs.",
