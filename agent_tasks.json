@@ -122517,7 +122517,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T01:17:14.166761Z"
+        "observed_at": "2026-10-01T01:17:14.166761Z",
+        "released_attempt_ref": "autonomous/attempt-a55d6378f49bd2421e9a3edf"
       },
       "research_result": {
         "summary": "Verified that terminal continuity state logic allows older generations to overwrite newer ones, causing baseline corruption.",
