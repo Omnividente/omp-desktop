@@ -126748,7 +126748,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T11:46:33.028352Z"
+        "observed_at": "2026-10-01T11:46:33.028352Z",
+        "released_attempt_ref": "autonomous/attempt-68bac224b87b7a866886de96"
       },
       "research_result": {
         "summary": "Investigated eager state clearing bug on session rename failures, and hardcoded shortcuts on macOS.",
