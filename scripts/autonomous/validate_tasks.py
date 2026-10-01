@@ -13,6 +13,7 @@ from typing import Any
 from jules_dispatch import session_is_active
 from select_task import blocks_lane, is_unresolved, pending_rejection, valid_research_detachment
 from research_request import CONTRACT_VERSION, sha256_json, validate_task_request
+from dispatch_journal import validate_journal
 
 POST_DEFERRED_REASONS = frozenset({"historical_post_context_missing", "historical_post_unexplained",
                                    "historical_post_insufficient_evidence"})
@@ -668,6 +669,8 @@ def validate(manifest: Any) -> list:
         return ["manifest must be a JSON object"]
     if type(manifest.get("version")) is not int and manifest.get("version") != CONTRACT_VERSION:
         errors.append("version must be a legacy integer or " + CONTRACT_VERSION)
+    if "dispatch_journal" in manifest:
+        errors.extend(validate_journal(manifest["dispatch_journal"]))
     controller = manifest.get("controller")
     if controller is not None:
         if not isinstance(controller, dict):

@@ -219,25 +219,22 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.data, before)
         self.assertEqual(self.github.head("autonomous/state"), revision)
 
-    def test_due_automatic_tick_ignores_old_handoff_then_duplicate_does_not_poll(self):
+    def test_due_automatic_tick_cannot_hide_active_next_with_plain_run_id(self):
         config = self.research_config()
         self.run_tick(task_id="", config=config)
         self.reload()
         self.workflow_runs = [{"id": identifier, "head_branch": "main", "event": "workflow_dispatch",
                                "head_repository": {"full_name": REPOSITORY}, "status": "in_progress"}
                               for identifier in (9, 10)]
+        before, reads = copy.deepcopy(self.data), self.api.gets
         with patch("health_snapshot.gh_get", side_effect=self.snapshot_api):
-            first = self.run_tick(task_id="", config=config, automatic=True, run_id="10",
-                                  now=NOW + timedelta(minutes=5))
-            self.assertFalse(first.get("skipped", False))
-            self.reload()
-            before, reads = copy.deepcopy(self.data), self.api.gets
-            second = self.run_tick(task_id="", config=config, automatic=True, run_id="11",
-                                   now=NOW + timedelta(minutes=5, seconds=10))
-        self.assertTrue(second["skipped"])
+            result = self.run_tick(task_id="", config=config, automatic=True, run_id="10",
+                                   now=NOW + timedelta(minutes=5))
+        self.assertEqual((result["skipped"], result["reason"]), (True, "next_task_running"))
         self.assertEqual((self.api.posts, self.api.gets), (1, reads))
         self.reload()
         self.assertEqual(self.data, before)
+
 
     def test_automatic_path_rejects_an_explicit_approved_implementation(self):
         before = copy.deepcopy(self.data)
