@@ -134429,6 +134429,29 @@
         "before_state_sha": "dba1f3fd1863d053f55562324e932b9732985cc4",
         "before_digest": "bbc763f31d8ade62ba8b11261886920a4f264ba716b8646cf2bf85c4c9256953",
         "event_id": "433da845a1302d169a5e102d0133aa5dc9362f72d41b11a6132c098e108e5a5b"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-01T20:30:55.212198Z",
+        "decision_id": "4b7eb1f1ab803546378b1e739b96a5c65ebb725d14e05a0a6cd380243541b712",
+        "executor_claim_id": "3c520054fac7b702b114862161f65f4c075996264b57f56417b85944937e953c",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "b2bb0c19836d4a3562809c8570042502bfda86a2",
+          "after_state_sha": "1f097de5e43d5ea5fd422c9cde2f2db25958c456",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-behavior-15",
+              "session_id": "537048486464263917",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-01T20:30:15Z"
+            }
+          ],
+          "before_digest": "bbc763f31d8ade62ba8b11261886920a4f264ba716b8646cf2bf85c4c9256953",
+          "after_digest": "6b05df7460ae0a5b46ed075a9261c05bc19897d97bd266c077434325d8887c31"
+        },
+        "receipt_id": "83ea84a93cdc763fd5146789e9c335f053ce93eae821a327fe4ff0239fbf03cd",
+        "event_id": "577a138a44edeaf5445b10a3a1c2f202dbd2aa712274da786c969b65370dfab8"
       }
     ]
   }
