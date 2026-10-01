@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
+from dispatch_journal import materialize
 from jules_provenance import trusted_pull_request
 from loop_health import ACTIVE_RUN_STATUSES, assess_health, workflow_runs
 from research_cycle import scope_fingerprints
@@ -68,6 +69,52 @@ def snapshot_runs(get, workflow: str) -> list[dict]:
     return list(runs.values())
 
 
+def _exact_run(get, run_id: str) -> dict | None:
+    run = get("actions/runs/" + run_id)
+    if run is None:
+        return None
+    if not isinstance(run, dict) or str(run.get("id")) != run_id:
+        raise ValueError("exact workflow run identity changed")
+    return run
+
+
+def _snapshot_workflows(get, manifest: dict, repository: str, *, completed=None) -> dict:
+    """Collect bounded history, complete active reads and the pinned executor."""
+    completed = completed or {}
+    snapshots = {}
+    for name, (workflow, filename) in WORKFLOWS.items():
+        runs = snapshot_runs(get, workflow)
+        # Completion webhooks may precede the list endpoint's update. Keep
+        # failure/busy diagnostics fresh; completion is not a useful tick clock.
+        if (completed.get("name") == name and type(completed.get("id")) is int
+                and (completed.get("head_repository") or {}).get("full_name") == repository):
+            observed = _exact_run(get, str(completed["id"]))
+            if observed is None:
+                raise ValueError("completion webhook run is unavailable")
+            runs = [run for run in runs if run["id"] != observed["id"]] + [observed]
+        snapshots[filename] = runs
+    # Recent completions are bounded. An unfinished executor is pinned to one
+    # exact run, so read that run when it has aged out of its workflow snapshot.
+    if manifest.get("dispatch_journal") is not None:
+        state = materialize(manifest["dispatch_journal"])
+        intent = state["active_intent"]
+        executor = state["executor_claims"].get(intent["decision_id"]) if intent else None
+        if executor:
+            run_id = executor["trigger"]["run_id"]
+            filename = next(filename for workflow, filename in WORKFLOWS.values() if workflow == intent["workflow"])
+            if not any(str(run.get("id")) == run_id for run in snapshots[filename]):
+                try:
+                    pinned = _exact_run(get, run_id)
+                except (KeyError, OSError, subprocess.SubprocessError, RuntimeError):
+                    # A missing or temporarily unreadable exact run is unknown.
+                    # Injected GitHub adapters report transport failure as RuntimeError.
+                    # Saved observations remain history, not current run state.
+                    pinned = None
+                if pinned is not None:
+                    snapshots[filename].append(pinned)
+    return snapshots
+
+
 def snapshot_proposals(get, manifest: dict, repository: str) -> list[dict]:
     tasks_by_number = {}
     for task in manifest["tasks"]:
@@ -91,7 +138,8 @@ def snapshot_proposals(get, manifest: dict, repository: str) -> list[dict]:
     return proposals
 
 
-def inspect_health(manifest, config, *, repo, enabled, now=None, state_sha="", current_run_id="", get=None) -> dict:
+def inspect_health(manifest, config, *, repo, enabled, now=None, state_sha="", current_run_id="",
+                   observer_context=None, get=None) -> dict:
     """Inspect fetched refs and complete live snapshots without updating any state."""
     repository = config["repository"]
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
@@ -108,13 +156,13 @@ def inspect_health(manifest, config, *, repo, enabled, now=None, state_sha="", c
     if get is None:
         def get(path, *, paginate=False):
             return gh_get(repository, path, paginate=paginate)
-    snapshots = {filename: snapshot_runs(get, workflow) for workflow, filename in WORKFLOWS.values()}
+    snapshots = _snapshot_workflows(get, manifest, repository)
     return assess_health(
         manifest, config, main_sha=main_sha, lab_sha=lab_sha, main_is_ancestor=ancestry == 0,
         fingerprints=fingerprints, runs=snapshots["next-runs.json"], sync_runs=snapshots["sync-runs.json"],
         wakeup_runs=snapshots["wakeup-runs.json"], pull_requests=snapshot_proposals(get, manifest, repository),
         enabled=enabled, now=now if now is not None else datetime.now(timezone.utc),
-        state_sha=state_sha, current_run_id=current_run_id,
+        state_sha=state_sha, current_run_id=current_run_id, observer_context=observer_context,
     )
 
 
@@ -137,16 +185,7 @@ def main(argv=None) -> int:
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         event = json.loads(Path(event_path).read_text(encoding="utf-8")) if event_path else {}
         completed = event.get("workflow_run") or {}
-        outputs = {}
-        for name, (workflow, filename) in WORKFLOWS.items():
-            runs = snapshot_runs(get, workflow)
-            # Completion webhooks may precede the list endpoint's update. Keep
-            # failure/busy diagnostics fresh; completion is not a useful tick clock.
-            if (completed.get("name") == name and type(completed.get("id")) is int
-                    and (completed.get("head_repository") or {}).get("full_name") == repository):
-                observed = get("actions/runs/" + str(completed["id"]))
-                runs = [run for run in runs if run["id"] != observed["id"]] + [observed]
-            outputs[filename] = runs
+        outputs = _snapshot_workflows(get, manifest, repository, completed=completed)
         outputs["pull-requests.json"] = snapshot_proposals(get, manifest, repository)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         for filename, value in outputs.items():

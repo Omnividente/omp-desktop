@@ -65,6 +65,87 @@ from its attempt ref to lab can run the evidence gate. Control CI tests trusted
 `main` scripts for lab events and the proposed control-plane revision for a PR
 into `main`.
 
+## Durable workflow execution rollout (separate, paused operation)
+
+The C-SEND candidate separates dispatch delivery from permission to execute.
+`dispatch_journal` is an append-only part of the authoritative state queue.
+NEXT, CONTINUE and SYNC need a separately acknowledged first-CAS executor claim;
+an owner, a new run attempt, a late delivery or a callback cannot renew that right.
+The immutable correlation key, canonical inputs and frozen control checkout must
+match the current frontier. Delivery acknowledgements, titles, result artifacts,
+timestamps and journal commits do not prove a completed substantive effect.
+Missing legacy journals fail closed: ordinary workflow runs never initialize one.
+An internal sender intent can acquire its executor only from `workflow_dispatch`
+carrying the original correlation key. Keyless cron, manual and callback ingress
+cannot execute that intent, advance its frontier or replace its pending/unknown
+delivery. The journal validator checks the dispatch binding as well.
+The source run attempt stays in the trigger and exact receipt binding, but is not
+a new logical callback identity: rerunning the source cannot reopen its frontier.
+
+Deployment and initialization require a separately authorized paused rollout;
+these notes are a plan, not permission to run commands against production:
+
+1. Disable the loop and stop/drain outstanding NEXT, CONTINUE and SYNC runners.
+   Keep uncertain provider sessions, saved recovery receipts and proposals intact;
+   do not cancel/recreate workers or recycle an old execution claim.
+2. Save the exact authoritative state revision and queue bytes, and identify the
+   accepted trusted control revision and current main/lab pins. Review the local
+   candidate and its synthetic failure/interleaving proof before deployment.
+3. Publish the reviewed scripts and workflow definitions only under a separate
+   source-publication authorization. Keep automation disabled while installing
+   the same controller entrypoints. Old and new executors must not overlap.
+4. Under separate initialization authorization, invoke `JournalStore.initialize`
+   with the exact saved `expected_sha`, frozen `control_sha` and reviewed `basis`.
+   Initialization uses the normal state CAS, preserves all task/provider identities
+   and must not silently reset an existing journal. A changed head requires a fresh
+   operator review, not an automatic retry using another baseline.
+5. Read back the acknowledged state head and materialized journal, confirm the
+   expected Init/frontier and unchanged substantive queue, then enable the switch
+   under the existing owner authorization. Exercise one actual admitted workflow
+   and inspect its durable receipt before allowing the ordinary scheduled cadence.
+
+NEXT records a saved substantive controller change or a completed live poll of
+bound workers, checked against the original executor and authoritative before/after
+revisions. An unchanged poll needs the actual bound session observations and saved
+poll checkpoint; timestamp-only writes do not grant progress. Manual implementation
+approval and exact report/feedback recovery authorization remain independent.
+SYNC preparation saves a durable `sync_prepared` checkpoint after publishing and
+checking its isolated candidate ref. This checkpoint is not progress. A separate
+first-CAS `sync_finalize` phase belongs to the same original run, attempt and
+control revision; even a rerun of only the final job cannot execute it again.
+Publication receipts require successful exact-candidate gates, verified unchanged
+heads/ancestry/legacy queue blob and read-back of the actual published lab SHA.
+Known no-effect preparation (up-to-date, busy, conflict or disabled) records a
+separate `ExecutionCompletion(sync_no_effect)`. Exact live pins, no published owned
+candidate, no prepared/finalize stage and the unchanged substantive baseline are
+verified before CAS closes that logical frontier. An up-to-date completion also
+verifies actual main ancestry and the immutable queue blob. It issues no publication
+or useful-effect receipt, updates no useful tick/poll and never restores a claim.
+Replay is observation only; the next legitimate decision can be admitted normally.
+Proposal refresh and owned-ref cleanup run inside the admitted finalization body.
+
+Handoff reads the original run-bound durable receipt from the state journal;
+artifacts carry diagnostic references only, never transferable execution rights.
+Every sender basis identifies the current predecessor's exact durable receipt.
+An old handoff after newer progress only reports that its source was superseded;
+it cannot dispatch from a stale receipt under a newer predecessor. The reservation
+CAS rechecks that binding, including races after an idempotent Advance. Callbacks
+cannot manufacture another frontier from a completed title or artifact URL. If a
+runner dies after its executor/phase claim without a known terminal outcome, keep
+the claim spent and inspect its actual state/ref effects manually.
+Rollback means pausing and deploying a separately reviewed compatible controller;
+never drop the journal, force-rewrite state history or run a legacy dispatcher
+against an initialized live journal to regain execution permission.
+
+Local control-plane verification uses `dispatch_observer_test.py --report <path>`:
+the real `Runtime.observe`, its snapshot child, shared health policy, admission,
+NEXT controller and receipts execute against disposable Git and loopback HTTP.
+The no-effect SYNC chain includes an actual worker GET and saved controller
+checkpoint. Parent elapsed time and diagnostic `--now` are synthetic; this is
+not hosted Actions concurrency, platform-gate or production-rollout evidence.
+The older `dispatch_integration_test.py` matrix injects health and remains a
+separate safety regression, not proof of the production observer path.
+
 ## Invariants enforced by code
 
 1. **No product automerge.** `proposal_review.py` emits `blocked`, `manual_review`,
@@ -411,6 +492,28 @@ direct `sendMessage` API; do not assume it prevents either channel.
   Lateness uses the actual cooldown, rolling daily-cap, polling or proposal-event
   deadline, not the age of the last useful tick. That boundary survives becoming
   due and observing an in-flight NextTask; failure backoff can still postpone it.
+  The shared read-only `dispatch_journal` view includes the active decision, pinned
+  inputs/control/run/attempt, execution phase, consumed claims and missing receipts.
+  Ordinary short pending uses the existing five-minute polling grace. Lost ACK
+  without a known live run is `journal_delivery_unknown`; claim-only past grace is
+  `journal_send_spent_without_receipt`; acknowledged delivery without an executor
+  is `journal_executor_overdue`. Failed/cancelled runs and spent executors lacking
+  receipts remain separate attention. Disabled keeps these and all task/report/PR
+  diagnostics. The view does not mutate queue, journal, cadence or useful clocks.
+  Inspection and Monitor CLI share one workflow collector. If an unfinished
+  pinned executor is absent from its workflow's bounded snapshot, they read
+  `actions/runs/<id>` directly. Missing/unavailable exact reads leave that run
+  unknown; Monitor reports missing receipt after grace, without restoring saved
+  `queued`/`in_progress` observations as current liveness. Malformed/wrong identity
+  fails closed. The diagnostic CLI emits JSON; Monitor's job alarm checks
+  `health` and `attention`, not just the CLI exit code.
+  Only a descriptor matching the exact unfinished consumed claim (decision,
+  claim, full trigger, control revision and actual current run) bypasses its own
+  journal action suppression. A fresh own SendClaim qualifies only before any
+  delivery, executor, effect or completion exists. The snapshot child checks
+  that descriptor against the actual workflow context. Plain `current_run_id`
+  grants no exception; other occupied NEXT runs and subject readiness still
+  block. These descriptors are read-only metadata, never execution/send rights.
 - **Autonomous Next Task** is called by continuation or explicit owner dispatch;
   it has no independent cron. It reconciles saved sessions and PR outcomes,
   collects reports and starts eligible research regardless of pending backlog or
@@ -428,9 +531,19 @@ direct `sendMessage` API; do not assume it prevents either channel.
   is busy rather than relying on a completion webhook. Each timer waits at most
   30 minutes; a longer cooldown is handed to another Continue before exit. The
   workflow has a 40-minute timeout to allow bounded reads and handoff overhead.
-  Only one timer and one pending wakeup share the wakeup group; duplicate signals
-  coalesce, never cancel the active owner and never hold `autonomous-lab-queue`.
-  Ineligible feature/fork callbacks are isolated before concurrency admission.
+  After its own durable SendClaim it rereads health with the consumed claim's
+  exact descriptor, rechecks main/lab refs and normalized target inputs plus the
+  live switch/context, and permits at most one POST. A failed check leaves the
+  claim spent; a changed owner/run attempt, replay or lost ACK cannot renew it.
+  Keyed `workflow_dispatch` successors use `autonomous-lab-wakeup-chain`; keyless
+  cron/push/manual/trusted callbacks use `autonomous-lab-wakeup-ingress`. Each lane
+  has at most one running and one pending workflow, with `cancel-in-progress:false`.
+  Keyless bursts coalesce only ingress: they cannot evict the required chain slot.
+  Same-key duplicates can replace the pending run, but journal CAS admits exactly
+  one executor for that decision. SYNC uses the corresponding separate sync lanes.
+  No per-key groups or expanded pending queue are needed. An operator dispatching
+  a different nonempty key still uses chain; Actions expressions cannot validate
+  journal keys. Ineligible feature/fork callbacks remain isolated before admission.
   Normal continuation uses explicit `workflow_dispatch` via the existing Loop
   Switch PAT. Cron (every 5 minutes), trusted workflow completions and main
   pushes are recovery signals, not the normal timer. Continue does not trigger
@@ -467,35 +580,22 @@ direct `sendMessage` API; do not assume it prevents either channel.
 
 ### Continuation evidence and recovery
 
-NextTask, Sync and Loop Switch explicitly hand control to Continue after their
-work. Inspect `continuation-<run>-<attempt>` or the corresponding `tick-handoff`,
-`sync-handoff` or `switch-handoff` artifact for `outcome`, `reason` and `handoff`.
-An HTTP acknowledgement alone leaves handoff pending. Confirmation requires the
-matching trusted successor run, not the currently executing timer; an observed
-failed/cancelled/skipped successor is not successful delivery. A reused pending
-run must be an explicit dispatch, schedule or main push: a `workflow_run` listing
-alone cannot prove that its upstream passes the continuation job's trust gate.
-If the exact keyed Continue successor is observed `completed/cancelled`, a new
-replacement can be confirmed within the same deadline, without another POST.
-It must be absent from the pre-POST baseline and created no earlier than intent.
-A pending `workflow_run` additionally needs the server-rendered
-`Continue trusted callback <run_id>` marker, guarded by the workflow's upstream
-trust predicate, same repository/main/Continue path and the exact controller
-checkout SHA. Two fresh direct run-detail reads confirm the same pending
-candidate; an admitted in-progress candidate confirms immediately. Changing
-candidate or losing proof resets confirmation. No job-start proof is required
-behind the held workflow lock. Wrong/older revision or unproved callback remains
-unknown; original cancelled and replacement receipts are retained. Failures,
-timeouts and NEXT/SYNC handoffs cannot use this replacement rule.
+NextTask and Sync hand control to Continue after their work; Loop Switch only changes
+the enabled state and fences writers. Inspect `continuation-<run>-<attempt>`,
+`tick-handoff` or `sync-handoff` for `outcome`, `reason` and the original durable key.
+An HTTP acknowledgement alone leaves handoff pending. Run titles and trusted run
+observations are delivery diagnostics, never executor claims or completed effects.
+Continue-to-Continue exits after its one POST without waiting under chain concurrency;
+the next keyed executor must then actually complete its own admitted stage.
 
-An ambiguous Next/Continue request is reconciled before at most one retry with
-the same correlation key. Sync is pinned to main/lab and a pre-dispatch run-ID
-baseline; its ambiguous POST is not retried. Snapshot reads use bounded retries;
-unconfirmed handoffs exit with `pending`/`unknown`, not a green success claim.
-API requests have a 20-second timeout. Snapshot and handoff deadlines are 120
-seconds between bounded operations, not strict aggregate wall-clock limits.
-If the owner and all pending successors are lost, recovery still needs a trusted
-completion, watchdog or explicit owner wakeup; no external scheduler is added.
+Pending/unknown/lost ACK, rerun, a later owner and cancellation do not grant another
+POST or keyless replacement. No ambiguous request is retried. New send permission
+requires a new first acknowledged CAS for a decision bound to the current causal
+receipt. Unresolved delivery/execution remains visible in Monitor and requires
+review of actual effects, not journal deletion or fabricated progress. Snapshot
+reads retain their bounded retry policy; this is not a dispatch retry. API requests
+have a 20-second timeout; bounded handoff reads have a 120-second confirmation window.
+
 
 ### Reviewing the accumulated backlog
 
@@ -682,16 +782,20 @@ CAS-backed laboratory controller, not a collector-only file rewrite.
 ### Resolving a failed main synchronization
 
 Inspect **Autonomous Sync Main** and its `autonomous-sync-preparation-<attempt>` /
-`autonomous-sync-result-<attempt>` artifacts. The candidate branch is unique to
-the run; cleanup only deletes that owned ref if its SHA still matches. A conflict,
-failed gate or moved head leaves live lab unchanged. Disabling the loop during
-verification also prevents publication.
+`autonomous-sync-result-<attempt>` artifacts. Preparation contains
+`sync-preparation.json`; final outcome contains `sync-result.json`, including no-op,
+blocked and failed outcomes. Monitor reads the same final member from retained
+artifacts. Missing payload remains unknown, not invented success. The candidate
+branch is unique to the run; cleanup only deletes that owned ref if its SHA still
+matches. A conflict, failed gate or moved head leaves live lab unchanged. Disabling
+the loop during verification also prevents publication.
 
-Fix the reported conflict or failing check, then explicitly rerun the sync on
-`main`. Optional `main_sha` and `lab_sha` pin the expected current heads. A failed
-sync suppresses automatic retries for the same main revision, so a failing
-candidate cannot create an endless build loop; a new main revision or a successful
-manual sync releases that condition. No branch protection is weakened, no force
+Fix the reported conflict or failing check, then review the durable frontier before
+explicit admission of another sync on `main`. A spent unknown/prepared/finalize
+claim is not a retry capability; reconcile actual effects under a separately
+reviewed operation instead of renewing it. Optional `main_sha` and `lab_sha` pin
+the expected current heads. A failed sync suppresses automatic retries for that
+main revision. No branch protection is weakened, no force
 push is used, and no installer, version or release is produced.
 
 ### Accepting or declining an implementation PR

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Read-only, bounded continuation timer with correlated Actions handoffs."""
+"""Bounded continuation timer with durable single-send Actions handoffs."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +18,8 @@ from health_snapshot import inspect_health, snapshot_runs
 from lab_controller import GitHub
 from loop_health import ACTIVE_RUN_STATUSES
 from state_store import load_state
+from dispatch_journal import JournalConflict, JournalStore
+from workflow_admission import add_arguments, context
 
 NEXT = "autonomous_next_task.yml"
 CONTINUE = "autonomous_continue.yml"
@@ -79,7 +79,7 @@ class ContinuationGitHub(GitHub):
         return json.loads(result.stdout) if result.stdout.strip() else None
 
 
-def collect_snapshot(repo, config, scratch, github):
+def collect_snapshot(repo, config, scratch, github, *, current_run_id="", observer_context=None):
     """Only the isolated child executes the potentially slow Git/state reads."""
     for args in (("fetch", "--no-tags", "origin",
                   "+refs/heads/main:refs/remotes/origin/main",
@@ -90,7 +90,8 @@ def collect_snapshot(repo, config, scratch, github):
     manifest = load_state(repo, scratch / "queue.json", scratch / "revision.json")
     revision = json.loads((scratch / "revision.json").read_text(encoding="utf-8"))
     return inspect_health(manifest, config, repo=repo, enabled=github.enabled(),
-                          state_sha=revision["state_sha"], get=github.api)
+                          state_sha=revision["state_sha"], get=github.api,
+                          current_run_id=current_run_id, observer_context=observer_context)
 
 
 def stop_child(child):
@@ -110,7 +111,7 @@ def stop_child(child):
 class Runtime:
     """Production adapter. Its repo must be a private laboratory checkout."""
 
-    def __init__(self, repo, config_path, scratch, *, clock, check_interval):
+    def __init__(self, repo, config_path, scratch, *, clock, check_interval, admission_args):
         self.repo = Path(repo).resolve()
         self.config_path = Path(config_path).resolve()
         self.config = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -119,26 +120,34 @@ class Runtime:
         self.scratch = Path(scratch)
         self.clock = clock
         self.check_interval = check_interval
-        # The laboratory HEAD is mutable and is not the code rendering the
-        # callback trust marker. Bind that proof to this script's checkout.
-        revision = subprocess.run(
-            ["git", "-C", str(Path(__file__).resolve().parents[2]), "rev-parse", "HEAD"],
-            check=True, text=True, encoding="utf-8", stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, timeout=API_TIMEOUT)
-        self.control_sha = revision.stdout.strip()
-        if not re.fullmatch(r"[0-9a-f]{40}", self.control_sha):
-            raise ValueError("control revision unavailable")
+        self.admission_args = admission_args
+        self.admission = context(admission_args, admission_args.source_workflow, self.config)
+        self.trigger = self.admission.trigger
+        self.continuation_key = self.admission.key
+        self.receipt_id = admission_args.receipt_id
+        self.journal = JournalStore(self.repo, self.scratch / "journal-queue.json",
+                                    self.scratch / "journal-revision.json")
+        self.control_sha = self.admission.control_sha
+
+    def recheck_context(self):
+        if context(self.admission_args, self.admission_args.source_workflow, self.config) != self.admission:
+            raise ValueError("workflow context changed")
 
     def enabled(self):
         return self.github.enabled()
 
-    def observe(self):
+    def observe(self, *, observer_context=None):
         # Supervise the entire Git/state/API snapshot, including state_store's
         # longer Git calls. Disable is observed even while a child read hangs.
         destination = self.scratch / "snapshot.json"
         destination.unlink(missing_ok=True)
         command = [sys.executable, str(Path(__file__).resolve()), "--repo", str(self.repo),
                    "--config", str(self.config_path), "--out", str(destination), "--_snapshot-child"]
+        if observer_context is not None:
+            observer_path = self.scratch / "observer-context.json"
+            atomic_write(observer_path, json.dumps(observer_context) + "\n")
+            command += ["--_observer-context", str(observer_path),
+                        "--source-workflow", self.admission.workflow]
         child = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                  start_new_session=os.name != "nt")
         deadline = self.clock.monotonic() + SNAPSHOT_TIMEOUT
@@ -171,9 +180,6 @@ class Runtime:
         # historical runs (the 1000-result cap would eventually stop the loop).
         return snapshot_runs(get, workflow)
 
-    def run_detail(self, run_id):
-        return self.github.api("actions/runs/" + str(run_id))
-
     def dispatch(self, workflow, inputs):
         return self.github.api("actions/workflows/" + workflow + "/dispatches", method="POST",
                                body={"ref": "main", "inputs": inputs})
@@ -198,33 +204,6 @@ def run_receipt(run):
             "path": run.get("path")}
 
 
-def pending_continue(runs, repository, current_run_id):
-    candidates = [run for run in runs if trusted(run, repository, current_run_id, dispatched=False)
-                  and run.get("status") in ACTIVE_RUN_STATUSES - {"in_progress"}]
-    return min(candidates, key=lambda run: int(run["id"]), default=None)
-
-
-def continue_proof(run, repository, current_run_id, control_sha):
-    """Only the Continue endpoint's own revision-bound marker proves callbacks.
-
-    Actions renders run-name before workflow concurrency admission; waiting for
-    jobs here would deadlock against the timer which owns that same group.
-    """
-    if (run.get("path") != ".github/workflows/" + CONTINUE
-            or (run.get("repository") or {}).get("full_name") != repository):
-        return None
-    if trusted(run, repository, current_run_id, dispatched=False):
-        return "trusted_main_event"
-    if (re.fullmatch(r"[0-9a-f]{40}", control_sha or "")
-            and run.get("head_sha") == control_sha
-            and run.get("event") == "workflow_run"
-            and str(run.get("id", "")) != str(current_run_id)
-            and run.get("head_branch") == "main"
-            and (run.get("head_repository") or {}).get("full_name") == repository
-            and run.get("display_title") == f"Continue trusted callback {run.get('id')}"):
-        return "revision_bound_callback_marker"
-    return None
-
 
 def operation(health):
     """Map the shared policy's decision to inputs, never select work here."""
@@ -237,7 +216,7 @@ def operation(health):
 
 class Controller:
     def __init__(self, runtime, *, clock=None, current_run_id="", max_wait_seconds=1800,
-                 check_interval=30, publish=None, new_key=None):
+                 check_interval=30, publish=None):
         if not 0 < max_wait_seconds <= 1800 or not 0 < check_interval <= 30:
             raise ValueError("wait must be within 1800s and switch interval within 30s")
         self.runtime = runtime
@@ -246,10 +225,14 @@ class Controller:
         self.max_wait_seconds = max_wait_seconds
         self.check_interval = check_interval
         self.publish = publish or (lambda result: None)
-        self.new_key = new_key or (lambda: uuid.uuid4().hex)
         self.health = None
         self.handoff = None
         self.deadline = None
+        self.execution = None
+        self.admitted_intent = None
+        self.stage_started_at = None
+        self.stage_started = None
+        self.effect_receipt = None
 
     def report(self, outcome, reason, **extra):
         result = {"observed_at": iso(self.clock.now()), "outcome": outcome, "reason": reason,
@@ -273,160 +256,113 @@ class Controller:
             self.clock.sleep(min(self.check_interval, remaining))
         self.check_enabled()
 
-    def observe(self):
+    def observe(self, capability=None):
         self.check_enabled()
-        self.health = self.runtime.observe()
+        capability = capability or self.execution
+        observer = capability.observer_context() if capability is not None else None
+        self.health = self.runtime.observe(observer_context=observer)
         self.check_enabled()
         return self.health
 
-    def reuse_continue(self, runs):
+    def finish_stage(self):
+        if self.effect_receipt is not None or self.execution is None:
+            return
         self.check_enabled()
-        run = pending_continue(runs, self.runtime.repository, self.current_run_id)
-        if run is None:
-            return None
+        self.runtime.recheck_context()
+        observation = {name: self.health.get(name) for name in
+                       ("health", "action", "reason", "due_at", "main_sha", "lab_sha", "state_sha")}
+        evidence = {**self.runtime.trigger, "decision_id": self.admitted_intent["decision_id"],
+                    "stage_started_at": self.stage_started_at, "stage_completed_at": iso(self.clock.now()),
+                    "observation": observation, "waited_seconds": self.clock.monotonic() - self.stage_started,
+                    "stage": "bounded_observe_wait", "switch_enabled": True}
+        self.effect_receipt = self.runtime.journal.record_effect(self.execution, "continue_handoff", evidence)
+        self.runtime.journal.advance(self.effect_receipt["receipt_id"])
+
+    def recheck_dispatch(self, workflow, inputs, timer_handoff, capability=None):
         self.check_enabled()
-        title = str(run.get("display_title") or "")
-        self.handoff = {"workflow": CONTINUE, "key": title[9:] if title.startswith("Continue ") else None,
-                        "status": "confirmed", "reused": True, **run_receipt(run)}
-        return self.report("handed_off", "pending_continue_reused")
-
-    def replacement(self, runs, baseline, intent_at, previous):
-        """Reconcile coalescing without adding another dispatch or wait budget."""
-        control_sha = getattr(self.runtime, "control_sha", None)
-
-        def proof(run):
-            created = timestamp(run.get("created_at"))
-            if (str(run.get("id")) in baseline or created is None or created < intent_at
-                    or run.get("status") not in ACTIVE_RUN_STATUSES):
-                return None
-            return continue_proof(run, self.runtime.repository, self.current_run_id, control_sha)
-
-        candidates = [run for run in runs if proof(run)]
-        candidate = max(candidates, key=lambda run: int(run["id"]), default=None)
-        if candidate is None:
-            return None, None
-        # A list snapshot can contain a stale active row after coalescing. Read
-        # the actual run on each observation, never infer admission from jobs.
-        fresh = self.runtime.run_detail(candidate["id"])
-        self.check_enabled()
-        if str(fresh.get("id")) != str(candidate["id"]):
-            return None, None
-        evidence = proof(fresh)
-        receipt = {**run_receipt(fresh), "observed_at": iso(self.clock.now()), "proof": evidence}
-        self.handoff.setdefault("replacement_observations", []).append(receipt)
-        if not evidence:
-            return None, None
-        identity = (str(fresh["id"]), fresh.get("head_sha"), evidence)
-        confirmed = fresh["status"] == "in_progress" or previous == identity
-        return receipt if confirmed else None, identity
+        self.runtime.recheck_context()
+        if workflow == CONTINUE and not timer_handoff:
+            return True
+        before = self.health
+        fresh = self.observe(capability)
+        if capability is not None and any(fresh.get(name) != before.get(name)
+                                          for name in ("main_sha", "lab_sha")):
+            return False
+        if workflow == CONTINUE:
+            return not operation(fresh) and (fresh.get("reason") in BUSY_REASONS or bool(self.future_due(fresh)))
+        return operation(fresh) == (workflow, inputs)
 
     def confirm(self, workflow, inputs, *, timer_handoff=False):
-        # One identity survives the entire ambiguous-ACK reconciliation. Sync
-        # cannot carry keys: pin both heads, baseline run IDs, and never retry it.
-        key = self.new_key() if workflow != SYNC else None
         inputs = dict(inputs)
-        if key:
-            inputs["continuation_key"] = key
-        expected_title = ("Next " if workflow == NEXT else "Continue ") + key if key else "Sync main " + inputs["main_sha"]
-        baseline = set()
-        if workflow == SYNC:
-            baseline = {str(run["id"]) for run in self.runtime.runs(SYNC)}
-        self.handoff = {"workflow": workflow, "key": key, "status": "pending", "attempts": 0}
-        end = self.clock.monotonic() + CONFIRM_SECONDS
-        ambiguous = False
+        if not self.recheck_dispatch(workflow, inputs, timer_handoff):
+            return self.report("changed", "snapshot_changed_before_dispatch")
+        self.finish_stage()
+        intent, capability = self.runtime.journal.reserve_send(
+            workflow, inputs, basis={"health": self.health, "receipt_id":
+                                     self.effect_receipt["receipt_id"] if self.effect_receipt else None},
+            trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
+        key = intent["correlation_key"]
+        dispatch_inputs = {name: ("true" if value else "false") if isinstance(value, bool) else value
+                           for name, value in intent["normalized_inputs"].items()}
+        dispatch_inputs.update(continuation_key=key, control_sha=intent["control_sha"])
+        expected_title = (("Next " if workflow == NEXT else "Continue ") + key if workflow != SYNC
+                          else "Sync main " + inputs["main_sha"] + " " + key)
+        self.handoff = {"workflow": workflow, "key": key, "decision_id": intent["decision_id"],
+                        "control_sha": intent["control_sha"], "status": "pending", "attempts": 0}
         acknowledged = False
-        next_post_at = self.clock.monotonic()
-        pending_replacement = None
+        end = self.clock.monotonic() + CONFIRM_SECONDS
+        if capability is not None:
+            # Claim acknowledgement is the only source of send permission.
+            # Recheck after consuming; any failure permanently spends this claim.
+            capability.consume()
+            if not self.recheck_dispatch(workflow, inputs, timer_handoff, capability):
+                return self.report("blocked", "snapshot_changed_after_send_claim")
+            self.check_enabled()
+            if self.clock.monotonic() >= end:
+                return self.report("blocked", "send_recheck_deadline_exceeded")
+            self.handoff["intent_at"] = iso(self.clock.now())
+            self.handoff["attempts"] = 1
+            self.report("dispatching", "requesting_successor")
+            try:
+                self.runtime.dispatch(workflow, dispatch_inputs)
+                acknowledged = True
+                self.runtime.journal.observe_delivery(intent["decision_id"],
+                    {"kind": "post_acknowledged", "observed_at": iso(self.clock.now())})
+            except Disabled:
+                raise
+            except TRANSIENT:
+                self.handoff["status"] = "unknown"
+                self.runtime.journal.observe_delivery(intent["decision_id"],
+                    {"kind": "post_unknown", "observed_at": iso(self.clock.now())})
+            # Continue owns autonomous-lab-wakeup: never await its successor.
+            if workflow == CONTINUE:
+                self.handoff["status"] = "pending" if acknowledged else "unknown"
+                return self.report("handed_off" if acknowledged else "unknown", "successor_requested")
         while self.clock.monotonic() < end:
             self.check_enabled()
-            # Always reconcile before a retry, even after a transport timeout.
-            if self.handoff["attempts"]:
-                try:
-                    runs = self.runtime.runs(workflow)
-                except Disabled:
-                    raise
-                except TRANSIENT:
-                    pending_replacement = None
-                    self.pause(min(5, max(0, end - self.clock.monotonic())))
-                    continue
-                matches = [run for run in runs if trusted(run, self.runtime.repository, self.current_run_id)
-                           and run.get("display_title") == expected_title and str(run["id"]) not in baseline]
-                if matches:
-                    viable = [run for run in matches if run.get("status") in ACTIVE_RUN_STATUSES
-                              or (run.get("status") == "completed" and run.get("conclusion") == "success")]
-                    failed = [run for run in matches if workflow == CONTINUE
-                              and run.get("status") == "completed" and run.get("conclusion") != "cancelled"]
-                    run = min(viable or failed or matches, key=lambda candidate: int(candidate["id"]))
-                    if workflow == CONTINUE and not viable and run.get("status") == "completed" and run.get("conclusion") == "cancelled":
-                        self.handoff["cancelled_successor"] = run_receipt(run)
-                        self.handoff.update(**run_receipt(run))
-                        # The POST reached Actions. Coalescing is not a reason
-                        # to retry it, including after an ambiguous transport.
-                        ambiguous = False
-                    else:
-                        self.handoff.update(status="confirmed" if viable else "failed", **run_receipt(run))
-                        return self.report("handed_off" if viable else "unknown",
-                                           "successor_observed" if viable else "successor_failed")
-                if workflow == CONTINUE and self.handoff.get("cancelled_successor"):
-                    try:
-                        replacement, pending_replacement = self.replacement(
-                            runs, baseline, timestamp(self.handoff["intent_at"]), pending_replacement)
-                    except Disabled:
-                        raise
-                    except TRANSIENT:
-                        pending_replacement = None
-                        replacement = None
-                    if replacement and self.clock.monotonic() < end:
-                        self.handoff.update(status="confirmed", replacement=replacement,
-                                            **{k: v for k, v in replacement.items() if k not in {"proof", "observed_at"}})
-                        return self.report("handed_off", "cancelled_successor_replaced")
-                    self.report("pending", "confirming_cancelled_successor_replacement")
-            if self.clock.monotonic() >= end:
+            try:
+                runs = self.runtime.runs(workflow)
+            except Disabled:
+                raise
+            except TRANSIENT:
+                self.pause(min(5, max(0, end - self.clock.monotonic())))
+                continue
+            matches = [run for run in runs if trusted(run, self.runtime.repository, self.current_run_id)
+                       and run.get("display_title") == expected_title]
+            if matches:
+                viable = [run for run in matches if run.get("status") in ACTIVE_RUN_STATUSES
+                          or (run.get("status") == "completed" and run.get("conclusion") == "success")]
+                observed = min(viable or matches, key=lambda run: int(run["id"]))
+                self.runtime.journal.observe_delivery(intent["decision_id"],
+                    {"kind": "run_observed", "observed_at": iso(self.clock.now()), **run_receipt(observed)})
+                self.handoff.update(status="confirmed" if viable else "failed", **run_receipt(observed))
+                # Titles are delivery metadata only; no admission, replacement,
+                # effect receipt or frontier advancement can be inferred here.
+                return self.report("handed_off" if viable else "unknown",
+                                   "successor_observed" if viable else "successor_failed")
+            if workflow == CONTINUE:
                 break
-            can_post = (not self.handoff["attempts"] or
-                        (ambiguous and key and self.handoff["attempts"] < 2
-                         and self.clock.monotonic() >= next_post_at))
-            if can_post:
-                if workflow != CONTINUE or timer_handoff:
-                    fresh = self.observe()
-                    if workflow == CONTINUE:
-                        if operation(fresh) or (fresh.get("reason") not in BUSY_REASONS and not self.future_due(fresh)):
-                            return self.report("unknown" if self.handoff["attempts"] else "changed",
-                                               "snapshot_changed_before_handoff")
-                    elif operation(fresh) != (workflow, {k: v for k, v in inputs.items() if k != "continuation_key"}):
-                        return self.report("unknown" if self.handoff["attempts"] else "changed",
-                                           "snapshot_changed_before_dispatch")
-                if workflow == CONTINUE and not self.handoff["attempts"]:
-                    runs = self.runtime.runs(CONTINUE)
-                    reused = self.reuse_continue(runs)
-                    if reused:
-                        return reused
-                    baseline = {str(run["id"]) for run in runs}
-                    self.handoff["baseline_run_ids"] = sorted(baseline)
-                    self.handoff["control_sha"] = getattr(self.runtime, "control_sha", None)
-                self.check_enabled()
-                if self.clock.monotonic() >= end:
-                    break
-                if not self.handoff["attempts"]:
-                    # GitHub created_at has whole-second resolution. The
-                    # pre-POST baseline excludes existing runs in that second.
-                    self.handoff["intent_at"] = iso(self.clock.now().replace(microsecond=0))
-                self.handoff["attempts"] += 1
-                # Persist the intent before POST; an ACK is still only pending.
-                self.report("dispatching", "requesting_successor")
-                try:
-                    self.runtime.dispatch(workflow, inputs)
-                    acknowledged = True
-                    ambiguous = False
-                except Disabled:
-                    raise
-                except TRANSIENT:
-                    ambiguous = True
-                next_post_at = self.clock.monotonic() + 15
             self.pause(min(5, max(0, end - self.clock.monotonic())))
-        if self.handoff.get("cancelled_successor"):
-            self.handoff["status"] = "failed"
-            return self.report("unknown", "successor_replacement_unavailable")
         self.handoff["status"] = "pending" if acknowledged else "unknown"
         return self.report(self.handoff["status"], "successor_confirmation_unavailable")
 
@@ -440,9 +376,30 @@ class Controller:
         failures = 0
         stale_decisions = 0
         try:
+            self.check_enabled()
+            self.runtime.recheck_context()
             if handoff:
-                self.check_enabled()
+                self.effect_receipt = self.runtime.journal.outcome_for_trigger(self.runtime.trigger)
+                if self.effect_receipt is None or (self.runtime.receipt_id and
+                        self.runtime.receipt_id != self.effect_receipt["receipt_id"]):
+                    return self.report("blocked", "source_effect_receipt_unavailable")
+                if not self.runtime.journal.advance(self.effect_receipt["receipt_id"]):
+                    return self.report("stopped", "source_receipt_superseded")
                 return self.confirm(CONTINUE, {})
+            if self.runtime.trigger["event_name"] == "workflow_run":
+                source_outcome = self.runtime.journal.outcome_for_trigger(self.runtime.trigger)
+                if source_outcome is not None and not self.runtime.journal.advance(source_outcome["receipt_id"]):
+                    return self.report("stopped", "source_receipt_superseded")
+            self.admitted_intent, self.execution = self.runtime.journal.admit(
+                CONTINUE, {}, key=self.runtime.continuation_key,
+                trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
+            if self.execution is None:
+                return self.report("blocked", "execution_already_claimed")
+            self.check_enabled()
+            self.runtime.recheck_context()
+            self.execution.consume()
+            self.stage_started_at = iso(self.clock.now())
+            self.stage_started = self.clock.monotonic()
             while True:
                 try:
                     health = self.observe()
@@ -469,6 +426,7 @@ class Controller:
                     else:
                         due = self.future_due(health)
                         if due is None:
+                            self.finish_stage()
                             return self.report("stopped", health.get("reason", "terminal"))
                         remaining = self.max_wait_seconds - (self.clock.monotonic() - start)
                         if remaining <= 0:
@@ -486,7 +444,7 @@ class Controller:
                     if stale_decisions >= 3:
                         return self.report("unknown", "snapshot_unstable")
                     self.pause(5)
-                except Disabled:
+                except (Disabled, JournalConflict):
                     raise
                 except TRANSIENT:
                     if self.handoff and self.handoff.get("attempts"):
@@ -500,6 +458,8 @@ class Controller:
                     self.pause(delay)
         except Disabled:
             return self.report("disabled", "loop_disabled")
+        except JournalConflict:
+            return self.report("blocked", "journal_frontier_conflict")
         except TRANSIENT:
             if self.handoff and self.handoff.get("attempts"):
                 self.handoff["status"] = "unknown"
@@ -520,9 +480,13 @@ def main(argv=None):
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--handoff", action="store_true")
+    add_arguments(parser)
+    parser.add_argument("--source-workflow", choices=(CONTINUE, NEXT, SYNC), default=CONTINUE)
+    parser.add_argument("--receipt-id", default=os.environ.get("EFFECT_RECEIPT_ID", ""))
     parser.add_argument("--max-wait-seconds", type=float, default=1800)
     parser.add_argument("--check-interval", type=float, default=30)
     parser.add_argument("--_snapshot-child", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--_observer-context", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     config = {}
@@ -533,12 +497,23 @@ def main(argv=None):
             atomic_write(args.out, json.dumps(safe_result(value, secrets), indent=2) + "\n")
         with tempfile.TemporaryDirectory(prefix="continuation-", dir=args.out.parent) as temporary:
             if args._snapshot_child:
-                snapshot = collect_snapshot(args.repo, config, Path(temporary), ContinuationGitHub(config["repository"]))
+                observer = None
+                run_id = ""
+                if args._observer_context is not None:
+                    observer = json.loads(args._observer_context.read_text(encoding="utf-8"))
+                    binding = context(args, args.source_workflow, config)
+                    if (not isinstance(observer, dict) or observer.get("trigger") != binding.trigger
+                            or observer.get("control_sha") != binding.control_sha):
+                        raise ValueError("snapshot owner differs from trusted workflow context")
+                    run_id = binding.trigger["run_id"]
+                snapshot = collect_snapshot(args.repo, config, Path(temporary), ContinuationGitHub(config["repository"]),
+                                            current_run_id=run_id, observer_context=observer)
                 publish(snapshot)
                 return 0
             clock = Clock()
-            runtime = Runtime(args.repo, args.config, temporary, clock=clock, check_interval=args.check_interval)
-            result = Controller(runtime, clock=clock, current_run_id=os.environ.get("GITHUB_RUN_ID", ""),
+            runtime = Runtime(args.repo, args.config, temporary, clock=clock,
+                              check_interval=args.check_interval, admission_args=args)
+            result = Controller(runtime, clock=clock, current_run_id=args.run_id,
                                 max_wait_seconds=args.max_wait_seconds, check_interval=args.check_interval,
                                 publish=publish).run(handoff=args.handoff)
     except TRANSIENT:
@@ -552,7 +527,7 @@ def main(argv=None):
         with Path(summary).open("a", encoding="utf-8") as handle:
             handle.write("### Autonomous continuation\n\n```json\n" + text + "```\n")
     print(text, end="")
-    return 1 if result["outcome"] in {"error", "unknown", "pending"} else 0
+    return 1 if result["outcome"] in {"error", "unknown", "pending", "blocked"} else 0
 
 
 if __name__ == "__main__":

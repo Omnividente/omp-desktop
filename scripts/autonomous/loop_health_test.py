@@ -11,10 +11,12 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
+from dispatch_journal import NEXT, SYNC, digest, normalize_inputs
 from research_cycle import plan_research
 from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
@@ -82,6 +84,229 @@ def health(data=None, config=None, **overrides):
                      pull_requests=[], enabled=True, now=NOW)
     arguments.update(overrides)
     return assess_health(data if data is not None else queue(), config or settings(), **arguments)
+
+
+class JournalHealthTest(unittest.TestCase):
+    def fixture(self, *, age=timedelta(), send=True, executor=False, workflow=NEXT, tasks=()):
+        self.data = queue(*tasks)
+        self.events = []
+        self.data["dispatch_journal"] = {"version": 1, "events": self.events}
+        self.at = (NOW - age).isoformat()
+        initial = self.append("Init", control_sha=MAIN,
+                              basis={"kind": "fenced_bootstrap", "legacy_senders_fenced": True,
+                                     "pending_legacy": "none", "state_sha": LAB})
+        self.decision = digest([initial["event_id"], 0, ""])
+        self.key = digest([self.decision, "dispatch"])[:32]
+        self.trigger = {"run_id": "10", "run_attempt": "1", "event_name": "workflow_dispatch",
+                        "control_sha": MAIN}
+        inputs = normalize_inputs(workflow, {"main_sha": MAIN, "lab_sha": LAB} if workflow == SYNC else {})
+        self.append("Intent", decision_id=self.decision, frontier_seq=0, predecessor_decision_id="",
+                    correlation_key=self.key, workflow=workflow, normalized_inputs=inputs,
+                    input_hash=digest(inputs), basis={}, source_kind="sender", control_sha=MAIN,
+                    first_source_trigger=self.trigger, source_identity=digest(["workflow_dispatch", "10"]))
+        if send:
+            self.append("SendClaim", decision_id=self.decision, trigger=self.trigger,
+                        claim_id=digest([self.decision, "send"]))
+        if executor:
+            self.append("ExecutorClaim", decision_id=self.decision,
+                        trigger={**self.trigger, "run_id": "20"}, correlation_key=self.key,
+                        claim_id=digest([self.decision, "execute"]),
+                        before_state_sha=LAB, before_digest="c" * 64)
+        return self.data
+
+    def append(self, event_type, **fields):
+        event = {"type": event_type, "at": self.at, **fields}
+        event["event_id"] = digest(event)
+        self.events.append(event)
+        return event
+
+    def observer_context(self, kind="execute"):
+        claim_type = "ExecutorClaim" if kind == "execute" else "SendClaim"
+        claim = next(event for event in self.events if event["type"] == claim_type)
+        return {"kind": kind, "decision_id": self.decision, "claim_id": claim["claim_id"],
+                "trigger": copy.deepcopy(claim["trigger"]), "control_sha": MAIN}
+
+    def delivery(self, kind, **metadata):
+        self.append("DeliveryObservation", decision_id=self.decision,
+                    observation={"kind": kind, "observed_at": self.at, **metadata})
+
+    def observe(self, **kwargs):
+        config = settings()
+        config["research"]["enabled"] = False
+        kwargs.setdefault("runs", [])
+        return health(self.data, config, **kwargs)
+
+    def reasons(self, result):
+        return {item["reason"] for item in result["attention"]}
+
+    def test_short_pending_and_exact_grace_do_not_report_lost_ack(self):
+        for send in (False, True):
+            with self.subTest(send=send):
+                self.fixture(age=timedelta(minutes=5), send=send)
+                result = self.observe()
+                self.assertEqual((result["health"], result["action"]), ("ok", "none"))
+                self.assertEqual(self.reasons(result), set())
+                active = result["dispatch_journal"]["active_intent"]
+                self.assertEqual(active["send_claim_consumed"], send)
+                self.assertFalse(active["executor_claim_consumed"])
+                self.assertIn("executor_claim", active["missing"])
+
+    def test_lost_ack_is_immediate_but_claim_only_becomes_attention_after_grace(self):
+        self.fixture()
+        self.delivery("post_unknown")
+        unknown = self.observe()
+        self.assertEqual(unknown["health"], "attention")
+        self.assertEqual(self.reasons(unknown), {"journal_delivery_unknown"})
+        self.fixture(age=timedelta(minutes=5, seconds=1))
+        spent = self.observe()
+        self.assertEqual(self.reasons(spent), {"journal_send_spent_without_receipt"})
+        self.assertEqual(spent["dispatch_journal"]["active_intent"]["phase"], "send_spent")
+        self.delivery("post_acknowledged")
+        self.assertEqual(self.reasons(self.observe()), {"journal_executor_overdue"})
+
+    def test_historical_active_delivery_does_not_mask_executor_overdue(self):
+        self.fixture(age=timedelta(minutes=6))
+        self.delivery("run_observed", run_id="20", run_status="in_progress")
+        result = self.observe()
+        self.assertEqual(self.reasons(result), {"journal_executor_overdue"})
+        active = result["dispatch_journal"]["active_intent"]
+        self.assertIsNone(active["run"])
+        self.assertEqual(active["delivery_observations"][-1]["status"], "in_progress")
+
+    def test_executor_live_run_is_distinct_from_failed_or_missing_terminal_receipt(self):
+        self.fixture(age=timedelta(hours=2), executor=True)
+        active = self.observe(wakeup_runs=[], sync_runs=[], runs=[run(id=20, status="in_progress", conclusion=None)])
+        self.assertEqual(self.reasons(active), set())
+        self.assertEqual(active["dispatch_journal"]["active_intent"]["phase"], "executing")
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                failed = self.observe(runs=[run(id=20, conclusion=conclusion)])
+                self.assertEqual(self.reasons(failed), {"journal_run_failed"})
+        self.assertEqual(self.reasons(self.observe()), {"journal_executor_without_receipt"})
+        self.assertEqual(self.reasons(self.observe(runs=[run(id=20)])), {"journal_executor_without_receipt"})
+
+    def test_task_attention_and_disabled_observations_survive_without_mutation(self):
+        self.fixture(tasks=(task(status="blocked", execution={"state": "quarantined", "session_id": "123",
+                     "dispatch_key": "legacy-attempt", "attempts": 1, "started_at": NOW.isoformat(), "outcome": "stale"}),))
+        self.delivery("post_unknown", url="private://not-exported", display_title="not-exported",
+                      run_id="unsafe", run_status={"bad": "shape"}, conclusion=["bad"])
+        before = json.dumps(self.data, sort_keys=True)
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                result = self.observe(enabled=enabled)
+                self.assertEqual(self.reasons(result), {"quarantined", "journal_delivery_unknown"})
+                self.assertEqual(result["health"], "attention" if enabled else "disabled")
+                self.assertEqual(result["action"], "none")
+                observation = result["dispatch_journal"]["active_intent"]["delivery_observations"][0]
+                self.assertEqual(set(observation), {"kind", "observed_at"})
+        self.assertEqual(json.dumps(self.data, sort_keys=True), before)
+
+    def test_current_durable_executor_can_observe_due_work_without_self_deadlock(self):
+        self.fixture(age=timedelta(hours=2), executor=True,
+                     tasks=(task(task_type="project_discovery", status="in_progress", execution={
+                         "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+                         "session_state": "IN_PROGRESS", "started_at": (NOW - timedelta(hours=1)).isoformat(),
+                         "observed_at": (NOW - timedelta(hours=1)).isoformat()}),))
+        before = copy.deepcopy(self.data)
+        self.assertEqual(self.observe(current_run_id="21")["action"], "none")
+        self.assertEqual(self.observe(current_run_id="20")["action"], "none")
+        owner = self.observe(current_run_id="20", observer_context=self.observer_context())
+        self.assertEqual(owner["action"], "next_task")
+        self.assertNotIn("journal_executor_without_receipt", self.reasons(owner))
+        self.assertTrue(owner["dispatch_journal"]["current_executor"])
+        self.assertEqual(self.data, before)
+
+    def test_foreign_claim_descriptor_cannot_bypass_a_due_worker_fence(self):
+        self.fixture(age=timedelta(hours=2), executor=True,
+                     tasks=(task(task_type="project_discovery", status="in_progress", execution={
+                         "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+                         "session_state": "IN_PROGRESS", "started_at": (NOW - timedelta(hours=1)).isoformat(),
+                         "observed_at": (NOW - timedelta(hours=1)).isoformat()}),))
+        before = copy.deepcopy(self.data)
+        valid = self.observer_context()
+        forged = [{**valid, "kind": "send"}, {**valid, "decision_id": "d" * 64},
+                  {**valid, "claim_id": "d" * 64}, {**valid, "control_sha": "d" * 40},
+                  {**valid, "trigger": {**valid["trigger"], "run_attempt": "2"}},
+                  {**valid, "trigger": {**valid["trigger"], "actor": "stranger"}}]
+        for observer in forged:
+            with self.subTest(observer=observer):
+                result = self.observe(current_run_id="20", observer_context=observer)
+                self.assertEqual(result["action"], "none")
+                self.assertFalse(result["dispatch_journal"]["current_executor"])
+        self.assertEqual(self.data, before)
+
+    def test_own_send_claim_allows_readiness_but_unknown_delivery_does_not(self):
+        self.fixture(tasks=(task(task_type="project_discovery"),))
+        observer = self.observer_context("send")
+        before = copy.deepcopy(self.data)
+        ready = health(self.data, runs=[], current_run_id="10", observer_context=observer)
+        self.assertEqual(ready["action"], "next_task")
+        self.assertTrue(ready["dispatch_journal"]["current_sender"])
+        self.assertEqual(self.data, before)
+        self.delivery("post_unknown")
+        before = copy.deepcopy(self.data)
+        replay = health(self.data, runs=[], current_run_id="10", observer_context=observer)
+        self.assertEqual(replay["action"], "none")
+        self.assertFalse(replay["dispatch_journal"]["current_sender"])
+        self.assertIn("journal_delivery_unknown", self.reasons(replay))
+        self.assertEqual(self.data, before)
+
+    def test_saved_queued_delivery_is_historical_without_a_fresh_run(self):
+        self.fixture(age=timedelta(hours=2), executor=True)
+        self.delivery("run_observed", run_id="20", run_attempt="1", status="queued")
+        before = copy.deepcopy(self.data)
+        result = self.observe()
+        self.assertEqual((result["health"], result["action"]), ("attention", "none"))
+        self.assertIn("journal_executor_without_receipt", self.reasons(result))
+        active = result["dispatch_journal"]["active_intent"]
+        self.assertEqual(active["phase"], "executor_spent")
+        self.assertIsNone(active["run"])
+        self.assertEqual(active["delivery_observations"][-1]["status"], "queued")
+        self.assertEqual(self.data, before)
+
+    def test_snapshot_observes_old_pinned_failure_and_does_not_block_current_executor(self):
+        self.fixture(age=timedelta(hours=2), executor=True,
+                     tasks=(task(task_type="project_discovery", status="in_progress", execution={
+                         "state": "dispatched", "session_id": "123", "dispatch_key": "attempt-one", "attempts": 1,
+                         "session_state": "IN_PROGRESS", "started_at": (NOW - timedelta(hours=1)).isoformat(),
+                         "observed_at": (NOW - timedelta(hours=1)).isoformat()}),))
+        config = settings()
+        config["research"]["enabled"] = False
+        def get(path, *, paginate=False):
+            if path == "actions/runs/20":
+                return run(id=20, conclusion="cancelled")
+            page = {"total_count": 0, "workflow_runs": []}
+            return [page] if paginate else page
+        before = copy.deepcopy(self.data)
+        with patch("health_snapshot.revision", side_effect=[MAIN, LAB, MAIN, LAB]), \
+             patch("health_snapshot.git", return_value=subprocess.CompletedProcess([], 0)):
+            foreign = inspect_health(self.data, config, repo=".", enabled=True, now=NOW, get=get)
+            owner = inspect_health(self.data, config, repo=".", enabled=True, now=NOW, get=get,
+                                   current_run_id="20", observer_context=self.observer_context())
+        self.assertEqual((foreign["action"], self.reasons(foreign)), ("none", {"journal_run_failed"}))
+        self.assertEqual(owner["action"], "next_task")
+        self.assertIn("journal_run_failed", self.reasons(owner))
+        self.assertEqual(self.data, before)
+
+
+    def test_no_effect_completion_closes_frontier_without_useful_progress(self):
+        self.fixture(age=timedelta(hours=2), executor=True, workflow=SYNC)
+        evidence = {"status": "up_to_date", "reason": "main_already_integrated",
+                    "main_sha": MAIN, "lab_sha": LAB, "queue_blob": "e" * 40,
+                    "candidate_branch": "autonomous/sync-20-1", "candidate_sha": ""}
+        claim = digest([self.decision, "execute"])
+        self.append("ExecutionCompletion", decision_id=self.decision, executor_claim_id=claim,
+                    kind="sync_no_effect", evidence=evidence, frontier_seq=1,
+                    receipt_id=digest([self.decision, claim, "sync_no_effect", evidence]))
+        before = copy.deepcopy(self.data)
+        result = self.observe()
+        self.assertEqual((result["health"], result["action"]), ("ok", "none"))
+        self.assertIsNone(result["dispatch_journal"]["active_intent"])
+        self.assertEqual(result["dispatch_journal"]["completed_receipts"], 1)
+        self.assertEqual(result["dispatch_journal"]["frontier_seq"], 1)
+        self.assertIsNone(result["scheduler"]["last_tick_at"])
+        self.assertIsNone(result["scheduler"]["last_poll_at"])
+        self.assertEqual(self.data, before)
 
 
 class DecisionTest(unittest.TestCase):
@@ -483,19 +708,16 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual((result["action"], result["reason"]), ("none", "research_disabled"))
         self.assertEqual(result["approved_proposals"], 1)
 
-    def test_locked_automatic_guard_ignores_workflow_waiters_and_old_handoffs(self):
+    def test_plain_run_id_does_not_hide_active_next_workflows(self):
         active = [run(id=11, status="in_progress", conclusion=None),
                   run(id=12, status="pending", conclusion=None),
                   run(id=13, status="queued", conclusion=None)]
         data = queue(task(task_type="project_discovery"))
-        self.assertEqual(health(data, runs=active)["reason"], "next_task_running")
         before = copy.deepcopy(data)
         result = health(data, runs=active, current_run_id="11")
-        self.assertEqual((result["action"], result["reason"]), ("next_task", "work_due"))
+        self.assertEqual((result["action"], result["reason"]), ("none", "next_task_running"))
         self.assertEqual(data, before)
-        active.append(run(id=14, status="in_progress", conclusion=None))
-        self.assertEqual(health(data, runs=active, current_run_id="11")["action"], "next_task")
-        self.assertEqual(health(data, runs=active)["reason"], "next_task_running")
+
 
     def test_foreign_runs_cannot_block_or_delay_local_research(self):
         foreign = [run(id=1, status="in_progress", head_branch="untrusted"),
@@ -799,6 +1021,7 @@ class GitReadinessTest(unittest.TestCase):
             own = run(id=11, status="in_progress", conclusion=None)
             pending = run(NOW - timedelta(days=10), id=12, status="pending", conclusion=None)
             wakeup = run(id=30, status="pending", conclusion=None)
+            next_runs = [own, pending]
             active_syncs = []
 
             def get(path, *, paginate=False):
@@ -806,7 +1029,7 @@ class GitReadinessTest(unittest.TestCase):
                 status = parse_qs(urlsplit(path).query)["status"][0]
                 values = []
                 if workflow == "autonomous_next_task.yml":
-                    values = [item for item in (own, pending) if item["status"] == status]
+                    values = [item for item in next_runs if item["status"] == status]
                 elif workflow == "autonomous_continue.yml" and status == "pending":
                     values = [wakeup]
                 elif workflow == "autonomous_sync.yml":
@@ -814,6 +1037,10 @@ class GitReadinessTest(unittest.TestCase):
                 page = {"total_count": len(values), "workflow_runs": values}
                 return [page] if paginate else page
 
+            blocked = inspect_health(data, config, repo=repo, enabled=True, now=NOW,
+                                     current_run_id="11", get=get)
+            self.assertEqual((blocked["action"], blocked["reason"]), ("none", "next_task_running"))
+            next_runs.clear()
             inspected = inspect_health(data, config, repo=repo, enabled=True, now=NOW,
                                        state_sha="e" * 40, current_run_id="11", get=get)
             self.assertEqual((inspected["action"], inspected["main_sha"], inspected["lab_sha"]),
@@ -825,7 +1052,7 @@ class GitReadinessTest(unittest.TestCase):
             self.assertEqual((busy["action"], busy["reason"]), ("none", "sync_running"))
             active_syncs.clear()
             paths = {name: root / (name + ".json") for name in ("manifest", "config", "runs", "sync-runs", "pull-requests", "wakeup-runs")}
-            for name, value in (("manifest", data), ("config", config), ("runs", [own, pending]),
+            for name, value in (("manifest", data), ("config", config), ("runs", []),
                                 ("sync-runs", []), ("pull-requests", []), ("wakeup-runs", [wakeup])):
                 paths[name].write_text(json.dumps(value) + "\n", encoding="utf-8")
             before = paths["manifest"].read_bytes()

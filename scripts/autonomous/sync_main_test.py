@@ -5,12 +5,13 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -19,7 +20,7 @@ from refresh_proposals import refresh
 from task_lifecycle import reserve
 
 CONFIG = {"automation": {"blocking_labels": ["hold", "human-review", "wip", "do-not-merge"]}}
-QUEUE = b'{\r\n  "version": 2, "tasks": [], "history": ["lab-owned"]\r\n}\r\n'
+QUEUE = b'{\r\n  "version": 2,\r\n  "autonomous_loop_policy": {},\r\n  "tasks": [],\r\n  "history": ["lab-owned"]\r\n}\r\n'
 
 
 class SyncMainTest(unittest.TestCase):
@@ -230,26 +231,56 @@ class SyncMainTest(unittest.TestCase):
         self.assertEqual((self.repo / "product.txt").read_bytes(), b"uncommitted user change\n")
 
     def test_cli_conflict_is_nonzero_and_writes_machine_readable_result(self):
+        from dispatch_journal import JournalStore
+        from state_store import load_state, save_state
+        from workflow_admission import control_revision
+
+        self.commit({"agent_tasks.json": json.dumps({"version": 2, "autonomous_loop_policy": {},
+                                                  "tasks": [], "history": ["lab-owned"]}).encode()})
+        self.git("update-ref", "refs/heads/autonomous/lab", self.sha())
         accepted = self.advance_main({"product.txt": b"main conflict\n"})
-        self.commit({"product.txt": b"lab conflict\n"})
-        config = self.root / "config.json"
-        pulls = self.root / "pulls.json"
-        output = self.root / "result.json"
-        config.write_text(json.dumps(CONFIG), encoding="utf-8")
+        lab = self.commit({"product.txt": b"lab conflict\n"})
+        remote = self.root / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "origin", "main", "autonomous/lab")
+        load_state(self.repo, self.manifest, self.state_revision)
+        save_state(self.repo, self.manifest, self.state_revision)
+        initial = json.loads(self.state_revision.read_text())["state_sha"]
+        control = control_revision()
+        JournalStore(self.repo, self.manifest, self.state_revision).initialize(
+            initial, control, {"kind": "fenced_bootstrap", "state_sha": initial,
+                               "legacy_senders_fenced": True, "pending_legacy": "none"})
+        config, pulls, output = (self.root / name for name in ("config.json", "pulls.json", "result.json"))
+        config.write_text(json.dumps({**CONFIG, "repository": "synthetic/c-send",
+                                      "merge_gate": {"owner_approvers": ["fixture-owner"]}}), encoding="utf-8")
         pulls.write_text("[]", encoding="utf-8")
+        event = self.root / "event.json"
+        event.write_text(json.dumps({"inputs": {"main_sha": accepted, "lab_sha": lab}}), encoding="utf-8")
+        environment = {"GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                       "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "synthetic/c-send",
+                       "GITHUB_WORKFLOW_REF": "synthetic/c-send/.github/workflows/autonomous_sync.yml@refs/heads/main",
+                       "GITHUB_ACTOR": "fixture-owner", "GITHUB_EVENT_PATH": str(event),
+                       "CONTROL_SHA": control, "CONTINUATION_KEY": ""}
+        github = Mock()
+        github.enabled.return_value = True
+        github.head.side_effect = lambda branch: self.git("rev-parse", branch).decode().strip()
         before = self.snapshot()
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
+        with patch.dict(os.environ, environment), patch("lab_controller.GitHub", return_value=github), contextlib.redirect_stdout(io.StringIO()):
             code = main([
-                "--repo", str(self.repo), "--main-sha", accepted,
+                "--repo", str(self.repo), "--main-sha", accepted, "--lab-sha", lab,
+                "--candidate-branch", "autonomous/sync-7-1",
                 "--manifest", str(self.manifest), "--state-revision", str(self.state_revision),
                 "--pull-requests", str(pulls), "--config", str(config), "--out", str(output),
             ])
         self.assertEqual(code, 1)
         result = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(json.loads(stdout.getvalue()), result)
         self.assertEqual((result["status"], result["conflicts"]), ("conflict", ["product.txt"]))
-        self.assertEqual(self.snapshot(), before)
+        after = self.snapshot()
+        for field in ("head", "branch", "index", "status", "worktrees", "files"):
+            self.assertEqual(after[field], before[field])
+        self.assertEqual(self.git("rev-parse", "main").decode().strip(), accepted)
+        self.assertEqual(self.git("rev-parse", "autonomous/lab").decode().strip(), lab)
 
 
 class ProposalRefreshTest(unittest.TestCase):

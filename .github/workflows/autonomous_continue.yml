@@ -18,6 +18,10 @@ on:
         description: Correlation key for an automatic handoff
         type: string
         default: ""
+      control_sha:
+        description: Frozen trusted controller revision for an internal dispatch
+        type: string
+        default: ""
   workflow_run:
     workflows:
       - Autonomous Next Task
@@ -34,10 +38,10 @@ permissions:
   pull-requests: read
   actions: read
 
-# Coalesce duplicate signals: one running timer and at most one pending wakeup.
-# Apply the same trust gate before admission: a skipped feature/fork callback
-# must not replace a valid pending successor. Keep workflow-level serialization
-# so the Actions run snapshot still identifies the timer owner and pending slot.
+# Only keyed dispatches occupy the obligatory chain's one running/one pending
+# slot. Coalescible ingress signals cannot replace its pending successor.
+# Duplicate keyed deliveries still compete for the journal's one-use claim;
+# concurrency does not grant admission. Isolate untrusted callbacks before queueing.
 concurrency:
   group: >-
     ${{ github.ref == 'refs/heads/main' &&
@@ -47,7 +51,9 @@ concurrency:
           (github.event.workflow_run.head_branch == 'main' ||
            github.event.workflow_run.name == 'Autonomous Proposal Review') &&
           github.event.workflow_run.head_repository.full_name == github.repository)) &&
-        'autonomous-lab-wakeup' || format('autonomous-lab-ignored-{0}', github.run_id) }}
+        (github.event_name == 'workflow_dispatch' && inputs.continuation_key != '' &&
+         'autonomous-lab-wakeup-chain' || 'autonomous-lab-wakeup-ingress') ||
+        format('autonomous-lab-ignored-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -65,11 +71,13 @@ jobs:
     timeout-minutes: 40
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ${{ inputs.continuation_key }}
     steps:
       - name: Check out the trusted control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
           path: control
           persist-credentials: false
