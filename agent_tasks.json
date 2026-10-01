@@ -126388,7 +126388,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-01T11:23:16.132719Z"
+        "observed_at": "2026-10-01T11:23:16.132719Z",
+        "released_attempt_ref": "autonomous/attempt-07c0046e1b8b2f81025dfe74"
       },
       "research_result": {
         "summary": "Investigated Terminal input, output, and continuity behaviors. Evaluated if an externally cleared xterm selection leaves a stale armed state (`selectAllArmed`) and checked the effect of early `PtyExitEvent` messages on terminal readiness. Confirmed that the batcher works correctly without starvation for small chunks and segmenter usage is not strictly required given the current state.",
