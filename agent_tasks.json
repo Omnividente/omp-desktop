@@ -135964,6 +135964,138 @@
         "session_id": "1151237153385552834",
         "dispatch_key": "26e5113dc1ba39e6d49cd502"
       }
+    },
+    {
+      "id": "research-sessions-persistence-behavior-16",
+      "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-02T02:08:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "behavior",
+        "fingerprint": "221b812c5a32087785d47f2abf42ad86c29ee437c48c11271fb0929e29465d5f",
+        "cycle": 16,
+        "previous_reports": [
+          {
+            "summary": "Investigated the focus loss regression in SessionControls. Identified that toggling the primary provider pin immediately disables the button using the `disabled` attribute, causing keyboard focus to drop. Proposing a fix using `aria-disabled` to preserve focus while preventing further clicks.",
+            "observations": [
+              {
+                "scenario": "Focus preservation when toggling the primary provider pin in SessionControls.",
+                "evidence": "Created a synthetic React jsdom test (locally as `src/SessionControlsFocusDrop.test.tsx`) asserting the activeElement before and after changing the `primaryProviderPinPending` state to true. Clicked the button, which internally sets `primaryProviderPinPending` to true in the state object. The test checks whether `document.activeElement` is still the button after the click. Native DOM drops focus from an element when `disabled` is set to true. The test confirmed that `disabled` becomes true. Native behavior drops focus to document.body, violating accessibility guidelines. JSDOM retains focus, but the underlying issue of utilizing `disabled` during a pending transition remains.",
+                "result": "Confirmed the accessibility issue where utilizing the `disabled` attribute causes focus disruption during the pending state. This validates the previously deferred finding and creates a concrete proposal for state adjustment via `aria-disabled`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the accessibility of error state announcements when the primary provider fallback recovery activates during active sessions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-01T05:27:47.466093Z",
+            "source": {
+              "activity_id": "sessions/11981021855017626852/activities/4017fe223dd647bf8de0293b1a8f9c62",
+              "report_sha256": "6660fcec36516659bbd592c0b993e648e146df5eb3b749d206bcc8995cf9e34d",
+              "activity_created_at": "2026-10-01T05:13:54.740532Z",
+              "session_id": "11981021855017626852",
+              "dispatch_key": "9012b1ae83495dc05be5a441"
+            },
+            "deferred_findings": [
+              {
+                "title": "Prevent focus loss when toggling the primary provider pin in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-bbd895a33d52b5c5; not established as a duplicate. {\"detail\": \"Found via JS DOM testing that `SessionControls` modifies the `primaryProviderPinPending` state when toggling the primary provider pin, which immediately sets the `disabled` attribute on the button without providing an alternative focus target, causing accessibility focus drops in browsers.\", \"reproduction\": {\"actual\": \"Focus drops to `document.body` because the button becomes `disabled=true`.\", \"expected\": \"Focus is preserved on the button (e.g. using `aria-disabled` and `aria-busy`) or explicitly managed (e.g. redirected) while the action is pending.\", \"steps\": [\"Mount `SessionControls` with a valid, running session.\", \"Focus the `.primary-provider-pin` button.\", \"Trigger a click or activate the button to toggle the primary provider pin.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The previous finding was deferred due to uncertain overlap. This investigation provides a concrete JS DOM test reproduction confirming the button becomes disabled (causing native focus drop) specifically caused by the `primaryProviderPinPending` state. The task ID 'discovery-bbd895a33d52b5c5' does not exist in the active canonical context.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-bbd895a33d52b5c5\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx",
+                  "src/SessionControls.test.tsx"
+                ],
+                "acceptance": [
+                  "When toggling the primary provider pin, if the user was focused on the pin button, focus must remain on the button (or in a logical location) rather than dropping to the document body.",
+                  "Accessibility focus must be maintained even while the pin button enters a disabled/pending state, by using `aria-disabled` instead of the `disabled` attribute for pending states.",
+                  "Clicks must be ignored if the button is `aria-disabled`.",
+                  "Existing tests in `src/SessionControls.test.tsx` must be updated to check for `aria-disabled` alongside `disabled` where appropriate."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the performance of session import, focusing on OMP and Codex session parsing. Found that line-by-line `serde_json::from_str::<Value>` parsing allocates excessively, resulting in high latency for large import files (~100,000 lines). Demonstrated that replacing unconditional parsing with simple string containment pre-checks (e.g., checking if the line contains `\"type\":\"title\"` or `\"type\": \"session\"`) combined with targeted structural parsing dramatically reduces processing time from ~1000ms to ~200ms in benchmarks.",
+            "observations": [
+              {
+                "scenario": "Importing a large (100,000 lines) OMP format session file.",
+                "evidence": "Ran a synthetic benchmark (`bench_import_omp_session`) on a generated 100K line `.jsonl` file. `import_omp_session` took ~1000ms to process the body. In a modified version, checking `line.contains(\"type\")` before invoking `serde_json::from_str::<Value>` reduced processing time to ~200ms. The original implementation parses every single line into a full JSON `Value` tree just to check if its `type` is `title` or `session`.",
+                "result": "Unconditional JSON parsing of every line in `import_omp_session` introduces significant parsing overhead. A fast-path string pre-check substantially reduces CPU time and allocations."
+              },
+              {
+                "scenario": "Importing a large (100,000 lines) Codex format session file.",
+                "evidence": "Ran a synthetic benchmark (`bench_import_codex_session_manual`) on a generated 100K line `.jsonl` file containing `response_item` events. `import_codex_session` processes large codex sessions much faster overall, but still spends ~650ms parsing every line into `Value`. Using string containment pre-checks for `\"response_item\"` reduced time to ~360ms.",
+                "result": "Similar to OMP imports, Codex imports also benefit from avoiding unconditional JSON `Value` parsing for every line by using simple string containment pre-checks."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory usage footprint of large session loads into memory on the frontend.",
+              "Investigate using `serde_json::from_str::<Struct>` for structural parsing of just the `type` field instead of `serde_json::Value` for even faster skipping of irrelevant lines."
+            ],
+            "proposed_task_ids": [
+              "discovery-4c16b7af622c16a3"
+            ],
+            "completed_at": "2026-10-01T18:04:11.071295Z",
+            "source": {
+              "activity_id": "sessions/3560624228044212840/activities/1c5d7e1b494e4db690cc6b36ae1b436b",
+              "report_sha256": "1537b10a35925072030a2b8d1a0ebe355b582315a6d9a942e4caebb571404f65",
+              "activity_created_at": "2026-10-01T17:51:14.533554Z",
+              "session_id": "3560624228044212840",
+              "dispatch_key": "c4bae223476808c7bb916d28"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the accessibility of error state announcements in SessionControls when the primary provider fallback recovery activates. Identified that the aria-live regions used for announcing fallback, switching, and restarting states are conditionally rendered. Because the aria-live attribute is not persistently present in the DOM, screen readers may fail to announce these critical state changes when the elements are dynamically inserted.",
+            "observations": [
+              {
+                "scenario": "Accessibility announcement of fallback and transient states in SessionControls.",
+                "evidence": "Wrote a synthetic React jsdom test (src/SessionControlsFallbackAnnouncementVisibility.test.tsx) asserting the presence of the aria-live region. When SessionControls is mounted with a 'normal' runtimeStatus, the aria-live element for the fallback announcement is entirely absent from the DOM. Transitioning to 'fallback' dynamically injects the element. This pattern of conditionally mounting the live region itself (rather than persisting the region and updating its text content or visibility) is known to prevent reliable screen reader announcements.",
+                "result": "Confirmed that aria-live regions in SessionControls are dynamically mounted, violating accessibility best practices for live regions and potentially causing screen readers to miss state announcements."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if switchRecovery announcements in SessionControls are reliably read by screen readers, given their dynamic aria-live region rendering.",
+              "Investigate other components (e.g., TerminalWorkspace, ResourceHealthPanel) for dynamically mounted aria-live regions that may fail to announce."
+            ],
+            "proposed_task_ids": [
+              "discovery-bf62c58c8a7837b4"
+            ],
+            "completed_at": "2026-10-02T01:07:14.501089Z",
+            "source": {
+              "activity_id": "sessions/73680883247317414/activities/08e1f7567472420e921f23fa6960582e",
+              "report_sha256": "8a7648de083345a1ef9a2962e9dd4e68ff1a30148afbd60cb0f3c642f0e5596a",
+              "activity_created_at": "2026-10-02T00:58:55.835749Z",
+              "session_id": "73680883247317414",
+              "dispatch_key": "42503ffb46d81ab98c80d3b3"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
