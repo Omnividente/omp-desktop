@@ -135969,7 +135969,7 @@
       "id": "research-sessions-persistence-behavior-16",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -136098,16 +136098,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11745442147625174351",
         "dispatch_key": "94b2999567e1a5a2a7d0603a",
         "base_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
         "starting_branch": "autonomous/attempt-94b2999567e1a5a2a7d0603a",
         "started_at": "2026-10-02T02:08:16.674808Z",
-        "finished_at": "",
+        "finished_at": "2026-10-02T02:42:16.998091Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
@@ -136278,13 +136278,90 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-02T02:18:38.418253Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-02T02:42:16.998091Z"
+      },
+      "research_result": {
+        "summary": "Investigated the performance of session parsing during import. Following the hypothesis on structural parsing, I demonstrated that using `serde` to deserialize into a minimal event struct (e.g. `{ type }`), paired with string containment pre-checks, reduces parsing latency by >3x compared to unconditionally parsing into a generic `Value` for large session files.",
+        "observations": [
+          {
+            "scenario": "Structural parsing performance versus generic Value parsing for OMP and Codex session imports.",
+            "evidence": "Executed synthetic benchmarks generating 100,000-line JSONL files simulating session imports. Tested line-by-line parsing using `serde_json::from_str::<Value>` vs. a custom `#[derive(Deserialize)] struct MinimalEvent { #[serde(rename = \"type\")] event_type: Option<String> }` with a fast-path string pre-check. The structural parsing approach reduced execution time from ~320ms to ~95ms for OMP formats and from ~337ms to ~76ms for Codex formats. This approach avoids full DOM tree heap allocations for every line while accurately identifying relevant events.",
+            "result": "Deserializing into a minimal struct rather than a full `Value` tree is significantly faster and dramatically reduces allocation overhead during large session imports."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the memory usage profile of large session JSON payloads during frontend state hydration.",
+          "Investigate keyboard navigation edge cases when rapidly pressing arrow keys inside the virtualized `CodexImportModal`."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-02T02:42:16.998091Z",
+        "source": {
+          "activity_id": "sessions/11745442147625174351/activities/567a884cbfa34be0bd582a7a19195ebc",
+          "report_sha256": "d1a586076ad9e0a4de188750a3a5dc136d0615d21b82d831868eb7a48d5c61a4",
+          "activity_created_at": "2026-10-02T02:26:57.181134Z",
+          "session_id": "11745442147625174351",
+          "dispatch_key": "94b2999567e1a5a2a7d0603a"
+        },
+        "deferred_findings": [
+          {
+            "title": "Optimize large session imports using structural deserialization",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-4c16b7af622c16a3; not established as a duplicate. {\"detail\": \"Benchmarking structural typing (`serde_json::from_str::<MinimalEvent>`) paired with pre-checks demonstrates a >3x performance improvement by bypassing full JSON DOM heap allocations for large 100K-line JSONL files. The current implementation unconditionally parses every line into a full `serde_json::Value` merely to extract its type.\", \"reproduction\": {\"actual\": \"Currently, `Value` parsing takes over 300ms in identical conditions due to unconditional heap allocations for every parsed line.\", \"expected\": \"Structural parsing combined with pre-checks processes 100K lines significantly faster (e.g. <100ms), representing a multi-fold speedup.\", \"steps\": [\"Create a 100,000 line `.jsonl` session file.\", \"Run a benchmark profiling line-by-line `Value` parsing vs. `MinimalEvent` structural parsing combined with `.contains` string pre-checks.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/sessions.rs"
+            ],
+            "acceptance": [
+              "Define a minimal structurally typed event (e.g. `MinimalEvent` extracting `type`) in `src-tauri/src/sessions.rs`.",
+              "Replace unconditional `serde_json::from_str::<Value>` in the main `import_omp_session` and `import_codex_session` iteration loops with string containment pre-checks and structural parsing.",
+              "Ensure all existing session parsing and import tests (`cargo test import`) continue to pass."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11745442147625174351/activities/567a884cbfa34be0bd582a7a19195ebc",
+          "report_sha256": "d1a586076ad9e0a4de188750a3a5dc136d0615d21b82d831868eb7a48d5c61a4",
+          "activity_created_at": "2026-10-02T02:26:57.181134Z",
+          "session_id": "11745442147625174351",
+          "dispatch_key": "94b2999567e1a5a2a7d0603a"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-2eddbb070c34f88e",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-4c16b7af622c16a3"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Optimize large session imports using structural deserialization",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-4c16b7af622c16a3; not established as a duplicate. {\"detail\": \"Benchmarking structural typing (`serde_json::from_str::<MinimalEvent>`) paired with pre-checks demonstrates a >3x performance improvement by bypassing full JSON DOM heap allocations for large 100K-line JSONL files. The current implementation unconditionally parses every line into a full `serde_json::Value` merely to extract its type.\", \"reproduction\": {\"actual\": \"Currently, `Value` parsing takes over 300ms in identical conditions due to unconditional heap allocations for every parsed line.\", \"expected\": \"Structural parsing combined with pre-checks processes 100K lines significantly faster (e.g. <100ms), representing a multi-fold speedup.\", \"steps\": [\"Create a 100,000 line `.jsonl` session file.\", \"Run a benchmark profiling line-by-line `Value` parsing vs. `MinimalEvent` structural parsing combined with `.contains` string pre-checks.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/sessions.rs"
+              ],
+              "acceptance": [
+                "Define a minimal structurally typed event (e.g. `MinimalEvent` extracting `type`) in `src-tauri/src/sessions.rs`.",
+                "Replace unconditional `serde_json::from_str::<Value>` in the main `import_omp_session` and `import_codex_session` iteration loops with string containment pre-checks and structural parsing.",
+                "Ensure all existing session parsing and import tests (`cargo test import`) continue to pass."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-02T02:34:45.721492Z",
+    "last_poll_at": "2026-10-02T02:42:39.815102Z",
     "last_tick_at": "2026-10-02T02:34:52.835014Z",
     "run_id": "36956161332"
   },
