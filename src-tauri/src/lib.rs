@@ -17,6 +17,8 @@ mod terminal;
 mod update;
 #[cfg(feature = "updater-e2e")]
 mod updater_e2e;
+#[cfg(windows)]
+pub mod windows_terminal_input;
 use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
     ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, ResourceHealthSnapshot,

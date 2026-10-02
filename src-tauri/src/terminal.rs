@@ -155,6 +155,8 @@ struct PtyWriterControl {
     error: Mutex<Option<String>>,
     #[cfg(windows)]
     thread_id: AtomicU32,
+    #[cfg(windows)]
+    guard_cancellation: Option<crate::windows_terminal_input::GuardCancellation>,
 }
 
 struct TerminalWriter {
@@ -247,6 +249,9 @@ impl Drop for TerminalWriter {
 
 #[cfg(windows)]
 fn cancel_pending_writer_io(control: &PtyWriterControl) {
+    if let Some(cancellation) = control.guard_cancellation.as_ref() {
+        cancellation.cancel();
+    }
     let deadline = Instant::now() + Duration::from_millis(250);
     while control.io_active.load(Ordering::Acquire) {
         let thread_id = control.thread_id.load(Ordering::Acquire);
@@ -269,13 +274,18 @@ fn cancel_pending_writer_io(control: &PtyWriterControl) {
 fn spawn_terminal_writer<F>(
     terminal_id: &str,
     mut writer: Box<dyn Write + Send>,
+    #[cfg(windows)] guard_cancellation: Option<crate::windows_terminal_input::GuardCancellation>,
     on_error: F,
 ) -> Result<Arc<TerminalWriter>, String>
 where
     F: FnOnce(String) + Send + 'static,
 {
     let (sender, receiver) = mpsc::sync_channel(PTY_INPUT_QUEUE_CAPACITY);
-    let control = Arc::new(PtyWriterControl::default());
+    let control = Arc::new(PtyWriterControl {
+        #[cfg(windows)]
+        guard_cancellation,
+        ..PtyWriterControl::default()
+    });
     let terminal_writer = Arc::new(TerminalWriter {
         sender: Mutex::new(Some(sender)),
         control: control.clone(),
@@ -2198,18 +2208,64 @@ fn spawn_terminal_process(
             return Err(format!("Не удалось подключить ввод PTY: {error}"));
         }
     };
+    #[cfg(windows)]
+    let (writer, guard_cancellation) = {
+        let guarded = process_id
+            .ok_or_else(|| "Не удалось получить PID OMP для защиты ввода ConPTY".to_owned())
+            .and_then(|pid| {
+                crate::windows_terminal_input::GuardedWriter::spawn(
+                    writer,
+                    pid,
+                    PTY_INPUT_WRITE_TIMEOUT,
+                )
+                .map_err(|error| format!("Не удалось запустить защиту ввода ConPTY: {error}"))
+            });
+        match guarded {
+            Ok(guarded) => {
+                let cancellation = guarded.cancellation();
+                (
+                    Box::new(guarded) as Box<dyn Write + Send>,
+                    Some(cancellation),
+                )
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        }
+    };
     drop(pair.slave);
     let writer_error_app = app.clone();
     let writer_error_terminal_id = terminal_id.clone();
-    let writer = match spawn_terminal_writer(&terminal_id, writer, move |error| {
-        emit_runtime_error(&writer_error_app, &writer_error_terminal_id, error);
-    }) {
+    let writer = match spawn_terminal_writer(
+        &terminal_id,
+        writer,
+        #[cfg(windows)]
+        guard_cancellation,
+        move |error| {
+            emit_runtime_error(&writer_error_app, &writer_error_terminal_id, error);
+        },
+    ) {
         Ok(writer) => writer,
         Err(error) => {
             let _ = child.kill();
+            #[cfg(windows)]
+            let _ = child.wait();
             return Err(error);
         }
     };
+    #[cfg(windows)]
+    if let Err(error) = writer.enqueue(Vec::new(), true) {
+        // An empty queued request flushes/reads R on the existing cancellable writer,
+        // not the GUI thread. No user bytes can reach a PTY with an unready guard.
+        writer.close();
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!(
+            "Не удалось подготовить защиту ввода ConPTY: {error}"
+        ));
+    }
     let runtime_session_path = resume_path.clone();
     let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
     let output = Arc::new(Mutex::new(TerminalOutputState::new(
@@ -4627,7 +4683,14 @@ mod tests {
         TerminalProcess {
             master: None,
             writer: writer.map(|writer| {
-                spawn_terminal_writer("test", writer, |_| {}).expect("test PTY writer should start")
+                spawn_terminal_writer(
+                    "test",
+                    writer,
+                    #[cfg(windows)]
+                    None,
+                    |_| {},
+                )
+                .expect("test PTY writer should start")
             }),
             killer: None,
             process_id: Some(7),
@@ -5061,7 +5124,7 @@ mod tests {
         let mut killer = child.clone_killer();
         let raw_writer = pair.master.take_writer().expect("PTY writer should open");
         drop(pair.slave);
-        let writer = spawn_terminal_writer("conpty-cancel-test", raw_writer, |_| {})
+        let writer = spawn_terminal_writer("conpty-cancel-test", raw_writer, None, |_| {})
             .expect("ConPTY writer thread should start");
 
         let write_writer = writer.clone();
@@ -5287,11 +5350,11 @@ mod tests {
                 pixel_height: 0,
             })
             .expect("ConPTY fixture should open");
-        let mut reader = pair
+        let reader = pair
             .master
             .try_clone_reader()
             .expect("ConPTY reader should clone");
-        let mut raw_writer = pair
+        let raw_writer = pair
             .master
             .take_writer()
             .expect("ConPTY writer should open");
@@ -5310,18 +5373,6 @@ mod tests {
             .expect("native input fixture should start");
         let mut child = PtyChildFixture::new(child);
         drop(pair.slave);
-
-        let mut cursor_query = [0_u8; 4];
-        reader
-            .read_exact(&mut cursor_query)
-            .expect("read ConPTY cursor-position query");
-        assert_eq!(&cursor_query, b"\x1b[6n");
-        raw_writer
-            .write_all(b"\x1b[1;1R")
-            .expect("answer ConPTY cursor-position query");
-        raw_writer
-            .flush()
-            .expect("flush ConPTY cursor-position response");
 
         let ready_deadline = Instant::now() + Duration::from_secs(10);
         while !ready.is_file() {
