@@ -67,7 +67,7 @@ into `main`.
 
 ## Durable workflow execution rollout (separate, paused operation)
 
-The C-SEND candidate separates dispatch delivery from permission to execute.
+The durable journal separates dispatch delivery from permission to execute.
 `dispatch_journal` is an append-only part of the authoritative state queue.
 NEXT, CONTINUE and SYNC need a separately acknowledged first-CAS executor claim;
 an owner, a new run attempt, a late delivery or a callback cannot renew that right.
@@ -82,8 +82,24 @@ delivery. The journal validator checks the dispatch binding as well.
 The source run attempt stays in the trigger and exact receipt binding, but is not
 a new logical callback identity: rerunning the source cannot reopen its frontier.
 
-Deployment and initialization require a separately authorized paused rollout;
-these notes are a plan, not permission to run commands against production:
+For an internal receiver, the checked event-main bootstrap authenticates the saved
+controller SHA against the journal's original sender claim, workflow, key and exact
+inputs, and verifies that it is an ancestor of checked main before checking it out.
+External ingress cannot choose an older controller. NEXT/SYNC causal handoff remains
+on checked event-main code: only after the real original run-bound outcome does it
+reserve a **new** intent on that checked revision. Existing intents, executors and
+saved requests are never repinned, reset or renewed to adopt an update.
+Duplicate/coalescible ingress reports `coalesced / existing_receiver_active` only
+after a fresh trusted Actions read binds a live original receiver/executor. A known
+recorded outcome is observation-only; a spent executor without outcome or unresolved
+delivery remains blocked. Reporting benign ingress grants no execution/send right.
+NEXT/SYNC source jobs and their handoff use that same observation-only disposition
+when execution was refused. They neither fabricate an effect receipt nor advance
+the original frontier or reserve another send.
+
+
+First introduction of the journal requires a separately authorized paused rollout;
+these initialization notes are not permission to run commands against production:
 
 1. Disable the loop and stop/drain outstanding NEXT, CONTINUE and SYNC runners.
    Keep uncertain provider sessions, saved recovery receipts and proposals intact;
@@ -109,6 +125,15 @@ bound workers, checked against the original executor and authoritative before/af
 revisions. An unchanged poll needs the actual bound session observations and saved
 poll checkpoint; timestamp-only writes do not grant progress. Manual implementation
 approval and exact report/feedback recovery authorization remain independent.
+A normal unchanged NEXT result, such as an explicitly selected already-finished
+task, records `ExecutionCompletion(next_no_effect)` instead of leaving an unfinished
+executor claim. Its before/after state revisions and current substantive digest
+must match the original executor baseline; no attention, worker observations,
+proposals or waiting workers may be hidden by this result. This closes one frontier
+without a useful-effect receipt or useful clock update. Unknown outcomes cannot be
+completed this way. The original receipt permits only the ordinary causal handoff;
+replay never starts another worker or renews a claim.
+
 SYNC preparation saves a durable `sync_prepared` checkpoint after publishing and
 checking its isolated candidate ref. This checkpoint is not progress. A separate
 first-CAS `sync_finalize` phase belongs to the same original run, attempt and
@@ -196,10 +221,16 @@ separate safety regression, not proof of the production observer path.
    every five minutes for at most six hours. Rejected, failed, conflicting,
    invalid or expired repair stays parked, without a new attempt.
    Initial requests, research completion nudges and format-only repair use the
-   same `research_completion_prompt` envelope with exact task/dispatch identities.
-   Serialize and locally parse JSON from existing observations; a literal backtick
-   is not Markdown-escaped. Formatting-only local commands are allowed, but new
-   research, network access, implementation and invented evidence are not.
+   same `research_completion_prompt` contract with exact task/dispatch identities.
+   Its executable local recipe uses standard JSON serialization, parses it back
+   and invokes the existing research/proposal validators before emitting one
+   complete literal envelope. Backticks are not Markdown-escaped. The worker must
+   copy the entire stdout into its next final API-visible agent message, not an
+   acknowledgement, a file reference or a promise to package later. Recipe source
+   assembles dispatch markers at runtime so its text cannot contradict the real
+   request header. Local validation is packaging proof, not report acceptance.
+   Formatting-only local commands are allowed, but new research, network access,
+   implementation and invented evidence are not.
    Normal polling accepts only a strictly newer activity; subsecond activity/request
    times are preserved. Explicit recovery can also reparse the exact immutable
    latest source after a parser fix. Rewritten activities are never accepted.
@@ -778,6 +809,20 @@ The CLI equivalent adds `--repair-after TIMESTAMP --actor OWNER`. Collector-only
 `--retry-report --reparse-report --actor OWNER` performs no messaging and is useful
 for an isolated replay of undisposed reports. Disposed reports require the
 CAS-backed laboratory controller, not a collector-only file rewrite.
+
+Before reserving a format message, the controller freshly binds the original
+session and latest immutable source, then attaches bounded **whole** existing
+agent messages as JSON-quoted untrusted data with exact activity/time/content hash.
+Provider session creation time, when supplied, is the lower activity bound:
+controller `started_at` is a later binding checkpoint, not the session's creation.
+Invalid/ambiguous/foreign/future/rewritten source fails closed. Credential-containing
+messages are omitted entirely, never redacted under the original bytes' hash.
+Bounded omissions are not evidence that notes do not exist. This material is not a
+stale report fallback or owner approval; the worker must author a new complete
+report without changing scope or inventing observations. If neither retained notes
+nor supplied material contain actual observations, an honest unavailable response
+remains unaccepted. Send acknowledgement alone proves neither resume nor intake.
+
 
 ### Resolving a failed main synchronization
 

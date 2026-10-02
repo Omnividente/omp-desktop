@@ -1,6 +1,7 @@
 """Bind actual workflow executors to the durable dispatch frontier; fail closed."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -137,3 +138,60 @@ def substantive_manifest(manifest):
     """Use the journal's canonical substantive checkpoint projection."""
     from dispatch_journal import substantive_digest
     return substantive_digest(manifest)
+
+
+def checked_control_pin(args, config, store):
+    """Authenticate a frozen receiver revision using checked-main code only."""
+    binding = context(args, args.workflow, config)
+    if not binding.key:
+        # External ingress uses the checked main revision, never arbitrary code.
+        if binding.trigger["event_name"] == "workflow_dispatch":
+            original = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")).get("inputs", {})
+            if original.get("control_sha"):
+                raise ValueError("external ingress cannot select a controller revision")
+        return binding.control_sha
+    original = dict(json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")).get("inputs", {}))
+    key = original.pop("continuation_key", "")
+    pin = original.pop("control_sha", "")
+    if key != binding.key or not SHA.fullmatch(str(pin)):
+        raise ValueError("frozen receiver requires its original key and controller revision")
+    state = store.current()
+    intent = next((item for item in state["intents"].values() if item["correlation_key"] == key), None)
+    if (intent is None or intent["source_kind"] != "sender"
+            or intent["decision_id"] not in state["send_claims"]):
+        raise ValueError("frozen receiver has no durable sender claim")
+    store._match(intent, args.workflow, normalize_inputs(args.workflow, original), pin, key)
+    # The caller checks out full checked-main history before this read-only gate.
+    # Journal identity alone must not authorize execution of an arbitrary commit.
+    subprocess.run(["git", "-C", str(args.repo), "merge-base", "--is-ancestor", pin, binding.control_sha],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+    recheck_context(binding)
+    return pin
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only checked-main gate for frozen controller checkout")
+    parser.add_argument("--repo", required=True, type=Path)
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--workflow", required=True, choices=sorted(WORKFLOWS))
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    from dispatch_journal import JournalStore
+    import tempfile
+    try:
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="controller-pin-") as temporary:
+            store = JournalStore(args.repo, Path(temporary) / "queue.json", Path(temporary) / "revision.json")
+            pin = checked_control_pin(args, config, store)
+    except (ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError):
+        print(json.dumps({"authorized": False, "reason": "controller_pin_rejected"}))
+        return 1
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+        handle.write("control_sha=" + pin + "\n")
+    with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
+        handle.write("CONTROL_SHA=" + pin + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

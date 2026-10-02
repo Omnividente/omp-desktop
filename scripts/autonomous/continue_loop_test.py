@@ -371,6 +371,34 @@ class ContinuationTest(unittest.TestCase):
         self.assertNotIn("private-value", json.dumps(result))
         self.assertIn("REDACTED", result["health"]["reason"])
 
+    def test_coalescible_callback_cannot_replace_a_live_pending_receiver(self):
+        controller, runtime, _, _ = self.controller(lambda rt: health(due=NOW + timedelta(hours=3)),
+                                                   max_wait_seconds=1)
+        self.assertEqual(controller.run()["outcome"], "handed_off")
+        intent = runtime.journal.current()["active_intent"]
+        before = runtime.journal.current()
+        clock = Clock()
+        callback = Runtime(self, clock, lambda rt: health("next_task"), run_id="99", event="workflow_run")
+        callback.trigger.update(source_run_id="77", source_run_attempt="1")
+        callback.action_runs[CONTINUE] = copy.deepcopy(runtime.action_runs[CONTINUE])
+        result = Controller(callback, clock=clock, current_run_id="99").run()
+        self.assertEqual((result["outcome"], result["reason"]), ("coalesced", "existing_receiver_active"))
+        self.assertEqual((callback.posts, callback.observations), ([], 0))
+        self.assertEqual(result["decision_id"], intent["decision_id"])
+        self.assertEqual(runtime.journal.current(), before)
+
+    def test_spent_executor_without_outcome_is_not_suppressed_as_benign(self):
+        clock = Clock()
+        original = Runtime(self, clock, lambda rt: health("next_task"), run_id="88", event="schedule")
+        intent, capability = original.journal.admit(CONTINUE, {}, key="", trigger=original.trigger, control_sha=MAIN)
+        capability.consume()
+        before = original.journal.current()
+        result = Controller(original, clock=clock, current_run_id="88").run()
+        self.assertEqual((result["outcome"], result["reason"]), ("blocked", "executor_without_outcome"))
+        self.assertEqual((original.posts, original.observations), ([], 0))
+        self.assertEqual(result["decision_id"], intent["decision_id"])
+        self.assertEqual(original.journal.current(), before)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
