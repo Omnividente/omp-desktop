@@ -134,8 +134,7 @@ class ReviewSequences(unittest.TestCase):
         self.assertEqual(state["effects"], {})
         self.assertEqual(state_snapshot(self.remote).get("controller"), self.initial.get("controller"))
         before = state_snapshot(self.remote)
-        replay = self.invoke("sync", run="300", attempt="2", event="workflow_dispatch")
-        self.assertEqual(replay["reason"], "execution_already_claimed")
+        self.invoke("sync", run="300", attempt="2", event="workflow_dispatch")
         self.assertEqual(state_snapshot(self.remote), before)
         self.invoke("handoff", run="300", event="workflow_dispatch", workflow=SYNC)
         key = self.endpoint.posts[-1]["inputs"]["continuation_key"]
@@ -164,7 +163,9 @@ class ReviewSequences(unittest.TestCase):
         self.assertNotIn(1002, queue.cancelled)
         self.assertEqual(len(queue.running), 2)
         self.assertEqual(len(queue.pending), 2)
-        self.invoke("sender", run="2001", expected=1)
+        before_signal = state_snapshot(self.remote)
+        self.invoke("sender", run="2001")
+        self.assertEqual(state_snapshot(self.remote), before_signal)
         self.assertEqual(len(self.endpoint.posts), 2)
         selected = 1002
         if duplicate:
@@ -178,7 +179,9 @@ class ReviewSequences(unittest.TestCase):
         claim = next(claim for claim in self.state()["executor_claims"].values()
                      if claim["trigger"]["run_id"] == str(selected))
         self.assertIn(claim["decision_id"], self.state()["effects"])
-        self.invoke("sender", run="1099", event="workflow_dispatch", key=successor_key, expected=1)
+        before_replay = state_snapshot(self.remote)
+        self.invoke("sender", run="1099", event="workflow_dispatch", key=successor_key)
+        self.assertEqual(state_snapshot(self.remote), before_replay)
         next_key = self.endpoint.posts[-1]["inputs"]["continuation_key"]
         self.invoke("receiver", run="1003", event="workflow_dispatch", key=next_key)
         self.assertEqual(len(self.endpoint.sessions), 1)

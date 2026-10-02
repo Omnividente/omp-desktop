@@ -24,6 +24,13 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 KEY = re.compile(r"[0-9a-f]{32}\Z")
 EVENT_NAMES = frozenset(("workflow_dispatch", "workflow_run", "schedule", "push"))
+NEXT_NO_EFFECT_REASONS = frozenset((
+    "daily_cap", "research_disabled", "research_cooldown", "discovery_disabled",
+    "attempt_already_resolved", "feedback_recovery_already_consumed",
+    "no_todo_tasks", "no_eligible_autonomous_task", "explicit_task_not_todo",
+    "explicit_task_ineligible", "implementation_not_approved", "product_moved",
+    "dispatch_conditions_changed", "loop_disabled",
+))
 _ISSUER = object()
 
 
@@ -251,6 +258,20 @@ def _sender_basis(state, basis):
 
 
 def _valid_completion(evidence, intent, executor, state):
+    if intent["workflow"] == NEXT:
+        if (not isinstance(evidence, dict) or evidence.get("status") != "no_effect"
+                or evidence.get("action") != "none" or evidence.get("reason") not in NEXT_NO_EFFECT_REASONS
+                or intent["decision_id"] in state["effects"]
+                or intent["decision_id"] in state["phase_claims"]
+                or any(stage["decision_id"] == intent["decision_id"] for stage in state["stages"].values())):
+            raise ValueError("no-effect completion requires a normal unchanged NEXT result")
+        for field in ("before_state_sha", "after_state_sha"):
+            if not SHA.fullmatch(str(evidence.get(field, ""))):
+                raise ValueError("NEXT completion requires actual state revisions")
+        if (evidence.get("before_digest") != executor["before_digest"]
+                or evidence.get("after_digest") != executor["before_digest"]):
+            raise ValueError("NEXT completion changed its original substantive baseline")
+        return
     if (intent["workflow"] != SYNC or not isinstance(evidence, dict)
             or evidence.get("status") not in {"up_to_date", "busy", "conflict", "disabled"}
             or not isinstance(evidence.get("reason"), str) or not evidence["reason"]
@@ -396,8 +417,9 @@ def materialize(journal: dict) -> dict:
         elif kind == "ExecutionCompletion":
             evidence = event.get("evidence")
             _valid_completion(evidence, intent, executor, state)
-            if (event.get("kind") != "sync_no_effect"
-                    or event.get("receipt_id") != _receipt_id(decision_id, executor["claim_id"], "sync_no_effect", evidence)
+            completion_kind = "next_no_effect" if intent["workflow"] == NEXT else "sync_no_effect"
+            if (event.get("kind") != completion_kind
+                    or event.get("receipt_id") != _receipt_id(decision_id, executor["claim_id"], completion_kind, evidence)
                     or event.get("frontier_seq") != state["frontier_seq"] + 1):
                 raise ValueError("invalid no-effect completion identity or frontier")
             state["completions"][decision_id] = event
@@ -632,9 +654,10 @@ class JournalStore:
                 self._match(bound, workflow, inputs, control_sha, key)
                 if bound is not intent:
                     return (bound, None), []
-            elif intent is not None and intent["source_kind"] == "sender":
-                # Cron/manual/callback ingress only reconciles a pending send;
-                # it cannot stand in for the receiver carrying the saved key.
+            elif intent is not None and (intent["source_kind"] == "sender"
+                                         or intent["decision_id"] in state["executor_claims"]):
+                # External signals never replace a pending receiver or executor,
+                # including one pinned before a checked-main update.
                 return (intent, None), []
             elif intent is None:
                 source_identity = _source_identity(trigger)
@@ -659,6 +682,51 @@ class JournalStore:
         capability = (ExecutionCapability(intent["decision_id"], claim["claim_id"], trigger, control_sha,
                                           state_sha=state_sha, issuer=_ISSUER) if changed and claim else None)
         return copy.deepcopy(intent), capability
+
+    def nonexecution_outcome(self, intent, *, key, trigger, control_sha, runs=()):
+        """Classify refused ingress, never infer capability from delivery metadata."""
+        trigger = _trigger(trigger, control_sha)
+        state = self.current()
+        if intent is None:
+            source = _source_identity(trigger)
+            intent = next((item for item in state["intents"].values()
+                           if item["source_identity"] == source), None)
+            if intent is None:
+                intent = next((state["intents"][decision_id]
+                               for decision_id, claim in state["executor_claims"].items()
+                               if _source_identity(claim["trigger"]) == source), None)
+        if intent is None or state["intents"].get(intent["decision_id"]) != intent:
+            raise JournalConflict("refused ingress no longer binds a known decision")
+        decision_id = intent["decision_id"]
+        if key and (intent["control_sha"] != control_sha or key != intent["correlation_key"]):
+            raise JournalConflict("refused internal ingress changed its pinned identity")
+        if decision_id in state["effects"] or decision_id in state["completions"]:
+            return {"outcome": "stopped", "reason": "execution_outcome_already_recorded", "decision_id": decision_id}
+        executor = state["executor_claims"].get(decision_id)
+        if executor and _source_identity(executor["trigger"]) == _source_identity(trigger):
+            return {"outcome": "blocked", "reason": "executor_without_outcome", "decision_id": decision_id}
+        # A fresh trusted Actions read can prove another receiver is currently
+        # handling this decision. A historical POST ACK/title alone cannot.
+        title = (("Sync main " + intent["normalized_inputs"]["main_sha"] + " " if intent["workflow"] == SYNC
+                  else "Next " if intent["workflow"] == NEXT else "Continue ") + intent["correlation_key"])
+        for run in runs:
+            if (not isinstance(run, dict) or run.get("event") != "workflow_dispatch"
+                    or run.get("head_branch") != "main"
+                    or (run.get("head_repository") or {}).get("full_name") != trigger.get("repository")
+                    or run.get("status") not in {"queued", "in_progress", "waiting", "pending", "requested"}
+                    or str(run.get("id", "")) == trigger["run_id"]
+                    or not re.fullmatch(r"[1-9][0-9]*", str(run.get("id", "")))):
+                continue
+            if executor:
+                if (str(run["id"]) != executor["trigger"]["run_id"]
+                        or str(run.get("run_attempt", "")) != executor["trigger"]["run_attempt"]):
+                    continue
+            elif (intent["source_kind"] != "sender" or decision_id not in state["send_claims"]
+                  or run.get("display_title") != title):
+                continue
+            return {"outcome": "coalesced", "reason": "existing_receiver_active", "decision_id": decision_id}
+        return {"outcome": "blocked", "reason": "executor_without_outcome" if executor else "delivery_unresolved",
+                "decision_id": decision_id}
 
     def save_manifest(self, data: dict) -> str:
         """Rebase only the journal; never retry a stale substantive mutation."""
@@ -813,7 +881,7 @@ class JournalStore:
         return copy.deepcopy(result)
 
     def record_completion(self, capability, evidence):
-        """Close proven no-effect preparation without minting a useful effect."""
+        """Close a proven normal no-effect execution without minting useful progress."""
         if type(capability) is not ExecutionCapability or capability.phase != "execute":
             raise JournalConflict("no-effect completion requires the original preparation capability")
         capability._finish()
@@ -822,24 +890,31 @@ class JournalStore:
         def complete(data, state_sha, state):
             from state_store import _git
             intent, executor = self._capability_context(capability, state)
+            if intent["workflow"] == NEXT:
+                before = self._checkpoint_state(evidence.get("before_state_sha", ""))
+                after = self._checkpoint_state(evidence.get("after_state_sha", ""))
+                evidence["before_digest"] = substantive_digest(before)
+                evidence["after_digest"] = substantive_digest(after)
             _valid_completion(evidence, intent, executor, state)
             if substantive_digest(data) != executor["before_digest"]:
-                raise JournalConflict("no-effect preparation changed substantive state")
-            for branch, pin in (("main", evidence["main_sha"]), ("autonomous/lab", evidence["lab_sha"])):
-                remote = _git(self.repo, "ls-remote", "--exit-code", "origin", "refs/heads/" + branch).stdout.decode().split()
-                if len(remote) != 2 or remote[0] != pin:
-                    raise JournalConflict("no-effect completion heads changed")
-            if _git(self.repo, "ls-remote", "--heads", "origin", "refs/heads/" + evidence["candidate_branch"]).stdout:
-                raise JournalConflict("no-effect completion has a published candidate")
-            if evidence["status"] == "up_to_date":
-                _git(self.repo, "merge-base", "--is-ancestor", evidence["main_sha"], evidence["lab_sha"])
-            if evidence.get("queue_blob"):
-                blob = _git(self.repo, "rev-parse", evidence["lab_sha"] + ":agent_tasks.json").stdout.decode().strip()
-                if blob != evidence["queue_blob"]:
-                    raise JournalConflict("no-effect completion changed the legacy queue pin")
+                raise JournalConflict("no-effect execution changed substantive state")
+            if intent["workflow"] == SYNC:
+                for branch, pin in (("main", evidence["main_sha"]), ("autonomous/lab", evidence["lab_sha"])):
+                    remote = _git(self.repo, "ls-remote", "--exit-code", "origin", "refs/heads/" + branch).stdout.decode().split()
+                    if len(remote) != 2 or remote[0] != pin:
+                        raise JournalConflict("no-effect completion heads changed")
+                if _git(self.repo, "ls-remote", "--heads", "origin", "refs/heads/" + evidence["candidate_branch"]).stdout:
+                    raise JournalConflict("no-effect completion has a published candidate")
+                if evidence["status"] == "up_to_date":
+                    _git(self.repo, "merge-base", "--is-ancestor", evidence["main_sha"], evidence["lab_sha"])
+                if evidence.get("queue_blob"):
+                    blob = _git(self.repo, "rev-parse", evidence["lab_sha"] + ":agent_tasks.json").stdout.decode().strip()
+                    if blob != evidence["queue_blob"]:
+                        raise JournalConflict("no-effect completion changed the legacy queue pin")
+            kind = "next_no_effect" if intent["workflow"] == NEXT else "sync_no_effect"
             event = _event("ExecutionCompletion", decision_id=capability.decision_id,
-                           executor_claim_id=executor["claim_id"], kind="sync_no_effect", evidence=evidence,
-                           receipt_id=_receipt_id(capability.decision_id, executor["claim_id"], "sync_no_effect", evidence),
+                           executor_claim_id=executor["claim_id"], kind=kind, evidence=evidence,
+                           receipt_id=_receipt_id(capability.decision_id, executor["claim_id"], kind, evidence),
                            frontier_seq=state["frontier_seq"] + 1)
             return event, [event]
         result, _, _ = self._mutate(complete)

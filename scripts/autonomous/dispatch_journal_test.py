@@ -340,6 +340,86 @@ class JournalTests(unittest.TestCase):
         self.assertIsNotNone(capability)
         self.assertEqual(current["predecessor_decision_id"], successor["decision_id"])
 
+    def test_next_no_effect_closes_once_without_useful_progress_or_task_mutation(self):
+        intent, execution = self.execute()
+        before = self.store.current()["state_sha"]
+        receipt = self.store.record_completion(execution, {
+            "status": "no_effect", "action": "none", "reason": "explicit_task_not_todo",
+            "before_state_sha": before, "after_state_sha": before})
+        state = self.store.current()
+        self.assertIsNone(state["active_intent"])
+        self.assertEqual(state["effects"], {})
+        self.assertEqual(state["frontier_seq"], 1)
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.assertEqual({key: value for key, value in data.items() if key != "dispatch_journal"}, self.seed)
+        self.assertTrue(self.store.advance(receipt["receipt_id"]))
+        _, replay = self.store.admit(NEXT, {}, key=intent["correlation_key"],
+                                     trigger=self.trigger("20", "2"), control_sha=CONTROL)
+        self.assertIsNone(replay)
+        with self.assertRaises(JournalConflict):
+            self.store.record_completion(execution, receipt["evidence"])
+        successor, send = self.reserve(workflow=CONTINUE, trigger=self.trigger("20"))
+        self.assertEqual(successor["predecessor_decision_id"], intent["decision_id"])
+        self.assertIsNotNone(send)
+
+    def test_next_no_effect_rejects_changed_substance_and_does_not_free_frontier(self):
+        intent, execution = self.execute()
+        before = self.store.current()["state_sha"]
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        data["protected"]["owner"] = "changed"
+        after = self.store.save_manifest(data)
+        with self.assertRaises(ValueError):
+            self.store.record_completion(execution, {
+                "status": "no_effect", "action": "none", "reason": "explicit_task_not_todo",
+                "before_state_sha": before, "after_state_sha": after})
+        state = self.store.current()
+        self.assertEqual(state["active_intent"]["decision_id"], intent["decision_id"])
+        self.assertEqual((state["frontier_seq"], state["completions"], state["effects"]), (0, {}, {}))
+
+    def test_unknown_next_result_cannot_be_completed_as_a_normal_no_effect(self):
+        _, execution = self.execute()
+        before = self.store.current()["state_sha"]
+        with self.assertRaises(ValueError):
+            self.store.record_completion(execution, {
+                "status": "no_effect", "action": "none", "reason": "report_unknown",
+                "before_state_sha": before, "after_state_sha": before})
+        self.assertEqual(self.store.current()["frontier_seq"], 0)
+
+    def test_duplicate_receiver_only_coalesces_with_trusted_live_executor_evidence(self):
+        intent, _ = self.execute(CONTINUE)
+        trigger = self.trigger("99")
+        live = {"id": 20, "run_attempt": 1, "event": "workflow_dispatch", "head_branch": "main",
+                "head_repository": {"full_name": "synthetic/c-send"}, "status": "in_progress"}
+        before = self.store.current()
+        outcome = self.store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                  trigger=trigger, control_sha=CONTROL, runs=[live])
+        self.assertEqual(outcome["outcome"], "coalesced")
+        for wrong in (dict(live, run_attempt=2), dict(live, id=21),
+                      dict(live, status="completed"), dict(live, head_branch="foreign"),
+                      dict(live, head_repository={"full_name": "foreign/repo"})):
+            outcome = self.store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                      trigger=trigger, control_sha=CONTROL, runs=[wrong])
+            self.assertEqual(outcome["outcome"], "blocked")
+        # The original claimant cannot turn a lost outcome into permission to resume.
+        outcome = self.store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                  trigger=self.trigger("20"), control_sha=CONTROL, runs=[live])
+        self.assertEqual(outcome["reason"], "executor_without_outcome")
+        self.assertEqual(self.store.current(), before)
+
+    def test_new_checked_external_ingress_observes_old_pin_without_changing_it(self):
+        intent, _ = self.execute(NEXT)
+        trigger = {**self.trigger("99"), "event_name": "schedule", "control_sha": "b" * 40}
+        before = self.store.current()
+        bound, capability = self.store.admit(CONTINUE, {}, key="", trigger=trigger, control_sha="b" * 40)
+        self.assertIsNone(capability)
+        self.assertEqual(bound, intent)
+        live = {"id": 20, "run_attempt": 1, "event": "workflow_dispatch", "head_branch": "main",
+                "head_repository": {"full_name": "synthetic/c-send"}, "status": "in_progress"}
+        outcome = self.store.nonexecution_outcome(bound, key="", trigger=trigger,
+                                                  control_sha="b" * 40, runs=[live])
+        self.assertEqual(outcome["outcome"], "coalesced")
+        self.assertEqual(self.store.current(), before)
+
 
 
 if __name__ == "__main__":

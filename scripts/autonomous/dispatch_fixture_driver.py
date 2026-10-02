@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--endpoint", required=True)
-    parser.add_argument("--operation", choices=["initialize", "sender", "handoff", "receiver", "writer", "sync", "sync-finalize", "health"], required=True)
+    parser.add_argument("--operation", choices=["initialize", "sender", "handoff", "receiver", "writer", "sync", "sync-finalize", "health", "control-pin"], required=True)
     parser.add_argument("--fault", default="")
     parser.add_argument("--observer-mode", choices=["injected-health", "production"], default="injected-health")
     parser.add_argument("--run", default="100")
@@ -98,6 +98,9 @@ def main():
     parser.add_argument("--time-offset", type=float, default=0)
     parser.add_argument("--workflow", default="autonomous_next_task.yml")
     parser.add_argument("--event", default="schedule")
+    parser.add_argument("--task-id", default="selected")
+    parser.add_argument("--original-control-sha", default="")
+    parser.add_argument("--event-sha", default="")
     options = parser.parse_args()
     sys.path.insert(0, str(options.source / "scripts" / "autonomous"))
     adapters(options.endpoint)
@@ -115,7 +118,7 @@ def main():
                       JULES_API_KEY="synthetic-not-a-credential")
     workflow = ("autonomous_next_task.yml" if options.operation == "receiver" else
                 "autonomous_sync.yml" if options.operation in ("sync", "sync-finalize") else
-                options.workflow if options.operation == "handoff" else "autonomous_continue.yml")
+                options.workflow if options.operation in ("handoff", "control-pin") else "autonomous_continue.yml")
     os.environ["GITHUB_WORKFLOW_REF"] = "synthetic/c-send/.github/workflows/" + workflow + "@refs/heads/main"
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "JULES_API_KEY_BACKUP", "GITHUB_STEP_SUMMARY"):
         os.environ.pop(name, None)
@@ -123,7 +126,8 @@ def main():
     state = state_store.load_state(repo, manifest, revision)
     control = REAL_RUN(["git", "-C", str(options.source), "rev-parse", "HEAD"],
                        check=True, capture_output=True, text=True).stdout.strip()
-    os.environ["GITHUB_SHA"] = control
+    os.environ["GITHUB_SHA"] = options.event_sha or control
+    os.environ["CONTROL_SHA"] = control
     if options.event == "workflow_run":
         event_path = work / "event.json"
         event_path.write_text(json.dumps({"workflow_run": {
@@ -134,15 +138,29 @@ def main():
     elif options.event == "workflow_dispatch":
         inputs = {"continuation_key": options.key}
         if workflow == "autonomous_next_task.yml":
-            inputs.update(task_id="" if options.key else "selected", automatic="true" if options.key else "false")
+            inputs.update(task_id="" if options.key else options.task_id, automatic="true" if options.key else "false")
         elif workflow == "autonomous_sync.yml":
             health = http(options.endpoint, "/fixture/health")
             inputs.update(main_sha=health["main_sha"], lab_sha=health["lab_sha"])
         if options.key:
-            inputs["control_sha"] = control
+            inputs["control_sha"] = options.original_control_sha or control
         event_path = work / "event.json"
         event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
         os.environ["GITHUB_EVENT_PATH"] = str(event_path)
+    if options.operation == "control-pin":
+        import workflow_admission
+        output, environment = work / "github-output", work / "github-env"
+        output.write_text("", encoding="utf-8")
+        environment.write_text("", encoding="utf-8")
+        os.environ.update(GITHUB_OUTPUT=str(output), GITHUB_ENV=str(environment))
+        status = workflow_admission.main([
+            "--repo", str(options.source), "--config", str(fixture / "config.json"),
+            "--workflow", workflow,
+        ])
+        result = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+        (work / "out.json").write_text(json.dumps(result), encoding="utf-8")
+        print(json.dumps(result))
+        return status
     if options.operation == "initialize":
         state_store.save_state(repo, manifest, revision)
         expected = json.loads(revision.read_text())["state_sha"]
@@ -327,7 +345,7 @@ def main():
         argv = ["--repo", str(repo), "--config", str(fixture / "config.json"),
                 "--manifest", str(manifest), "--revision-file", str(revision),
                 "--out", str(work / "out.json"), "--run-id", options.run]
-        argv += ["--automatic"] if options.key else ["--task-id", "selected"]
+        argv += ["--automatic"] if options.key else ["--task-id", options.task_id]
         # Normalize only the new admission interface, never replace receiver/body.
         if (options.source / "scripts/autonomous/workflow_admission.py").exists():
             argv += ["--continuation-key", options.key]

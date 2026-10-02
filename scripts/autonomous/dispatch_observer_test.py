@@ -122,8 +122,7 @@ class ProductionObserverTest(unittest.TestCase):
             # Replays, changed attempts and foreign runs cannot run the worker again.
             for options in ({"run": "1002"}, {"run": "1002", "attempt": "2"}, {"run": "1099"}):
                 gets = len(endpoint.worker_gets)
-                replay = run("receiver", event="workflow_dispatch", key=next_key, **options)
-                self.assertEqual(replay["output"]["reason"], "execution_already_claimed", replay)
+                run("receiver", event="workflow_dispatch", key=next_key, **options)
                 self.assertEqual(len(endpoint.worker_gets), gets)
                 self.assertEqual(state_snapshot(remote), checkpoint)
             next_handoff = run("handoff", run="1002", event="workflow_dispatch", workflow=NEXT, key=next_key)
@@ -137,17 +136,21 @@ class ProductionObserverTest(unittest.TestCase):
             self.assertEqual(len(endpoint.sessions), 1)
             self.assertEqual(state_snapshot(remote)["tasks"], checkpoint["tasks"])
 
-    def test_scheduled_continue_real_observer_and_replay_foreign_attempt(self):
+    def test_scheduled_continue_coalesces_replay_but_rejects_foreign_key(self):
         with self.fixture("scheduled-real-observer") as (endpoint, run, remote, fixture):
             self.start_next(endpoint, run)
             before = state_snapshot(remote)
-            for options in ({"run": "101"}, {"run": "101", "attempt": "2"},
-                            {"run": "102", "event": "workflow_dispatch", "key": "f" * 64}):
+            for options in ({"run": "101"}, {"run": "101", "attempt": "2"}):
                 result = run("sender", **options)
-                self.assertIn(result["output"]["outcome"], {"blocked", "stopped"}, result)
+                self.assertEqual(result["exit"], 0, result)
+                self.assertEqual(result["output"]["outcome"], "coalesced", result)
                 self.assertEqual(endpoint.posts[0]["workflow"], NEXT)
                 self.assertEqual(len(endpoint.posts), 1)
                 self.assertEqual(state_snapshot(remote), before)
+            rejected = run("sender", run="102", event="workflow_dispatch", key="f" * 64)
+            self.assertEqual(rejected["exit"], 1, rejected)
+            self.assertEqual(len(endpoint.posts), 1)
+            self.assertEqual(state_snapshot(remote), before)
 
     def test_post_own_send_claim_live_changes_prevent_post(self):
         for fault in ("switch-after-claim", "refs-after-claim", "readiness-after-claim", "context-after-claim",

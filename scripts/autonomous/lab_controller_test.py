@@ -961,6 +961,44 @@ class ControllerTests(unittest.TestCase):
             "originator": "agent", "agentMessaged": {"agentMessage": text},
         })
 
+    def test_repair_uses_provider_time_and_omits_credentials_without_fake_hash(self):
+        self.broken_research()
+        self.api.values["7"]["createTime"] = (NOW - timedelta(minutes=5)).isoformat()
+        self.repair_activity("Synthetic prior notes: api_key=fixture-only", "secret", NOW - timedelta(minutes=2))
+        self.run_tick()
+        saved = self.reload()[0]
+        self.assertEqual(saved["execution"]["report_repair"]["result"], "sent")
+        self.assertEqual((self.api.posts, len(self.api.messages)), (0, 1))
+        prompt = self.api.messages[0][1]["prompt"]
+        context = json.JSONDecoder().raw_decode(prompt[prompt.index('\n{"reports":') + 1:])[0]
+        self.assertEqual([report["activity_id"] for report in context["reports"]],
+                         ["sessions/7/activities/old"])
+        self.assertNotIn("fixture-only", prompt)
+        self.assertNotIn("fixture-only", json.dumps(saved))
+        self.assertNotIn("research_result", saved)
+        self.assertEqual((saved["execution"]["session_id"], saved["execution"]["attempts"]), ("7", 1))
+
+    def test_repair_source_changed_during_authenticated_context_read_cannot_send(self):
+        identity = self.broken_research()
+        reads = 0
+        def rewritten(method, url, headers, payload):
+            nonlocal reads
+            if method == "GET" and urlsplit(url).path.endswith("/activities"):
+                reads += 1
+                if reads == 2:
+                    self.api.activities["7"][-1]["agentMessaged"]["agentMessage"] = "Rewritten synthetic report"
+            return self.api(method, url, headers, payload)
+        outcome = tick(self.data, CONFIG, repo=self.repo, templates=TEMPLATES, github=self.github,
+                       persist=self.persist, api_keys=["fixture-only"], transport=rewritten,
+                       api_base="http://localhost/v1alpha", task_id="first", now=NOW)
+        saved = self.reload()[0]
+        self.assertTrue(outcome["attention"])
+        self.assertEqual((self.api.posts, self.api.messages), (0, []))
+        self.assertNotIn("report_repair", saved["execution"])
+        self.assertNotIn("research_result", saved)
+        for field in ("session_id", "dispatch_key", "attempts", "base_sha", "starting_branch"):
+            self.assertEqual(saved["execution"][field], identity[field])
+
     def test_unknown_repair_survives_restart_and_automatic_poll_accepts_new_activity(self):
         identity = self.broken_research()
         self.api.message_status = 0

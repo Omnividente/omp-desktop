@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from build_jules_request import build, dispatch_key, next_attempt, research_completion_prompt
-from complete_jules_task import atomic_write, bound_session, harvest, redact
+from complete_jules_task import atomic_write, bound_session, configured_secrets, harvest, latest_report, redact
 from health_snapshot import inspect_health
 from jules_dispatch import (
     DEFAULT_API_BASE, CreateRejected, KeyRing, dispatch, get_session, session_failed,
@@ -33,7 +34,7 @@ from task_lifecycle import (
 )
 from validate_tasks import validate, validate_feedback_nudges
 from loop_health import WAITING_REASONS, worker_observation, waiting_attention
-from dispatch_journal import JournalStore
+from dispatch_journal import JournalStore, NEXT_NO_EFFECT_REASONS
 from workflow_admission import add_arguments, context, recheck_context, substantive_manifest
 
 LAB_BRANCH = "autonomous/lab"
@@ -240,6 +241,7 @@ def tick(
                                    now=now, current_run_id=run_id, observer_context=observer_context)
         result["scheduler"] = readiness["scheduler"]
         if readiness["action"] != "next_task":
+            result["attention"] = readiness.get("attention", [])
             return dict(result, reason=readiness["reason"], skipped=True)
         if not github.enabled():
             return dict(result, reason="loop_disabled", skipped=True)
@@ -324,6 +326,50 @@ def tick(
         result["observations"].append(observation)
         result["attention"].append(observation)
         checkpoint()
+    def completion_context(task, source=None):
+        """Fresh same-session messages are untrusted input, never accepted reports."""
+        execution = task["execution"]
+        resource = session_resource(execution["session_id"])
+        session = get_session(transport, api_base, ring, resource)
+        bound_session(session, execution, resource)
+        activities = list_activities(transport, api_base, ring, resource)
+        if source:
+            _text, latest = latest_report(activities)
+            latest.update(session_id=execution["session_id"], dispatch_key=execution["dispatch_key"])
+            if latest != source:
+                raise ValueError("report repair source changed before reservation")
+        reports, identities, timestamps = [], set(), set()
+        # Controller started_at is the later binding/checkpoint time, not the
+        # provider session's creation time; early authentic notes may precede it.
+        session_created = parse_iso(session.get("createTime"))
+        if "createTime" in session and (session_created is None or session_created.utcoffset() != timedelta(0)):
+            raise ValueError("invalid provider session creation time")
+        secrets = configured_secrets(config, ring.keys)
+        for activity in activities:
+            if "agentMessaged" not in activity:
+                continue
+            message = activity["agentMessaged"]
+            text = message.get("agentMessage") if isinstance(message, dict) else None
+            created = parse_iso(activity.get("createTime"))
+            identifier = activity["name"]
+            if (activity.get("originator") != "agent" or not isinstance(text, str) or not text.strip()
+                    or created is None or created.utcoffset() != timedelta(0)
+                    or not isinstance(activity.get("createTime"), str)
+                    or "T" not in activity["createTime"] or not activity["createTime"].endswith(("Z", "+00:00"))
+                    or created > clock() or (session_created is not None and created < session_created)
+                    or identifier in identities or created in timestamps):
+                raise ValueError("invalid or ambiguous report context activity")
+            identities.add(identifier)
+            timestamps.add(created)
+            # Do not attach sanitized text under a hash of different raw bytes.
+            # Entire credential-containing messages are omitted, not persisted.
+            if redact(text, secrets) != text:
+                continue
+            reports.append({"session_id": execution["session_id"], "dispatch_key": execution["dispatch_key"],
+                            "activity_id": identifier, "activity_created_at": activity["createTime"],
+                            "report_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "text": text})
+        return reports
+
 
     def feedback_source(task):
         execution = task["execution"]
@@ -414,7 +460,9 @@ def tick(
             execution["research_detached"] = detached
             checkpoint()
         if state == "AWAITING_USER_FEEDBACK":
-            nudge_waiting_worker(task, research_completion_prompt(task["id"], execution["dispatch_key"], repair=True))
+            nudge_waiting_worker(task, research_completion_prompt(
+                task["id"], execution["dispatch_key"], repair=True,
+                existing_reports=completion_context(task)))
 
 
     def nudge_approved_implementation(task, state, number):
@@ -444,6 +492,13 @@ def tick(
                   and previous.get("status") in ("invalid", "rejected", "expired", "failed"))
         if (previous and not repeat) or not enabled or not github.enabled():
             return
+        prompt = research_completion_prompt(
+            task["id"], execution["dispatch_key"], repair=True,
+            error_detail=redact(str((previous or {}).get("detail")
+                                    or (execution.get("report_error") or {}).get("detail", "")),
+                                configured_secrets(config, ring.keys)),
+            existing_reports=completion_context(task, source),
+        )
         receipt = {"at": iso(clock()), "result": "pending", "status": "pending"}
         if repeat:
             execution.setdefault("report_repair_history", []).append(copy.deepcopy(previous))
@@ -459,11 +514,7 @@ def tick(
         response = request_with_keys(
             transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
             + session_resource(execution["session_id"]) + ":sendMessage",
-            {"prompt": research_completion_prompt(
-                task["id"], execution["dispatch_key"], repair=True,
-                error_detail=redact(str((previous or {}).get("detail")
-                                        or (execution.get("report_error") or {}).get("detail", "")), ring.keys),
-            )}, max_attempts=1,
+            {"prompt": prompt}, max_attempts=1,
         )
         receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
         if receipt["result"] == "rejected":
@@ -846,9 +897,15 @@ def main(argv=None) -> int:
         manifest = load_state(args.repo, args.manifest, args.revision_file)
         loaded = True
         if capability is None:
-            result = {"action": "none", "reason": "execution_already_claimed", "merge_mode": "manual"}
+            from health_snapshot import gh_get, snapshot_runs
+            runs = (snapshot_runs(lambda path, **options: gh_get(config["repository"], path, **options),
+                                  intent["workflow"]) if intent else ())
+            recheck_context(binding)
+            disposition = store.nonexecution_outcome(
+                intent, key=binding.key, trigger=binding.trigger, control_sha=binding.control_sha, runs=runs)
+            result = {"action": "none", "merge_mode": "manual", **disposition}
             atomic_write(args.out, json.dumps(result, indent=2) + "\n")
-            return 0
+            return 1 if disposition["outcome"] == "blocked" else 0
         before_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
         before = substantive_manifest(manifest)
         if not (args.recover_report or args.recover_feedback or args.quarantine_all) and not GitHub(config["repository"]).enabled():
@@ -876,6 +933,15 @@ def main(argv=None) -> int:
             receipt = store.record_effect(capability, "controller_checkpoint", {
                 "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
                 "poll_observations": poll_observations,
+            })
+            result["effect_receipt_id"] = receipt["receipt_id"]
+        elif (result.get("action") == "none" and result.get("reason") in NEXT_NO_EFFECT_REASONS
+              and not any(result.get(field) for field in ("attention", "observations", "proposals", "waiting_workers"))
+              and not result.get("research", {}).get("research_changed")):
+            recheck_context(binding)
+            receipt = store.record_completion(capability, {
+                "status": "no_effect", "action": "none", "reason": result["reason"],
+                "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
             })
             result["effect_receipt_id"] = receipt["receipt_id"]
         result["decision_id"] = intent["decision_id"]
