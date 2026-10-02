@@ -118901,7 +118901,8 @@
             },
             "detail": "expected exactly one ordered research report block"
           }
-        ]
+        ],
+        "released_attempt_ref": "autonomous/attempt-6a09e7226b112e43690f1503"
       },
       "research_result": {
         "summary": "Investigated workspace navigation behaviors focusing on UI interaction flows and state handling during failures. Confirmed the hypothesis regarding eager state clearing in session and workspace renaming, which discards user input upon failure. Also observed that `launchSession` and `launchUpdate` fail to clear `launchingRef.current` when an early return occurs (such as user cancelling the session lease reclaim dialog), permanently disabling the 'New Session' button until restart.",
