@@ -387,12 +387,17 @@ class Controller:
                               if self.runtime.continuation_key else state["active_intent"])
                     if self.runtime.continuation_key and intent is None:
                         return self.report("blocked", "source_effect_receipt_unavailable")
-                    runs = self.runtime.runs(intent["workflow"]) if intent else ()
-                    self.check_enabled()
-                    self.runtime.recheck_context()
                     # Handoff observes checked event-main; it cannot repin or
                     # execute the original receiver, which may use an older SHA.
                     try:
+                        disposition = self.runtime.journal.nonexecution_outcome(
+                            intent, key="", trigger=self.runtime.trigger,
+                            control_sha=self.runtime.control_sha)
+                        if disposition["outcome"] == "stopped":
+                            return self.report(**disposition)
+                        runs = self.runtime.runs(intent["workflow"]) if intent else ()
+                        self.check_enabled()
+                        self.runtime.recheck_context()
                         disposition = self.runtime.journal.nonexecution_outcome(
                             intent, key="", trigger=self.runtime.trigger,
                             control_sha=self.runtime.control_sha, runs=runs)
@@ -413,6 +418,11 @@ class Controller:
                 CONTINUE, {}, key=self.runtime.continuation_key,
                 trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
             if self.execution is None:
+                disposition = self.runtime.journal.nonexecution_outcome(
+                    self.admitted_intent, key=self.runtime.continuation_key,
+                    trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
+                if disposition["outcome"] == "stopped":
+                    return self.report(**disposition)
                 runs = self.runtime.runs(self.admitted_intent["workflow"]) if self.admitted_intent else ()
                 self.check_enabled()
                 self.runtime.recheck_context()

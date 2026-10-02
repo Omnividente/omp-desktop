@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from continue_loop import CONFIRM_SECONDS, CONTINUE, NEXT, SYNC, Controller, Disabled, iso, safe_result
 from dispatch_journal import JournalStore, normalize_inputs
 from state_store import load_state
+from workflow_admission import OWNER_RECOVERY
 
 NOW = datetime(2026, 9, 16, 12, tzinfo=timezone.utc)
 REPOSITORY = "owner/repo"
@@ -387,17 +388,62 @@ class ContinuationTest(unittest.TestCase):
         self.assertEqual(result["decision_id"], intent["decision_id"])
         self.assertEqual(runtime.journal.current(), before)
 
+    def assert_fenced_late_wake(self, workflow, *, handoff):
+        clock = Clock()
+        sender = Runtime(self, clock, lambda rt: health("next_task"), run_id="70")
+        inputs = ({"main_sha": MAIN, "lab_sha": LAB} if workflow == SYNC else
+                  {"automatic": "true"} if workflow == NEXT else {})
+        intent, send = sender.journal.reserve_send(
+            workflow, inputs, basis={}, trigger=sender.trigger, control_sha=MAIN)
+        send.consume()
+        state = sender.journal.current()
+        owner = {"run_id": "71", "run_attempt": "1", "event_name": "workflow_dispatch",
+                 "control_sha": MAIN, "repository": REPOSITORY, "actor": "owner",
+                 "workflow": OWNER_RECOVERY, "ref": "refs/heads/main",
+                 "expected_state_sha": state["state_sha"], "decision_id": intent["decision_id"]}
+        sender.journal.fence_unclaimed(
+            decision_id=intent["decision_id"], expected_state_sha=state["state_sha"],
+            owner_trigger=owner, config={"repository": REPOSITORY,
+                                         "merge_gate": {"owner_approvers": ["owner"]}})
+        before = sender.journal.current()
+        late = Runtime(self, clock, lambda rt: health("next_task"), run_id="72", event="workflow_dispatch")
+        late.continuation_key = intent["correlation_key"]
+        if handoff:
+            late.control_sha = "d" * 40
+            late.trigger["control_sha"] = late.control_sha
+        def unavailable_runs(workflow):
+            raise AssertionError("a durable owner fence must not need Actions delivery observations")
+        late.on_runs = unavailable_runs
+        result = Controller(late, clock=clock, current_run_id="72").run(handoff=handoff)
+        self.assertEqual((result["outcome"], result["reason"]), ("stopped", "delivery_owner_fenced"))
+        self.assertEqual(result["decision_id"], intent["decision_id"])
+        self.assertEqual((late.posts, late.observations, clock.seconds), ([], 0, 0))
+        self.assertEqual(sender.journal.current(), before)
+        self.assertEqual((before["effects"], before["completions"], before["executor_claims"]), ({}, {}, {}))
+
+    def test_fenced_late_continue_stops_without_observation_or_send(self):
+        self.assert_fenced_late_wake(CONTINUE, handoff=False)
+
+    def test_fenced_late_next_handoff_cannot_create_a_completion_or_successor(self):
+        self.assert_fenced_late_wake(NEXT, handoff=True)
+
+    def test_fenced_late_sync_handoff_uses_owner_stop_not_an_execution_outcome(self):
+        self.assert_fenced_late_wake(SYNC, handoff=True)
+
+
     def test_spent_executor_without_outcome_is_not_suppressed_as_benign(self):
         clock = Clock()
         original = Runtime(self, clock, lambda rt: health("next_task"), run_id="88", event="schedule")
         intent, capability = original.journal.admit(CONTINUE, {}, key="", trigger=original.trigger, control_sha=MAIN)
         capability.consume()
         before = original.journal.current()
-        result = Controller(original, clock=clock, current_run_id="88").run()
-        self.assertEqual((result["outcome"], result["reason"]), ("blocked", "executor_without_outcome"))
-        self.assertEqual((original.posts, original.observations), ([], 0))
-        self.assertEqual(result["decision_id"], intent["decision_id"])
-        self.assertEqual(original.journal.current(), before)
+        for handoff in (False, True):
+            with self.subTest(handoff=handoff):
+                result = Controller(original, clock=clock, current_run_id="88").run(handoff=handoff)
+                self.assertEqual((result["outcome"], result["reason"]), ("blocked", "executor_without_outcome"))
+                self.assertEqual((original.posts, original.observations), ([], 0))
+                self.assertEqual(result["decision_id"], intent["decision_id"])
+                self.assertEqual(original.journal.current(), before)
 
 
 if __name__ == "__main__":

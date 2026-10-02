@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 import shutil
 import tempfile
@@ -12,7 +13,8 @@ from dispatch_integration_test import (
     CONTINUE, NEXT, REPOSITORY, child, git, make_fixture, source_checkout, state_snapshot,
     Endpoint,
 )
-from dispatch_journal import materialize
+from dispatch_journal import JournalStore, materialize
+from workflow_admission import OWNER_RECOVERY
 
 CHECKOUT = Path(__file__).resolve().parents[2]
 
@@ -46,6 +48,18 @@ class FinalizationCLI(unittest.TestCase):
 
     def snapshot(self):
         return state_snapshot(self.remote)
+
+    def fence_intent(self, intent):
+        store = JournalStore(self.repo, self.root / "owner-queue.json", self.root / "owner-revision.json")
+        state = store.current()
+        trigger = {"run_id": "750", "run_attempt": "1", "event_name": "workflow_dispatch",
+                   "control_sha": self.control, "repository": REPOSITORY, "actor": "owner-a",
+                   "workflow": OWNER_RECOVERY, "ref": "refs/heads/main",
+                   "expected_state_sha": state["state_sha"], "decision_id": intent["decision_id"]}
+        store.fence_unclaimed(
+            decision_id=intent["decision_id"], expected_state_sha=state["state_sha"],
+            owner_trigger=trigger, config=json.loads((self.root / "config.json").read_text(encoding="utf-8")))
+
 
     def test_normal_next_no_effect_has_one_receipt_and_one_causal_handoff(self):
         self.assertEqual(self.step("initialize")["exit"], 0)
@@ -157,6 +171,65 @@ class FinalizationCLI(unittest.TestCase):
                          ("blocked", "executor_without_outcome"))
         self.assertEqual(self.snapshot(), before)
         self.assertEqual((self.endpoint.posts, self.endpoint.sessions), ([], []))
+
+    def test_fenced_frozen_pin_is_rejected_without_repinning_or_state_change(self):
+        self.assertEqual(self.step("initialize", source=self.old_source)["exit"], 0)
+        self.assertEqual(self.step("sender", source=self.old_source, run="700")["exit"], 0)
+        intent = materialize(self.snapshot()["dispatch_journal"])["active_intent"]
+        key = intent["correlation_key"]
+        before = self.snapshot()
+        accepted = self.step("control-pin", run="1001", event="workflow_dispatch", workflow=CONTINUE,
+                             key=key, original_control_sha=self.old_control)
+        self.assertEqual((accepted["exit"], accepted["output"]), (0, {"control_sha": self.old_control}))
+        for wrong_key, wrong_pin in (("f" * 32, self.old_control), (key, self.control), (key, "f" * 40)):
+            with self.subTest(key=wrong_key, pin=wrong_pin):
+                refused = self.step("control-pin", run="1002", event="workflow_dispatch", workflow=CONTINUE,
+                                    key=wrong_key, original_control_sha=wrong_pin)
+                self.assertEqual((refused["exit"], refused["output"]), (1, {}))
+                self.assertEqual(self.snapshot(), before)
+        self.fence_intent(intent)
+        fenced = self.snapshot()
+        denied = self.step("control-pin", run="1003", event="workflow_dispatch", workflow=CONTINUE,
+                           key=key, original_control_sha=self.old_control)
+        self.assertEqual((denied["exit"], denied["output"]), (1, {}))
+        self.assertEqual(self.snapshot(), fenced)
+        self.assertEqual(materialize(fenced["dispatch_journal"])["intents"][intent["decision_id"]], intent)
+        self.assertEqual((len(self.endpoint.posts), self.endpoint.sessions), (1, []))
+
+    def assert_current_receiver_stops_after_fence(self, operation, workflow):
+        self.assertEqual(self.step("initialize")["exit"], 0)
+        store = JournalStore(self.repo, self.root / "sender-queue.json", self.root / "sender-revision.json")
+        inputs = ({"main_sha": self.health["main_sha"], "lab_sha": self.health["lab_sha"]}
+                  if workflow == "autonomous_sync.yml" else {"automatic": "true"} if workflow == NEXT else {})
+        trigger = {"run_id": "700", "run_attempt": "1", "event_name": "schedule",
+                   "control_sha": self.control, "repository": REPOSITORY, "actor": "owner-a"}
+        intent, send = store.reserve_send(workflow, inputs, basis={}, trigger=trigger, control_sha=self.control)
+        send.consume()
+        self.fence_intent(intent)
+        before = self.snapshot()
+        before_sha = git(self.remote, "rev-parse", "refs/heads/autonomous/state").stdout.strip()
+        for wake_operation in (operation, "handoff"):
+            with self.subTest(operation=wake_operation):
+                late = self.step(wake_operation, run="1001", event="workflow_dispatch", workflow=workflow,
+                                 key=intent["correlation_key"], original_control_sha=self.control)
+                self.assertEqual(late["exit"], 0, late)
+                self.assertEqual((late["output"]["outcome"], late["output"]["reason"]),
+                                 ("stopped", "delivery_owner_fenced"))
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(git(self.remote, "rev-parse", "refs/heads/autonomous/state").stdout.strip(), before_sha)
+                self.assertEqual((self.endpoint.posts, self.endpoint.sessions, self.endpoint.worker_gets), ([], [], []))
+        state = materialize(before["dispatch_journal"])
+        self.assertEqual((state["effects"], state["completions"], state["executor_claims"]), ({}, {}, {}))
+
+    def test_fenced_current_next_receiver_and_handoff_do_not_mutate_or_send(self):
+        self.assert_current_receiver_stops_after_fence("receiver", NEXT)
+
+    def test_fenced_current_continue_receiver_and_handoff_do_not_mutate_or_send(self):
+        self.assert_current_receiver_stops_after_fence("sender", CONTINUE)
+
+    def test_fenced_current_sync_receiver_and_handoff_do_not_mutate_or_send(self):
+        self.assert_current_receiver_stops_after_fence("sync", "autonomous_sync.yml")
+
 
     def test_frozen_receiver_and_new_checked_handoff_adopt_control_without_repinning(self):
         self.assertEqual(self.step("initialize", source=self.old_source)["exit"], 0)
