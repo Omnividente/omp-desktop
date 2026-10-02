@@ -136871,7 +136871,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T03:09:22.750985Z"
+        "observed_at": "2026-10-02T03:09:22.750985Z",
+        "released_attempt_ref": "autonomous/attempt-1af95857881100bbcdc2d256"
       },
       "research_result": {
         "summary": "Investigated terminal continuity behavior when attachment payloads are delayed. Found that applyTerminalAttachment incorrectly downgrades the continuity baseline when baselineReset=true is received for the same generation after rapid output events have already advanced the baseline.",
