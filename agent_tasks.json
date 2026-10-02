@@ -118538,7 +118538,7 @@
       "id": "research-workspace-navigation-behavior-15",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -118677,16 +118677,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "11431104841937568038",
         "dispatch_key": "6a09e7226b112e43690f1503",
         "base_sha": "888e1365c0d26de6d0f653cd1dc1e24f9f7e60e2",
         "starting_branch": "autonomous/attempt-6a09e7226b112e43690f1503",
         "started_at": "2026-09-30T15:49:12.049988Z",
-        "finished_at": "",
+        "finished_at": "2026-10-02T10:02:08.527193Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "49ec3013c53457e12a46892b7285eec3e688cb1e",
@@ -118873,22 +118873,10 @@
             "activity_sha256": "67c5d000725d95741ba703c6249049ff22407bb30f285da66287476321191c26"
           }
         },
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-09-30T16:37:00.306639Z",
-          "source": {
-            "activity_id": "sessions/11431104841937568038/activities/017708deca0b407b843b01d70acc7dbb",
-            "report_sha256": "2ee949c32a36be724dee377fca91dde8cfd64649383bca02685c2be9e1675584",
-            "activity_created_at": "2026-09-30T16:23:14.167897Z",
-            "session_id": "11431104841937568038",
-            "dispatch_key": "6a09e7226b112e43690f1503"
-          }
-        },
         "report_repair": {
           "at": "2026-10-02T09:39:47.519266Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "actor": "Omnividente",
           "after": "2026-09-30T16:37:26.493909Z",
           "source": {
@@ -118914,6 +118902,68 @@
             "detail": "expected exactly one ordered research report block"
           }
         ]
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation behaviors focusing on UI interaction flows and state handling during failures. Confirmed the hypothesis regarding eager state clearing in session and workspace renaming, which discards user input upon failure. Also observed that `launchSession` and `launchUpdate` fail to clear `launchingRef.current` when an early return occurs (such as user cancelling the session lease reclaim dialog), permanently disabling the 'New Session' button until restart.",
+        "observations": [
+          {
+            "scenario": "Simulated a failed workspace and session rename.",
+            "evidence": "Inspected App.tsx lines ~654 (submitWorkspaceRename) and ~1915 (submitRenameSession). Discovered that `setRenamingWorkspaceKey(null)` and `setRenamingSessionId(null)` are invoked synchronously before the async rename API calls are awaited, or unconditionally in sync branches. Wrote synthetic regex validations that confirmed state is reset before catching errors.",
+            "result": "Establishes a user experience defect: if a rename operation fails or is rejected by the backend, the rename input is already closed, and the user's input is irrevocably lost."
+          },
+          {
+            "scenario": "Simulated an early return during a terminal launch via `launchSession` and `launchUpdate` (e.g. user cancelling session lease reclaim).",
+            "evidence": "Inspected `launchSession` in App.tsx. It sets `launchingRef.current = true`. When `runWithSessionLeaseReclaim` returns null (meaning the user cancelled the dialog), the code executes `if (!started) return`. This early return skips the `finally` block where `launchingRef.current` and `setLaunching(null)` are normally reset. A synthetic vitest simulation using jsdom confirmed the 'New Session' button remains permanently disabled.",
+            "result": "Establishes a critical UI lockup defect: cancelling a session lease reclaim leaves the 'New Session' button permanently disabled."
+          },
+          {
+            "scenario": "Simulated an overridden `addWorkspace` request triggered via single-instance launch logic.",
+            "evidence": "Inspected single-instance launch logic around line 810 in App.tsx. It tracks `latestRequest`. If a request throws, it checks `if (!disposed && request === latestRequest) { showError(...) }`. If an earlier request throws but has been superseded by a newer one, its error is completely swallowed and hidden from the user.",
+            "result": "Establishes a defect in error reporting: errors from older requests that are superseded by rapid successive single-instance launches are silently swallowed."
+          },
+          {
+            "scenario": "Simulated rendering of WorkspaceHome and ProjectRail components on macOS and Windows to observe keyboard shortcut hints.",
+            "evidence": "Wrote synthetic vitest tests verifying that `WorkspaceHome` hardcodes `<span className=\"shortcut-hint\">Ctrl + Shift + O</span>` and `ProjectRail` hardcodes `<span>Ctrl + B</span>`. On macOS, these shortcuts should conventionally use the Command key (⌘) instead of Control (Ctrl). In `src/i18n.ts`, the shortcut translation is also hardcoded: `railModeShortcut: \"Ctrl + B — show or hide the sidebar\"`.",
+            "result": "Establishes a minor user experience and internationalization/platform-awareness defect: shortcut text is hardcoded to 'Ctrl', presenting incorrect keyboard hints to macOS users where '⌘' is expected."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate whether rapid repeated clicks on the rename confirm button can trigger concurrent API calls before the state is reset.",
+          "Investigate the accessibility of the workspace rename input field to see if screen readers correctly announce validation errors during failures."
+        ],
+        "proposed_task_ids": [
+          "discovery-8b9df9e91031d19a"
+        ],
+        "completed_at": "2026-10-02T10:02:08.527193Z",
+        "source": {
+          "activity_id": "sessions/11431104841937568038/activities/5075199b1ed74de291f79c3e1f1c23b5",
+          "report_sha256": "ded0f9481105a2916756769bd9a9332b6989aabbb4c57d6c7776e770a11c3e40",
+          "activity_created_at": "2026-10-02T09:42:06.168228Z",
+          "session_id": "11431104841937568038",
+          "dispatch_key": "6a09e7226b112e43690f1503"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11431104841937568038/activities/5075199b1ed74de291f79c3e1f1c23b5",
+          "report_sha256": "ded0f9481105a2916756769bd9a9332b6989aabbb4c57d6c7776e770a11c3e40",
+          "activity_created_at": "2026-10-02T09:42:06.168228Z",
+          "session_id": "11431104841937568038",
+          "dispatch_key": "6a09e7226b112e43690f1503"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-8b9df9e91031d19a"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     },
     {
@@ -138123,10 +138173,53 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "discovery-8b9df9e91031d19a",
+      "title": "Fix early return lockup in launchSession and launchUpdate",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 80,
+      "risk": "medium",
+      "focus": [
+        "bugfix",
+        "quality"
+      ],
+      "created_at": "2026-10-02T10:02:08.527193Z",
+      "acceptance": [
+        "Early returns in `launchSession` and `launchUpdate` must clear `launchingRef.current` and `setLaunching(null)` before returning.",
+        "Cancelling a session lease reclaim must not lock the UI.",
+        "Simulated jsdom vitest tests for launch lockup pass."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via static review and simulated jsdom execution that early returns in `launchSession` (e.g., `if (!started) return` after `runWithSessionLeaseReclaim`) and similar paths in `launchUpdate` bypass the `finally` block. This leaves `launchingRef.current = true`, locking out subsequent terminal launches.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Click 'New Session' to trigger `launchSession` for a session that has a stale lease.",
+            "When the reclaim confirmation dialog appears, click 'Cancel'.",
+            "Observe the 'New Session' button state."
+          ],
+          "expected": "The 'New Session' button is re-enabled, allowing new launches.",
+          "actual": "The 'New Session' button remains permanently disabled."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-15",
+        "activity_id": "sessions/11431104841937568038/activities/5075199b1ed74de291f79c3e1f1c23b5",
+        "report_sha256": "ded0f9481105a2916756769bd9a9332b6989aabbb4c57d6c7776e770a11c3e40",
+        "activity_created_at": "2026-10-02T09:42:06.168228Z",
+        "session_id": "11431104841937568038",
+        "dispatch_key": "6a09e7226b112e43690f1503"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-02T10:02:46.169679Z",
+    "last_poll_at": "2026-10-02T10:02:55.271679Z",
     "last_tick_at": "2026-10-02T09:25:24.854644Z",
     "run_id": "36989500222"
   },
