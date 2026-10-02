@@ -166381,6 +166381,59 @@
         "before_state_sha": "0829f3a2dfa251956c7f124d061fb6bcafc43d5e",
         "before_digest": "55f7af7777509dda305cd76fc92757a11eb0e41e98649d3039c5fcdf16b1fa19",
         "event_id": "ac56137c6a24087a8ced1a802149417fa1ebf0acc50757498a1834b842abea76"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-02T10:06:18.828465Z",
+        "decision_id": "e16d9cb449ef7941f260381b2cb5386b46157feba7d3d49256046edb3c359681",
+        "executor_claim_id": "a8433e1b429348eaec1b4891dd69489464bead7072293ff6069b250987fc5764",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "06a6a37cc8df1071e3542f6c18beca6265902a07",
+          "after_state_sha": "1b754425179ef0e1531f4324896c0aa6334a2cf9",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-reliability-9",
+              "session_id": "17879934277856105325",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            },
+            {
+              "task_id": "research-settings-models-ux-12",
+              "session_id": "11544834674981126535",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            },
+            {
+              "task_id": "research-workspace-navigation-ux-13",
+              "session_id": "10493274932274070899",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            },
+            {
+              "task_id": "research-workspace-navigation-behavior-15",
+              "session_id": "11431104841937568038",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            },
+            {
+              "task_id": "research-transcript-links-behavior-14",
+              "session_id": "2909471176662592502",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            },
+            {
+              "task_id": "research-terminal-input-performance-16",
+              "session_id": "3208951279050260214",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-02T10:02:08Z"
+            }
+          ],
+          "before_digest": "55f7af7777509dda305cd76fc92757a11eb0e41e98649d3039c5fcdf16b1fa19",
+          "after_digest": "4a08ac33537214aff2bd71055e1e28935fde6be00f7d2e720321169c7503236b"
+        },
+        "receipt_id": "39462d0ac2fbd85b72e2df2121519d2aa6190303d0f6e17d0c93941c93f08b1b",
+        "event_id": "fc156633bfe6a377082d0b9a623fd1de38d8b950eda4290acf1e7a28cc3971f9"
       }
     ]
   }
