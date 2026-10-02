@@ -256,16 +256,34 @@ def assess_health(
     default_branch = config.get("default_branch", "main")
     repository = config.get("repository", "")
 
+    fenced_deliveries = set()
+    if manifest.get("dispatch_journal") is not None:
+        state = materialize(manifest["dispatch_journal"])
+        for decision_id in state["owner_fences"]:
+            intent = state["intents"][decision_id]
+            prefix = ("Sync main " + intent["normalized_inputs"]["main_sha"] + " "
+                      if intent["workflow"] == SYNC else
+                      "Continue " if intent["workflow"] == CONTINUE else "Next ")
+            fenced_deliveries.add((intent["workflow"], intent["control_sha"],
+                                   prefix + intent["correlation_key"]))
+
+    def readiness_run(run: Mapping[str, Any], workflow: str) -> bool:
+        # Only the validated owner revocation removes a readiness blocker.
+        # Correlation and pin identify it; metadata alone grants no permission.
+        return (run.get("event") != "workflow_dispatch"
+                or (run.get("head_repository") or {}).get("full_name") != repository
+                or (workflow, run.get("head_sha"), run.get("display_title")) not in fenced_deliveries)
+
     def trusted(run: Mapping[str, Any]) -> bool:
         head_repository = (run.get("head_repository") or {}).get("full_name")
         return (run.get("head_branch") == default_branch
                 and run.get("event") in {"schedule", "workflow_dispatch", "workflow_run", "push"}
                 and (not head_repository or head_repository == repository))
 
-    ticks = [run for run in runs if trusted(run)
+    ticks = [run for run in runs if trusted(run) and readiness_run(run, NEXT)
              and run.get("event") in {"schedule", "workflow_dispatch"}]
-    syncs = [run for run in sync_runs if trusted(run)]
-    wakeups = [run for run in wakeup_runs if trusted(run)]
+    syncs = [run for run in sync_runs if trusted(run) and readiness_run(run, SYNC)]
+    wakeups = [run for run in wakeup_runs if trusted(run) and readiness_run(run, CONTINUE)]
     journal = journal_health(manifest, {NEXT: ticks, SYNC: syncs, CONTINUE: wakeups},
                              now, current_run_id, observer_context)
     minimum = datetime.min.replace(tzinfo=timezone.utc)

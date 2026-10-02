@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
-from dispatch_journal import NEXT, SYNC, digest, normalize_inputs
+from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_RECOVERY, digest, normalize_inputs,
+                              substantive_digest, _owner_fence_receipt_id)
 from research_cycle import plan_research
 from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
@@ -87,7 +88,7 @@ def health(data=None, config=None, **overrides):
 
 
 class JournalHealthTest(unittest.TestCase):
-    def fixture(self, *, age=timedelta(), send=True, executor=False, workflow=NEXT, tasks=()):
+    def fixture(self, *, age=timedelta(), send=True, executor=False, workflow=NEXT, tasks=(), repository=""):
         self.data = queue(*tasks)
         self.events = []
         self.data["dispatch_journal"] = {"version": 1, "events": self.events}
@@ -99,6 +100,8 @@ class JournalHealthTest(unittest.TestCase):
         self.key = digest([self.decision, "dispatch"])[:32]
         self.trigger = {"run_id": "10", "run_attempt": "1", "event_name": "workflow_dispatch",
                         "control_sha": MAIN}
+        if repository:
+            self.trigger["repository"] = repository
         inputs = normalize_inputs(workflow, {"main_sha": MAIN, "lab_sha": LAB} if workflow == SYNC else {})
         self.append("Intent", decision_id=self.decision, frontier_seq=0, predecessor_decision_id="",
                     correlation_key=self.key, workflow=workflow, normalized_inputs=inputs,
@@ -307,6 +310,64 @@ class JournalHealthTest(unittest.TestCase):
         self.assertIsNone(result["scheduler"]["last_tick_at"])
         self.assertIsNone(result["scheduler"]["last_poll_at"])
         self.assertEqual(self.data, before)
+
+    def fenced_fixture(self, workflow=NEXT):
+        self.fixture(workflow=workflow, tasks=(task(),), repository="owner/repo")
+        trigger = {"run_id": "30", "run_attempt": "1", "event_name": "workflow_dispatch",
+                   "control_sha": MAIN, "repository": "owner/repo", "actor": "owner",
+                   "workflow": OWNER_RECOVERY, "ref": "refs/heads/main",
+                   "expected_state_sha": LAB, "decision_id": self.decision}
+        before = substantive_digest(self.data)
+        self.append("OwnerFence", decision_id=self.decision, kind="owner_revoked_unclaimed",
+                    owner_trigger=trigger, before_state_sha=LAB, before_digest=before,
+                    frontier_seq=1, receipt_id=_owner_fence_receipt_id(self.decision, trigger, LAB, before))
+        title = ("Sync main " + MAIN + " " if workflow == SYNC else
+                 "Continue " if workflow == CONTINUE else "Next ") + self.key
+        return run(id=20, status="queued", conclusion=None, display_title=title,
+                   head_repository={"full_name": "owner/repo"})
+
+    def test_owner_fenced_delivery_no_longer_blocks_readiness_or_creates_tick_backoff(self):
+        for workflow in (NEXT, SYNC, CONTINUE):
+            statuses = ("queued", "in_progress") if workflow == CONTINUE else ("queued", "in_progress", "completed")
+            for status in statuses:
+                with self.subTest(workflow=workflow, status=status):
+                    stale = self.fenced_fixture(workflow)
+                    stale.update(status=status, conclusion="cancelled" if status == "completed" else None)
+                    before = copy.deepcopy(self.data)
+                    kwargs = {NEXT: "runs", SYNC: "sync_runs", CONTINUE: "wakeup_runs"}
+                    result = self.observe(main_is_ancestor=False, **{kwargs[workflow]: [stale]})
+                    self.assertEqual((result["action"], result["reason"]), ("sync", "sync_required"))
+                    self.assertEqual(result["scheduler"]["failed_ticks"], 0)
+                    self.assertIsNone(result["scheduler"]["retry_at"])
+                    if workflow == CONTINUE:
+                        self.assertIsNone(result["scheduler"]["wakeup_run"])
+                        self.assertEqual(result["scheduler"]["pending_wakeups"], [])
+                    self.assertEqual(self.data, before)
+
+    def test_fence_does_not_hide_unbound_pin_key_repository_or_unkeyed_runs(self):
+        for workflow in (NEXT, SYNC):
+            for change in ({"head_sha": "d" * 40}, {"display_title": "unbound"},
+                           {"head_repository": {}}, {"event": "schedule"}):
+                with self.subTest(workflow=workflow, change=change):
+                    active = self.fenced_fixture(workflow)
+                    active.update(change)
+                    result = self.observe(**{("runs" if workflow == NEXT else "sync_runs"): [active]})
+                    self.assertEqual(result["action"], "none")
+                    self.assertEqual(result["reason"], "next_task_running" if workflow == NEXT else "sync_running")
+            stale = self.fenced_fixture(workflow)
+            live = {**stale, "id": 21, "display_title": "another delivery"}
+            result = self.observe(**{("runs" if workflow == NEXT else "sync_runs"): [stale, live]})
+            self.assertEqual(result["action"], "none")
+
+    def test_correlation_metadata_without_owner_fence_cannot_release_the_lane(self):
+        for workflow in (NEXT, SYNC):
+            active = self.fenced_fixture(workflow)
+            self.events.pop()
+            result = self.observe(main_is_ancestor=False, current_run_id="10",
+                                  observer_context=self.observer_context("send"),
+                                  **{("runs" if workflow == NEXT else "sync_runs"): [active]})
+            self.assertEqual(result["action"], "none")
+            self.assertEqual(result["reason"], "next_task_running" if workflow == NEXT else "sync_running")
 
 
 class DecisionTest(unittest.TestCase):

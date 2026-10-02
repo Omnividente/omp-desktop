@@ -129,11 +129,22 @@ switch the loop, change tasks, or impersonate NEXT/CONTINUE/SYNC admission.
    handoff report `stopped / delivery_owner_fenced` without Actions-run observation,
    body effects or another send. An unrelated unbound ingress remains blocked;
    it cannot infer another decision from the fence set.
+   Readiness excludes a revoked delivery only when the validated OwnerFence and
+   original workflow, frozen control SHA, exact correlation title, main branch,
+   explicit repository identity and workflow_dispatch event match the observed run.
+   Other active runs and incomplete/mismatched metadata remain blockers. The
+   revoked run's queued status or later failure cannot add readiness/backoff; its
+   raw GitHub status and journal history are not changed or declared completed.
 6. Only after that irreversible denial and exact deployment proof may the owner
    start one distinct ordinary external checked Sync and continue the existing
    recovery plan. The fence itself neither calls `advance` on a runtime receipt
    nor schedules this continuation. Never reset the journal, repin the old intent,
    fabricate terminal Actions status, or blindly repeat its workflow dispatch.
+   This source change does not hot-patch an already claimed receiver's frozen
+   controller. If it still uses an older readiness observer, retain its claim and
+   receipts: another fence or deleting a GitHub run requires separate explicit
+   owner authorization. Do not infer permission to cancel/delete the original run
+   or revoke a claimed executor from the one unclaimed-delivery recovery decision.
 
 
 First introduction of the journal requires a separately authorized paused rollout;
