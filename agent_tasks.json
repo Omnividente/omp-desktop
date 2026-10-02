@@ -137140,6 +137140,137 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-16",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-02T05:30:22Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "221b812c5a32087785d47f2abf42ad86c29ee437c48c11271fb0929e29465d5f",
+        "cycle": 16,
+        "previous_reports": [
+          {
+            "summary": "Investigated the performance of session import, focusing on OMP and Codex session parsing. Found that line-by-line `serde_json::from_str::<Value>` parsing allocates excessively, resulting in high latency for large import files (~100,000 lines). Demonstrated that replacing unconditional parsing with simple string containment pre-checks (e.g., checking if the line contains `\"type\":\"title\"` or `\"type\": \"session\"`) combined with targeted structural parsing dramatically reduces processing time from ~1000ms to ~200ms in benchmarks.",
+            "observations": [
+              {
+                "scenario": "Importing a large (100,000 lines) OMP format session file.",
+                "evidence": "Ran a synthetic benchmark (`bench_import_omp_session`) on a generated 100K line `.jsonl` file. `import_omp_session` took ~1000ms to process the body. In a modified version, checking `line.contains(\"type\")` before invoking `serde_json::from_str::<Value>` reduced processing time to ~200ms. The original implementation parses every single line into a full JSON `Value` tree just to check if its `type` is `title` or `session`.",
+                "result": "Unconditional JSON parsing of every line in `import_omp_session` introduces significant parsing overhead. A fast-path string pre-check substantially reduces CPU time and allocations."
+              },
+              {
+                "scenario": "Importing a large (100,000 lines) Codex format session file.",
+                "evidence": "Ran a synthetic benchmark (`bench_import_codex_session_manual`) on a generated 100K line `.jsonl` file containing `response_item` events. `import_codex_session` processes large codex sessions much faster overall, but still spends ~650ms parsing every line into `Value`. Using string containment pre-checks for `\"response_item\"` reduced time to ~360ms.",
+                "result": "Similar to OMP imports, Codex imports also benefit from avoiding unconditional JSON `Value` parsing for every line by using simple string containment pre-checks."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory usage footprint of large session loads into memory on the frontend.",
+              "Investigate using `serde_json::from_str::<Struct>` for structural parsing of just the `type` field instead of `serde_json::Value` for even faster skipping of irrelevant lines."
+            ],
+            "proposed_task_ids": [
+              "discovery-4c16b7af622c16a3"
+            ],
+            "completed_at": "2026-10-01T18:04:11.071295Z",
+            "source": {
+              "activity_id": "sessions/3560624228044212840/activities/1c5d7e1b494e4db690cc6b36ae1b436b",
+              "report_sha256": "1537b10a35925072030a2b8d1a0ebe355b582315a6d9a942e4caebb571404f65",
+              "activity_created_at": "2026-10-01T17:51:14.533554Z",
+              "session_id": "3560624228044212840",
+              "dispatch_key": "c4bae223476808c7bb916d28"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the accessibility of error state announcements in SessionControls when the primary provider fallback recovery activates. Identified that the aria-live regions used for announcing fallback, switching, and restarting states are conditionally rendered. Because the aria-live attribute is not persistently present in the DOM, screen readers may fail to announce these critical state changes when the elements are dynamically inserted.",
+            "observations": [
+              {
+                "scenario": "Accessibility announcement of fallback and transient states in SessionControls.",
+                "evidence": "Wrote a synthetic React jsdom test (src/SessionControlsFallbackAnnouncementVisibility.test.tsx) asserting the presence of the aria-live region. When SessionControls is mounted with a 'normal' runtimeStatus, the aria-live element for the fallback announcement is entirely absent from the DOM. Transitioning to 'fallback' dynamically injects the element. This pattern of conditionally mounting the live region itself (rather than persisting the region and updating its text content or visibility) is known to prevent reliable screen reader announcements.",
+                "result": "Confirmed that aria-live regions in SessionControls are dynamically mounted, violating accessibility best practices for live regions and potentially causing screen readers to miss state announcements."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if switchRecovery announcements in SessionControls are reliably read by screen readers, given their dynamic aria-live region rendering.",
+              "Investigate other components (e.g., TerminalWorkspace, ResourceHealthPanel) for dynamically mounted aria-live regions that may fail to announce."
+            ],
+            "proposed_task_ids": [
+              "discovery-bf62c58c8a7837b4"
+            ],
+            "completed_at": "2026-10-02T01:07:14.501089Z",
+            "source": {
+              "activity_id": "sessions/73680883247317414/activities/08e1f7567472420e921f23fa6960582e",
+              "report_sha256": "8a7648de083345a1ef9a2962e9dd4e68ff1a30148afbd60cb0f3c642f0e5596a",
+              "activity_created_at": "2026-10-02T00:58:55.835749Z",
+              "session_id": "73680883247317414",
+              "dispatch_key": "42503ffb46d81ab98c80d3b3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the performance of session parsing during import. Following the hypothesis on structural parsing, I demonstrated that using `serde` to deserialize into a minimal event struct (e.g. `{ type }`), paired with string containment pre-checks, reduces parsing latency by >3x compared to unconditionally parsing into a generic `Value` for large session files.",
+            "observations": [
+              {
+                "scenario": "Structural parsing performance versus generic Value parsing for OMP and Codex session imports.",
+                "evidence": "Executed synthetic benchmarks generating 100,000-line JSONL files simulating session imports. Tested line-by-line parsing using `serde_json::from_str::<Value>` vs. a custom `#[derive(Deserialize)] struct MinimalEvent { #[serde(rename = \"type\")] event_type: Option<String> }` with a fast-path string pre-check. The structural parsing approach reduced execution time from ~320ms to ~95ms for OMP formats and from ~337ms to ~76ms for Codex formats. This approach avoids full DOM tree heap allocations for every line while accurately identifying relevant events.",
+                "result": "Deserializing into a minimal struct rather than a full `Value` tree is significantly faster and dramatically reduces allocation overhead during large session imports."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate the memory usage profile of large session JSON payloads during frontend state hydration.",
+              "Investigate keyboard navigation edge cases when rapidly pressing arrow keys inside the virtualized `CodexImportModal`."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-02T02:42:16.998091Z",
+            "source": {
+              "activity_id": "sessions/11745442147625174351/activities/567a884cbfa34be0bd582a7a19195ebc",
+              "report_sha256": "d1a586076ad9e0a4de188750a3a5dc136d0615d21b82d831868eb7a48d5c61a4",
+              "activity_created_at": "2026-10-02T02:26:57.181134Z",
+              "session_id": "11745442147625174351",
+              "dispatch_key": "94b2999567e1a5a2a7d0603a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Optimize large session imports using structural deserialization",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-4c16b7af622c16a3; not established as a duplicate. {\"detail\": \"Benchmarking structural typing (`serde_json::from_str::<MinimalEvent>`) paired with pre-checks demonstrates a >3x performance improvement by bypassing full JSON DOM heap allocations for large 100K-line JSONL files. The current implementation unconditionally parses every line into a full `serde_json::Value` merely to extract its type.\", \"reproduction\": {\"actual\": \"Currently, `Value` parsing takes over 300ms in identical conditions due to unconditional heap allocations for every parsed line.\", \"expected\": \"Structural parsing combined with pre-checks processes 100K lines significantly faster (e.g. <100ms), representing a multi-fold speedup.\", \"steps\": [\"Create a 100,000 line `.jsonl` session file.\", \"Run a benchmark profiling line-by-line `Value` parsing vs. `MinimalEvent` structural parsing combined with `.contains` string pre-checks.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src-tauri/src/sessions.rs"
+                ],
+                "acceptance": [
+                  "Define a minimal structurally typed event (e.g. `MinimalEvent` extracting `type`) in `src-tauri/src/sessions.rs`.",
+                  "Replace unconditional `serde_json::from_str::<Value>` in the main `import_omp_session` and `import_codex_session` iteration loops with string containment pre-checks and structural parsing.",
+                  "Ensure all existing session parsing and import tests (`cargo test import`) continue to pass."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
