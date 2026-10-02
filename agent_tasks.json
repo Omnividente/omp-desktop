@@ -135673,7 +135673,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T01:38:45.471651Z"
+        "observed_at": "2026-10-02T01:38:45.471651Z",
+        "released_attempt_ref": "autonomous/attempt-26e5113dc1ba39e6d49cd502"
       },
       "research_result": {
         "summary": "Investigated if applyTerminalAttachment resetting baseline sequence expectations causes false gaps if an attachment payload is delayed while the provider produces rapid output.",
