@@ -137939,7 +137939,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T09:33:16.951255Z"
+        "observed_at": "2026-10-02T09:33:16.951255Z",
+        "released_attempt_ref": "autonomous/attempt-f77e9423da1403504e7a42b2"
       },
       "research_result": {
         "summary": "Investigated Transcript scroll behavior and ReDoS vulnerabilities in content links. Confirmed that scrollToIndex in useVirtualList intrinsically aligns oversized items by their top offset, causing the bottom content to be initially hidden on Latest navigation. Tested providing an explicit 'align: end' argument to scrollToIndex, which successfully fixes this behavior and causes the viewport to correctly show the newest bottom content immediately. Also confirmed that MARKDOWN_LINK suffers from O(N^2) ReDoS freezing the UI thread for long repeating unclosed bracket strings, and bounding the capture lengths effectively resolves the regex freeze.",
