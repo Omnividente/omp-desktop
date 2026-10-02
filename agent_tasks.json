@@ -136279,7 +136279,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T02:42:16.998091Z"
+        "observed_at": "2026-10-02T02:42:16.998091Z",
+        "released_attempt_ref": "autonomous/attempt-94b2999567e1a5a2a7d0603a"
       },
       "research_result": {
         "summary": "Investigated the performance of session parsing during import. Following the hypothesis on structural parsing, I demonstrated that using `serde` to deserialize into a minimal event struct (e.g. `{ type }`), paired with string containment pre-checks, reduces parsing latency by >3x compared to unconditionally parsing into a generic `Value` for large session files.",
