@@ -164310,6 +164310,24 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "6d6fa5882bb88b55cd38226d0bebf22fac89851e14af75796503992b385656ad"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-02T09:24:36.175378Z",
+        "decision_id": "16334366aa528572b6f4e3c777b7d81d9fb1b5a37c937463b9c6b4ec4d93ec6d",
+        "claim_id": "95264270c180ef292e95b6e0524a5604e2d0d15df3bc3efd90034979bc46679d",
+        "trigger": {
+          "run_id": "36989500222",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "336592a5060c748c3d384fbef50da646",
+        "before_state_sha": "d00445c79170c149a2fc84f0967e0c4364ccf737",
+        "before_digest": "1433cf1618cb7fca65e2a09f3a0b9f07a332fdedb8bf52d3b26fc97694e38230",
+        "event_id": "efd30b38f493015230e9ebcbba16cbd3e2ff42a8839a01457a6dd1b12528b64d"
       }
     ]
   }
