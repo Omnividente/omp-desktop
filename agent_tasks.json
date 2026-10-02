@@ -135080,7 +135080,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T01:07:14.501089Z"
+        "observed_at": "2026-10-02T01:07:14.501089Z",
+        "released_attempt_ref": "autonomous/attempt-42503ffb46d81ab98c80d3b3"
       },
       "research_result": {
         "summary": "Investigated the accessibility of error state announcements in SessionControls when the primary provider fallback recovery activates. Identified that the aria-live regions used for announcing fallback, switching, and restarting states are conditionally rendered. Because the aria-live attribute is not persistently present in the DOM, screen readers may fail to announce these critical state changes when the elements are dynamically inserted.",
