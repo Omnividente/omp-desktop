@@ -24,6 +24,7 @@ from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
 from proposal_backlog import close_research_unaccepted
 from research_disposition import append_recovery_event
+from owner_report_recovery import queue_recovery
 from task_lifecycle import complete
 from urllib.parse import parse_qs, urlsplit
 
@@ -983,6 +984,132 @@ class DecisionTest(unittest.TestCase):
         pr["head"]["repo"]["full_name"] = "foreign/repo"
         with self.assertRaises(ValueError):
             snapshot_proposals(lambda path: pr, data, "owner/repo")
+
+
+class OwnerRecoveryHealthTest(unittest.TestCase):
+    def fixture(self, *, cap=24, queued=True):
+        config = settings()
+        config["merge_gate"] = {"owner_approvers": ["Owner"]}
+        config["research"]["max_sessions_per_day"] = cap
+        data, _ = plan_research(queue(), config, {"terminal": "c" * 64},
+                                now=NOW - timedelta(minutes=30))
+        research = data["tasks"][0]
+        repair_at = (NOW - timedelta(minutes=20)).isoformat()
+        research.update(status="blocked", execution={
+            "state": "awaiting_report", "outcome": "report_invalid", "attempts": 1,
+            "session_id": "123", "dispatch_key": "attempt-one", "base_sha": LAB,
+            "starting_branch": "autonomous/attempt-attempt-one", "session_state": "COMPLETED",
+            "started_at": (NOW - timedelta(minutes=30)).isoformat(),
+            "report_error": {"code": "research_invalid", "detail": "Unmarked report",
+                             "reported_at": repair_at},
+            "report_repair": {"at": repair_at, "result": "sent", "status": "invalid",
+                              "detail": "Report remained unmarked after repair"},
+        })
+        inputs = normalize_inputs(NEXT, {"task_id": research["id"], "recover_report": True,
+                                         "repair_after": repair_at})
+        trigger = {"run_id": "30", "run_attempt": "1", "event_name": "workflow_dispatch",
+                   "control_sha": MAIN, "repository": "owner/repo", "actor": "Owner"}
+        if queued:
+            queue_recovery(data, config, inputs=inputs, trigger=trigger,
+                           now=NOW - timedelta(minutes=12))
+        return data, config, inputs, trigger
+
+    def test_explicit_recovery_precedes_cooldown_and_daily_cap_without_approving_work(self):
+        for cap, reason in ((24, "cooldown"), (1, "daily_cap")):
+            with self.subTest(cap=cap):
+                data, config, inputs, trigger = self.fixture(cap=cap, queued=False)
+                data["tasks"].append(task())
+                baseline = health(data, config)
+                self.assertEqual((baseline["action"], baseline["reason"]), ("none", reason))
+                self.assertEqual(baseline["health"], "attention")
+                request = queue_recovery(data, config, inputs=inputs, trigger=trigger,
+                                         now=NOW - timedelta(minutes=12))
+                before = copy.deepcopy(data)
+                result = health(data, config)
+                self.assertEqual((result["action"], result["reason"], result["due_at"]),
+                                 ("next_task", "owner_report_recovery_due", "2026-09-13T11:48:00Z"))
+                self.assertEqual(result["owner_recovery"],
+                                 {"request_id": request["request_id"], "inputs": inputs})
+                self.assertEqual(result["health"], "attention")
+                self.assertIn("report_invalid", [item["reason"] for item in result["attention"]])
+                self.assertEqual((result["pending_proposals"], result["approved_proposals"]), (1, 0))
+                self.assertEqual((result["scheduler"]["overdue_seconds"], result["scheduler"]["state"]),
+                                 (12 * 60, "overdue"))
+                self.assertFalse(select(data, task_id="fix")["selected"])
+                self.assertEqual(data, before)
+
+    def test_busy_next_disabled_switch_and_sync_compatibility_keep_authority(self):
+        data, config, _, _ = self.fixture()
+        before = copy.deepcopy(data)
+        for overrides, reason in (
+            ({"enabled": False}, "loop_disabled"),
+            ({"runs": [run(status="in_progress", conclusion=None)]}, "next_task_running"),
+            ({"sync_runs": [run(status="in_progress", conclusion=None)]}, "sync_running"),
+        ):
+            with self.subTest(reason=reason):
+                result = health(data, config, **overrides)
+                self.assertEqual((result["action"], result["reason"]), ("none", reason))
+        incompatible = health(data, config, main_is_ancestor=False)
+        self.assertEqual((incompatible["action"], incompatible["reason"]), ("sync", "sync_required"))
+        self.assertEqual(data, before)
+
+    def test_current_receiver_does_not_grant_an_unclaimed_observer_executor_rights(self):
+        data, config, inputs, trigger = self.fixture(queued=False)
+        journal = JournalHealthTest()
+        data = journal.fixture(tasks=data["tasks"], executor=True, workflow=CONTINUE,
+                               repository="owner/repo")
+        request = queue_recovery(data, config, inputs=inputs, trigger=trigger,
+                                 now=NOW - timedelta(minutes=12))
+        before = copy.deepcopy(data)
+        receiver = run(id=20, status="in_progress", conclusion=None,
+                       head_repository={"full_name": "owner/repo"})
+        blocked = health(data, config, runs=[], wakeup_runs=[receiver], current_run_id="20")
+        self.assertEqual((blocked["action"], blocked["reason"]), ("none", "dispatch_journal_executing"))
+        admitted = health(data, config, runs=[], wakeup_runs=[receiver], current_run_id="20",
+                          observer_context=journal.observer_context())
+        self.assertEqual((admitted["action"], admitted["reason"]),
+                         ("next_task", "owner_report_recovery_due"))
+        self.assertEqual(admitted["owner_recovery"]["request_id"], request["request_id"])
+        self.assertEqual(data, before)
+
+    def test_failed_ticks_back_off_the_owner_command_without_losing_it(self):
+        data, config, _, _ = self.fixture()
+        before = copy.deepcopy(data)
+        result = health(data, config, runs=[run(conclusion="failure")])
+        self.assertEqual((result["action"], result["reason"], result["due_at"]),
+                         ("none", "tick_backoff", "2026-09-13T12:05:00Z"))
+        self.assertEqual((result["scheduler"]["failed_ticks"], result["scheduler"]["state"]), (1, "waiting"))
+        resumed = health(data, config, now=NOW + timedelta(minutes=5), runs=[run(conclusion="failure")])
+        self.assertEqual((resumed["action"], resumed["reason"]), ("next_task", "owner_report_recovery_due"))
+        self.assertEqual(result["owner_recovery"], resumed["owner_recovery"])
+        self.assertEqual(data, before)
+
+    def test_invalid_authorization_or_rebound_attempt_blocks_instead_of_automatic_fallback(self):
+        for change in ("owner", "repository", "session_id", "dispatch_key", "attempts", "base_sha", "inputs"):
+            with self.subTest(change=change):
+                data, config, _, _ = self.fixture()
+                data["tasks"].append(task(id="ordinary-research", task_type="project_discovery"))
+                if change == "owner":
+                    config["merge_gate"]["owner_approvers"] = ["DifferentOwner"]
+                elif change == "repository":
+                    config["repository"] = "foreign/repo"
+                elif change == "inputs":
+                    data["controller"]["owner_recovery_requests"][0]["inputs"]["automatic"] = True
+                else:
+                    data["tasks"][0]["execution"][change] = {
+                        "session_id": "456", "dispatch_key": "attempt-two", "attempts": 2, "base_sha": MAIN,
+                    }[change]
+                    if change == "dispatch_key":
+                        data["tasks"][0]["execution"]["starting_branch"] = "autonomous/attempt-attempt-two"
+                before = copy.deepcopy(data)
+                result = health(data, config)
+                self.assertEqual((result["health"], result["action"], result["reason"]),
+                                 ("attention", "none", "owner_report_recovery_invalid"))
+                self.assertEqual(result["scheduler"]["state"], "blocked")
+                self.assertNotIn("owner_recovery", result)
+                self.assertIn("owner_report_recovery_invalid", [item["reason"] for item in result["attention"]])
+                self.assertIn("report_invalid", [item["reason"] for item in result["attention"]])
+                self.assertEqual(data, before)
 
 
 class ResearchDispositionHealthTest(unittest.TestCase):

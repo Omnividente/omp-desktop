@@ -208,6 +208,9 @@ def run_receipt(run):
 def operation(health):
     """Map the shared policy's decision to inputs, never select work here."""
     if health.get("action") == "next_task":
+        recovery = health.get("owner_recovery")
+        if recovery is not None:
+            return NEXT, dict(recovery["inputs"])
         return NEXT, {"automatic": "true"}
     if health.get("action") == "sync":
         return SYNC, {"main_sha": health["main_sha"], "lab_sha": health["lab_sha"]}

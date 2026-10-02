@@ -96,6 +96,10 @@ delivery remains blocked. Reporting benign ingress grants no execution/send righ
 NEXT/SYNC source jobs and their handoff use that same observation-only disposition
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
+An authorized explicit report-recovery command is not a disposable wakeup signal:
+benign busy ingress additionally CAS-saves it in `controller.owner_recovery_requests`.
+That owner-command acknowledgement still grants no runtime right and never replaces
+the current intent; the normal causal chain must admit its own future NEXT executor.
 
 Exceptional **unclaimed delivery recovery** is a separate, explicitly authorized
 owner operation, not a retry or a normal no-effect result. The main-only
@@ -869,10 +873,40 @@ For local administration use `lab_controller.py --recover-report --task-id ID
 independent state is saved with CAS. Actions passes the actual `github.actor`;
 an explicit CLI actor must match `GITHUB_ACTOR` when that variable is present.
 
+If another receiver already owns the journal, a trusted-main owner dispatch retains
+this distinct command instead of losing its inputs through generic coalescing.
+The result is `queued / owner_report_recovery_queued`, with
+`owner_recovery.request_id` and `state = pending`. Append-only
+`controller.owner_recovery_requests` preserves the original owner run/attempt/actor,
+normalized manual inputs, task/session/dispatch/attempt/base binding and request time.
+This is a saved command, not an executor claim, effect receipt, accepted report or
+evidence that Jules resumed. Blocked or uncertain ingress cannot grant that right.
+
+After existing main/SYNC compatibility checks, the genuinely owned CONTINUE gives
+the oldest pending command priority over ordinary polling, detachment and scheduling.
+It dispatches NEXT with the original `task_id`, `recover_report` and `repair_after`,
+never converting it into automatic research. Only the actual consumed NEXT execution
+capability can CAS-bind `execution` to that exact command before its normal recovery
+body runs. Revoked authorization, foreign repository, rebound attempt or malformed
+inputs fail closed; monitor attention for the unaccepted report remains truthful.
+
+Replaying an exact failed receipt deduplicates the saved command across later owner
+runs. Once claimed, ingress reports `observed / owner_report_recovery_already_claimed`
+and `state = claimed`; it neither renews the executor nor repeats provider messaging.
+Collector-only commands without `repair_after` deduplicate reruns by original run ID.
+Never delete or rewrite command history, including after a later task retry. Deploy
+and verify the compatible active controller before issuing recovery commands. Submit
+multiple distinct owner workflow commands one at a time and confirm their durable
+queue/claim result: GitHub's keyless ingress concurrency can replace a pending run
+before its body ever saves the command.
+
 Explicit recovery does not advance `controller.last_poll_at` or `last_tick_at`,
 or replace `controller.run_id`: these are global scheduler anchors. Its target's
 observations and report are still saved, while unrelated workers retain their
 polling deadlines, including workers awaiting completion of a rejection.
+Targeted observations are not serialized as global scheduler poll evidence. A
+successful recovery's causal checkpoint must come from real saved substantive
+task/receipt/command changes; it cannot manufacture `last_poll_at` to complete handoff.
 
 After `close_research_unaccepted`, ordinary recovery is strictly reparse-only.
 The controller CAS-saves a `recover_authorized` event before reading Jules, then
