@@ -137469,7 +137469,8 @@
             "activity_created_at": "2026-10-02T06:02:45.803959Z",
             "activity_sha256": "a468f232407be5c7e5f5fc77905a5a1b8acdf916e070578b1ac3023a05b024eb"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-42534839e2935ef2316ce107"
       },
       "research_result": {
         "summary": "Investigated the session deletion and lease failure recovery mechanisms in the Tauri backend. Identified that when a session is deleted via `delete_session`, its associated lease and lock files (`.omp-desktop.lock`, `.reclaiming.json`, and `.stale-*.json` quarantines) are not removed. This leads to orphaned lock state files accumulating in the project directory when sessions are frequently created and deleted.",
