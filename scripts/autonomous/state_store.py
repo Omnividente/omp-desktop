@@ -189,6 +189,8 @@ def save_state(
                 raise ValueError("a new attempt must retain the previous research request")
         from dispatch_journal import preserve_journal
         preserve_journal(previous, data)
+        from owner_report_recovery import preserve_requests
+        preserve_requests(previous, data)
         commit = _commit(repo, raw, parent)
     for attempt in range(1 if require_ack else 3):
         try:

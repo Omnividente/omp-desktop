@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from dispatch_journal import CONTINUE, NEXT, SYNC, materialize
+from owner_report_recovery import pending_recovery, validate_requests
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
 from research_disposition import acknowledged_disposition, disposition_state
 from select_task import DISCOVERY_TYPE, blocks_lane, is_unresolved, pending_report_repair, select, valid_research_detachment
@@ -251,7 +252,8 @@ def assess_health(
         raise ValueError("now must be timezone-aware")
     now = now.astimezone(timezone.utc)
     errors = validate(manifest)
-    if errors:
+    recovery_errors = validate_requests(manifest)
+    if any(error not in recovery_errors for error in errors):
         raise ValueError("invalid task manifest")
     default_branch = config.get("default_branch", "main")
     repository = config.get("repository", "")
@@ -326,6 +328,8 @@ def assess_health(
                        and run.get("conclusion") in FAILED_CONCLUSIONS | {"success"}]
     last_sync = max(completed_syncs, key=lambda run: _run_time(run) or minimum, default=None)
     attention = []
+    if recovery_errors:
+        attention.append({"reason": "owner_report_recovery_invalid"})
     acknowledged = []
     proposals = []
     for task in manifest["tasks"]:
@@ -492,6 +496,8 @@ def assess_health(
            and not (journal["current_executor"] and str(run.get("id")) == str(current_run_id))
            for run in syncs):
         return decision("sync_running")
+    if recovery_errors:
+        return decision("owner_report_recovery_invalid")
 
     data = copy.deepcopy(manifest)
     reconciled = sweep(data, pull_requests, config=config, now=now)
@@ -526,6 +532,16 @@ def assess_health(
         if failed_sync:
             return decision("sync_failed")
         return decision("sync_required", "sync")
+    try:
+        recovery = pending_recovery(manifest, config)
+    except ValueError:
+        attention.append({"reason": "owner_report_recovery_invalid"})
+        return decision("owner_report_recovery_invalid")
+    if recovery is not None:
+        result["owner_recovery"] = {"request_id": recovery["request_id"],
+                                    "inputs": copy.deepcopy(recovery["inputs"])}
+        result["due_at"] = recovery["requested_at"]
+        return decision("owner_report_recovery_due", "next_task", due=True)
     for task in unresolved:
         execution = task.get("execution") or {}
         state = execution.get("session_state")

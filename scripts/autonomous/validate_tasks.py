@@ -681,6 +681,8 @@ def validate(manifest: Any) -> list:
                     errors.append("controller." + field + " must be a UTC timestamp")
             if "run_id" in controller and not re.fullmatch(r"[1-9][0-9]*", str(controller["run_id"])):
                 errors.append("controller.run_id must identify a workflow run")
+    from owner_report_recovery import validate_requests
+    errors.extend(validate_requests(manifest))
     policy = manifest.get("autonomous_loop_policy")
     if not isinstance(policy, dict):
         errors.append("autonomous_loop_policy must be an object")

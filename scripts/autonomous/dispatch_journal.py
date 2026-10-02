@@ -177,8 +177,12 @@ def substantive_digest(manifest: dict) -> str:
             return [project(item) for item in value]
         return value
 
-    return digest(project({key: value for key, value in manifest.items()
-                           if key not in ("dispatch_journal", "controller")}))
+    body = {key: value for key, value in manifest.items()
+            if key not in ("dispatch_journal", "controller")}
+    controller = manifest.get("controller")
+    if isinstance(controller, dict) and "owner_recovery_requests" in controller:
+        body["controller"] = {"owner_recovery_requests": controller["owner_recovery_requests"]}
+    return digest(project(body))
 
 
 def _body(manifest: dict) -> dict:
