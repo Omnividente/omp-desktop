@@ -8,12 +8,13 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from dispatch_journal import normalize_inputs
+from dispatch_journal import OWNER_CONTINUE_CUTOVER, normalize_inputs
 
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 WORKFLOWS = {"autonomous_next_task.yml", "autonomous_continue.yml", "autonomous_sync.yml"}
 OWNER_RECOVERY = "autonomous_recover_delivery.yml"
+OWNER_WORKFLOWS = frozenset((OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER))
 
 
 def add_arguments(parser, *, run_id=True):
@@ -52,7 +53,7 @@ class AdmissionContext:
 
     def admit(self, store, inputs):
         if self.workflow not in WORKFLOWS:
-            raise ValueError("owner recovery cannot admit workflow execution")
+            raise ValueError("owner operation cannot admit workflow execution")
         inputs = normalize_inputs(self.workflow, inputs)
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         if self.trigger["event_name"] == "workflow_dispatch" and event_path:
@@ -77,11 +78,16 @@ class AdmissionContext:
 
 
 def context(args, workflow, config):
-    if workflow not in WORKFLOWS and workflow != OWNER_RECOVERY:
+    if workflow not in WORKFLOWS and workflow not in OWNER_WORKFLOWS:
         raise ValueError("unsupported execution workflow")
     run_id = _bound(str(args.run_id), "GITHUB_RUN_ID")
     attempt = _bound(str(args.run_attempt), "GITHUB_RUN_ATTEMPT")
     event = _bound(args.event_name, "GITHUB_EVENT_NAME")
+    if workflow in OWNER_WORKFLOWS:
+        for value, variable in ((run_id, "GITHUB_RUN_ID"), (attempt, "GITHUB_RUN_ATTEMPT"),
+                                (event, "GITHUB_EVENT_NAME")):
+            if os.environ.get(variable) != value:
+                raise ValueError("owner operation requires authenticated workflow identity")
     if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", attempt):
         raise ValueError("execution requires an exact workflow run and attempt")
     allowed = {"workflow_dispatch"}
@@ -95,7 +101,7 @@ def context(args, workflow, config):
     if os.environ.get("GITHUB_REPOSITORY") != repository:
         raise ValueError("execution repository mismatch")
     workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
-    if ((workflow == OWNER_RECOVERY or workflow_ref)
+    if ((workflow in OWNER_WORKFLOWS or workflow_ref)
             and workflow_ref != repository + "/.github/workflows/" + workflow + "@refs/heads/main"):
         raise ValueError("executor is running a different workflow")
     actual_sha = control_revision()
@@ -103,8 +109,8 @@ def context(args, workflow, config):
     if not SHA.fullmatch(control_sha) or actual_sha != control_sha:
         raise ValueError("workflow control checkout is not the pinned revision")
     _bound(args.continuation_key, "CONTINUATION_KEY")
-    if workflow == OWNER_RECOVERY and args.continuation_key:
-        raise ValueError("owner recovery cannot use an internal execution key")
+    if workflow in OWNER_WORKFLOWS and args.continuation_key:
+        raise ValueError("owner operation cannot use an internal execution key")
     if args.continuation_key and event != "workflow_dispatch":
         raise ValueError("internal correlation is valid only for workflow dispatch")
     if event == "workflow_dispatch" and not args.continuation_key:
@@ -113,7 +119,7 @@ def context(args, workflow, config):
     trigger = {"run_id": run_id, "run_attempt": attempt, "event_name": event,
                "control_sha": control_sha, "repository": repository,
                "actor": os.environ.get("GITHUB_ACTOR", "")}
-    if workflow == OWNER_RECOVERY:
+    if workflow in OWNER_WORKFLOWS:
         trigger.update(workflow=workflow, ref=os.environ["GITHUB_REF"])
     if event == "workflow_run":
         source = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))["workflow_run"]
@@ -139,13 +145,15 @@ def recheck_context(binding):
         raise ValueError("workflow ref changed before execution")
     for key, variable in (("run_id", "GITHUB_RUN_ID"), ("run_attempt", "GITHUB_RUN_ATTEMPT"),
                           ("event_name", "GITHUB_EVENT_NAME"), ("repository", "GITHUB_REPOSITORY")):
+        if binding.workflow in OWNER_WORKFLOWS and os.environ.get(variable) != binding.trigger[key]:
+            raise ValueError("owner workflow identity changed before execution")
         _bound(binding.trigger[key], variable)
-    if binding.workflow == OWNER_RECOVERY:
+    if binding.workflow in OWNER_WORKFLOWS:
         if os.environ.get("GITHUB_ACTOR") != binding.trigger["actor"]:
-            raise ValueError("owner recovery actor changed before execution")
+            raise ValueError("owner actor changed before execution")
         if (os.environ.get("GITHUB_WORKFLOW_REF") != binding.trigger["repository"]
-                + "/.github/workflows/" + OWNER_RECOVERY + "@" + binding.trigger["ref"]):
-            raise ValueError("owner recovery workflow changed before execution")
+                + "/.github/workflows/" + binding.workflow + "@" + binding.trigger["ref"]):
+            raise ValueError("owner workflow changed before execution")
 
 
 def substantive_manifest(manifest):
@@ -157,7 +165,7 @@ def substantive_manifest(manifest):
 def checked_control_pin(args, config, store):
     """Authenticate a frozen receiver revision using checked-main code only."""
     if args.workflow not in WORKFLOWS:
-        raise ValueError("owner recovery cannot authorize receiver checkout")
+        raise ValueError("owner operation cannot authorize receiver checkout")
     binding = context(args, args.workflow, config)
     if not binding.key:
         # External ingress uses the checked main revision, never arbitrary code.
@@ -175,6 +183,8 @@ def checked_control_pin(args, config, store):
     intent = next((item for item in state["intents"].values() if item["correlation_key"] == key), None)
     if intent is not None and intent["decision_id"] in state.get("owner_fences", {}):
         raise ValueError("frozen receiver was revoked by the owner")
+    if intent is not None and intent["decision_id"] in state.get("continue_cutovers", {}):
+        raise ValueError("frozen receiver CONTINUE was cut over by the owner")
     if (intent is None or intent["source_kind"] != "sender"
             or intent["decision_id"] not in state["send_claims"]):
         raise ValueError("frozen receiver has no durable sender claim")

@@ -257,21 +257,36 @@ def assess_health(
     repository = config.get("repository", "")
 
     fenced_deliveries = set()
+    cutover_executors = set()
     if manifest.get("dispatch_journal") is not None:
         state = materialize(manifest["dispatch_journal"])
-        for decision_id in state["owner_fences"]:
-            intent = state["intents"][decision_id]
-            prefix = ("Sync main " + intent["normalized_inputs"]["main_sha"] + " "
-                      if intent["workflow"] == SYNC else
-                      "Continue " if intent["workflow"] == CONTINUE else "Next ")
-            fenced_deliveries.add((intent["workflow"], intent["control_sha"],
-                                   prefix + intent["correlation_key"]))
+        for closures in (state["owner_fences"], state["continue_cutovers"]):
+            for decision_id in closures:
+                intent = state["intents"][decision_id]
+                prefix = ("Sync main " + intent["normalized_inputs"]["main_sha"] + " "
+                          if intent["workflow"] == SYNC else
+                          "Continue " if intent["workflow"] == CONTINUE else "Next ")
+                fenced_deliveries.add((intent["workflow"], intent["control_sha"],
+                                       prefix + intent["correlation_key"]))
+        for decision_id in state["continue_cutovers"]:
+            executor = state["executor_claims"].get(decision_id)
+            if executor is not None:
+                trigger = executor["trigger"]
+                cutover_executors.add((trigger["run_id"], trigger["run_attempt"],
+                                       trigger["event_name"]))
 
     def readiness_run(run: Mapping[str, Any], workflow: str) -> bool:
-        # Only the validated owner revocation removes a readiness blocker.
-        # Correlation and pin identify it; metadata alone grants no permission.
+        # Only validated owner closure removes the exact delivery/executor.
+        # Metadata identifies it; metadata alone grants no permission.
+        if (run.get("head_repository") or {}).get("full_name") != repository:
+            return True
+        # The durable claim binds the frozen controller. Actions head_sha is
+        # the event-main revision, not necessarily that frozen checkout.
+        if (workflow == CONTINUE
+                and (str(run.get("id")), str(run.get("run_attempt")),
+                     run.get("event")) in cutover_executors):
+            return False
         return (run.get("event") != "workflow_dispatch"
-                or (run.get("head_repository") or {}).get("full_name") != repository
                 or (workflow, run.get("head_sha"), run.get("display_title")) not in fenced_deliveries)
 
     def trusted(run: Mapping[str, Any]) -> bool:

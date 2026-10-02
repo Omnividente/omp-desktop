@@ -16,8 +16,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loop_health import assess_health, main, workflow_runs
-from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_RECOVERY, digest, normalize_inputs,
-                              substantive_digest, _owner_fence_receipt_id)
+from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER,
+                              digest, normalize_inputs, substantive_digest,
+                              _owner_fence_receipt_id, _owner_cutover_receipt_id)
 from research_cycle import plan_research
 from select_task import select
 from health_snapshot import inspect_health, snapshot_proposals, snapshot_runs
@@ -88,7 +89,8 @@ def health(data=None, config=None, **overrides):
 
 
 class JournalHealthTest(unittest.TestCase):
-    def fixture(self, *, age=timedelta(), send=True, executor=False, workflow=NEXT, tasks=(), repository=""):
+    def fixture(self, *, age=timedelta(), send=True, executor=False, workflow=NEXT, tasks=(), repository="",
+                source_kind="sender", event_name="workflow_dispatch"):
         self.data = queue(*tasks)
         self.events = []
         self.data["dispatch_journal"] = {"version": 1, "events": self.events}
@@ -98,21 +100,21 @@ class JournalHealthTest(unittest.TestCase):
                                      "pending_legacy": "none", "state_sha": LAB})
         self.decision = digest([initial["event_id"], 0, ""])
         self.key = digest([self.decision, "dispatch"])[:32]
-        self.trigger = {"run_id": "10", "run_attempt": "1", "event_name": "workflow_dispatch",
+        self.trigger = {"run_id": "10", "run_attempt": "1", "event_name": event_name,
                         "control_sha": MAIN}
         if repository:
             self.trigger["repository"] = repository
         inputs = normalize_inputs(workflow, {"main_sha": MAIN, "lab_sha": LAB} if workflow == SYNC else {})
         self.append("Intent", decision_id=self.decision, frontier_seq=0, predecessor_decision_id="",
                     correlation_key=self.key, workflow=workflow, normalized_inputs=inputs,
-                    input_hash=digest(inputs), basis={}, source_kind="sender", control_sha=MAIN,
-                    first_source_trigger=self.trigger, source_identity=digest(["workflow_dispatch", "10"]))
+                    input_hash=digest(inputs), basis={}, source_kind=source_kind, control_sha=MAIN,
+                    first_source_trigger=self.trigger, source_identity=digest([event_name, "10"]))
         if send:
             self.append("SendClaim", decision_id=self.decision, trigger=self.trigger,
                         claim_id=digest([self.decision, "send"]))
         if executor:
             self.append("ExecutorClaim", decision_id=self.decision,
-                        trigger={**self.trigger, "run_id": "20"}, correlation_key=self.key,
+                        trigger={**self.trigger, "run_id": "10" if source_kind == "external" else "20"}, correlation_key=self.key,
                         claim_id=digest([self.decision, "execute"]),
                         before_state_sha=LAB, before_digest="c" * 64)
         return self.data
@@ -368,6 +370,62 @@ class JournalHealthTest(unittest.TestCase):
                                   **{("runs" if workflow == NEXT else "sync_runs"): [active]})
             self.assertEqual(result["action"], "none")
             self.assertEqual(result["reason"], "next_task_running" if workflow == NEXT else "sync_running")
+
+    def cutover_fixture(self, *, external=False, executor=True):
+        self.fixture(workflow=CONTINUE, tasks=(task(),), repository="owner/repo",
+                     send=not external, executor=executor,
+                     source_kind="external" if external else "sender",
+                     event_name="schedule" if external else "workflow_dispatch")
+        trigger = {"run_id": "30", "run_attempt": "1", "event_name": "workflow_dispatch",
+                   "control_sha": MAIN, "repository": "owner/repo", "actor": "owner",
+                   "workflow": OWNER_CONTINUE_CUTOVER, "ref": "refs/heads/main",
+                   "expected_state_sha": LAB, "decision_id": self.decision}
+        before = substantive_digest(self.data)
+        self.append("OwnerContinueCutover", decision_id=self.decision, kind="owner_cutover_continue",
+                    owner_trigger=trigger, before_state_sha=LAB, before_digest=before,
+                    frontier_seq=1, receipt_id=_owner_cutover_receipt_id(self.decision, trigger, LAB, before))
+        return run(id=10 if external else 20, run_attempt=1, event=self.trigger["event_name"],
+                   status="in_progress", conclusion=None,
+                   display_title="Autonomous Continue" if external else "Continue " + self.key,
+                   head_repository={"full_name": "owner/repo"})
+
+    def test_owner_cutover_removes_only_closed_continue_from_wakeup_readiness(self):
+        for external, executor in ((False, False), (False, True), (True, True)):
+            for status in ("queued", "in_progress", "completed"):
+                with self.subTest(external=external, executor=executor, status=status):
+                    stale = self.cutover_fixture(external=external, executor=executor)
+                    stale.update(status=status, conclusion="failure" if status == "completed" else None)
+                    before = copy.deepcopy(self.data)
+                    result = self.observe(main_is_ancestor=False, wakeup_runs=[stale])
+                    self.assertEqual((result["action"], result["reason"]), ("sync", "sync_required"))
+                    self.assertIsNone(result["scheduler"]["wakeup_run"])
+                    self.assertEqual(result["scheduler"]["pending_wakeups"], [])
+                    self.assertEqual(result["scheduler"]["failed_ticks"], 0)
+                    self.assertEqual(self.data, before)
+
+    def test_cutover_does_not_hide_unbound_external_continue_runtime(self):
+        for change in ({"id": 21}, {"run_attempt": 2}, {"run_attempt": None},
+                       {"event": "workflow_dispatch"}, {"head_repository": {}}):
+            with self.subTest(change=change):
+                live = self.cutover_fixture(external=True)
+                live.update(change)
+                result = self.observe(wakeup_runs=[live])
+                self.assertEqual(result["scheduler"]["wakeup_run"]["id"], live["id"])
+
+    def test_runtime_identity_without_owner_cutover_cannot_hide_external_continue(self):
+        live = self.cutover_fixture(external=True)
+        self.events.pop()
+        result = self.observe(wakeup_runs=[live], current_run_id="10",
+                              observer_context=self.observer_context())
+        self.assertEqual(result["scheduler"]["wakeup_run"]["id"], live["id"])
+
+    def test_cutover_matches_captured_executor_when_event_main_differs_from_frozen_checkout(self):
+        for external in (False, True):
+            with self.subTest(external=external):
+                live = self.cutover_fixture(external=external)
+                live["head_sha"] = "d" * 40
+                result = self.observe(wakeup_runs=[live])
+                self.assertIsNone(result["scheduler"]["wakeup_run"])
 
 
 class DecisionTest(unittest.TestCase):

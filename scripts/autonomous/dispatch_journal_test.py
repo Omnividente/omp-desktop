@@ -12,7 +12,9 @@ import unittest
 from unittest.mock import patch
 
 import state_store
-from dispatch_journal import CONTINUE, NEXT, OWNER_RECOVERY, SYNC, JournalConflict, JournalStore, JournalUncertain
+from dispatch_journal import (CONTINUE, NEXT, OWNER_CONTINUE_CUTOVER, OWNER_RECOVERY, SYNC,
+                              JournalConflict, JournalStore, JournalUncertain, digest, materialize,
+                              substantive_digest, _owner_cutover_receipt_id)
 from state_store import StateConflict, load_state, save_state
 
 CONTROL = "a" * 40
@@ -89,6 +91,22 @@ class JournalTests(unittest.TestCase):
     def fence(self, store, intent, state_sha, trigger=None):
         return store.fence_unclaimed(decision_id=intent["decision_id"], expected_state_sha=state_sha,
                                     owner_trigger=trigger or self.owner_trigger(intent, state_sha), config=OWNER_CONFIG)
+
+    def cutover_trigger(self, intent, state_sha):
+        return {**self.owner_trigger(intent, state_sha), "workflow": OWNER_CONTINUE_CUTOVER}
+
+    def cutover(self, store, intent, state_sha, trigger=None, config=None):
+        return store.cutover_continue(decision_id=intent["decision_id"], expected_state_sha=state_sha,
+                                      owner_trigger=trigger or self.cutover_trigger(intent, state_sha),
+                                      config=OWNER_CONFIG if config is None else config)
+
+    def handoff_evidence(self, intent):
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        return {**self.trigger("20"), "decision_id": intent["decision_id"], "switch_enabled": True,
+                "stage": "bounded_observe_wait", "stage_started_at": "2026-10-01T00:00:00Z",
+                "stage_completed_at": "2026-10-01T00:00:00Z", "waited_seconds": 0,
+                "observation": {"health": "ok", "action": "none", "reason": "terminal", "due_at": None,
+                                "main_sha": head, "lab_sha": head, "state_sha": self.store.current()["state_sha"]}}
 
     def test_existing_claim_noop_reload_and_new_owner_never_issue_another_capability(self):
         intent, capability = self.reserve()
@@ -553,6 +571,303 @@ class JournalTests(unittest.TestCase):
             self.store.reserve_send(CONTINUE, {}, basis={"receipt_id": None},
                                     trigger=self.trigger("502"), control_sha=CONTROL)
         self.assertEqual(self.store.current(), active)
+
+    def test_continue_cutover_preserves_tasks_claims_receipts_and_journal_prefix(self):
+        self.store.current()
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        data["tasks"] = [{"id": "immutable-worker", "title": "Saved worker identity", "status": "in_progress",
+                          "task_type": "chore", "risk": "low", "priority": 1, "focus": [],
+                          "evidence": {"source": "synthetic", "detail": "immutable accepted work"},
+                          "execution": {"session_id": "sessions/saved-worker", "attempts": 1,
+                                        "state": "dispatched", "dispatch_key": "saved-key", "pull_request": 7,
+                                        "base_sha": CONTROL, "starting_branch": "autonomous/attempt-saved-key",
+                                        "history": [{"session_id": "sessions/older-worker", "result": "retained"}]}}]
+        self.store.save_manifest(data)
+        intent, executor = self.execute(CONTINUE)
+        before = self.store.current()
+        queue_before = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        result = self.cutover(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        queue_after = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.assertEqual(result, {"outcome": "cut_over", "decision_id": intent["decision_id"],
+                                  "receipt_id": after["continue_cutovers"][intent["decision_id"]]["receipt_id"],
+                                  "state_sha": after["state_sha"], "frontier_seq": 1})
+        self.assertIsNone(after["active_intent"])
+        self.assertEqual(after["predecessor_decision_id"], intent["decision_id"])
+        for field in ("intents", "send_claims", "executor_claims", "effects", "completions", "owner_fences",
+                      "stages", "phase_claims", "completed_receipts", "advanced_receipts"):
+            self.assertEqual(after[field], before[field])
+        self.assertEqual(substantive_digest(queue_after), substantive_digest(queue_before))
+        self.assertEqual({key: value for key, value in queue_after.items() if key != "dispatch_journal"},
+                         {key: value for key, value in queue_before.items() if key != "dispatch_journal"})
+        self.assertEqual(queue_after["dispatch_journal"]["events"][:-1], queue_before["dispatch_journal"]["events"])
+        for operation in (executor.observer_context,
+                          lambda: self.store.record_effect(executor, "continue_handoff", self.handoff_evidence(intent)),
+                          lambda: self.store.advance(result["receipt_id"]),
+                          lambda: self.store.reserve_send(CONTINUE, {}, basis={"receipt_id": result["receipt_id"]},
+                                                          trigger=self.trigger("10"), control_sha=CONTROL)):
+            with self.assertRaises(JournalConflict):
+                operation()
+        _, late = self.store.admit(CONTINUE, {}, key=intent["correlation_key"],
+                                  trigger=self.trigger("20", "2"), control_sha=CONTROL)
+        self.assertIsNone(late)
+        stopped = self.store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                 trigger=self.trigger("20"), control_sha=CONTROL)
+        self.assertEqual((stopped["outcome"], stopped["reason"]), ("stopped", "continue_owner_cut_over"))
+        self.assertIsNone(self.store.outcome_for_trigger(self.cutover_trigger(intent, before["state_sha"])))
+        self.assertIsNone(self.store.outcome_for_trigger(self.trigger("20")))
+        self.assertEqual(self.store.current(), after)
+
+    def test_cutover_revokes_unconsumed_sender(self):
+        intent, send = self.reserve(workflow=CONTINUE)
+        self.cutover(self.store, intent, self.store.current()["state_sha"])
+        with self.assertRaises(JournalConflict):
+            send.consume()
+        after = self.store.current()
+        self.assertEqual(after["effects"], {})
+        self.assertEqual(after["executor_claims"], {})
+        self.assertEqual(after["frontier_seq"], 1)
+
+    def test_cutover_revokes_consumed_sender_observation(self):
+        intent, send = self.reserve(workflow=CONTINUE)
+        send.consume()
+        self.cutover(self.store, intent, self.store.current()["state_sha"])
+        after = self.store.current()
+        with self.assertRaises(JournalConflict):
+            send.observer_context()
+        self.assertEqual(self.store.current(), after)
+
+    def test_cutover_revokes_executor_before_consume_and_never_reissues_it(self):
+        intent, send = self.reserve(workflow=CONTINUE)
+        send.consume()
+        _, executor = self.store.admit(CONTINUE, {}, key=intent["correlation_key"],
+                                      trigger=self.trigger("20"), control_sha=CONTROL)
+        self.cutover(self.store, intent, self.store.current()["state_sha"])
+        with self.assertRaises(JournalConflict):
+            executor.consume()
+        _, replay = self.reader("late-claim").admit(CONTINUE, {}, key=intent["correlation_key"],
+                                                   trigger=self.trigger("21"), control_sha=CONTROL)
+        self.assertIsNone(replay)
+
+    def test_cutover_rejects_changed_owner_configuration_context_and_source(self):
+        intent, _ = self.reserve(workflow=CONTINUE)
+        before = self.store.current()
+        owner = self.cutover_trigger(intent, before["state_sha"])
+        for field, value in (("actor", "nonowner"), ("repository", "foreign/repo"),
+                             ("workflow", OWNER_RECOVERY), ("event_name", "schedule"),
+                             ("ref", "refs/heads/foreign"), ("control_sha", "invalid"),
+                             ("expected_state_sha", "c" * 40), ("decision_id", "d" * 64),
+                             ("run_id", "10"), ("run_attempt", "0")):
+            with self.subTest(field=field), self.assertRaises((ValueError, JournalConflict)):
+                self.cutover(self.store, intent, before["state_sha"], {**owner, field: value})
+            self.assertEqual(self.store.current(), before)
+        for config in ({**OWNER_CONFIG, "repository": "foreign/repo"},
+                       {**OWNER_CONFIG, "merge_gate": {"owner_approvers": ["other-owner"]}}):
+            with self.assertRaises((ValueError, JournalConflict)):
+                self.cutover(self.store, intent, before["state_sha"], config=config)
+        with self.assertRaises(JournalConflict):
+            self.cutover(self.store, intent, self.initial)
+        self.assertEqual(self.store.current(), before)
+
+    def test_cutover_replay_rechecks_original_owner_and_never_mutates_successor(self):
+        intent, _ = self.execute(CONTINUE)
+        before = self.store.current()
+        owner = self.cutover_trigger(intent, before["state_sha"])
+        result = self.cutover(self.store, intent, before["state_sha"], owner)
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        successor, execution = self.store.admit(SYNC, {"main_sha": head, "lab_sha": head}, key="",
+                                                trigger={**self.trigger("600"), "control_sha": "b" * 40},
+                                                control_sha="b" * 40)
+        execution.consume()
+        active = self.store.current()
+        replay = self.cutover(self.reader("owner-replay-cutover"), intent, before["state_sha"],
+                              {**owner, "run_attempt": "2"})
+        self.assertEqual((replay["outcome"], replay["receipt_id"]), ("already_cut_over", result["receipt_id"]))
+        self.assertEqual(successor["basis"], {"kind": "external_ingress", "state_sha": result["state_sha"],
+                                            "owner_cutover": result["receipt_id"]})
+        for field, value in (("control_sha", "c" * 40), ("run_id", "501"), ("repository", "foreign/repo"),
+                             ("actor", "nonowner"), ("workflow", OWNER_RECOVERY)):
+            with self.subTest(field=field), self.assertRaises((ValueError, JournalConflict)):
+                self.cutover(self.store, intent, before["state_sha"], {**owner, field: value})
+        with self.assertRaises(JournalConflict):
+            self.cutover(self.store, intent, active["state_sha"])
+        with self.assertRaises(ValueError):
+            self.cutover(self.store, intent, before["state_sha"], owner,
+                         {**OWNER_CONFIG, "merge_gate": {"owner_approvers": ["other-owner"]}})
+        self.assertEqual(self.store.current(), active)
+
+    def test_cutover_authority_cannot_become_timer_or_sender_permission(self):
+        intent, _ = self.reserve(workflow=CONTINUE)
+        result = self.cutover(self.store, intent, self.store.current()["state_sha"])
+        before = self.store.current()
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        for workflow, inputs, event in ((CONTINUE, {}, "workflow_dispatch"), (NEXT, {}, "workflow_dispatch"),
+                                        (SYNC, {"main_sha": head, "lab_sha": head}, "schedule"),
+                                        (SYNC, {"main_sha": head, "lab_sha": head}, "workflow_run")):
+            trigger = {**self.trigger("600"), "event_name": event, "source_run_id": "599", "source_run_attempt": "1"}
+            with self.subTest(workflow=workflow, event=event), self.assertRaises(JournalConflict):
+                self.store.admit(workflow, inputs, key="", trigger=trigger, control_sha=CONTROL)
+        bound, capability = self.store.admit(SYNC, {"main_sha": head, "lab_sha": head}, key="",
+                                            trigger=self.cutover_trigger(intent, result["state_sha"]),
+                                            control_sha="b" * 40)
+        self.assertIsNone(bound)
+        self.assertIsNone(capability)
+        for workflow, inputs in ((NEXT, {}), (CONTINUE, {}), (SYNC, {"main_sha": head, "lab_sha": head})):
+            with self.assertRaises(JournalConflict):
+                self.store.reserve_send(workflow, inputs, basis={"receipt_id": result["receipt_id"]},
+                                        trigger=self.trigger("600"), control_sha=CONTROL)
+        self.assertEqual(self.store.current(), before)
+
+    def test_claim_wins_owner_cutover_cas_is_not_retried_on_new_head(self):
+        intent, _ = self.reserve(workflow=CONTINUE)
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("cutover-claim-winner")
+        def competing_write(data):
+            competing.admit(CONTINUE, {}, key=intent["correlation_key"], trigger=self.trigger("20"), control_sha=CONTROL)
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write), self.assertRaises(JournalConflict):
+            self.cutover(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        self.assertEqual(after["continue_cutovers"], {})
+        self.assertEqual(after["frontier_seq"], 0)
+        self.assertEqual(after["active_intent"], intent)
+        self.assertIn(intent["decision_id"], after["executor_claims"])
+        self.cutover(self.store, intent, after["state_sha"])
+        self.assertIsNone(self.store.current()["active_intent"])
+
+    def test_effect_wins_owner_cutover_cas_and_blocks_new_owner_attempt(self):
+        intent, executor = self.execute(CONTINUE)
+        evidence = self.handoff_evidence(intent)
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("cutover-effect-winner")
+        def competing_write(data):
+            competing.record_effect(executor, "continue_handoff", evidence)
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write), self.assertRaises(JournalConflict):
+            self.cutover(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        self.assertEqual(after["continue_cutovers"], {})
+        self.assertIn(intent["decision_id"], after["effects"])
+        with self.assertRaises(JournalConflict):
+            self.cutover(self.store, intent, after["state_sha"])
+        self.assertEqual(self.store.current(), after)
+
+    def test_owner_cutover_wins_executor_claim_and_effect_cas_races(self):
+        intent, _ = self.reserve(workflow=CONTINUE)
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("cutover-owner-winner")
+        def competing_write(data):
+            self.cutover(competing, intent, before["state_sha"])
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write):
+            bound, executor = self.store.admit(CONTINUE, {}, key=intent["correlation_key"],
+                                              trigger=self.trigger("20"), control_sha=CONTROL)
+        self.assertEqual(bound, intent)
+        self.assertIsNone(executor)
+        self.assertEqual(self.store.current()["executor_claims"], {})
+
+    def test_owner_cutover_wins_effect_cas_consumed_executor_cannot_retry(self):
+        intent, executor = self.execute(CONTINUE)
+        evidence = self.handoff_evidence(intent)
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("cutover-owner-effect-winner")
+        def competing_write(data):
+            self.cutover(competing, intent, before["state_sha"])
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write), self.assertRaises(JournalConflict):
+            self.store.record_effect(executor, "continue_handoff", evidence)
+        after = self.store.current()
+        self.assertEqual(after["effects"], {})
+        self.assertEqual(after["frontier_seq"], 1)
+        with self.assertRaises(JournalConflict):
+            executor.observer_context()
+
+    def test_cutover_unknown_ack_is_durable_replay_only_and_not_a_second_event(self):
+        intent, _ = self.execute(CONTINUE)
+        before = self.store.current()
+        original_git = state_store._git
+        def lost_ack(repo, *args, **kwargs):
+            result = original_git(repo, *args, **kwargs)
+            if "push" in args:
+                raise subprocess.TimeoutExpired("synthetic owner cutover push", 90)
+            return result
+        with patch.object(state_store, "_git", side_effect=lost_ack), self.assertRaises(JournalUncertain):
+            self.cutover(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        result = self.cutover(self.reader("cutover-ack-replay"), intent, before["state_sha"])
+        self.assertEqual(result["outcome"], "already_cut_over")
+        self.assertEqual(result["receipt_id"], after["continue_cutovers"][intent["decision_id"]]["receipt_id"])
+        self.assertEqual(self.store.current(), after)
+
+    def test_materialization_rejects_forged_cutover_authority_and_sender_child(self):
+        intent, _ = self.execute(CONTINUE)
+        before = self.store.current()
+        self.cutover(self.store, intent, before["state_sha"])
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        journal = data["dispatch_journal"]
+        for field, value in (("workflow", OWNER_RECOVERY), ("repository", "foreign/repo"),
+                             ("ref", "refs/heads/foreign"), ("decision_id", "d" * 64), ("run_id", "20")):
+            forged = copy.deepcopy(journal)
+            event = forged["events"][-1]
+            event["owner_trigger"][field] = value
+            event["receipt_id"] = _owner_cutover_receipt_id(event["decision_id"], event["owner_trigger"],
+                                                         event["before_state_sha"], event["before_digest"])
+            event["event_id"] = digest({key: val for key, val in event.items() if key != "event_id"})
+            with self.subTest(field=field), self.assertRaises((ValueError, JournalConflict)):
+                materialize(forged)
+        state = self.store.current()
+        child = self.store._new_intent(state, CONTINUE, {}, {"receipt_id": journal["events"][-1]["receipt_id"]},
+                                       self.trigger("600"), CONTROL, "sender")
+        with self.assertRaises(JournalConflict):
+            materialize({"version": 1, "events": [*journal["events"], child]})
+
+    def test_cutover_never_closes_claimed_next_or_prepared_finalizing_sync(self):
+        for workflow, phase in ((NEXT, "sender"), (NEXT, "execute"), (SYNC, "sender"),
+                                (SYNC, "execute"), (SYNC, "sync_prepared"), (SYNC, "sync_finalize")):
+            with self.subTest(workflow=workflow, phase=phase):
+                isolated = JournalTests(methodName="test_cutover_never_closes_claimed_next_or_prepared_finalizing_sync")
+                isolated.setUp()
+                try:
+                    inputs = {"main_sha": CONTROL, "lab_sha": "b" * 40} if workflow == SYNC else {}
+                    if phase == "sender":
+                        intent, _ = isolated.reserve(workflow=workflow, inputs=inputs)
+                    else:
+                        intent, executor = isolated.execute(workflow, inputs)
+                    if phase in {"sync_prepared", "sync_finalize"}:
+                        reference = isolated.store.record_checkpoint(executor, "sync_prepared", {
+                            "status": "prepared", "main_sha": CONTROL, "lab_sha": "b" * 40,
+                            "candidate_sha": "c" * 40, "queue_blob": "d" * 40,
+                            "candidate_branch": "autonomous/sync-20-1", "candidate_owned": True})
+                        if phase == "sync_finalize":
+                            isolated.store.claim_phase(intent["decision_id"], "sync_finalize", isolated.trigger("20"),
+                                                       CONTROL, reference)
+                    before = isolated.store.current()
+                    with self.assertRaises(JournalConflict):
+                        isolated.cutover(isolated.store, intent, before["state_sha"])
+                    self.assertEqual(isolated.store.current(), before)
+                finally:
+                    isolated.doCleanups()
+
+    def test_cutover_closes_claimed_external_continue_without_inventing_sender(self):
+        trigger = {**self.trigger("20"), "event_name": "workflow_run", "source_run_id": "19", "source_run_attempt": "1"}
+        intent, executor = self.store.admit(CONTINUE, {}, key="", trigger=trigger, control_sha=CONTROL)
+        executor.consume()
+        before = self.store.current()
+        result = self.cutover(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        self.assertEqual(after["send_claims"], {})
+        self.assertEqual(after["executor_claims"], before["executor_claims"])
+        self.assertEqual(after["effects"], {})
+        self.assertEqual(after["completions"], {})
+        self.assertEqual(result["outcome"], "cut_over")
+        with self.assertRaises(JournalConflict):
+            executor.observer_context()
+
+
 
 
 

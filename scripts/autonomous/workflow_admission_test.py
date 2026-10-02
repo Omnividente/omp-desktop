@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from dispatch_journal import normalize_inputs
-from workflow_admission import OWNER_RECOVERY, checked_control_pin, context, recheck_context
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_RECOVERY, checked_control_pin,
+                                context, recheck_context)
 
 REPOSITORY = "owner/repo"
 CONTROL = "a" * 40
@@ -16,14 +17,16 @@ NEXT = "autonomous_next_task.yml"
 
 
 class OwnerAdmissionTest(unittest.TestCase):
+    workflow = OWNER_RECOVERY
+
     def setUp(self):
         self.config = {"repository": REPOSITORY, "merge_gate": {"owner_approvers": ["owner"]}}
         self.args = Namespace(run_id="71", run_attempt="1", event_name="workflow_dispatch",
-                              control_sha=CONTROL, continuation_key="", workflow=OWNER_RECOVERY)
+                              control_sha=CONTROL, continuation_key="", workflow=self.workflow)
         environment = {"GITHUB_RUN_ID": "71", "GITHUB_RUN_ATTEMPT": "1",
                        "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REPOSITORY": REPOSITORY,
                        "GITHUB_ACTOR": "owner", "GITHUB_REF": "refs/heads/main",
-                       "GITHUB_WORKFLOW_REF": REPOSITORY + "/.github/workflows/" + OWNER_RECOVERY + "@refs/heads/main",
+                       "GITHUB_WORKFLOW_REF": REPOSITORY + "/.github/workflows/" + self.workflow + "@refs/heads/main",
                        "CONTROL_SHA": CONTROL, "CONTINUATION_KEY": ""}
         self.environment = patch.dict(os.environ, environment, clear=True)
         self.environment.start()
@@ -33,11 +36,11 @@ class OwnerAdmissionTest(unittest.TestCase):
         self.addCleanup(revision.stop)
 
     def test_owner_context_cannot_issue_execution_send_or_checkout_authority(self):
-        binding = context(self.args, OWNER_RECOVERY, self.config)
+        binding = context(self.args, self.workflow, self.config)
         with self.assertRaises(ValueError):
             binding.admit(object(), {})
         with self.assertRaises(ValueError):
-            normalize_inputs(OWNER_RECOVERY, {})
+            normalize_inputs(self.workflow, {})
         with self.assertRaises(ValueError):
             checked_control_pin(self.args, self.config, object())
 
@@ -55,7 +58,7 @@ class OwnerAdmissionTest(unittest.TestCase):
                 os.environ.update(GITHUB_ACTOR=actor, CONTINUATION_KEY=key)
                 self.args.continuation_key = key
                 with self.assertRaises(ValueError):
-                    context(self.args, OWNER_RECOVERY, self.config)
+                    context(self.args, self.workflow, self.config)
 
     def test_owner_context_requires_main_dispatch_exact_repository_and_workflow(self):
         changes = (("GITHUB_REF", "refs/heads/foreign"), ("GITHUB_REPOSITORY", "foreign/repo"),
@@ -65,10 +68,10 @@ class OwnerAdmissionTest(unittest.TestCase):
         for variable, value in changes:
             with self.subTest(variable=variable, value=value), patch.dict(os.environ, {variable: value}):
                 with self.assertRaises(ValueError):
-                    context(self.args, OWNER_RECOVERY, self.config)
+                    context(self.args, self.workflow, self.config)
 
     def test_owner_recheck_rejects_changed_or_missing_actor_and_workflow(self):
-        binding = context(self.args, OWNER_RECOVERY, self.config)
+        binding = context(self.args, self.workflow, self.config)
         for variable, value in (("GITHUB_ACTOR", "foreign"), ("GITHUB_ACTOR", ""),
                                 ("GITHUB_WORKFLOW_REF", ""), ("GITHUB_REF", "refs/heads/foreign")):
             with self.subTest(variable=variable, value=value), patch.dict(os.environ, {variable: value}):
@@ -78,6 +81,15 @@ class OwnerAdmissionTest(unittest.TestCase):
             del os.environ["GITHUB_ACTOR"]
             with self.assertRaises(ValueError):
                 recheck_context(binding)
+
+    def test_one_owner_workflow_cannot_authorize_the_other_operation(self):
+        other = OWNER_CONTINUE_CUTOVER if self.workflow == OWNER_RECOVERY else OWNER_RECOVERY
+        with self.assertRaises(ValueError):
+            context(self.args, other, self.config)
+
+
+class ContinueCutoverAdmissionTest(OwnerAdmissionTest):
+    workflow = OWNER_CONTINUE_CUTOVER
 
 
 if __name__ == "__main__":
