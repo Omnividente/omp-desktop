@@ -137461,7 +137461,7 @@
         },
         "feedback_nudge": {
           "at": "2026-10-02T06:04:41.796726Z",
-          "result": "pending",
+          "result": "sent",
           "source": {
             "session_id": "7363201851654324489",
             "dispatch_key": "42534839e2935ef2316ce107",
