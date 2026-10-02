@@ -78,7 +78,21 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+
+      - name: Authenticate the frozen receiver controller
+        id: control_pin
+        run: >-
+          python3 control/scripts/autonomous/workflow_admission.py
+          --repo control --config control/autonomous-project.json
+          --workflow autonomous_continue.yml
+
+      - name: Check out the authenticated receiver revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.control_pin.outputs.control_sha }}
           path: control
           persist-credentials: false
 

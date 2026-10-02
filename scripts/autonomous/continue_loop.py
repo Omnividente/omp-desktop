@@ -380,6 +380,30 @@ class Controller:
             self.runtime.recheck_context()
             if handoff:
                 self.effect_receipt = self.runtime.journal.outcome_for_trigger(self.runtime.trigger)
+                if self.effect_receipt is None and not self.runtime.receipt_id:
+                    state = self.runtime.journal.current()
+                    intent = (next((item for item in state["intents"].values()
+                                    if item["correlation_key"] == self.runtime.continuation_key), None)
+                              if self.runtime.continuation_key else state["active_intent"])
+                    if self.runtime.continuation_key and intent is None:
+                        return self.report("blocked", "source_effect_receipt_unavailable")
+                    # Handoff observes checked event-main; it cannot repin or
+                    # execute the original receiver, which may use an older SHA.
+                    try:
+                        disposition = self.runtime.journal.nonexecution_outcome(
+                            intent, key="", trigger=self.runtime.trigger,
+                            control_sha=self.runtime.control_sha)
+                        if disposition["outcome"] == "stopped":
+                            return self.report(**disposition)
+                        runs = self.runtime.runs(intent["workflow"]) if intent else ()
+                        self.check_enabled()
+                        self.runtime.recheck_context()
+                        disposition = self.runtime.journal.nonexecution_outcome(
+                            intent, key="", trigger=self.runtime.trigger,
+                            control_sha=self.runtime.control_sha, runs=runs)
+                    except JournalConflict:
+                        return self.report("blocked", "source_effect_receipt_unavailable")
+                    return self.report(**disposition)
                 if self.effect_receipt is None or (self.runtime.receipt_id and
                         self.runtime.receipt_id != self.effect_receipt["receipt_id"]):
                     return self.report("blocked", "source_effect_receipt_unavailable")
@@ -394,7 +418,18 @@ class Controller:
                 CONTINUE, {}, key=self.runtime.continuation_key,
                 trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
             if self.execution is None:
-                return self.report("blocked", "execution_already_claimed")
+                disposition = self.runtime.journal.nonexecution_outcome(
+                    self.admitted_intent, key=self.runtime.continuation_key,
+                    trigger=self.runtime.trigger, control_sha=self.runtime.control_sha)
+                if disposition["outcome"] == "stopped":
+                    return self.report(**disposition)
+                runs = self.runtime.runs(self.admitted_intent["workflow"]) if self.admitted_intent else ()
+                self.check_enabled()
+                self.runtime.recheck_context()
+                disposition = self.runtime.journal.nonexecution_outcome(
+                    self.admitted_intent, key=self.runtime.continuation_key,
+                    trigger=self.runtime.trigger, control_sha=self.runtime.control_sha, runs=runs)
+                return self.report(**disposition)
             self.check_enabled()
             self.runtime.recheck_context()
             self.execution.consume()

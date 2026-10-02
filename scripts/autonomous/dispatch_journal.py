@@ -20,10 +20,23 @@ NEXT = "autonomous_next_task.yml"
 CONTINUE = "autonomous_continue.yml"
 SYNC = "autonomous_sync.yml"
 WORKFLOWS = frozenset((NEXT, CONTINUE, SYNC))
+OWNER_RECOVERY = "autonomous_recover_delivery.yml"
+OWNER_CONTINUE_CUTOVER = "autonomous_cutover_continue.yml"
+OWNER_TRIGGER_FIELDS = frozenset((
+    "run_id", "run_attempt", "event_name", "control_sha", "repository", "actor",
+    "workflow", "ref", "expected_state_sha", "decision_id",
+))
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 KEY = re.compile(r"[0-9a-f]{32}\Z")
 EVENT_NAMES = frozenset(("workflow_dispatch", "workflow_run", "schedule", "push"))
+NEXT_NO_EFFECT_REASONS = frozenset((
+    "daily_cap", "research_disabled", "research_cooldown", "discovery_disabled",
+    "attempt_already_resolved", "feedback_recovery_already_consumed",
+    "no_todo_tasks", "no_eligible_autonomous_task", "explicit_task_not_todo",
+    "explicit_task_ineligible", "implementation_not_approved", "product_moved",
+    "dispatch_conditions_changed", "loop_disabled",
+))
 _ISSUER = object()
 
 
@@ -118,6 +131,21 @@ def _trigger(trigger: dict, control_sha: str) -> dict:
     return result
 
 
+def _owner_trigger(trigger, decision_id, expected_state_sha, *, workflow=OWNER_RECOVERY):
+    if (not isinstance(trigger, dict) or set(trigger) != OWNER_TRIGGER_FIELDS
+            or not DIGEST.fullmatch(str(decision_id))
+            or not SHA.fullmatch(str(expected_state_sha))):
+        raise ValueError("owner fence requires exact original authorization inputs")
+    trigger = _trigger(trigger, trigger["control_sha"])
+    if (trigger["event_name"] != "workflow_dispatch" or trigger["workflow"] != workflow
+            or trigger["ref"] != "refs/heads/main" or trigger["decision_id"] != decision_id
+            or trigger["expected_state_sha"] != expected_state_sha
+            or not isinstance(trigger["actor"], str) or not trigger["actor"].strip()
+            or not isinstance(trigger["repository"], str) or not trigger["repository"]):
+        raise ValueError("owner fence requires its actual owner main workflow event")
+    return trigger
+
+
 def _source_identity(trigger: dict) -> str:
     # A workflow rerun and a repeated completion callback are the same source.
     event = trigger["event_name"]
@@ -169,6 +197,26 @@ def _event(event_type: str, **fields) -> dict:
 
 def _receipt_id(decision_id: str, claim_id: str, kind: str, evidence: dict) -> str:
     return digest([decision_id, claim_id, kind, evidence])
+
+
+def _owner_fence_receipt_id(decision_id, trigger, state_sha, before_digest):
+    return _receipt_id(decision_id, _source_identity(trigger), "owner_revoked_unclaimed",
+                       {"owner_trigger": trigger, "before_state_sha": state_sha, "before_digest": before_digest})
+
+
+def _owner_cutover_receipt_id(decision_id, trigger, state_sha, before_digest):
+    return _receipt_id(decision_id, _source_identity(trigger), "owner_cutover_continue",
+                       {"owner_trigger": trigger, "before_state_sha": state_sha, "before_digest": before_digest})
+
+
+def _cutover_eligible(state, intent):
+    decision_id = intent["decision_id"]
+    return (intent["workflow"] == CONTINUE
+            and (decision_id in state["executor_claims"]
+                 or (intent["source_kind"] == "sender" and decision_id in state["send_claims"]))
+            and decision_id not in state["effects"] and decision_id not in state["completions"]
+            and decision_id not in state["phase_claims"]
+            and not any(stage["decision_id"] == decision_id for stage in state["stages"].values()))
 
 
 def _valid_effect(kind: str, evidence: dict, intent: dict, executor: dict,
@@ -244,13 +292,30 @@ def _sender_basis(state, basis):
     if not isinstance(basis, dict):
         raise JournalConflict("sender basis must identify the current causal receipt")
     predecessor = state["predecessor_decision_id"]
-    receipt = state["effects"].get(predecessor) or state["completions"].get(predecessor)
+    if predecessor in state["continue_cutovers"]:
+        raise JournalConflict("owner CONTINUE cutover is not dispatch authority")
+    receipt = (state["effects"].get(predecessor) or state["completions"].get(predecessor)
+               or state["owner_fences"].get(predecessor))
     expected = receipt["receipt_id"] if receipt else None
     if basis.get("receipt_id") != expected:
         raise JournalConflict("sender basis is not the current predecessor receipt")
 
 
 def _valid_completion(evidence, intent, executor, state):
+    if intent["workflow"] == NEXT:
+        if (not isinstance(evidence, dict) or evidence.get("status") != "no_effect"
+                or evidence.get("action") != "none" or evidence.get("reason") not in NEXT_NO_EFFECT_REASONS
+                or intent["decision_id"] in state["effects"]
+                or intent["decision_id"] in state["phase_claims"]
+                or any(stage["decision_id"] == intent["decision_id"] for stage in state["stages"].values())):
+            raise ValueError("no-effect completion requires a normal unchanged NEXT result")
+        for field in ("before_state_sha", "after_state_sha"):
+            if not SHA.fullmatch(str(evidence.get(field, ""))):
+                raise ValueError("NEXT completion requires actual state revisions")
+        if (evidence.get("before_digest") != executor["before_digest"]
+                or evidence.get("after_digest") != executor["before_digest"]):
+            raise ValueError("NEXT completion changed its original substantive baseline")
+        return
     if (intent["workflow"] != SYNC or not isinstance(evidence, dict)
             or evidence.get("status") not in {"up_to_date", "busy", "conflict", "disabled"}
             or not isinstance(evidence.get("reason"), str) or not evidence["reason"]
@@ -277,8 +342,8 @@ def materialize(journal: dict) -> dict:
         raise ValueError("dispatch_journal requires version 1 and nonempty events")
     state = {"frontier_seq": 0, "predecessor_decision_id": "", "active_intent": None,
              "intents": {}, "send_claims": {}, "executor_claims": {}, "stages": {},
-             "phase_claims": {}, "effects": {}, "completions": {}, "completed_receipts": set(),
-             "advanced_receipts": set(), "source_ids": set()}
+             "phase_claims": {}, "effects": {}, "completions": {}, "owner_fences": {}, "continue_cutovers": {},
+             "completed_receipts": set(), "advanced_receipts": set(), "source_ids": set()}
     event_ids = set()
     for index, event in enumerate(journal["events"]):
         if not isinstance(event, dict):
@@ -315,6 +380,14 @@ def materialize(journal: dict) -> dict:
             if normalized != event["normalized_inputs"] or event.get("input_hash") != digest(normalized):
                 raise ValueError("intent inputs are not canonical")
             trigger = _trigger(event.get("first_source_trigger"), event.get("control_sha"))
+            cutover = state["continue_cutovers"].get(state["predecessor_decision_id"])
+            if cutover is not None and event["source_kind"] == "external":
+                if (event["workflow"] != SYNC or trigger["event_name"] not in {"workflow_dispatch", "push"}
+                        or trigger.get("repository") != cutover["owner_trigger"]["repository"]
+                        or event.get("basis", {}).get("kind") != "external_ingress"
+                        or not SHA.fullmatch(str(event.get("basis", {}).get("state_sha", "")))
+                        or event.get("basis", {}).get("owner_cutover") != cutover["receipt_id"]):
+                    raise ValueError("owner cutover requires a distinct checked external SYNC")
             if event.get("source_identity") != _intent_source(state, trigger, event["source_kind"]):
                 raise ValueError("intent source identity changed")
             if event["source_kind"] == "sender":
@@ -353,6 +426,43 @@ def materialize(journal: dict) -> dict:
                     raise ValueError("execution right has already been consumed or is unbound")
                 state["executor_claims"][decision_id] = event
                 state["source_ids"].add(_source_identity(trigger))
+            continue
+        if kind == "OwnerFence":
+            trigger = _owner_trigger(event.get("owner_trigger"), decision_id, event.get("before_state_sha"))
+            if (executor is not None or intent["source_kind"] != "sender"
+                    or decision_id not in state["send_claims"] or decision_id in state["effects"]
+                    or decision_id in state["completions"] or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")
+                    or event.get("kind") != "owner_revoked_unclaimed"
+                    or not DIGEST.fullmatch(str(event.get("before_digest", "")))
+                    or event.get("receipt_id") != _owner_fence_receipt_id(
+                        decision_id, trigger, event["before_state_sha"], event["before_digest"])
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("owner fence can only revoke the current unclaimed delivery")
+            state["owner_fences"][decision_id] = event
+            state["source_ids"].add(_source_identity(trigger))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
+            continue
+        if kind == "OwnerContinueCutover":
+            trigger = _owner_trigger(event.get("owner_trigger"), decision_id, event.get("before_state_sha"),
+                                     workflow=OWNER_CONTINUE_CUTOVER)
+            if (not _cutover_eligible(state, intent)
+                    or _source_identity(trigger) in state["source_ids"]
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")
+                    or event.get("kind") != "owner_cutover_continue"
+                    or not DIGEST.fullmatch(str(event.get("before_digest", "")))
+                    or event.get("receipt_id") != _owner_cutover_receipt_id(
+                        decision_id, trigger, event["before_state_sha"], event["before_digest"])
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("owner cutover requires the current untouched CONTINUE")
+            state["continue_cutovers"][decision_id] = event
+            state["source_ids"].add(_source_identity(trigger))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
             continue
         if executor is None or event.get("executor_claim_id") != executor["claim_id"]:
             raise ValueError("effect or stage lacks the original executor")
@@ -396,8 +506,9 @@ def materialize(journal: dict) -> dict:
         elif kind == "ExecutionCompletion":
             evidence = event.get("evidence")
             _valid_completion(evidence, intent, executor, state)
-            if (event.get("kind") != "sync_no_effect"
-                    or event.get("receipt_id") != _receipt_id(decision_id, executor["claim_id"], "sync_no_effect", evidence)
+            completion_kind = "next_no_effect" if intent["workflow"] == NEXT else "sync_no_effect"
+            if (event.get("kind") != completion_kind
+                    or event.get("receipt_id") != _receipt_id(decision_id, executor["claim_id"], completion_kind, evidence)
                     or event.get("frontier_seq") != state["frontier_seq"] + 1):
                 raise ValueError("invalid no-effect completion identity or frontier")
             state["completions"][decision_id] = event
@@ -446,7 +557,7 @@ def preserve_journal(previous: dict, current: dict) -> None:
 
 class _Capability:
     def __init__(self, decision_id, claim_id, trigger, control_sha, *, state_sha="",
-                 phase="execute", executor_claim_id="", issuer=None):
+                 phase="execute", executor_claim_id="", issuer=None, store=None):
         if issuer is not _ISSUER:
             raise JournalConflict("capability can only be issued by a fresh acknowledged claim")
         self.decision_id = decision_id
@@ -459,20 +570,36 @@ class _Capability:
         self._pid = os.getpid()
         self._used = False
         self._finished = False
+        self._store = store
 
     def _check(self):
         if self._pid != os.getpid():
             raise JournalConflict("capability cannot move to another process")
 
-    def consume(self) -> None:
+    def _check_authority(self):
         self._check()
+        if self._store is None:
+            raise JournalConflict("capability lacks its authoritative journal store")
+        state = self._store.current()
+        if isinstance(self, SendCapability):
+            intent = state["active_intent"]
+            claim = state["send_claims"].get(self.decision_id)
+            if (intent is None or intent["decision_id"] != self.decision_id
+                    or intent["control_sha"] != self.control_sha or claim is None
+                    or claim["claim_id"] != self.claim_id or claim["trigger"] != self.trigger):
+                raise JournalConflict("send capability no longer binds the current delivery")
+        else:
+            self._store._capability_context(self, state)
+
+    def consume(self) -> None:
+        self._check_authority()
         if self._used:
             raise JournalConflict("capability is one-use")
         self._used = True
 
     def observer_context(self) -> dict:
         """Describe an owned consumed claim for reads; this is not a capability."""
-        self._check()
+        self._check_authority()
         if not self._used or self._finished or self.phase != "execute":
             raise JournalConflict("observation requires a consumed unfinished claim")
         return {"kind": "send" if isinstance(self, SendCapability) else "execute",
@@ -480,7 +607,7 @@ class _Capability:
                 "trigger": copy.deepcopy(self.trigger), "control_sha": self.control_sha}
 
     def _finish(self) -> None:
-        self._check()
+        self._check_authority()
         if not self._used or self._finished:
             raise JournalConflict("effect requires a consumed unfinished execution capability")
         self._finished = True
@@ -515,9 +642,9 @@ class JournalStore:
         except StateUncertain as exc:
             raise JournalUncertain("journal claim acknowledgement was lost; reconcile only") from exc
 
-    def _mutate(self, operation):
+    def _mutate(self, operation, *, attempts=3):
         from state_store import StateConflict
-        for attempt in range(3):
+        for attempt in range(attempts):
             data, state_sha = self._load()
             journal = data.get("dispatch_journal")
             if journal is None:
@@ -534,7 +661,7 @@ class JournalStore:
             try:
                 saved = self._write(data)
             except StateConflict:
-                if attempt == 2:
+                if attempt == attempts - 1:
                     raise JournalConflict("journal CAS remained conflicted") from None
                 continue
             self._writer_base = previous_body
@@ -604,7 +731,7 @@ class JournalStore:
 
         (intent, claim), state_sha, changed = self._mutate(reserve)
         capability = (SendCapability(intent["decision_id"], claim["claim_id"], trigger, control_sha,
-                                     state_sha=state_sha, issuer=_ISSUER) if changed and claim else None)
+                                     state_sha=state_sha, issuer=_ISSUER, store=self) if changed and claim else None)
         return copy.deepcopy(intent), capability
 
     def observe_delivery(self, decision_id: str, observation: dict) -> None:
@@ -613,6 +740,76 @@ class JournalStore:
                 raise JournalConflict("delivery observation has no durable intent")
             return None, [_event("DeliveryObservation", decision_id=decision_id, observation=observation)]
         self._mutate(observe)
+
+    def fence_unclaimed(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Revoke one unused right by explicit owner CAS; never claim a runtime effect."""
+        from proposal_backlog import authorize
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("owner fence repository differs from configured authority")
+
+        def fence(data, state_sha, state):
+            prior = state["owner_fences"].get(decision_id)
+            if prior is not None:
+                if prior["before_state_sha"] != expected_state_sha:
+                    raise JournalConflict("owner fence replay changed the original state pin")
+                return (prior, "already_fenced"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("owner fence state pin moved")
+            intent = state["active_intent"]
+            if (intent is None or intent["decision_id"] != decision_id
+                    or intent["source_kind"] != "sender" or decision_id not in state["send_claims"]
+                    or decision_id in state["executor_claims"] or decision_id in state["effects"]
+                    or decision_id in state["completions"] or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")):
+                raise JournalConflict("owner fence requires the current delivery without any executor")
+            before_digest = substantive_digest(data)
+            event = _event("OwnerFence", decision_id=decision_id, kind="owner_revoked_unclaimed",
+                           owner_trigger=trigger, before_state_sha=state_sha, before_digest=before_digest,
+                           receipt_id=_owner_fence_receipt_id(decision_id, trigger, state_sha, before_digest),
+                           frontier_seq=state["frontier_seq"] + 1)
+            return (event, "fenced"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(fence, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
+    def cutover_continue(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Close only an untouched CONTINUE using one acknowledged owner CAS."""
+        from proposal_backlog import authorize
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_CONTINUE_CUTOVER)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("owner cutover repository differs from configured authority")
+
+        def cutover(data, state_sha, state):
+            prior = state["continue_cutovers"].get(decision_id)
+            if prior is not None:
+                original = prior["owner_trigger"]
+                if (prior["before_state_sha"] != expected_state_sha
+                        or {key: value for key, value in original.items() if key != "run_attempt"}
+                        != {key: value for key, value in trigger.items() if key != "run_attempt"}):
+                    raise JournalConflict("owner cutover replay changed the original authorization context")
+                return (prior, "already_cut_over"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("owner cutover state pin moved")
+            intent = state["active_intent"]
+            if (intent is None or intent["decision_id"] != decision_id or not _cutover_eligible(state, intent)
+                    or _source_identity(trigger) in state["source_ids"]
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")):
+                raise JournalConflict("owner cutover requires the selected untouched active CONTINUE")
+            before_digest = substantive_digest(data)
+            event = _event("OwnerContinueCutover", decision_id=decision_id, kind="owner_cutover_continue",
+                           owner_trigger=trigger, before_state_sha=state_sha, before_digest=before_digest,
+                           receipt_id=_owner_cutover_receipt_id(decision_id, trigger, state_sha, before_digest),
+                           frontier_seq=state["frontier_seq"] + 1)
+            return (event, "cut_over"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(cutover, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
 
     def admit(self, workflow, inputs, *, key, trigger, control_sha):
         inputs = normalize_inputs(workflow, inputs)
@@ -632,17 +829,23 @@ class JournalStore:
                 self._match(bound, workflow, inputs, control_sha, key)
                 if bound is not intent:
                     return (bound, None), []
-            elif intent is not None and intent["source_kind"] == "sender":
-                # Cron/manual/callback ingress only reconciles a pending send;
-                # it cannot stand in for the receiver carrying the saved key.
+            elif intent is not None and (intent["source_kind"] == "sender"
+                                         or intent["decision_id"] in state["executor_claims"]):
+                # External signals never replace a pending receiver or executor,
+                # including one pinned before a checked-main update.
                 return (intent, None), []
             elif intent is None:
                 source_identity = _source_identity(trigger)
                 if source_identity in state["source_ids"]:
                     return (None, None), []
-                intent = self._new_intent(state, workflow, inputs,
-                                          {"kind": "external_ingress", "state_sha": state_sha},
-                                          trigger, control_sha, "external")
+                predecessor = state["continue_cutovers"].get(state["predecessor_decision_id"])
+                basis = {"kind": "external_ingress", "state_sha": state_sha}
+                if predecessor is not None:
+                    if (workflow != SYNC or trigger["event_name"] not in {"workflow_dispatch", "push"}
+                            or trigger.get("repository") != predecessor["owner_trigger"]["repository"]):
+                        raise JournalConflict("owner cutover requires a distinct checked external SYNC")
+                    basis["owner_cutover"] = predecessor["receipt_id"]
+                intent = self._new_intent(state, workflow, inputs, basis, trigger, control_sha, "external")
                 additions.append(intent)
             self._match(intent, workflow, inputs, control_sha, key if key else None)
             decision_id = intent["decision_id"]
@@ -657,8 +860,57 @@ class JournalStore:
 
         (intent, claim), state_sha, changed = self._mutate(admit)
         capability = (ExecutionCapability(intent["decision_id"], claim["claim_id"], trigger, control_sha,
-                                          state_sha=state_sha, issuer=_ISSUER) if changed and claim else None)
+                                          state_sha=state_sha, issuer=_ISSUER, store=self) if changed and claim else None)
         return copy.deepcopy(intent), capability
+
+    def nonexecution_outcome(self, intent, *, key, trigger, control_sha, runs=()):
+        """Classify refused ingress, never infer capability from delivery metadata."""
+        trigger = _trigger(trigger, control_sha)
+        state = self.current()
+        if intent is None:
+            source = _source_identity(trigger)
+            intent = next((item for item in state["intents"].values()
+                           if item["source_identity"] == source), None)
+            if intent is None:
+                intent = next((state["intents"][decision_id]
+                               for decision_id, claim in state["executor_claims"].items()
+                               if _source_identity(claim["trigger"]) == source), None)
+        if intent is None or state["intents"].get(intent["decision_id"]) != intent:
+            raise JournalConflict("refused ingress no longer binds a known decision")
+        decision_id = intent["decision_id"]
+        if key and (intent["control_sha"] != control_sha or key != intent["correlation_key"]):
+            raise JournalConflict("refused internal ingress changed its pinned identity")
+        if decision_id in state["owner_fences"]:
+            return {"outcome": "stopped", "reason": "delivery_owner_fenced", "decision_id": decision_id}
+        if decision_id in state["continue_cutovers"]:
+            return {"outcome": "stopped", "reason": "continue_owner_cut_over", "decision_id": decision_id}
+        if decision_id in state["effects"] or decision_id in state["completions"]:
+            return {"outcome": "stopped", "reason": "execution_outcome_already_recorded", "decision_id": decision_id}
+        executor = state["executor_claims"].get(decision_id)
+        if executor and _source_identity(executor["trigger"]) == _source_identity(trigger):
+            return {"outcome": "blocked", "reason": "executor_without_outcome", "decision_id": decision_id}
+        # A fresh trusted Actions read can prove another receiver is currently
+        # handling this decision. A historical POST ACK/title alone cannot.
+        title = (("Sync main " + intent["normalized_inputs"]["main_sha"] + " " if intent["workflow"] == SYNC
+                  else "Next " if intent["workflow"] == NEXT else "Continue ") + intent["correlation_key"])
+        for run in runs:
+            if (not isinstance(run, dict) or run.get("event") != "workflow_dispatch"
+                    or run.get("head_branch") != "main"
+                    or (run.get("head_repository") or {}).get("full_name") != trigger.get("repository")
+                    or run.get("status") not in {"queued", "in_progress", "waiting", "pending", "requested"}
+                    or str(run.get("id", "")) == trigger["run_id"]
+                    or not re.fullmatch(r"[1-9][0-9]*", str(run.get("id", "")))):
+                continue
+            if executor:
+                if (str(run["id"]) != executor["trigger"]["run_id"]
+                        or str(run.get("run_attempt", "")) != executor["trigger"]["run_attempt"]):
+                    continue
+            elif (intent["source_kind"] != "sender" or decision_id not in state["send_claims"]
+                  or run.get("display_title") != title):
+                continue
+            return {"outcome": "coalesced", "reason": "existing_receiver_active", "decision_id": decision_id}
+        return {"outcome": "blocked", "reason": "executor_without_outcome" if executor else "delivery_unresolved",
+                "decision_id": decision_id}
 
     def save_manifest(self, data: dict) -> str:
         """Rebase only the journal; never retry a stale substantive mutation."""
@@ -735,7 +987,7 @@ class JournalStore:
         if not event or not changed:
             return None
         return ExecutionCapability(decision_id, event["claim_id"], trigger, control_sha, state_sha=state_sha,
-                                   phase=phase, executor_claim_id=event["executor_claim_id"], issuer=_ISSUER)
+                                   phase=phase, executor_claim_id=event["executor_claim_id"], issuer=_ISSUER, store=self)
 
     @staticmethod
     def _capability_context(capability, state):
@@ -813,7 +1065,7 @@ class JournalStore:
         return copy.deepcopy(result)
 
     def record_completion(self, capability, evidence):
-        """Close proven no-effect preparation without minting a useful effect."""
+        """Close a proven normal no-effect execution without minting useful progress."""
         if type(capability) is not ExecutionCapability or capability.phase != "execute":
             raise JournalConflict("no-effect completion requires the original preparation capability")
         capability._finish()
@@ -822,24 +1074,31 @@ class JournalStore:
         def complete(data, state_sha, state):
             from state_store import _git
             intent, executor = self._capability_context(capability, state)
+            if intent["workflow"] == NEXT:
+                before = self._checkpoint_state(evidence.get("before_state_sha", ""))
+                after = self._checkpoint_state(evidence.get("after_state_sha", ""))
+                evidence["before_digest"] = substantive_digest(before)
+                evidence["after_digest"] = substantive_digest(after)
             _valid_completion(evidence, intent, executor, state)
             if substantive_digest(data) != executor["before_digest"]:
-                raise JournalConflict("no-effect preparation changed substantive state")
-            for branch, pin in (("main", evidence["main_sha"]), ("autonomous/lab", evidence["lab_sha"])):
-                remote = _git(self.repo, "ls-remote", "--exit-code", "origin", "refs/heads/" + branch).stdout.decode().split()
-                if len(remote) != 2 or remote[0] != pin:
-                    raise JournalConflict("no-effect completion heads changed")
-            if _git(self.repo, "ls-remote", "--heads", "origin", "refs/heads/" + evidence["candidate_branch"]).stdout:
-                raise JournalConflict("no-effect completion has a published candidate")
-            if evidence["status"] == "up_to_date":
-                _git(self.repo, "merge-base", "--is-ancestor", evidence["main_sha"], evidence["lab_sha"])
-            if evidence.get("queue_blob"):
-                blob = _git(self.repo, "rev-parse", evidence["lab_sha"] + ":agent_tasks.json").stdout.decode().strip()
-                if blob != evidence["queue_blob"]:
-                    raise JournalConflict("no-effect completion changed the legacy queue pin")
+                raise JournalConflict("no-effect execution changed substantive state")
+            if intent["workflow"] == SYNC:
+                for branch, pin in (("main", evidence["main_sha"]), ("autonomous/lab", evidence["lab_sha"])):
+                    remote = _git(self.repo, "ls-remote", "--exit-code", "origin", "refs/heads/" + branch).stdout.decode().split()
+                    if len(remote) != 2 or remote[0] != pin:
+                        raise JournalConflict("no-effect completion heads changed")
+                if _git(self.repo, "ls-remote", "--heads", "origin", "refs/heads/" + evidence["candidate_branch"]).stdout:
+                    raise JournalConflict("no-effect completion has a published candidate")
+                if evidence["status"] == "up_to_date":
+                    _git(self.repo, "merge-base", "--is-ancestor", evidence["main_sha"], evidence["lab_sha"])
+                if evidence.get("queue_blob"):
+                    blob = _git(self.repo, "rev-parse", evidence["lab_sha"] + ":agent_tasks.json").stdout.decode().strip()
+                    if blob != evidence["queue_blob"]:
+                        raise JournalConflict("no-effect completion changed the legacy queue pin")
+            kind = "next_no_effect" if intent["workflow"] == NEXT else "sync_no_effect"
             event = _event("ExecutionCompletion", decision_id=capability.decision_id,
-                           executor_claim_id=executor["claim_id"], kind="sync_no_effect", evidence=evidence,
-                           receipt_id=_receipt_id(capability.decision_id, executor["claim_id"], "sync_no_effect", evidence),
+                           executor_claim_id=executor["claim_id"], kind=kind, evidence=evidence,
+                           receipt_id=_receipt_id(capability.decision_id, executor["claim_id"], kind, evidence),
                            frontier_seq=state["frontier_seq"] + 1)
             return event, [event]
         result, _, _ = self._mutate(complete)

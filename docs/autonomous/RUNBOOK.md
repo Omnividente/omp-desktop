@@ -67,7 +67,7 @@ into `main`.
 
 ## Durable workflow execution rollout (separate, paused operation)
 
-The C-SEND candidate separates dispatch delivery from permission to execute.
+The durable journal separates dispatch delivery from permission to execute.
 `dispatch_journal` is an append-only part of the authoritative state queue.
 NEXT, CONTINUE and SYNC need a separately acknowledged first-CAS executor claim;
 an owner, a new run attempt, a late delivery or a callback cannot renew that right.
@@ -82,8 +82,120 @@ delivery. The journal validator checks the dispatch binding as well.
 The source run attempt stays in the trigger and exact receipt binding, but is not
 a new logical callback identity: rerunning the source cannot reopen its frontier.
 
-Deployment and initialization require a separately authorized paused rollout;
-these notes are a plan, not permission to run commands against production:
+For an internal receiver, the checked event-main bootstrap authenticates the saved
+controller SHA against the journal's original sender claim, workflow, key and exact
+inputs, and verifies that it is an ancestor of checked main before checking it out.
+External ingress cannot choose an older controller. NEXT/SYNC causal handoff remains
+on checked event-main code: only after the real original run-bound outcome does it
+reserve a **new** intent on that checked revision. Existing intents, executors and
+saved requests are never repinned, reset or renewed to adopt an update.
+Duplicate/coalescible ingress reports `coalesced / existing_receiver_active` only
+after a fresh trusted Actions read binds a live original receiver/executor. A known
+recorded outcome is observation-only; a spent executor without outcome or unresolved
+delivery remains blocked. Reporting benign ingress grants no execution/send right.
+NEXT/SYNC source jobs and their handoff use that same observation-only disposition
+when execution was refused. They neither fabricate an effect receipt nor advance
+the original frontier or reserve another send.
+
+Exceptional **unclaimed delivery recovery** is a separate, explicitly authorized
+owner operation, not a retry or a normal no-effect result. The main-only
+`autonomous_recover_delivery.yml` workflow accepts exactly `expected_state_sha`
+and `decision_id`, binds the original event inputs and configured owner to checked
+event-main code, and calls `JournalStore.fence_unclaimed` once. It cannot dispatch,
+switch the loop, change tasks, or impersonate NEXT/CONTINUE/SYNC admission.
+
+1. Save the exact authoritative state SHA, target sender decision and immutable
+   queue/journal baseline. The target must still be the current sent delivery with
+   **no ExecutorClaim, phase, stage, effect or completion**. A spent executor is
+   never recoverable through this command, even after its Actions run dies.
+2. Deploy the separately reviewed compatible main revision first. Prove that its
+   frozen-controller bootstrap rejects the revoked key and that an already
+   checked-out old receiver fails closed on the new append-only event before any
+   executor, worker or substantive effect. Delivery/run metadata alone is not
+   this proof.
+3. Dispatch `autonomous_recover_delivery.yml` on `main` with the two exact saved
+   inputs. Its single state CAS appends `OwnerFence(owner_revoked_unclaimed)` and
+   closes that logical frontier once; the owner event records its actual workflow,
+   ref, actor, control revision and original state/decision pins. It does not invent
+   an execution/effect/completion receipt or change the old GitHub run's status.
+4. A moved head, executor race, unknown acknowledgement or invalid context returns
+   a retained blocked result and stops. Do not retry with a new baseline or send a
+   replacement merely because acknowledgement was lost. Reconcile the real state
+   under owner review. An acknowledged fence replay is only `already_fenced`
+   observation: no new event, claim, send or permission is issued.
+5. Read back the acknowledged state head. Confirm the exact OwnerFence, one frontier
+   increment, unchanged task/provider identities and substantive manifest, and the
+   complete original journal prefix. Late keyed NEXT/CONTINUE/SYNC receivers and
+   handoff report `stopped / delivery_owner_fenced` without Actions-run observation,
+   body effects or another send. An unrelated unbound ingress remains blocked;
+   it cannot infer another decision from the fence set.
+   Readiness excludes a revoked delivery only when the validated OwnerFence and
+   original workflow, frozen control SHA, exact correlation title, main branch,
+   explicit repository identity and workflow_dispatch event match the observed run.
+   Other active runs and incomplete/mismatched metadata remain blockers. The
+   revoked run's queued status or later failure cannot add readiness/backoff; its
+   raw GitHub status and journal history are not changed or declared completed.
+6. Only after that irreversible denial and exact deployment proof may the owner
+   start one distinct ordinary external checked Sync and continue the existing
+   recovery plan. The fence itself neither calls `advance` on a runtime receipt
+   nor schedules this continuation. Never reset the journal, repin the old intent,
+   fabricate terminal Actions status, or blindly repeat its workflow dispatch.
+   This source change does not hot-patch an already claimed receiver's frozen
+   controller. If it still uses an older readiness observer, retain its claim and
+   receipts: another fence or deleting a GitHub run requires separate explicit
+   owner authorization. Do not infer permission to cancel/delete the original run
+   or revoke a claimed executor from the one unclaimed-delivery recovery decision.
+
+Exceptional **frozen CONTINUE cutover** requires a separate explicit owner decision.
+It is not the unclaimed-delivery fence above and never revokes NEXT or SYNC.
+`autonomous_cutover_continue.yml` runs the existing native owner entry with fixed
+`--operation continue_cutover`; its only inputs are `expected_state_sha` and
+`decision_id`. Default `--operation delivery` retains the original strictly
+unclaimed OwnerFence operation and its distinct workflow/acknowledgement contract.
+
+1. Deploy the separately checked compatible main revision first. Save the exact
+   authoritative state head, selected current CONTINUE and complete body/journal
+   baseline. A sent sender or a claimed CONTINUE executor is eligible only with
+   **no effect, completion, phase claim or execution stage**. Waiting/Actions status
+   alone grants no permission; prepared/finalizing SYNC and every NEXT stay protected.
+2. Dispatch the owner workflow once on main with those exact pins. It binds the
+   original event inputs, checked configuration, actual workflow/ref/control SHA,
+   repository, owner and rerun actor, rechecks them before the native operation and
+   uses one CAS attempt. A head/claim/effect race fails closed without rebasing the
+   owner request. It appends only `OwnerContinueCutover(owner_cutover_continue)` and
+   increments the logical frontier once; it preserves the entire substantive body,
+   journal prefix and original send/executor receipts. It neither impersonates
+   execution completion nor records a runtime effect, calls `advance`, dispatches,
+   edits tasks, switches the loop or changes any GitHub run's status.
+3. Read back the acknowledged event and verify that late keyed bootstrap rejects
+   the cut-over decision before frozen checkout. Already captured sender/executor
+   capabilities cannot consume, observe or record an effect after the closure.
+   Old frozen controllers fail closed on the new authority event. Disposable native
+   proof exercises an actual published controller that acquired its executor before
+   cutover and cannot record its previously valid continuation effect afterward.
+4. A lost acknowledgement/conflict or failed result retention remains blocked;
+   reconcile the real state instead of repeating the POST or changing the expected
+   SHA. Replay with the original owner run/context and inputs (rerun attempt may
+   change) only observes `already_cut_over`: no new event, claim or send permission.
+5. The owner receipt is **not** timer/sender authority. `reserve_send` and runtime
+   `advance` cannot use it. The next decision must be one distinct ordinary keyless
+   external checked SYNC; its existing `external_ingress` basis explicitly retains
+   `state_sha` and `owner_cutover=<receipt_id>`. Other automatic ingress cannot seize
+   this frontier. Only the SYNC's own legitimate outcome can feed a later handoff.
+6. Readiness removes only the validated closed CONTINUE delivery with exact workflow,
+   frozen pin, correlation title and explicit repository identity. For a claimed
+   CONTINUE, including an external one without a keyed title, it requires the exact
+   original executor run ID, attempt and event in that repository; the durable claim
+   binds its frozen controller. Actions `head_sha` is the event-main revision, which
+   can differ from that frozen checkout. Main-branch/trust filtering remains unchanged.
+   Missing/mismatched identity and unrelated runs remain visible;
+   the raw run and all history are retained, and no terminal status is fabricated.
+   Preserve the original fenced NEXT run and all worker identities. This cutover is
+   not permission to delete a run, reset the journal or repin an old intent.
+
+
+First introduction of the journal requires a separately authorized paused rollout;
+these initialization notes are not permission to run commands against production:
 
 1. Disable the loop and stop/drain outstanding NEXT, CONTINUE and SYNC runners.
    Keep uncertain provider sessions, saved recovery receipts and proposals intact;
@@ -109,6 +221,15 @@ bound workers, checked against the original executor and authoritative before/af
 revisions. An unchanged poll needs the actual bound session observations and saved
 poll checkpoint; timestamp-only writes do not grant progress. Manual implementation
 approval and exact report/feedback recovery authorization remain independent.
+A normal unchanged NEXT result, such as an explicitly selected already-finished
+task, records `ExecutionCompletion(next_no_effect)` instead of leaving an unfinished
+executor claim. Its before/after state revisions and current substantive digest
+must match the original executor baseline; no attention, worker observations,
+proposals or waiting workers may be hidden by this result. This closes one frontier
+without a useful-effect receipt or useful clock update. Unknown outcomes cannot be
+completed this way. The original receipt permits only the ordinary causal handoff;
+replay never starts another worker or renews a claim.
+
 SYNC preparation saves a durable `sync_prepared` checkpoint after publishing and
 checking its isolated candidate ref. This checkpoint is not progress. A separate
 first-CAS `sync_finalize` phase belongs to the same original run, attempt and
@@ -196,10 +317,16 @@ separate safety regression, not proof of the production observer path.
    every five minutes for at most six hours. Rejected, failed, conflicting,
    invalid or expired repair stays parked, without a new attempt.
    Initial requests, research completion nudges and format-only repair use the
-   same `research_completion_prompt` envelope with exact task/dispatch identities.
-   Serialize and locally parse JSON from existing observations; a literal backtick
-   is not Markdown-escaped. Formatting-only local commands are allowed, but new
-   research, network access, implementation and invented evidence are not.
+   same `research_completion_prompt` contract with exact task/dispatch identities.
+   Its executable local recipe uses standard JSON serialization, parses it back
+   and invokes the existing research/proposal validators before emitting one
+   complete literal envelope. Backticks are not Markdown-escaped. The worker must
+   copy the entire stdout into its next final API-visible agent message, not an
+   acknowledgement, a file reference or a promise to package later. Recipe source
+   assembles dispatch markers at runtime so its text cannot contradict the real
+   request header. Local validation is packaging proof, not report acceptance.
+   Formatting-only local commands are allowed, but new research, network access,
+   implementation and invented evidence are not.
    Normal polling accepts only a strictly newer activity; subsecond activity/request
    times are preserved. Explicit recovery can also reparse the exact immutable
    latest source after a parser fix. Rewritten activities are never accepted.
@@ -778,6 +905,20 @@ The CLI equivalent adds `--repair-after TIMESTAMP --actor OWNER`. Collector-only
 `--retry-report --reparse-report --actor OWNER` performs no messaging and is useful
 for an isolated replay of undisposed reports. Disposed reports require the
 CAS-backed laboratory controller, not a collector-only file rewrite.
+
+Before reserving a format message, the controller freshly binds the original
+session and latest immutable source, then attaches bounded **whole** existing
+agent messages as JSON-quoted untrusted data with exact activity/time/content hash.
+Provider session creation time, when supplied, is the lower activity bound:
+controller `started_at` is a later binding checkpoint, not the session's creation.
+Invalid/ambiguous/foreign/future/rewritten source fails closed. Credential-containing
+messages are omitted entirely, never redacted under the original bytes' hash.
+Bounded omissions are not evidence that notes do not exist. This material is not a
+stale report fallback or owner approval; the worker must author a new complete
+report without changing scope or inventing observations. If neither retained notes
+nor supplied material contain actual observations, an honest unavailable response
+remains unaccepted. Send acknowledgement alone proves neither resume nor intake.
+
 
 ### Resolving a failed main synchronization
 

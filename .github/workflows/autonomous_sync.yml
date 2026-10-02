@@ -59,6 +59,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+      - name: Authenticate the frozen preparation controller
+        id: control_pin
+        run: >-
+          python3 control/scripts/autonomous/workflow_admission.py
+          --repo control --config control/autonomous-project.json
+          --workflow autonomous_sync.yml
+      - name: Check out the authenticated preparation revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.control_pin.outputs.control_sha }}
           path: control
           persist-credentials: false
       - name: Check out integration history
@@ -126,6 +139,19 @@ jobs:
           fetch-depth: 0
           path: control
           persist-credentials: false
+      - name: Authenticate the original finalization controller
+        id: control_pin
+        run: >-
+          python3 control/scripts/autonomous/workflow_admission.py
+          --repo control --config control/autonomous-project.json
+          --workflow autonomous_sync.yml
+      - name: Check out the authenticated finalization revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.control_pin.outputs.control_sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
       - name: Retain a terminal preparation or publish one checked finalization
         run: |
           set -euo pipefail
@@ -156,6 +182,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           path: control
           persist-credentials: false
       - name: Handoff only from the original durable publication receipt

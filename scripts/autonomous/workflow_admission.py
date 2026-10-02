@@ -1,17 +1,20 @@
 """Bind actual workflow executors to the durable dispatch frontier; fail closed."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from dispatch_journal import normalize_inputs
+from dispatch_journal import OWNER_CONTINUE_CUTOVER, normalize_inputs
 
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 WORKFLOWS = {"autonomous_next_task.yml", "autonomous_continue.yml", "autonomous_sync.yml"}
+OWNER_RECOVERY = "autonomous_recover_delivery.yml"
+OWNER_WORKFLOWS = frozenset((OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER))
 
 
 def add_arguments(parser, *, run_id=True):
@@ -49,6 +52,8 @@ class AdmissionContext:
     control_sha: str
 
     def admit(self, store, inputs):
+        if self.workflow not in WORKFLOWS:
+            raise ValueError("owner operation cannot admit workflow execution")
         inputs = normalize_inputs(self.workflow, inputs)
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         if self.trigger["event_name"] == "workflow_dispatch" and event_path:
@@ -73,11 +78,16 @@ class AdmissionContext:
 
 
 def context(args, workflow, config):
-    if workflow not in WORKFLOWS:
+    if workflow not in WORKFLOWS and workflow not in OWNER_WORKFLOWS:
         raise ValueError("unsupported execution workflow")
     run_id = _bound(str(args.run_id), "GITHUB_RUN_ID")
     attempt = _bound(str(args.run_attempt), "GITHUB_RUN_ATTEMPT")
     event = _bound(args.event_name, "GITHUB_EVENT_NAME")
+    if workflow in OWNER_WORKFLOWS:
+        for value, variable in ((run_id, "GITHUB_RUN_ID"), (attempt, "GITHUB_RUN_ATTEMPT"),
+                                (event, "GITHUB_EVENT_NAME")):
+            if os.environ.get(variable) != value:
+                raise ValueError("owner operation requires authenticated workflow identity")
     if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", attempt):
         raise ValueError("execution requires an exact workflow run and attempt")
     allowed = {"workflow_dispatch"}
@@ -91,13 +101,16 @@ def context(args, workflow, config):
     if os.environ.get("GITHUB_REPOSITORY") != repository:
         raise ValueError("execution repository mismatch")
     workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
-    if workflow_ref and workflow_ref != repository + "/.github/workflows/" + workflow + "@refs/heads/main":
+    if ((workflow in OWNER_WORKFLOWS or workflow_ref)
+            and workflow_ref != repository + "/.github/workflows/" + workflow + "@refs/heads/main"):
         raise ValueError("executor is running a different workflow")
     actual_sha = control_revision()
     control_sha = _bound(args.control_sha, "CONTROL_SHA") or actual_sha
     if not SHA.fullmatch(control_sha) or actual_sha != control_sha:
         raise ValueError("workflow control checkout is not the pinned revision")
     _bound(args.continuation_key, "CONTINUATION_KEY")
+    if workflow in OWNER_WORKFLOWS and args.continuation_key:
+        raise ValueError("owner operation cannot use an internal execution key")
     if args.continuation_key and event != "workflow_dispatch":
         raise ValueError("internal correlation is valid only for workflow dispatch")
     if event == "workflow_dispatch" and not args.continuation_key:
@@ -106,6 +119,8 @@ def context(args, workflow, config):
     trigger = {"run_id": run_id, "run_attempt": attempt, "event_name": event,
                "control_sha": control_sha, "repository": repository,
                "actor": os.environ.get("GITHUB_ACTOR", "")}
+    if workflow in OWNER_WORKFLOWS:
+        trigger.update(workflow=workflow, ref=os.environ["GITHUB_REF"])
     if event == "workflow_run":
         source = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))["workflow_run"]
         if (source.get("head_repository", {}).get("full_name") != repository
@@ -130,10 +145,81 @@ def recheck_context(binding):
         raise ValueError("workflow ref changed before execution")
     for key, variable in (("run_id", "GITHUB_RUN_ID"), ("run_attempt", "GITHUB_RUN_ATTEMPT"),
                           ("event_name", "GITHUB_EVENT_NAME"), ("repository", "GITHUB_REPOSITORY")):
+        if binding.workflow in OWNER_WORKFLOWS and os.environ.get(variable) != binding.trigger[key]:
+            raise ValueError("owner workflow identity changed before execution")
         _bound(binding.trigger[key], variable)
+    if binding.workflow in OWNER_WORKFLOWS:
+        if os.environ.get("GITHUB_ACTOR") != binding.trigger["actor"]:
+            raise ValueError("owner actor changed before execution")
+        if (os.environ.get("GITHUB_WORKFLOW_REF") != binding.trigger["repository"]
+                + "/.github/workflows/" + binding.workflow + "@" + binding.trigger["ref"]):
+            raise ValueError("owner workflow changed before execution")
 
 
 def substantive_manifest(manifest):
     """Use the journal's canonical substantive checkpoint projection."""
     from dispatch_journal import substantive_digest
     return substantive_digest(manifest)
+
+
+def checked_control_pin(args, config, store):
+    """Authenticate a frozen receiver revision using checked-main code only."""
+    if args.workflow not in WORKFLOWS:
+        raise ValueError("owner operation cannot authorize receiver checkout")
+    binding = context(args, args.workflow, config)
+    if not binding.key:
+        # External ingress uses the checked main revision, never arbitrary code.
+        if binding.trigger["event_name"] == "workflow_dispatch":
+            original = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")).get("inputs", {})
+            if original.get("control_sha"):
+                raise ValueError("external ingress cannot select a controller revision")
+        return binding.control_sha
+    original = dict(json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")).get("inputs", {}))
+    key = original.pop("continuation_key", "")
+    pin = original.pop("control_sha", "")
+    if key != binding.key or not SHA.fullmatch(str(pin)):
+        raise ValueError("frozen receiver requires its original key and controller revision")
+    state = store.current()
+    intent = next((item for item in state["intents"].values() if item["correlation_key"] == key), None)
+    if intent is not None and intent["decision_id"] in state.get("owner_fences", {}):
+        raise ValueError("frozen receiver was revoked by the owner")
+    if intent is not None and intent["decision_id"] in state.get("continue_cutovers", {}):
+        raise ValueError("frozen receiver CONTINUE was cut over by the owner")
+    if (intent is None or intent["source_kind"] != "sender"
+            or intent["decision_id"] not in state["send_claims"]):
+        raise ValueError("frozen receiver has no durable sender claim")
+    store._match(intent, args.workflow, normalize_inputs(args.workflow, original), pin, key)
+    # The caller checks out full checked-main history before this read-only gate.
+    # Journal identity alone must not authorize execution of an arbitrary commit.
+    subprocess.run(["git", "-C", str(args.repo), "merge-base", "--is-ancestor", pin, binding.control_sha],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+    recheck_context(binding)
+    return pin
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only checked-main gate for frozen controller checkout")
+    parser.add_argument("--repo", required=True, type=Path)
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--workflow", required=True, choices=sorted(WORKFLOWS))
+    add_arguments(parser)
+    args = parser.parse_args(argv)
+    from dispatch_journal import JournalStore
+    import tempfile
+    try:
+        config = json.loads(args.config.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="controller-pin-") as temporary:
+            store = JournalStore(args.repo, Path(temporary) / "queue.json", Path(temporary) / "revision.json")
+            pin = checked_control_pin(args, config, store)
+    except (ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError):
+        print(json.dumps({"authorized": False, "reason": "controller_pin_rejected"}))
+        return 1
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+        handle.write("control_sha=" + pin + "\n")
+    with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
+        handle.write("CONTROL_SHA=" + pin + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

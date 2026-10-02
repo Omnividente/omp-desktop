@@ -1,0 +1,66 @@
+name: Autonomous Recover Delivery
+
+# An explicit owner revocation, not a retry, executor completion, or handoff.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_state_sha:
+        description: Exact reviewed autonomous/state commit SHA before the fence
+        type: string
+        required: true
+      decision_id:
+        description: Exact sent, unclaimed durable decision to revoke
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# Serialize with all authoritative queue writers. A stale queued request still
+# fails its explicit state CAS; concurrency never substitutes for owner binding.
+concurrency:
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+        'autonomous-lab-queue' || format('autonomous-lab-recovery-ignored-{0}', github.run_id) }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  fence:
+    name: Revoke one owner-selected unclaimed delivery
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ""
+      EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
+      DECISION_ID: ${{ inputs.decision_id }}
+    steps:
+      - name: Check out the full checked event-main control revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+
+      - name: Fence exactly one unclaimed delivery by owner-bound state CAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/recover_delivery.py \
+            --repo control --config control/autonomous-project.json \
+            --manifest queue.json --revision-file queue-revision.json \
+            --expected-state-sha "${EXPECTED_STATE_SHA}" --decision-id "${DECISION_ID}" \
+            --out owner-fence-result.json
+
+      - name: Retain acknowledged fence or safe blocked outcome
+        if: ${{ always() && hashFiles('owner-fence-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-fence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: owner-fence-result.json
+          retention-days: 30
+          if-no-files-found: error

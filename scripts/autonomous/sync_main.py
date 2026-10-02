@@ -137,7 +137,13 @@ def prepare_execution(args, config, binding, store, github):
     inputs = {"main_sha": args.main_sha, "lab_sha": args.lab_sha}
     intent, capability = binding.admit(store, inputs)
     if capability is None:
-        return {"status": "skipped", "reason": "execution_already_claimed",
+        from health_snapshot import gh_get, snapshot_runs
+        runs = (snapshot_runs(lambda path, **options: gh_get(config["repository"], path, **options),
+                              intent["workflow"]) if intent else ())
+        recheck_context(binding)
+        disposition = store.nonexecution_outcome(
+            intent, key=binding.key, trigger=binding.trigger, control_sha=binding.control_sha, runs=runs)
+        return {"status": "blocked" if disposition["outcome"] == "blocked" else "skipped", **disposition,
                 "main_sha": args.main_sha, "lab_sha": args.lab_sha}
     expected_branch = "autonomous/sync-" + binding.trigger["run_id"] + "-" + binding.trigger["run_attempt"]
     if args.candidate_branch != expected_branch:
@@ -285,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     encoded = json.dumps(result, ensure_ascii=True, indent=2) + "\n"
     args.out.write_text(encoded, encoding="utf-8")
     print(encoded, end="")
-    return 1 if result["status"] == "conflict" else 0
+    return 1 if result["status"] in {"conflict", "blocked"} else 0
 
 
 if __name__ == "__main__":
