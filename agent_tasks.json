@@ -137145,7 +137145,7 @@
       "id": "research-sessions-persistence-reliability-16",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -137273,16 +137273,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7363201851654324489",
         "dispatch_key": "42534839e2935ef2316ce107",
         "base_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
         "starting_branch": "autonomous/attempt-42534839e2935ef2316ce107",
         "started_at": "2026-10-02T05:30:22.157873Z",
-        "finished_at": "",
+        "finished_at": "2026-10-02T06:38:03.591377Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
@@ -137453,8 +137453,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-10-02T06:04:41.796726Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-02T06:38:03.591377Z",
         "research_detached": {
           "at": "2026-10-02T06:04:41.796726Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -137470,11 +137470,100 @@
             "activity_sha256": "a468f232407be5c7e5f5fc77905a5a1b8acdf916e070578b1ac3023a05b024eb"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated the session deletion and lease failure recovery mechanisms in the Tauri backend. Identified that when a session is deleted via `delete_session`, its associated lease and lock files (`.omp-desktop.lock`, `.reclaiming.json`, and `.stale-*.json` quarantines) are not removed. This leads to orphaned lock state files accumulating in the project directory when sessions are frequently created and deleted.",
+        "observations": [
+          {
+            "scenario": "Deleting a session with active or stale lease lock files.",
+            "evidence": "Wrote a synthetic Rust test (`test_delete_session_clears_lease_files_too`) to simulate the deletion of a session that has a `.omp-desktop.lock` file, a `.reclaiming.json` pending file, and a `.stale-` quarantine file. The test called `delete_session(&path, &root)` and observed that while the session JSONL and its artifacts directory were removed, the three lock-related files were left intact on the filesystem.",
+            "result": "The `delete_session` function fails to clean up associated lease lock and state files, resulting in orphaned files being left behind."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if orphaned lock files slow down `scan_sessions` or directory enumeration over time."
+        ],
+        "proposed_task_ids": [
+          "discovery-d4ad428a2f0b09e4"
+        ],
+        "completed_at": "2026-10-02T06:38:03.591377Z",
+        "source": {
+          "activity_id": "sessions/7363201851654324489/activities/9ad2a77ec1354df381db498638efffb7",
+          "report_sha256": "ea5ceda6392af40da89273fdb6a620ecd044c41df1d66e5e23533cfa580e83c7",
+          "activity_created_at": "2026-10-02T06:05:57.510284Z",
+          "session_id": "7363201851654324489",
+          "dispatch_key": "42534839e2935ef2316ce107"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7363201851654324489/activities/9ad2a77ec1354df381db498638efffb7",
+          "report_sha256": "ea5ceda6392af40da89273fdb6a620ecd044c41df1d66e5e23533cfa580e83c7",
+          "activity_created_at": "2026-10-02T06:05:57.510284Z",
+          "session_id": "7363201851654324489",
+          "dispatch_key": "42534839e2935ef2316ce107"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-d4ad428a2f0b09e4"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-d4ad428a2f0b09e4",
+      "title": "Remove session lease and lock files upon session deletion",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-10-02T06:38:03.591377Z",
+      "acceptance": [
+        "Update `delete_session` to locate the `.omp-desktop.lock` file associated with the session being deleted.",
+        "Identify and remove any associated `.reclaiming.json` and `.stale-*.json` files matching the lock's prefix.",
+        "Add a test confirming that all associated lease files are removed when a session is deleted."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; observed that `delete_session` does not target lock and quarantine files.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a session file `session.jsonl`.",
+            "Create dummy lock state files: `session.omp-desktop.lock`, `.session.omp-desktop.lock.reclaiming.json`, and `.session.omp-desktop.lock.stale-XXXX.json`.",
+            "Call `delete_session` on the session file."
+          ],
+          "expected": "All created files, including the session file and the three lease-related files, are removed from the filesystem.",
+          "actual": "The session file is deleted, but the three lease-related files remain on the filesystem as orphans."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-reliability-16",
+        "activity_id": "sessions/7363201851654324489/activities/9ad2a77ec1354df381db498638efffb7",
+        "report_sha256": "ea5ceda6392af40da89273fdb6a620ecd044c41df1d66e5e23533cfa580e83c7",
+        "activity_created_at": "2026-10-02T06:05:57.510284Z",
+        "session_id": "7363201851654324489",
+        "dispatch_key": "42534839e2935ef2316ce107"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-02T06:05:03.037891Z",
+    "last_poll_at": "2026-10-02T06:38:22.337068Z",
     "last_tick_at": "2026-10-02T06:05:30.202500Z",
     "run_id": "36971766083"
   },
