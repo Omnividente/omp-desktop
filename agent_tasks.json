@@ -144986,6 +144986,391 @@
         "receipt_id": "8d91a39c4bc9eb00268d057464066de8bb969076bb70d9e9b53a4df256974bdc",
         "frontier_seq": 35,
         "event_id": "7ab34ed3e48e82f9a8f57f8e96e1aaeb530d0f1ab15b2f38ca829084f9e2619f"
+      },
+      {
+        "type": "Intent",
+        "at": "2026-10-02T00:47:20.640515Z",
+        "decision_id": "5732d8c8ae884eb3979c44937813d7d29ccccf01df4334c94b9f28205c3ccda0",
+        "frontier_seq": 35,
+        "predecessor_decision_id": "b2af96625661f9e6de66954a9b52dfc09a0e3dacfc099a5a6583c4b14e25d6fd",
+        "workflow": "autonomous_next_task.yml",
+        "normalized_inputs": {
+          "task_id": "",
+          "recover_report": false,
+          "repair_after": "",
+          "recover_feedback": false,
+          "feedback_after": "",
+          "focus": "",
+          "risk_ceiling": "medium",
+          "automatic": true
+        },
+        "input_hash": "6d1b3ed6f945d04bbbab306ef2429d9199ab35570d8b86c5143ac35a180328a3",
+        "basis": {
+          "health": {
+            "health": "attention",
+            "action": "next_task",
+            "reason": "research_due",
+            "delay_seconds": 0,
+            "main_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+            "lab_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
+            "main_is_ancestor": true,
+            "code_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
+            "state_sha": "f0f9491ebf651f49f47370bab8785d1336fa71f3",
+            "sync_outcome": null,
+            "dispatch_journal": {
+              "initialized": true,
+              "active_intent": {
+                "decision_id": "b2af96625661f9e6de66954a9b52dfc09a0e3dacfc099a5a6583c4b14e25d6fd",
+                "workflow": "autonomous_continue.yml",
+                "correlation_key": "f02495f2d653c2c2c45290a225d6155c",
+                "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+                "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                "source_kind": "sender",
+                "main_sha": null,
+                "lab_sha": null,
+                "source_run_id": "36942933442",
+                "source_run_attempt": "1",
+                "intent_at": "2026-10-02T00:22:42.927758Z",
+                "age_seconds": 1372,
+                "send_claim_consumed": true,
+                "executor_claim_consumed": true,
+                "send_claim_id": "8b8f0d60480d69141c932a61e6b2138421a64d17225f06b5a4b947f6d5bca17c",
+                "send_run_id": "36942933442",
+                "send_run_attempt": "1",
+                "executor_claim_id": "a2c613e9a6d83b91a18579aef5ca00fd6821986b823f9cffbb5cbf3cc1eaae34",
+                "executor_run_id": "36945712850",
+                "executor_run_attempt": "1",
+                "before_state_sha": "0ed28bea1c6b5defd5beb98f4d53bdd9f1a35240",
+                "effect_kind": null,
+                "completion_kind": null,
+                "missing": [
+                  "terminal_receipt",
+                  "useful_effect"
+                ],
+                "delivery_observations": [
+                  {
+                    "kind": "post_acknowledged",
+                    "observed_at": "2026-10-02T00:23:09Z"
+                  }
+                ],
+                "run": {
+                  "id": 36945712850,
+                  "status": "in_progress",
+                  "conclusion": null,
+                  "observed_at": "2026-10-02T00:23:22Z"
+                },
+                "execution_phase": "execute",
+                "phase": "executing"
+              },
+              "attention": [],
+              "current_executor": true,
+              "current_sender": false,
+              "completed_receipts": 0,
+              "frontier_seq": 34
+            },
+            "proposals": [],
+            "pending_proposals": 24,
+            "approved_proposals": 0,
+            "waiting_workers": [],
+            "observed_at": "2026-10-02T00:47:04Z",
+            "last_next_task": {
+              "id": 36933420733,
+              "status": "completed",
+              "conclusion": "success",
+              "observed_at": "2026-10-01T22:14:05Z"
+            },
+            "next_task_age_seconds": 9179,
+            "last_sync": {
+              "id": 36918821214,
+              "status": "completed",
+              "conclusion": "success",
+              "observed_at": "2026-10-01T20:16:06Z"
+            },
+            "attention": [
+              {
+                "reason": "report_invalid",
+                "task_id": "research-workspace-navigation-reliability-9",
+                "observed_at": "2026-09-25T09:08:46Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-diagnostics-resources-reliability-9",
+                "observed_at": "2026-09-25T14:26:53Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-settings-models-performance-10",
+                "observed_at": "2026-09-26T11:19:50Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-settings-models-ux-12",
+                "observed_at": "2026-09-28T12:47:08Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-workspace-navigation-ux-13",
+                "observed_at": "2026-09-29T11:38:53Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-workspace-navigation-behavior-15",
+                "observed_at": "2026-09-30T16:37:00Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-diagnostics-resources-reliability-14",
+                "observed_at": "2026-09-30T16:51:12Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              },
+              {
+                "reason": "report_invalid",
+                "task_id": "research-transcript-links-behavior-14",
+                "observed_at": "2026-10-01T09:34:42Z",
+                "repair_status": "invalid",
+                "repair_result": "sent"
+              }
+            ],
+            "acknowledged": [
+              {
+                "task_id": "research-workspace-navigation-ux-2",
+                "disposition": {
+                  "action": "close_unaccepted",
+                  "actor": "Omnividente",
+                  "at": "2026-09-20T17:02:52Z",
+                  "note": "Owner review 2026-09-20: targeted recovery run 35523951031 verified the same saved report after the prior format-repair request. The worker is COMPLETED without a PR, but its output still has no AUTONOMOUS_RESEARCH block or structured findings. Preserve the raw report, source, diagnostics and attempts; acknowledge this unaccepted historical research incident. Do not fabricate structured evidence, authorize implementation or start another research attempt.",
+                  "attempt": {
+                    "session_id": "11216076119679930141",
+                    "dispatch_key": "a71c893f97a937506694a354",
+                    "attempts": 1
+                  },
+                  "basis": {
+                    "state": "awaiting_report",
+                    "outcome": "report_invalid",
+                    "session_state": "COMPLETED",
+                    "event_at": "2026-09-18T08:51:22.563670Z",
+                    "source": {
+                      "activity_id": "sessions/11216076119679930141/activities/add7b710dd804af4a4729ab5163e8249",
+                      "report_sha256": "2f370465edf50761adfce57a111b423a438edf74f60dd516da8b96c43c522d7a",
+                      "activity_created_at": "2026-09-18T08:53:46.990720Z",
+                      "session_id": "11216076119679930141",
+                      "dispatch_key": "a71c893f97a937506694a354"
+                    },
+                    "report_error": {
+                      "code": "research_invalid",
+                      "detail": "expected exactly one ordered research report block",
+                      "reported_at": "2026-09-18T08:51:22.563670Z",
+                      "source": {
+                        "activity_id": "sessions/11216076119679930141/activities/0c210d26035b4956bdc7f8d893b07fa0",
+                        "report_sha256": "e0e1eb0ce2d4d5ff38f964835e9752f62ff01726e76f9a045bce544d6c76ce6d",
+                        "activity_created_at": "2026-09-18T08:44:19.483003Z",
+                        "session_id": "11216076119679930141",
+                        "dispatch_key": "a71c893f97a937506694a354"
+                      }
+                    },
+                    "report_repair": {
+                      "at": "2026-09-18T08:51:51.254064Z",
+                      "result": "sent",
+                      "status": "invalid",
+                      "source": {
+                        "activity_id": "sessions/11216076119679930141/activities/add7b710dd804af4a4729ab5163e8249",
+                        "report_sha256": "2f370465edf50761adfce57a111b423a438edf74f60dd516da8b96c43c522d7a",
+                        "activity_created_at": "2026-09-18T08:53:46.990720Z",
+                        "session_id": "11216076119679930141",
+                        "dispatch_key": "a71c893f97a937506694a354"
+                      },
+                      "detail": "expected exactly one ordered research report block"
+                    }
+                  }
+                }
+              },
+              {
+                "task_id": "research-settings-models-ux-2",
+                "disposition": {
+                  "action": "close_unaccepted",
+                  "actor": "Omnividente",
+                  "at": "2026-09-20T16:52:04Z",
+                  "note": "Owner review 2026-09-20: this research session ended FAILED after both allowed attempts. No accepted report or PR exists. Close this old incident as unaccepted; preserve the original failure, identities, attempts and history. Do not restart research or mark it successful.",
+                  "attempt": {
+                    "session_id": "8240336203072323818",
+                    "dispatch_key": "b63fc851a32b0fca0905948d",
+                    "attempts": 2
+                  },
+                  "basis": {
+                    "state": "exhausted",
+                    "outcome": "failed",
+                    "session_state": "FAILED",
+                    "event_at": "2026-09-18T10:25:38.466091Z"
+                  }
+                }
+              },
+              {
+                "task_id": "research-transcript-links-performance-3",
+                "disposition": {
+                  "action": "close_unaccepted",
+                  "actor": "Omnividente",
+                  "at": "2026-09-20T17:03:06Z",
+                  "note": "Owner review 2026-09-20: targeted recovery run 35523956502 verified the saved output after the prior format-repair request. The worker is COMPLETED without a PR; the output remains prose with no AUTONOMOUS_RESEARCH block or structured findings. Preserve its source, raw report, diagnostics and attempt; close the historical incident as unaccepted, not successful. No new investigation or implementation is authorized.",
+                  "attempt": {
+                    "session_id": "3711902823957123123",
+                    "dispatch_key": "09d50282daf3785a75c022e1",
+                    "attempts": 1
+                  },
+                  "basis": {
+                    "state": "awaiting_report",
+                    "outcome": "report_invalid",
+                    "session_state": "COMPLETED",
+                    "event_at": "2026-09-19T16:35:15.751786Z",
+                    "source": {
+                      "activity_id": "sessions/3711902823957123123/activities/ede6e54d23334e56aeced0644cc07109",
+                      "report_sha256": "f13101272c36e84f56fd7271950d75126582aca1f6edef62d9fc2b36b77460e4",
+                      "activity_created_at": "2026-09-19T16:37:44.851882Z",
+                      "session_id": "3711902823957123123",
+                      "dispatch_key": "09d50282daf3785a75c022e1"
+                    },
+                    "report_error": {
+                      "code": "research_invalid",
+                      "detail": "expected exactly one ordered research report block",
+                      "reported_at": "2026-09-19T16:35:15.751786Z",
+                      "source": {
+                        "activity_id": "sessions/3711902823957123123/activities/ff80ab38e0ea45ed9cd1d2e5b72f2554",
+                        "report_sha256": "a99443149837c2ccc0c1cc77c0a51ac5057820c7b7a7febeedb9fed811124678",
+                        "activity_created_at": "2026-09-19T16:27:31.287181Z",
+                        "session_id": "3711902823957123123",
+                        "dispatch_key": "09d50282daf3785a75c022e1"
+                      }
+                    },
+                    "report_repair": {
+                      "at": "2026-09-19T16:35:40.393313Z",
+                      "result": "sent",
+                      "status": "invalid",
+                      "source": {
+                        "activity_id": "sessions/3711902823957123123/activities/ede6e54d23334e56aeced0644cc07109",
+                        "report_sha256": "f13101272c36e84f56fd7271950d75126582aca1f6edef62d9fc2b36b77460e4",
+                        "activity_created_at": "2026-09-19T16:37:44.851882Z",
+                        "session_id": "3711902823957123123",
+                        "dispatch_key": "09d50282daf3785a75c022e1"
+                      },
+                      "detail": "expected exactly one ordered research report block"
+                    }
+                  }
+                }
+              },
+              {
+                "task_id": "research-sessions-persistence-behavior-6",
+                "disposition": {
+                  "action": "close_unaccepted",
+                  "actor": "Omnividente",
+                  "at": "2026-09-23T12:46:15Z",
+                  "note": "Format-only repair remained invalid: no ordered research report block or accepted findings. Acknowledge this exact settled attempt as unaccepted; preserve its source and repair receipt for audit.",
+                  "attempt": {
+                    "session_id": "12537997338845253491",
+                    "dispatch_key": "473d548f2f662d532ee91b88",
+                    "attempts": 1
+                  },
+                  "basis": {
+                    "state": "awaiting_report",
+                    "outcome": "report_invalid",
+                    "session_state": "COMPLETED",
+                    "event_at": "2026-09-21T16:58:20.789782Z",
+                    "source": {
+                      "activity_id": "sessions/12537997338845253491/activities/57f9e12036d949878c9077083ba61cc6",
+                      "report_sha256": "4186baf7f58c10e69ec9820c2774312ec64ac078f5d4055078db9efa1acb30e4",
+                      "activity_created_at": "2026-09-21T16:59:22.856993Z",
+                      "session_id": "12537997338845253491",
+                      "dispatch_key": "473d548f2f662d532ee91b88"
+                    },
+                    "report_error": {
+                      "code": "research_invalid",
+                      "detail": "expected exactly one ordered research report block",
+                      "reported_at": "2026-09-21T16:58:20.789782Z",
+                      "source": {
+                        "activity_id": "sessions/12537997338845253491/activities/947d893c22eb4669b8094defaff7607b",
+                        "report_sha256": "9169c51203e3cc56e103481a76097a7cfa6564d92bd9200abc9da24e48e11832",
+                        "activity_created_at": "2026-09-21T16:48:15.661867Z",
+                        "session_id": "12537997338845253491",
+                        "dispatch_key": "473d548f2f662d532ee91b88"
+                      }
+                    },
+                    "report_repair": {
+                      "at": "2026-09-21T16:58:47.196453Z",
+                      "result": "sent",
+                      "status": "invalid",
+                      "source": {
+                        "activity_id": "sessions/12537997338845253491/activities/57f9e12036d949878c9077083ba61cc6",
+                        "report_sha256": "4186baf7f58c10e69ec9820c2774312ec64ac078f5d4055078db9efa1acb30e4",
+                        "activity_created_at": "2026-09-21T16:59:22.856993Z",
+                        "session_id": "12537997338845253491",
+                        "dispatch_key": "473d548f2f662d532ee91b88"
+                      },
+                      "detail": "expected exactly one ordered research report block"
+                    }
+                  }
+                }
+              }
+            ],
+            "research_next_at": "2026-10-02T00:46:20Z",
+            "due_at": "2026-10-02T00:46:20Z",
+            "scheduler": {
+              "last_tick_at": "2026-10-01T22:12:28Z",
+              "last_poll_at": "2026-10-01T22:12:04Z",
+              "due_at": "2026-10-02T00:46:20Z",
+              "overdue_seconds": 44,
+              "state": "overdue",
+              "retry_at": null,
+              "failed_ticks": 0,
+              "wakeup_run": {
+                "id": 36945712850,
+                "status": "in_progress",
+                "conclusion": null,
+                "observed_at": "2026-10-02T00:23:22Z"
+              },
+              "pending_wakeups": []
+            }
+          },
+          "receipt_id": "8d91a39c4bc9eb00268d057464066de8bb969076bb70d9e9b53a4df256974bdc"
+        },
+        "first_source_trigger": {
+          "run_id": "36945712850",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "source_identity": "210a46fd3dd41352a8b86a77d7aaf8d57f20870ae1e4605da53aa39205436d27",
+        "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+        "correlation_key": "3ede7007b53544a644b6717f04fd3fef",
+        "source_kind": "sender",
+        "event_id": "5548a7c42733b794c40b0dfb9f6598727f5a7fd7409f0c93a3c441b18cd9ceda"
+      },
+      {
+        "type": "SendClaim",
+        "at": "2026-10-02T00:47:20.640795Z",
+        "decision_id": "5732d8c8ae884eb3979c44937813d7d29ccccf01df4334c94b9f28205c3ccda0",
+        "claim_id": "c0384782eeac33f8bab6cae5663cc1ebfbfa4ede44dbe3f565a0270fc5812eba",
+        "trigger": {
+          "run_id": "36945712850",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "event_id": "e7039471eee677dbbac599d60cf36d9183c2bef22e7e3dc0717d6d91839ad489"
       }
     ]
   }
