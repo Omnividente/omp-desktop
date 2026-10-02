@@ -146,6 +146,53 @@ switch the loop, change tasks, or impersonate NEXT/CONTINUE/SYNC admission.
    owner authorization. Do not infer permission to cancel/delete the original run
    or revoke a claimed executor from the one unclaimed-delivery recovery decision.
 
+Exceptional **frozen CONTINUE cutover** requires a separate explicit owner decision.
+It is not the unclaimed-delivery fence above and never revokes NEXT or SYNC.
+`autonomous_cutover_continue.yml` runs the existing native owner entry with fixed
+`--operation continue_cutover`; its only inputs are `expected_state_sha` and
+`decision_id`. Default `--operation delivery` retains the original strictly
+unclaimed OwnerFence operation and its distinct workflow/acknowledgement contract.
+
+1. Deploy the separately checked compatible main revision first. Save the exact
+   authoritative state head, selected current CONTINUE and complete body/journal
+   baseline. A sent sender or a claimed CONTINUE executor is eligible only with
+   **no effect, completion, phase claim or execution stage**. Waiting/Actions status
+   alone grants no permission; prepared/finalizing SYNC and every NEXT stay protected.
+2. Dispatch the owner workflow once on main with those exact pins. It binds the
+   original event inputs, checked configuration, actual workflow/ref/control SHA,
+   repository, owner and rerun actor, rechecks them before the native operation and
+   uses one CAS attempt. A head/claim/effect race fails closed without rebasing the
+   owner request. It appends only `OwnerContinueCutover(owner_cutover_continue)` and
+   increments the logical frontier once; it preserves the entire substantive body,
+   journal prefix and original send/executor receipts. It neither impersonates
+   execution completion nor records a runtime effect, calls `advance`, dispatches,
+   edits tasks, switches the loop or changes any GitHub run's status.
+3. Read back the acknowledged event and verify that late keyed bootstrap rejects
+   the cut-over decision before frozen checkout. Already captured sender/executor
+   capabilities cannot consume, observe or record an effect after the closure.
+   Old frozen controllers fail closed on the new authority event. Disposable native
+   proof exercises an actual published controller that acquired its executor before
+   cutover and cannot record its previously valid continuation effect afterward.
+4. A lost acknowledgement/conflict or failed result retention remains blocked;
+   reconcile the real state instead of repeating the POST or changing the expected
+   SHA. Replay with the original owner run/context and inputs (rerun attempt may
+   change) only observes `already_cut_over`: no new event, claim or send permission.
+5. The owner receipt is **not** timer/sender authority. `reserve_send` and runtime
+   `advance` cannot use it. The next decision must be one distinct ordinary keyless
+   external checked SYNC; its existing `external_ingress` basis explicitly retains
+   `state_sha` and `owner_cutover=<receipt_id>`. Other automatic ingress cannot seize
+   this frontier. Only the SYNC's own legitimate outcome can feed a later handoff.
+6. Readiness removes only the validated closed CONTINUE delivery with exact workflow,
+   frozen pin, correlation title and explicit repository identity. For a claimed
+   CONTINUE, including an external one without a keyed title, it requires the exact
+   original executor run ID, attempt and event in that repository; the durable claim
+   binds its frozen controller. Actions `head_sha` is the event-main revision, which
+   can differ from that frozen checkout. Main-branch/trust filtering remains unchanged.
+   Missing/mismatched identity and unrelated runs remain visible;
+   the raw run and all history are retained, and no terminal status is fabricated.
+   Preserve the original fenced NEXT run and all worker identities. This cutover is
+   not permission to delete a run, reset the journal or repin an old intent.
+
 
 First introduction of the journal requires a separately authorized paused rollout;
 these initialization notes are not permission to run commands against production:
