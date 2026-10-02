@@ -20,6 +20,11 @@ NEXT = "autonomous_next_task.yml"
 CONTINUE = "autonomous_continue.yml"
 SYNC = "autonomous_sync.yml"
 WORKFLOWS = frozenset((NEXT, CONTINUE, SYNC))
+OWNER_RECOVERY = "autonomous_recover_delivery.yml"
+OWNER_TRIGGER_FIELDS = frozenset((
+    "run_id", "run_attempt", "event_name", "control_sha", "repository", "actor",
+    "workflow", "ref", "expected_state_sha", "decision_id",
+))
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 KEY = re.compile(r"[0-9a-f]{32}\Z")
@@ -125,6 +130,21 @@ def _trigger(trigger: dict, control_sha: str) -> dict:
     return result
 
 
+def _owner_trigger(trigger, decision_id, expected_state_sha):
+    if (not isinstance(trigger, dict) or set(trigger) != OWNER_TRIGGER_FIELDS
+            or not DIGEST.fullmatch(str(decision_id))
+            or not SHA.fullmatch(str(expected_state_sha))):
+        raise ValueError("owner fence requires exact original authorization inputs")
+    trigger = _trigger(trigger, trigger["control_sha"])
+    if (trigger["event_name"] != "workflow_dispatch" or trigger["workflow"] != OWNER_RECOVERY
+            or trigger["ref"] != "refs/heads/main" or trigger["decision_id"] != decision_id
+            or trigger["expected_state_sha"] != expected_state_sha
+            or not isinstance(trigger["actor"], str) or not trigger["actor"].strip()
+            or not isinstance(trigger["repository"], str) or not trigger["repository"]):
+        raise ValueError("owner fence requires its actual owner main workflow event")
+    return trigger
+
+
 def _source_identity(trigger: dict) -> str:
     # A workflow rerun and a repeated completion callback are the same source.
     event = trigger["event_name"]
@@ -176,6 +196,11 @@ def _event(event_type: str, **fields) -> dict:
 
 def _receipt_id(decision_id: str, claim_id: str, kind: str, evidence: dict) -> str:
     return digest([decision_id, claim_id, kind, evidence])
+
+
+def _owner_fence_receipt_id(decision_id, trigger, state_sha, before_digest):
+    return _receipt_id(decision_id, _source_identity(trigger), "owner_revoked_unclaimed",
+                       {"owner_trigger": trigger, "before_state_sha": state_sha, "before_digest": before_digest})
 
 
 def _valid_effect(kind: str, evidence: dict, intent: dict, executor: dict,
@@ -251,7 +276,8 @@ def _sender_basis(state, basis):
     if not isinstance(basis, dict):
         raise JournalConflict("sender basis must identify the current causal receipt")
     predecessor = state["predecessor_decision_id"]
-    receipt = state["effects"].get(predecessor) or state["completions"].get(predecessor)
+    receipt = (state["effects"].get(predecessor) or state["completions"].get(predecessor)
+               or state["owner_fences"].get(predecessor))
     expected = receipt["receipt_id"] if receipt else None
     if basis.get("receipt_id") != expected:
         raise JournalConflict("sender basis is not the current predecessor receipt")
@@ -298,8 +324,8 @@ def materialize(journal: dict) -> dict:
         raise ValueError("dispatch_journal requires version 1 and nonempty events")
     state = {"frontier_seq": 0, "predecessor_decision_id": "", "active_intent": None,
              "intents": {}, "send_claims": {}, "executor_claims": {}, "stages": {},
-             "phase_claims": {}, "effects": {}, "completions": {}, "completed_receipts": set(),
-             "advanced_receipts": set(), "source_ids": set()}
+             "phase_claims": {}, "effects": {}, "completions": {}, "owner_fences": {},
+             "completed_receipts": set(), "advanced_receipts": set(), "source_ids": set()}
     event_ids = set()
     for index, event in enumerate(journal["events"]):
         if not isinstance(event, dict):
@@ -374,6 +400,25 @@ def materialize(journal: dict) -> dict:
                     raise ValueError("execution right has already been consumed or is unbound")
                 state["executor_claims"][decision_id] = event
                 state["source_ids"].add(_source_identity(trigger))
+            continue
+        if kind == "OwnerFence":
+            trigger = _owner_trigger(event.get("owner_trigger"), decision_id, event.get("before_state_sha"))
+            if (executor is not None or intent["source_kind"] != "sender"
+                    or decision_id not in state["send_claims"] or decision_id in state["effects"]
+                    or decision_id in state["completions"] or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")
+                    or event.get("kind") != "owner_revoked_unclaimed"
+                    or not DIGEST.fullmatch(str(event.get("before_digest", "")))
+                    or event.get("receipt_id") != _owner_fence_receipt_id(
+                        decision_id, trigger, event["before_state_sha"], event["before_digest"])
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("owner fence can only revoke the current unclaimed delivery")
+            state["owner_fences"][decision_id] = event
+            state["source_ids"].add(_source_identity(trigger))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
             continue
         if executor is None or event.get("executor_claim_id") != executor["claim_id"]:
             raise ValueError("effect or stage lacks the original executor")
@@ -537,9 +582,9 @@ class JournalStore:
         except StateUncertain as exc:
             raise JournalUncertain("journal claim acknowledgement was lost; reconcile only") from exc
 
-    def _mutate(self, operation):
+    def _mutate(self, operation, *, attempts=3):
         from state_store import StateConflict
-        for attempt in range(3):
+        for attempt in range(attempts):
             data, state_sha = self._load()
             journal = data.get("dispatch_journal")
             if journal is None:
@@ -556,7 +601,7 @@ class JournalStore:
             try:
                 saved = self._write(data)
             except StateConflict:
-                if attempt == 2:
+                if attempt == attempts - 1:
                     raise JournalConflict("journal CAS remained conflicted") from None
                 continue
             self._writer_base = previous_body
@@ -636,6 +681,41 @@ class JournalStore:
             return None, [_event("DeliveryObservation", decision_id=decision_id, observation=observation)]
         self._mutate(observe)
 
+    def fence_unclaimed(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Revoke one unused right by explicit owner CAS; never claim a runtime effect."""
+        from proposal_backlog import authorize
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("owner fence repository differs from configured authority")
+
+        def fence(data, state_sha, state):
+            prior = state["owner_fences"].get(decision_id)
+            if prior is not None:
+                if prior["before_state_sha"] != expected_state_sha:
+                    raise JournalConflict("owner fence replay changed the original state pin")
+                return (prior, "already_fenced"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("owner fence state pin moved")
+            intent = state["active_intent"]
+            if (intent is None or intent["decision_id"] != decision_id
+                    or intent["source_kind"] != "sender" or decision_id not in state["send_claims"]
+                    or decision_id in state["executor_claims"] or decision_id in state["effects"]
+                    or decision_id in state["completions"] or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")):
+                raise JournalConflict("owner fence requires the current delivery without any executor")
+            before_digest = substantive_digest(data)
+            event = _event("OwnerFence", decision_id=decision_id, kind="owner_revoked_unclaimed",
+                           owner_trigger=trigger, before_state_sha=state_sha, before_digest=before_digest,
+                           receipt_id=_owner_fence_receipt_id(decision_id, trigger, state_sha, before_digest),
+                           frontier_seq=state["frontier_seq"] + 1)
+            return (event, "fenced"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(fence, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
     def admit(self, workflow, inputs, *, key, trigger, control_sha):
         inputs = normalize_inputs(workflow, inputs)
         trigger = _trigger(trigger, control_sha)
@@ -700,6 +780,8 @@ class JournalStore:
         decision_id = intent["decision_id"]
         if key and (intent["control_sha"] != control_sha or key != intent["correlation_key"]):
             raise JournalConflict("refused internal ingress changed its pinned identity")
+        if decision_id in state["owner_fences"]:
+            return {"outcome": "stopped", "reason": "delivery_owner_fenced", "decision_id": decision_id}
         if decision_id in state["effects"] or decision_id in state["completions"]:
             return {"outcome": "stopped", "reason": "execution_outcome_already_recorded", "decision_id": decision_id}
         executor = state["executor_claims"].get(decision_id)

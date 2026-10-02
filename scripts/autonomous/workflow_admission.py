@@ -13,6 +13,7 @@ from dispatch_journal import normalize_inputs
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 WORKFLOWS = {"autonomous_next_task.yml", "autonomous_continue.yml", "autonomous_sync.yml"}
+OWNER_RECOVERY = "autonomous_recover_delivery.yml"
 
 
 def add_arguments(parser, *, run_id=True):
@@ -50,6 +51,8 @@ class AdmissionContext:
     control_sha: str
 
     def admit(self, store, inputs):
+        if self.workflow not in WORKFLOWS:
+            raise ValueError("owner recovery cannot admit workflow execution")
         inputs = normalize_inputs(self.workflow, inputs)
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         if self.trigger["event_name"] == "workflow_dispatch" and event_path:
@@ -74,7 +77,7 @@ class AdmissionContext:
 
 
 def context(args, workflow, config):
-    if workflow not in WORKFLOWS:
+    if workflow not in WORKFLOWS and workflow != OWNER_RECOVERY:
         raise ValueError("unsupported execution workflow")
     run_id = _bound(str(args.run_id), "GITHUB_RUN_ID")
     attempt = _bound(str(args.run_attempt), "GITHUB_RUN_ATTEMPT")
@@ -92,13 +95,16 @@ def context(args, workflow, config):
     if os.environ.get("GITHUB_REPOSITORY") != repository:
         raise ValueError("execution repository mismatch")
     workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
-    if workflow_ref and workflow_ref != repository + "/.github/workflows/" + workflow + "@refs/heads/main":
+    if ((workflow == OWNER_RECOVERY or workflow_ref)
+            and workflow_ref != repository + "/.github/workflows/" + workflow + "@refs/heads/main"):
         raise ValueError("executor is running a different workflow")
     actual_sha = control_revision()
     control_sha = _bound(args.control_sha, "CONTROL_SHA") or actual_sha
     if not SHA.fullmatch(control_sha) or actual_sha != control_sha:
         raise ValueError("workflow control checkout is not the pinned revision")
     _bound(args.continuation_key, "CONTINUATION_KEY")
+    if workflow == OWNER_RECOVERY and args.continuation_key:
+        raise ValueError("owner recovery cannot use an internal execution key")
     if args.continuation_key and event != "workflow_dispatch":
         raise ValueError("internal correlation is valid only for workflow dispatch")
     if event == "workflow_dispatch" and not args.continuation_key:
@@ -107,6 +113,8 @@ def context(args, workflow, config):
     trigger = {"run_id": run_id, "run_attempt": attempt, "event_name": event,
                "control_sha": control_sha, "repository": repository,
                "actor": os.environ.get("GITHUB_ACTOR", "")}
+    if workflow == OWNER_RECOVERY:
+        trigger.update(workflow=workflow, ref=os.environ["GITHUB_REF"])
     if event == "workflow_run":
         source = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))["workflow_run"]
         if (source.get("head_repository", {}).get("full_name") != repository
@@ -132,6 +140,12 @@ def recheck_context(binding):
     for key, variable in (("run_id", "GITHUB_RUN_ID"), ("run_attempt", "GITHUB_RUN_ATTEMPT"),
                           ("event_name", "GITHUB_EVENT_NAME"), ("repository", "GITHUB_REPOSITORY")):
         _bound(binding.trigger[key], variable)
+    if binding.workflow == OWNER_RECOVERY:
+        if os.environ.get("GITHUB_ACTOR") != binding.trigger["actor"]:
+            raise ValueError("owner recovery actor changed before execution")
+        if (os.environ.get("GITHUB_WORKFLOW_REF") != binding.trigger["repository"]
+                + "/.github/workflows/" + OWNER_RECOVERY + "@" + binding.trigger["ref"]):
+            raise ValueError("owner recovery workflow changed before execution")
 
 
 def substantive_manifest(manifest):
@@ -142,6 +156,8 @@ def substantive_manifest(manifest):
 
 def checked_control_pin(args, config, store):
     """Authenticate a frozen receiver revision using checked-main code only."""
+    if args.workflow not in WORKFLOWS:
+        raise ValueError("owner recovery cannot authorize receiver checkout")
     binding = context(args, args.workflow, config)
     if not binding.key:
         # External ingress uses the checked main revision, never arbitrary code.
@@ -157,6 +173,8 @@ def checked_control_pin(args, config, store):
         raise ValueError("frozen receiver requires its original key and controller revision")
     state = store.current()
     intent = next((item for item in state["intents"].values() if item["correlation_key"] == key), None)
+    if intent is not None and intent["decision_id"] in state.get("owner_fences", {}):
+        raise ValueError("frozen receiver was revoked by the owner")
     if (intent is None or intent["source_kind"] != "sender"
             or intent["decision_id"] not in state["send_claims"]):
         raise ValueError("frozen receiver has no durable sender claim")

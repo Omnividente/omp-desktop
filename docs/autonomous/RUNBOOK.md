@@ -97,6 +97,44 @@ NEXT/SYNC source jobs and their handoff use that same observation-only dispositi
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
 
+Exceptional **unclaimed delivery recovery** is a separate, explicitly authorized
+owner operation, not a retry or a normal no-effect result. The main-only
+`autonomous_recover_delivery.yml` workflow accepts exactly `expected_state_sha`
+and `decision_id`, binds the original event inputs and configured owner to checked
+event-main code, and calls `JournalStore.fence_unclaimed` once. It cannot dispatch,
+switch the loop, change tasks, or impersonate NEXT/CONTINUE/SYNC admission.
+
+1. Save the exact authoritative state SHA, target sender decision and immutable
+   queue/journal baseline. The target must still be the current sent delivery with
+   **no ExecutorClaim, phase, stage, effect or completion**. A spent executor is
+   never recoverable through this command, even after its Actions run dies.
+2. Deploy the separately reviewed compatible main revision first. Prove that its
+   frozen-controller bootstrap rejects the revoked key and that an already
+   checked-out old receiver fails closed on the new append-only event before any
+   executor, worker or substantive effect. Delivery/run metadata alone is not
+   this proof.
+3. Dispatch `autonomous_recover_delivery.yml` on `main` with the two exact saved
+   inputs. Its single state CAS appends `OwnerFence(owner_revoked_unclaimed)` and
+   closes that logical frontier once; the owner event records its actual workflow,
+   ref, actor, control revision and original state/decision pins. It does not invent
+   an execution/effect/completion receipt or change the old GitHub run's status.
+4. A moved head, executor race, unknown acknowledgement or invalid context returns
+   a retained blocked result and stops. Do not retry with a new baseline or send a
+   replacement merely because acknowledgement was lost. Reconcile the real state
+   under owner review. An acknowledged fence replay is only `already_fenced`
+   observation: no new event, claim, send or permission is issued.
+5. Read back the acknowledged state head. Confirm the exact OwnerFence, one frontier
+   increment, unchanged task/provider identities and substantive manifest, and the
+   complete original journal prefix. Late keyed NEXT/CONTINUE/SYNC receivers and
+   handoff report `stopped / delivery_owner_fenced` without Actions-run observation,
+   body effects or another send. An unrelated unbound ingress remains blocked;
+   it cannot infer another decision from the fence set.
+6. Only after that irreversible denial and exact deployment proof may the owner
+   start one distinct ordinary external checked Sync and continue the existing
+   recovery plan. The fence itself neither calls `advance` on a runtime receipt
+   nor schedules this continuation. Never reset the journal, repin the old intent,
+   fabricate terminal Actions status, or blindly repeat its workflow dispatch.
+
 
 First introduction of the journal requires a separately authorized paused rollout;
 these initialization notes are not permission to run commands against production:

@@ -12,10 +12,11 @@ import unittest
 from unittest.mock import patch
 
 import state_store
-from dispatch_journal import CONTINUE, NEXT, SYNC, JournalConflict, JournalStore, JournalUncertain
+from dispatch_journal import CONTINUE, NEXT, OWNER_RECOVERY, SYNC, JournalConflict, JournalStore, JournalUncertain
 from state_store import StateConflict, load_state, save_state
 
 CONTROL = "a" * 40
+OWNER_CONFIG = {"repository": "synthetic/c-send", "merge_gate": {"owner_approvers": ["owner-a"]}}
 
 
 class JournalTests(unittest.TestCase):
@@ -59,7 +60,8 @@ class JournalTests(unittest.TestCase):
         store = store or self.store
         state = store.current()
         predecessor = state["predecessor_decision_id"]
-        outcome = state["effects"].get(predecessor) or state["completions"].get(predecessor)
+        outcome = (state["effects"].get(predecessor) or state["completions"].get(predecessor)
+                   or state["owner_fences"].get(predecessor))
         basis = {"receipt_id": outcome["receipt_id"]} if outcome else {}
         return store.reserve_send(workflow, inputs or {}, basis=basis,
                                   trigger=trigger or self.trigger(), control_sha=CONTROL)
@@ -79,6 +81,14 @@ class JournalTests(unittest.TestCase):
         after = self.store.save_manifest(data)
         return self.store.record_effect(capability, "controller_checkpoint",
                                         {"before_state_sha": before, "after_state_sha": after})
+
+    def owner_trigger(self, intent, state_sha, run="500"):
+        return {**self.trigger(run), "control_sha": "b" * 40, "workflow": OWNER_RECOVERY,
+                "ref": "refs/heads/main", "expected_state_sha": state_sha, "decision_id": intent["decision_id"]}
+
+    def fence(self, store, intent, state_sha, trigger=None):
+        return store.fence_unclaimed(decision_id=intent["decision_id"], expected_state_sha=state_sha,
+                                    owner_trigger=trigger or self.owner_trigger(intent, state_sha), config=OWNER_CONFIG)
 
     def test_existing_claim_noop_reload_and_new_owner_never_issue_another_capability(self):
         intent, capability = self.reserve()
@@ -419,6 +429,130 @@ class JournalTests(unittest.TestCase):
                                                   control_sha="b" * 40, runs=[live])
         self.assertEqual(outcome["outcome"], "coalesced")
         self.assertEqual(self.store.current(), before)
+
+    def test_owner_fence_revokes_old_key_without_creating_runtime_progress(self):
+        intent, send = self.reserve()
+        send.consume()
+        before = self.store.current()
+        queue_before = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        owner = self.owner_trigger(intent, before["state_sha"])
+        outcome = self.fence(self.store, intent, before["state_sha"], owner)
+        after = self.store.current()
+        queue_after = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.assertEqual(outcome["outcome"], "fenced")
+        self.assertEqual(after["frontier_seq"], before["frontier_seq"] + 1)
+        self.assertIsNone(after["active_intent"])
+        self.assertEqual(after["predecessor_decision_id"], intent["decision_id"])
+        for field in ("intents", "send_claims", "executor_claims", "effects", "completions", "completed_receipts"):
+            self.assertEqual(after[field], before[field])
+        self.assertEqual({key: value for key, value in queue_after.items() if key != "dispatch_journal"},
+                         {key: value for key, value in queue_before.items() if key != "dispatch_journal"})
+        self.assertEqual(queue_after["dispatch_journal"]["events"][:-1], queue_before["dispatch_journal"]["events"])
+        _, capability = self.reader("late-executor").admit(
+            NEXT, {}, key=intent["correlation_key"], trigger=self.trigger("20"), control_sha=CONTROL)
+        self.assertIsNone(capability)
+        stopped = self.store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                trigger=self.trigger("20"), control_sha=CONTROL)
+        self.assertEqual((stopped["outcome"], stopped["reason"]), ("stopped", "delivery_owner_fenced"))
+        self.assertIsNone(self.store.outcome_for_trigger(owner))
+        with self.assertRaises(JournalConflict):
+            self.store.advance(outcome["receipt_id"])
+        self.assertEqual(self.store.current(), after)
+
+    def test_owner_fence_rejects_foreign_or_changed_authorization(self):
+        intent, _ = self.reserve()
+        before = self.store.current()
+        owner = self.owner_trigger(intent, before["state_sha"])
+        for field, value in (("actor", "nonowner"), ("repository", "foreign/repo"),
+                             ("workflow", NEXT), ("ref", "refs/heads/foreign"),
+                             ("expected_state_sha", "c" * 40), ("decision_id", "d" * 64)):
+            with self.subTest(field=field), self.assertRaises((ValueError, JournalConflict)):
+                self.fence(self.store, intent, before["state_sha"], {**owner, field: value})
+            self.assertEqual(self.store.current(), before)
+        stale = "c" * 40
+        with self.assertRaises(JournalConflict):
+            self.fence(self.store, intent, stale)
+        self.assertEqual(self.store.current(), before)
+
+    def test_executor_wins_cas_race_owner_fence_cannot_close_consumed_right(self):
+        intent, _ = self.reserve()
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("executor-winner")
+        won = []
+        def competing_write(data):
+            _, capability = competing.admit(NEXT, {}, key=intent["correlation_key"],
+                                             trigger=self.trigger("20"), control_sha=CONTROL)
+            won.append(capability)
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write), self.assertRaises(JournalConflict):
+            self.fence(self.store, intent, before["state_sha"])
+        self.assertEqual(len(won), 1)
+        won[0].consume()
+        after = self.store.current()
+        self.assertEqual(after["owner_fences"], {})
+        self.assertEqual(after["frontier_seq"], before["frontier_seq"])
+        self.assertEqual(after["active_intent"], intent)
+        self.assertEqual(after["executor_claims"][intent["decision_id"]]["trigger"], self.trigger("20"))
+        with self.assertRaises(JournalConflict):
+            self.fence(self.store, intent, after["state_sha"])
+        self.assertEqual(self.store.current(), after)
+
+    def test_owner_wins_cas_race_old_executor_never_gets_capability(self):
+        intent, _ = self.reserve()
+        before = self.store.current()
+        original_write = self.store._write
+        competing = self.reader("owner-winner")
+        fenced = []
+        def competing_write(data):
+            fenced.append(self.fence(competing, intent, before["state_sha"]))
+            return original_write(data)
+        with patch.object(self.store, "_write", side_effect=competing_write):
+            bound, capability = self.store.admit(NEXT, {}, key=intent["correlation_key"],
+                                                 trigger=self.trigger("20"), control_sha=CONTROL)
+        self.assertIsNone(capability)
+        self.assertEqual(bound, intent)
+        self.assertEqual(len(fenced), 1)
+        after = self.store.current()
+        self.assertEqual(after["executor_claims"], {})
+        self.assertEqual(after["frontier_seq"], before["frontier_seq"] + 1)
+        self.assertIn(intent["decision_id"], after["owner_fences"])
+
+    def test_owner_fence_unknown_ack_is_durable_without_automatic_followup(self):
+        intent, _ = self.reserve()
+        before = self.store.current()
+        original_git = state_store._git
+        def lost_ack(repo, *args, **kwargs):
+            result = original_git(repo, *args, **kwargs)
+            if "push" in args:
+                raise subprocess.TimeoutExpired("synthetic owner fence push", 90)
+            return result
+        with patch.object(state_store, "_git", side_effect=lost_ack), self.assertRaises(JournalUncertain):
+            self.fence(self.store, intent, before["state_sha"])
+        after = self.store.current()
+        self.assertIsNone(after["active_intent"])
+        self.assertEqual(after["executor_claims"], {})
+        self.assertEqual(after["effects"], {})
+        self.assertEqual(after["completions"], {})
+        replay = self.fence(self.store, intent, before["state_sha"])
+        self.assertEqual(replay["outcome"], "already_fenced")
+        self.assertEqual(self.store.current(), after)
+
+    def test_owner_fence_replay_does_not_consume_or_rebind_successor(self):
+        intent, _ = self.reserve()
+        before = self.store.current()
+        fence = self.fence(self.store, intent, before["state_sha"])
+        successor, send = self.reserve(workflow=CONTINUE, trigger=self.trigger("501"))
+        send.consume()
+        active = self.store.current()
+        replay = self.fence(self.reader("owner-replay"), intent, before["state_sha"])
+        self.assertEqual((replay["outcome"], replay["receipt_id"]), ("already_fenced", fence["receipt_id"]))
+        self.assertEqual(self.store.current(), active)
+        self.assertEqual(active["active_intent"], successor)
+        with self.assertRaises(JournalConflict):
+            self.store.reserve_send(CONTINUE, {}, basis={"receipt_id": None},
+                                    trigger=self.trigger("502"), control_sha=CONTROL)
+        self.assertEqual(self.store.current(), active)
 
 
 
