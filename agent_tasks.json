@@ -138823,7 +138823,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-02T10:25:17.616988Z"
+        "observed_at": "2026-10-02T10:25:17.616988Z",
+        "released_attempt_ref": "autonomous/attempt-34a309f4cde969df298d5cf1"
       },
       "research_result": {
         "summary": "Investigated terminal continuity behavior under failure recovery conditions. Found that applyTerminalAttachment incorrectly downgrades the continuity baseline when baselineReset=true is received for the same generation after rapid output events have already advanced the baseline. Additionally, confirmed that applyTerminalOutputEvent accepts older generations and corrupts the internal baselines map, requiring explicit rejection of older generations.",
