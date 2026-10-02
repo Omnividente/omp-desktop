@@ -137930,8 +137930,8 @@
   ],
   "controller": {
     "last_poll_at": "2026-10-02T09:17:04.238761Z",
-    "last_tick_at": "2026-10-02T06:38:42.033443Z",
-    "run_id": "36974391494"
+    "last_tick_at": "2026-10-02T09:17:10.805174Z",
+    "run_id": "36988469633"
   },
   "dispatch_journal": {
     "version": 1,
