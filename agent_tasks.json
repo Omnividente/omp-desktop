@@ -134752,7 +134752,7 @@
       "id": "research-sessions-persistence-ux-16",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -134899,16 +134899,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "73680883247317414",
         "dispatch_key": "42503ffb46d81ab98c80d3b3",
         "base_sha": "31cd5cbd508e715af639ef48d49d7a71ee5d0cf8",
         "starting_branch": "autonomous/attempt-42503ffb46d81ab98c80d3b3",
         "started_at": "2026-10-02T00:49:01.042514Z",
-        "finished_at": "",
+        "finished_at": "2026-10-02T01:07:14.501089Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "e4dbf425e12faa5feb23c22e5c13f4226bddf34b",
@@ -135079,13 +135079,104 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-02T00:59:21.216512Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-02T01:07:14.501089Z"
+      },
+      "research_result": {
+        "summary": "Investigated the accessibility of error state announcements in SessionControls when the primary provider fallback recovery activates. Identified that the aria-live regions used for announcing fallback, switching, and restarting states are conditionally rendered. Because the aria-live attribute is not persistently present in the DOM, screen readers may fail to announce these critical state changes when the elements are dynamically inserted.",
+        "observations": [
+          {
+            "scenario": "Accessibility announcement of fallback and transient states in SessionControls.",
+            "evidence": "Wrote a synthetic React jsdom test (src/SessionControlsFallbackAnnouncementVisibility.test.tsx) asserting the presence of the aria-live region. When SessionControls is mounted with a 'normal' runtimeStatus, the aria-live element for the fallback announcement is entirely absent from the DOM. Transitioning to 'fallback' dynamically injects the element. This pattern of conditionally mounting the live region itself (rather than persisting the region and updating its text content or visibility) is known to prevent reliable screen reader announcements.",
+            "result": "Confirmed that aria-live regions in SessionControls are dynamically mounted, violating accessibility best practices for live regions and potentially causing screen readers to miss state announcements."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if switchRecovery announcements in SessionControls are reliably read by screen readers, given their dynamic aria-live region rendering.",
+          "Investigate other components (e.g., TerminalWorkspace, ResourceHealthPanel) for dynamically mounted aria-live regions that may fail to announce."
+        ],
+        "proposed_task_ids": [
+          "discovery-bf62c58c8a7837b4"
+        ],
+        "completed_at": "2026-10-02T01:07:14.501089Z",
+        "source": {
+          "activity_id": "sessions/73680883247317414/activities/08e1f7567472420e921f23fa6960582e",
+          "report_sha256": "8a7648de083345a1ef9a2962e9dd4e68ff1a30148afbd60cb0f3c642f0e5596a",
+          "activity_created_at": "2026-10-02T00:58:55.835749Z",
+          "session_id": "73680883247317414",
+          "dispatch_key": "42503ffb46d81ab98c80d3b3"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/73680883247317414/activities/08e1f7567472420e921f23fa6960582e",
+          "report_sha256": "8a7648de083345a1ef9a2962e9dd4e68ff1a30148afbd60cb0f3c642f0e5596a",
+          "activity_created_at": "2026-10-02T00:58:55.835749Z",
+          "session_id": "73680883247317414",
+          "dispatch_key": "42503ffb46d81ab98c80d3b3"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-bf62c58c8a7837b4"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-bf62c58c8a7837b4",
+      "title": "Ensure aria-live regions in SessionControls are persistently mounted",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 10,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-10-02T01:07:14.501089Z",
+      "acceptance": [
+        "The aria-live regions for fallback, switching, and restarting states must be permanently present in the DOM.",
+        "When a state becomes active, the text content of the persistent aria-live region should be updated to trigger a reliable screen reader announcement.",
+        "Tests in src/SessionControls.test.tsx must verify that the aria-live region is present even when the status is normal."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Through JS DOM testing, confirmed that the aria-live=\"polite\" region for session-fallback is dynamically mounted when runtimeStatus becomes fallback. Dynamically rendering the live region itself rather than updating its content prevents screen readers from detecting the announcement.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Mount SessionControls with runtimeStatus set to normal.",
+            "Observe that the [aria-live=\"polite\"] element for the fallback message is missing from the DOM.",
+            "Change runtimeStatus to fallback and observe the element being dynamically inserted."
+          ],
+          "expected": "An aria-live region exists in the DOM at all times, and its content updates when the state changes.",
+          "actual": "The aria-live region is entirely absent from the DOM until the state changes, causing dynamic insertion."
+        }
+      },
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionControls.test.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-16",
+        "activity_id": "sessions/73680883247317414/activities/08e1f7567472420e921f23fa6960582e",
+        "report_sha256": "8a7648de083345a1ef9a2962e9dd4e68ff1a30148afbd60cb0f3c642f0e5596a",
+        "activity_created_at": "2026-10-02T00:58:55.835749Z",
+        "session_id": "73680883247317414",
+        "dispatch_key": "42503ffb46d81ab98c80d3b3"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-02T00:59:44.613209Z",
+    "last_poll_at": "2026-10-02T01:07:31.847157Z",
     "last_tick_at": "2026-10-02T00:59:51.638114Z",
     "run_id": "36948631569"
   },
