@@ -907,7 +907,9 @@ def main(argv=None) -> int:
             result = {"action": "none", "merge_mode": "manual", **disposition}
             if (args.recover_report and not binding.key
                     and binding.trigger["event_name"] == "workflow_dispatch"
-                    and disposition["outcome"] == "coalesced"):
+                    and (disposition["outcome"] == "coalesced"
+                         or (disposition["outcome"] == "stopped"
+                             and disposition["reason"] == "execution_outcome_already_recorded"))):
                 queued = queue_recovery(manifest, config, inputs=inputs, trigger=binding.trigger)
                 recheck_context(binding)
                 try:
