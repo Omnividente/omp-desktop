@@ -17,6 +17,8 @@ mod terminal;
 mod update;
 #[cfg(feature = "updater-e2e")]
 mod updater_e2e;
+#[cfg(windows)]
+pub mod windows_terminal_input;
 use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
     ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, ResourceHealthSnapshot,
@@ -835,6 +837,7 @@ pub fn run() {
                 Err(error) => eprintln!("OMP Desktop logging unavailable: {error}"),
             }
             app.manage(SettingsState::new_uninitialized());
+            app.manage(omp_bridge::ModelCatalogState::default());
             app.manage(StartupWorkspace(Mutex::new(startup_workspace(
                 &std::env::args().collect::<Vec<_>>(),
             ))));

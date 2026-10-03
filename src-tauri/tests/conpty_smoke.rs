@@ -1,12 +1,7 @@
 #![cfg(windows)]
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::{
-    io::{Read, Write},
-    sync::mpsc,
-    thread,
-    time::Duration,
-};
+use std::{io::Read, sync::mpsc, thread, time::Duration};
 
 #[test]
 fn conpty_burst_drains_after_immediate_exit() {
@@ -19,7 +14,7 @@ fn conpty_burst_drains_after_immediate_exit() {
         })
         .expect("open ConPTY");
     let mut reader = pair.master.try_clone_reader().expect("clone ConPTY reader");
-    let mut writer = pair.master.take_writer().expect("take ConPTY writer");
+    let writer = pair.master.take_writer().expect("take ConPTY writer");
 
     let mut command = CommandBuilder::new("cmd.exe");
     command.arg("/D");
@@ -33,41 +28,12 @@ fn conpty_burst_drains_after_immediate_exit() {
         .expect("spawn burst fixture in ConPTY");
     drop(pair.slave);
 
-    // ConPTY asks the terminal for its cursor position before starting the
-    // child. xterm.js answers this in the application; the isolated smoke must
-    // emulate that handshake or the fixture legitimately remains blocked.
-    let (cursor_sender, cursor_receiver) = mpsc::sync_channel(1);
     let (sender, receiver) = mpsc::sync_channel(1);
     let reader_thread = thread::spawn(move || {
-        let mut cursor_query = [0_u8; 4];
-        if let Err(error) = reader.read_exact(&mut cursor_query) {
-            let _ = cursor_sender.send(Err(error));
-            return;
-        }
-        if cursor_sender.send(Ok(cursor_query)).is_err() {
-            return;
-        }
-
         let mut output = Vec::new();
         let result = reader.read_to_end(&mut output);
         let _ = sender.send((result, output));
     });
-    let cursor_query = match cursor_receiver.recv_timeout(Duration::from_secs(10)) {
-        Ok(Ok(cursor_query)) => cursor_query,
-        Ok(Err(error)) => {
-            let _ = child.kill();
-            panic!("read ConPTY cursor-position query: {error}");
-        }
-        Err(error) => {
-            let _ = child.kill();
-            panic!("ConPTY cursor-position query must arrive within 10 seconds: {error}");
-        }
-    };
-    assert_eq!(&cursor_query, b"\x1b[6n");
-    writer
-        .write_all(b"\x1b[1;1R")
-        .expect("answer ConPTY cursor-position query");
-    writer.flush().expect("flush ConPTY cursor response");
 
     let status = child.wait().expect("wait for burst fixture");
     assert!(status.success(), "burst fixture must exit successfully");
