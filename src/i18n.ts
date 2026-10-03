@@ -444,7 +444,7 @@ export const UI_TEXT = {
     statusHelpMissing:
       "Selector есть в роли, но модели нет в текущем каталоге OMP. Обновите каталог или выберите другую модель.",
     statusHelpUnset: "Для этой роли пока не выбрана модель.",
-    refreshModels: "Обновить статус",
+    refreshModels: "Обновить модели и статус",
     connectedAccounts: "Аккаунты и лимиты",
     connectedAccountsHelp:
       "Desktop показывает отчёты omp usage по аккаунтам: лимиты и оценку доступности маршрутов. Токены и ключи во frontend не передаются.",
@@ -996,7 +996,7 @@ export const UI_TEXT = {
     statusHelpMissing:
       "The role has a selector, but the model is absent from the current OMP catalog. Refresh or choose another model.",
     statusHelpUnset: "No model is assigned to this role yet.",
-    refreshModels: "Refresh status",
+    refreshModels: "Refresh models and status",
     connectedAccounts: "Accounts and limits",
     connectedAccountsHelp:
       "Desktop shows per-account omp usage reports: limits and estimated route availability. Tokens and key values are never sent to the frontend.",

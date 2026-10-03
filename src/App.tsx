@@ -2335,6 +2335,7 @@ function App() {
       {settingsOpen && (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
+          onConfigLoaded={acceptOmpConfig}
           onError={showError}
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}

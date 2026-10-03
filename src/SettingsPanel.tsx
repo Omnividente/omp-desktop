@@ -30,11 +30,12 @@ interface SettingsPanelProps {
   runtime: RuntimeInfo
   onClose: () => void
   onSaved: (payload: SettingsSavePayload) => void
+  onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
 }
 
 const USAGE_STALE_MS = 10 * 60_000
-const USAGE_REFRESH_COOLDOWN_MS = 30_000
+const CONFIG_REFRESH_COOLDOWN_MS = 30_000
 const MANAGED_PROVIDER_KEY_PREFIX = "OMP_DESKTOP_PROVIDER_"
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
 function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
@@ -216,6 +217,7 @@ export function SettingsPanel({
   runtime,
   onClose,
   onSaved,
+  onConfigLoaded,
   onError,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
@@ -296,7 +298,11 @@ export function SettingsPanel({
     setClockNow(Date.now())
   }
 
-  const refreshConfig = async (forceUsage = false, requestRuntime = runtime) => {
+  const refreshConfig = async (
+    forceCatalog = false,
+    requestRuntime = runtime,
+    resetDrafts = false,
+  ) => {
     const generation = invalidateConfig()
     const isCurrent = () => !disposedRef.current && generation === configGenerationRef.current
     configRuntimeRef.current = requestRuntime
@@ -304,14 +310,36 @@ export function SettingsPanel({
     setConfigError(null)
     setLoadingConfig(requestRuntime.ompAvailable)
     if (!requestRuntime.ompAvailable) return
-    if (forceUsage) {
+    if (forceCatalog) {
       const requestedAt = Date.now()
       setClockNow(requestedAt)
-      setRefreshCooldownUntil(requestedAt + USAGE_REFRESH_COOLDOWN_MS)
+      setRefreshCooldownUntil(requestedAt + CONFIG_REFRESH_COOLDOWN_MS)
     }
     try {
-      const snapshot = forceUsage ? await refreshOmpConfig() : await loadOmpConfig()
-      if (isCurrent()) acceptConfig(snapshot)
+      const snapshot = forceCatalog ? await refreshOmpConfig() : await loadOmpConfig()
+      if (isCurrent()) {
+        if (ompConfig && !resetDrafts) {
+          setOmpConfig((current) =>
+            current
+              ? {
+                  ...current,
+                  models: snapshot.models,
+                  roles: current.roles.map(
+                    (role) =>
+                      snapshot.roles.find(
+                        (fresh) => fresh.role === role.role && fresh.selector === role.selector,
+                      ) ?? role,
+                  ),
+                  accounts: snapshot.accounts,
+                  usageObservedAt: snapshot.usageObservedAt,
+                  credentials: snapshot.credentials,
+                  warnings: snapshot.warnings,
+                }
+              : snapshot,
+          )
+        } else acceptConfig(snapshot)
+        onConfigLoaded?.(snapshot)
+      }
     } catch (error) {
       if (!isCurrent()) return
       const message = errorMessage(error, language)
@@ -340,7 +368,7 @@ export function SettingsPanel({
     )
       return
     acceptConfig(null)
-    void refreshConfig(false, runtime)
+    void refreshConfig(false, runtime, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
 
@@ -717,7 +745,7 @@ export function SettingsPanel({
         setCustomProviderUrl("")
         setCustomProviderKey("")
       } else {
-        void refreshConfig(false, result.bootstrap.runtime)
+        void refreshConfig(false, result.bootstrap.runtime, true)
       }
       setProviderEnv((current) =>
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
@@ -776,7 +804,7 @@ export function SettingsPanel({
             <button
               className="button secondary"
               onClick={() => void refreshConfig(true)}
-              disabled={loadingConfig || refreshCooldownSeconds > 0}
+              disabled={saving || loadingConfig || refreshCooldownSeconds > 0}
               type="button"
             >
               {loadingConfig ? (
@@ -792,6 +820,13 @@ export function SettingsPanel({
             </button>
           )}
         </div>
+
+        {configError && ompConfig && !loadingConfig && (
+          <div className="settings-secret-warning" role="alert">
+            <Icon name="alert" size={16} />
+            <span>{configError}</span>
+          </div>
+        )}
 
         {ompConfig && ompConfig.warnings.length > 0 && (
           <div className="settings-secret-warning" role="status">

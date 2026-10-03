@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
+import { WebglAddon } from "@xterm/addon-webgl"
 import { Terminal } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import {
@@ -229,6 +230,21 @@ export function TerminalView({
       }),
     )
     terminal.open(container)
+    if (isLinuxRuntime) {
+      let webglAddon: WebglAddon | undefined
+      try {
+        webglAddon = new WebglAddon()
+        const addon = webglAddon
+        addon.onContextLoss(() => {
+          addon.dispose()
+          fitRef.current?.()
+        })
+        terminal.loadAddon(addon)
+      } catch {
+        // Unsupported WebGL2 leaves the existing DOM renderer usable.
+        webglAddon?.dispose()
+      }
+    }
     terminalRef.current = terminal
 
     let pointerDownCell: TerminalCell | null = null
