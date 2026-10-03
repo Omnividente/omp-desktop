@@ -111,6 +111,7 @@ class OwnerEntryTests(unittest.TestCase):
             _, execution = self.store.admit(workflow, inputs or {}, key=self.intent["correlation_key"],
                                              trigger=self.trigger(execution_run), control_sha=self.control)
             execution.consume()
+            self.execution = execution
         self.before = self.store.current()
         self.expected = self.before["state_sha"]
         self.event = {"repository": {"full_name": REPOSITORY}, "ref": "refs/heads/main",
@@ -372,6 +373,60 @@ class OwnerEntryTests(unittest.TestCase):
         self.start_patch(patch.object(next_no_effect_artifact, "_default_json", side_effect=metadata))
         self.start_patch(patch.object(next_no_effect_artifact, "_default_archive", side_effect=archive))
         return source
+
+    def test_failed_report_checkpoint_uses_distinct_owner_workflow_and_preserves_original_body(self):
+        from dispatch_journal import OWNER_REPORT_CHECKPOINT
+        from next_no_effect_artifact_test import FailedCheckpointSource
+        from owner_report_recovery import claim_recovery, queue_recovery
+        from owner_report_recovery_test import research_manifest
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        data.update(research_manifest())
+        request = queue_recovery(data, CONFIG,
+            inputs={"task_id": "first", "recover_report": True, "repair_after": "2026-10-03T11:00:00Z"},
+            trigger=self.trigger("40"))
+        self.store.save_manifest(data)
+        self.prepare(NEXT, claimed=True, owner_workflow=OWNER_REPORT_CHECKPOINT,
+                     inputs=request["inputs"], execution_run="71")
+        os.environ["GITHUB_RUN_ID"] = "72"
+        data = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        claim_recovery(data, CONFIG, inputs=request["inputs"], intent=self.intent,
+                       trigger=self.trigger("71"), capability=self.execution)
+        self.store.save_manifest(data)
+        self.before = self.store.current()
+        self.expected = self.before["state_sha"]
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.write_event()
+        source = FailedCheckpointSource()
+        for run in (source.run, source.attempt):
+            run.update(head_sha=self.control, display_title="Next " + self.intent["correlation_key"])
+            for field in ("repository", "head_repository"):
+                run[field]["full_name"] = REPOSITORY
+            for field in ("actor", "triggering_actor"):
+                run[field]["login"] = "owner"
+        source.jobs[0]["head_sha"] = self.control
+        source.artifacts[0]["workflow_run"]["head_sha"] = self.control
+        source.set_report({**source.report, "state_sha": self.expected})
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_json",
+                                     side_effect=lambda repository, endpoint: source.get_json(endpoint)))
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_archive",
+                                     side_effect=lambda repository, endpoint: source.get_archive(endpoint)))
+        os.environ["GITHUB_WORKFLOW_REF"] = REPOSITORY + "/.github/workflows/" + OWNER_NEXT_COMPLETION + "@refs/heads/main"
+        self.assert_rejected_without_mutation(self.arguments("report_checkpoint"))
+        os.environ["GITHUB_WORKFLOW_REF"] = REPOSITORY + "/.github/workflows/" + OWNER_REPORT_CHECKPOINT + "@refs/heads/main"
+        status, result = self.invoke(self.arguments("report_checkpoint"))
+        self.assertEqual((status, result["outcome"]), (0, "completed"))
+        saved = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.assertEqual({key: value for key, value in saved.items() if key != "dispatch_journal"},
+                         {key: value for key, value in data.items() if key != "dispatch_journal"})
+        after = self.store.current()
+        for field in ("send_claims", "executor_claims", "stages", "phase_claims", "effects"):
+            self.assertEqual(after[field], self.before[field])
+        receipt = after["completions"][self.intent["decision_id"]]
+        self.assertEqual(receipt["native_report"], source.report)
+        self.assertEqual(receipt["evidence"]["request_id"], request["request_id"])
+        self.assertEqual(receipt["evidence"]["status"], "failed_before_provider_post")
+        self.assertIsNone(after["active_intent"])
+
 
     def test_observed_next_completion_preserves_body_rights_and_original_history(self):
         source = self.prepare_next_completion()

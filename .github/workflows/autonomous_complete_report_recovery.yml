@@ -1,0 +1,66 @@
+name: Autonomous Complete Failed Report Checkpoint
+
+# Observe one authentic failed-before-provider report checkpoint. This does not
+# execute, resend, revoke, repin, dispatch, or manufacture useful progress.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_state_sha:
+        description: Exact reviewed autonomous/state SHA before original failed checkpoint recovery
+        type: string
+        required: true
+      decision_id:
+        description: Original unfinished report-recovery NEXT with its authentic failed native artifact
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+        'autonomous-lab-queue' || format('autonomous-report-checkpoint-ignored-{0}', github.run_id) }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  complete:
+    name: Observe one owner-selected original failed report checkpoint
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ""
+      EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
+      DECISION_ID: ${{ inputs.decision_id }}
+    steps:
+      - name: Check out the full checked event-main control revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+
+      - name: Complete only the proven original failed report checkpoint by owner-bound state CAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/recover_delivery.py \
+            --operation report_checkpoint \
+            --repo control --config control/autonomous-project.json \
+            --manifest queue.json --revision-file queue-revision.json \
+            --expected-state-sha "${EXPECTED_STATE_SHA}" --decision-id "${DECISION_ID}" \
+            --out owner-report-checkpoint-result.json
+
+      - name: Retain acknowledged recovery or safe blocked outcome
+        if: ${{ always() && hashFiles('owner-report-checkpoint-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-report-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: owner-report-checkpoint-result.json
+          retention-days: 30
+          if-no-files-found: error

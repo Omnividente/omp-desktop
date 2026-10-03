@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from dispatch_journal import DIGEST, SHA, NEXT, ExecutionCapability, materialize, normalize_inputs
 from research_request import sha256_json
+from select_task import is_unresolved
 from task_lifecycle import awaiting_report, find_task, iso, parse_iso
 
 FIELD = "owner_recovery_requests"
@@ -44,6 +45,22 @@ def _inputs(inputs):
     return result
 
 
+def _failed_checkpoint(manifest, record, state=None):
+    execution = record.get("execution")
+    if execution is None:
+        return None
+    state = state if state is not None else materialize(manifest.get("dispatch_journal"))
+    receipt = state["completions"].get(execution["decision_id"])
+    if receipt is None or receipt.get("type") != "OwnerReportRecoveryCheckpointCompletion":
+        return None
+    evidence = receipt.get("evidence") or {}
+    if (receipt.get("executor_claim_id") != execution["executor_claim_id"]
+            or evidence.get("request_id") != record["request_id"]
+            or evidence.get("task_id") != record["inputs"]["task_id"]):
+        raise ValueError("failed checkpoint does not bind the original report command")
+    return receipt
+
+
 def validate_requests(manifest) -> list[str]:
     """Validate saved command provenance; current eligibility is checked on use."""
     from validate_tasks import _nonblank, _utc_timestamp
@@ -60,7 +77,8 @@ def validate_requests(manifest) -> list[str]:
         location = prefix + "[" + str(index) + "]"
         try:
             if (not isinstance(record, dict) or set(record) - {
-                    "request_id", "inputs", "identity", "source_trigger", "requested_at", "execution"}
+                    "request_id", "inputs", "identity", "source_trigger", "requested_at",
+                    "execution", "resume_execution"}
                     or not DIGEST.fullmatch(str(record.get("request_id", "")))
                     or record["request_id"] in identifiers or not _utc_timestamp(record.get("requested_at"))):
                 raise ValueError("requires a unique command identity and UTC reservation")
@@ -84,8 +102,10 @@ def validate_requests(manifest) -> list[str]:
                     or not all(_nonblank(trigger.get(field)) for field in ("repository", "actor"))
                     or record["request_id"] != _request_id(record)):
                 raise ValueError("requires the immutable original owner dispatch")
-            if "execution" in record:
-                execution = record["execution"]
+            for field in ("execution", "resume_execution"):
+                if field not in record:
+                    continue
+                execution = record[field]
                 if (not isinstance(execution, dict) or set(execution) != {
                         "decision_id", "executor_claim_id", "run_id", "run_attempt", "actor", "at"}
                         or not _utc_timestamp(execution.get("at"))
@@ -98,9 +118,17 @@ def validate_requests(manifest) -> list[str]:
                 if (intent is None or claim is None or intent["workflow"] != NEXT
                         or intent["normalized_inputs"] != inputs
                         or claim["claim_id"] != execution["executor_claim_id"]
-                        or any(claim["trigger"].get(field) != execution[field]
-                               for field in ("run_id", "run_attempt", "actor"))):
+                        or any(claim["trigger"].get(key) != execution[key]
+                               for key in ("run_id", "run_attempt", "actor"))):
                     raise ValueError("must retain its exact journal executor claim")
+                if field == "resume_execution":
+                    receipt = _failed_checkpoint(manifest, record, state)
+                    if (receipt is None
+                            or execution["decision_id"] == record["execution"]["decision_id"]
+                            or parse_iso(execution["at"]) < parse_iso(receipt["at"])
+                            or (intent.get("basis", {}).get("health", {}).get("owner_recovery") or {}).get("request_id")
+                            != record["request_id"]):
+                        raise ValueError("resume requires the exact observed pre-provider failure")
         except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
             errors.append(location + " " + str(exc))
     return errors
@@ -122,9 +150,24 @@ def pending_recovery(manifest, config) -> dict | None:
     errors = validate_requests(manifest)
     if errors:
         raise ValueError("invalid owner report recovery queue")
+    state = None
     for record in _records(manifest):
-        if "execution" not in record:
-            _bound_request(manifest, config, record)
+        if "execution" in record and "resume_execution" not in record and state is None:
+            state = materialize(manifest.get("dispatch_journal"))
+        if ("execution" not in record or "resume_execution" not in record
+                and _failed_checkpoint(manifest, record, state) is not None):
+            task = _bound_request(manifest, config, record)
+            scope = task.get("research") or {}
+            if (record["inputs"]["repair_after"] and scope.get("area_id")
+                    and scope.get("perspective_id") and any(
+                        other.get("id") != task["id"]
+                        and other.get("task_type") == "project_discovery"
+                        and is_unresolved(other)
+                        and (other.get("research") or {}).get("area_id") == scope["area_id"]
+                        and (other.get("research") or {}).get("perspective_id") == scope["perspective_id"]
+                        for other in manifest["tasks"]
+                    )):
+                continue  # Poll the existing attempt before selecting another format repair.
             return copy.deepcopy(record)
     return None
 
@@ -193,8 +236,13 @@ def claim_recovery(manifest, config, *, inputs, intent, trigger, capability, now
         if selected:
             raise ValueError("queued report authorization is unavailable")
         return None
+    field = "execution"
     if "execution" in record:
-        return None
+        if "resume_execution" in record or _failed_checkpoint(manifest, record) is None:
+            return None
+        if not selected:
+            raise ValueError("report resume requires the original command's causal selection")
+        field = "resume_execution"
     _bound_request(manifest, config, record)
     if not isinstance(capability, ExecutionCapability):
         raise ValueError("queued report recovery requires an execution capability")
@@ -213,22 +261,23 @@ def claim_recovery(manifest, config, *, inputs, intent, trigger, capability, now
     execution = {"decision_id": intent["decision_id"], "executor_claim_id": claim["claim_id"],
                  "run_id": trigger["run_id"], "run_attempt": trigger["run_attempt"],
                  "actor": trigger["actor"], "at": iso(now or datetime.now(timezone.utc))}
-    staged = [{**saved, "execution": execution} if saved is record else saved
+    staged = [{**saved, field: execution} if saved is record else saved
               for saved in _records(manifest)]
     candidate = {**manifest, "controller": {**manifest["controller"], FIELD: staged}}
     if validate_requests(candidate):
         raise ValueError("invalid queued report execution")
-    record["execution"] = execution
+    record[field] = execution
     return copy.deepcopy(record)
 
 
 def preserve_requests(previous, current) -> None:
-    """Keep the original command and its one admitted execution append-only."""
+    """Keep the owner command, original executor and single proven resume append-only."""
     before, after = _records(previous), _records(current)
     if not isinstance(before, list) or not isinstance(after, list) or len(after) < len(before):
         raise ValueError("owner report recovery history is immutable")
     for old, new in zip(before, after):
-        if ({key: value for key, value in old.items() if key != "execution"}
-                != {key: value for key, value in new.items() if key != "execution"}
-                or "execution" in old and old["execution"] != new.get("execution")):
+        if ({key: value for key, value in old.items() if key not in {"execution", "resume_execution"}}
+                != {key: value for key, value in new.items() if key not in {"execution", "resume_execution"}}
+                or any(field in old and old[field] != new.get(field)
+                       for field in ("execution", "resume_execution"))):
             raise ValueError("owner report recovery commands cannot be rewritten or renewed")

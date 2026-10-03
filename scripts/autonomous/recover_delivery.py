@@ -3,8 +3,8 @@
 
 Delivery fencing revokes only unclaimed sends. CONTINUE cutover closes only a
 selected idle CONTINUE. NEXT completion observes an authentic terminal native
-no-op against its original immutable baseline. None dispatches, switches the
-loop, issues execution rights, or changes tasks and controller clocks.
+no-op or failed queued report checkpoint against its immutable baseline. None
+dispatches, switches the loop, issues execution rights, or changes tasks and clocks.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from dispatch_journal import DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
-from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_RECOVERY,
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
 
 OPERATIONS = {
@@ -26,6 +26,8 @@ OPERATIONS = {
                          frozenset(("cut_over", "already_cut_over"))),
     "next_completion": (OWNER_NEXT_COMPLETION, "owner_next_completion",
                         frozenset(("completed", "already_completed"))),
+    "report_checkpoint": (OWNER_REPORT_CHECKPOINT, "owner_report_checkpoint",
+                          frozenset(("completed", "already_completed"))),
 }
 
 
@@ -178,7 +180,8 @@ def main(argv=None):
         attempted = True
         owner_operation = {"delivery": store.fence_unclaimed,
                            "continue_cutover": store.cutover_continue,
-                           "next_completion": store.complete_observed_next}[operation]
+                           "next_completion": store.complete_observed_next,
+                           "report_checkpoint": store.complete_failed_report_checkpoint}[operation]
         result = _acknowledged_result(owner_operation(
             decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
             owner_trigger=binding.trigger, config=config,

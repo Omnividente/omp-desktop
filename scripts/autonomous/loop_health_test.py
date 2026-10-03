@@ -1038,6 +1038,31 @@ class OwnerRecoveryHealthTest(unittest.TestCase):
                 self.assertFalse(select(data, task_id="fix")["selected"])
                 self.assertEqual(data, before)
 
+    def test_occupied_repair_pair_polls_before_spending_the_deferred_owner_command(self):
+        data, config, _, _ = self.fixture(cap=1)
+        blocker = copy.deepcopy(data["tasks"][0])
+        blocker["id"] = "older-report-repair"
+        blocker["execution"].update(session_id="456", dispatch_key="older-attempt",
+                                    starting_branch="autonomous/attempt-older-attempt")
+        blocker["execution"]["report_repair"]["status"] = "pending"
+        data["tasks"].append(blocker)
+        data["controller"] = {**data.get("controller", {}),
+                              "last_poll_at": (NOW - timedelta(minutes=31)).isoformat()}
+        before = copy.deepcopy(data)
+        polling = health(data, config)
+        self.assertEqual((polling["action"], polling["reason"]), ("next_task", "active_polling"))
+        self.assertNotIn("owner_recovery", polling)
+        self.assertNotIn("execution", data["controller"]["owner_recovery_requests"][0])
+        self.assertEqual(data, before)
+        blocker["execution"]["report_repair"]["status"] = "invalid"
+        after = copy.deepcopy(data)
+        resumed = health(data, config)
+        self.assertEqual((resumed["action"], resumed["reason"]),
+                         ("next_task", "owner_report_recovery_due"))
+        self.assertEqual(resumed["owner_recovery"]["request_id"],
+                         before["controller"]["owner_recovery_requests"][0]["request_id"])
+        self.assertEqual(data, after)
+
     def test_busy_next_disabled_switch_and_sync_compatibility_keep_authority(self):
         data, config, _, _ = self.fixture()
         before = copy.deepcopy(data)

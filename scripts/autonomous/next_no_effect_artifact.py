@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GET-only proof of the original failed native NEXT scheduler-pause report.
+"""GET-only proof of original failed native NEXT pause and report checkpoints.
 
 Archives and native reports remain in memory. This is source authentication, not
 permission to complete a journal decision or evidence of substantive Git equality.
@@ -225,14 +225,40 @@ def _invalid_constant(_value):
     raise _Denied("invalid native JSON number")
 
 
-def _report(archive, decision_id):
+def _native_json(archive, *, allow_diagnostics=False):
     _require(archive.startswith(b"PK\x03\x04") and len(archive) >= 22
              and archive[-22:-18] == b"PK\x05\x06" and archive[-2:] == b"\x00\x00",
              "invalid native ZIP envelope")
     with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
         entries = bundle.infolist()
-        _require(len(entries) == 1, "native ZIP must contain only lab-result.json")
-        entry = entries[0]
+        if allow_diagnostics:
+            _require(0 < len(entries) <= MAX_METADATA_ROWS
+                     and len({item.filename for item in entries}) == len(entries)
+                     and sum(item.file_size for item in entries) <= MAX_ARCHIVE_BYTES,
+                     "invalid or oversized native ZIP members")
+            for item in entries:
+                if item.filename == "lab-result.json":
+                    continue
+                _require(item.orig_filename == item.filename
+                         and item.flag_bits & ~(0x8 | 0x800) == 0
+                         and item.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED),
+                         "invalid native diagnostic ZIP metadata")
+                mode = stat.S_IFMT(item.external_attr >> 16)
+                if item.filename == "research-diagnostics/":
+                    _require(item.is_dir() and item.file_size == 0 and mode in (0, stat.S_IFDIR),
+                             "invalid native diagnostic ZIP directory")
+                else:
+                    _require(re.fullmatch(r"research-diagnostics/[0-9a-f]{64}-[1-9][0-9]*-[0-9a-f]{64}-[0-9a-f]{64}\.json",
+                                          item.filename) is not None
+                             and not item.is_dir() and mode in (0, stat.S_IFREG)
+                             and not (item.external_attr & 0x10)
+                             and 0 < item.file_size <= MAX_REPORT_BYTES,
+                             "invalid native diagnostic ZIP member")
+        else:
+            _require(len(entries) == 1, "native ZIP must contain only lab-result.json")
+        reports = [item for item in entries if item.filename == "lab-result.json"]
+        _require(len(reports) == 1, "native ZIP must contain exactly one lab-result.json")
+        entry = reports[0]
         mode = entry.external_attr >> 16
         _require(entry.filename == "lab-result.json" and entry.orig_filename == "lab-result.json"
                  and not entry.is_dir() and stat.S_IFMT(mode) in (0, stat.S_IFREG)
@@ -256,6 +282,11 @@ def _report(archive, decision_id):
             pending.extend((item, depth + 1) for item in value.values())
         elif isinstance(value, list):
             pending.extend((item, depth + 1) for item in value)
+    return report, hashlib.sha256(raw).hexdigest()
+
+
+def _report(archive, decision_id):
+    report, report_digest = _native_json(archive)
     _require(isinstance(report, dict) and report.get("decision_id") == decision_id
              and isinstance(report.get("state_sha"), str) and SHA.fullmatch(report["state_sha"]),
              "native report decision or state identity does not match")
@@ -272,17 +303,29 @@ def _report(archive, decision_id):
     _require(isinstance(attention, list) and len(attention) <= MAX_METADATA_ROWS
              and all(isinstance(item, dict) and isinstance(item.get("reason"), str)
                      for item in attention), "invalid native descriptive attention")
-    return report, hashlib.sha256(raw).hexdigest()
+    return report, report_digest
 
 
-def authenticated_next_no_effect(repository, executor_trigger, decision_id, correlation_key,
-                                 *, get_json=None, get_archive=None) -> dict:
-    """Authenticate one original attempt's native result without retaining it.
+def _failed_report_checkpoint(archive, decision_id):
+    # The exception path does not serialize decision_id. Its original decision
+    # is bound by the authenticated executor run and correlation-key run title.
+    report, report_digest = _native_json(archive, allow_diagnostics=True)
+    _require(isinstance(report, dict)
+             and set(report) == {"action", "merge_mode", "reason", "attention", "state_sha"},
+             "native report is not the original failed report checkpoint")
+    _require(report["action"] == "stopped" and report["merge_mode"] == "manual"
+             and report["reason"] == "state_write_failed",
+             "native report is not the original failed report checkpoint")
+    _require(isinstance(report["state_sha"], str) and SHA.fullmatch(report["state_sha"]),
+             "native report state identity does not match")
+    _require(report["attention"] == [{
+        "reason": "state save failed; reload the authoritative queue before continuing",
+    }], "invalid native failed checkpoint attention")
+    return report, report_digest
 
-    Injected GET callbacks accept repository-relative endpoints. Denial exposes
-    only fixed messages; transport, ZIP, JSON and native prose never enter errors.
-    The caller still must prove this report's state against real journal/Git data.
-    """
+
+def _authenticate(repository, executor_trigger, decision_id, correlation_key, report_reader,
+                  *, get_json=None, get_archive=None):
     try:
         _require(isinstance(repository, str) and REPOSITORY.fullmatch(repository),
                  "invalid source repository")
@@ -331,7 +374,7 @@ def authenticated_next_no_effect(repository, executor_trigger, decision_id, corr
                  "invalid or oversized native artifact download")
         archive_digest = hashlib.sha256(archive).hexdigest()
         _require(archive_digest == expected_digest, "native artifact SHA256 does not match")
-        report, report_digest = _report(archive, decision_id)
+        report, report_digest = report_reader(archive, decision_id)
         _require(_run_identity(get(endpoint), repository, trigger, correlation_key) == identity,
                  "original source changed during authentication")
         return {"producer": trigger, "workflow": WORKFLOW, "ref": "refs/heads/main",
@@ -341,3 +384,28 @@ def authenticated_next_no_effect(repository, executor_trigger, decision_id, corr
         raise ValueError(str(exc)) from None
     except Exception:
         raise ValueError("original native artifact authentication failed") from None
+
+
+def authenticated_next_no_effect(repository, executor_trigger, decision_id, correlation_key,
+                                 *, get_json=None, get_archive=None) -> dict:
+    """Authenticate one original attempt's native pause without retaining bytes.
+
+    Injected GET callbacks accept repository-relative endpoints. Denial exposes
+    only fixed messages; transport, ZIP, JSON and native prose never enter errors.
+    The caller still must prove this report's state against real journal/Git data.
+    """
+    return _authenticate(repository, executor_trigger, decision_id, correlation_key, _report,
+                         get_json=get_json, get_archive=get_archive)
+
+
+def authenticated_failed_report_checkpoint(repository, executor_trigger, decision_id, correlation_key,
+                                          *, get_json=None, get_archive=None) -> dict:
+    """Authenticate the exact native pre-POST report-recovery save failure.
+
+    The failed envelope has no decision_id: the original executor and correlation
+    key authenticate its source. The caller must prove the checkpoint body and
+    command binding separately. No permission or provider-effect proof is issued.
+    Errors and injected GET callbacks follow the pause reader's fixed boundary.
+    """
+    return _authenticate(repository, executor_trigger, decision_id, correlation_key,
+                         _failed_report_checkpoint, get_json=get_json, get_archive=get_archive)
