@@ -29,7 +29,7 @@ use settings::{
     start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
     SettingsState, SettingsTransaction,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -74,20 +74,56 @@ fn startup_workspace(args: &[String]) -> Option<String> {
     None
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SingleInstanceEvent {
-    args: Vec<String>,
+fn resolve_launch_workspace(path: &str, cwd: &str) -> Result<PathBuf, String> {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        return std::path::absolute(path)
+            .map_err(|error| format!("Не удалось определить путь проекта: {error}"));
+    }
+    let cwd = Path::new(cwd);
+    if !cwd.is_absolute() {
+        return Err("Не удалось определить рабочий каталог повторного запуска".to_owned());
+    }
+
+    #[cfg(windows)]
+    let relative = {
+        use std::path::{Component, Prefix};
+        let mut components = path.components();
+        match components.next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::Disk(drive) => {
+                    let caller_drive = match cwd.components().next() {
+                        Some(Component::Prefix(caller)) => match caller.kind() {
+                            Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) => Some(drive),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if !caller_drive.is_some_and(|caller| caller.eq_ignore_ascii_case(&drive)) {
+                        return Err(format!(
+                            "Неоднозначный путь проекта относительно диска {}:. Укажите абсолютный путь",
+                            drive as char
+                        ));
+                    }
+                    components.as_path()
+                }
+                _ => return Err("Неоднозначный путь проекта. Укажите абсолютный путь".to_owned()),
+            },
+            _ => path,
+        }
+    };
+    #[cfg(not(windows))]
+    let relative = path;
+
+    std::path::absolute(cwd.join(relative))
+        .map_err(|error| format!("Не удалось определить путь проекта: {error}"))
 }
 
-fn dispatch_second_instance<F, E>(args: Vec<String>, focus: F, emit: E)
-where
-    F: FnOnce(),
-    E: FnOnce(SingleInstanceEvent),
-{
-    let event = SingleInstanceEvent { args };
-    focus();
-    emit(event);
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SingleInstanceEvent {
+    workspace: Option<String>,
+    error: Option<String>,
 }
 
 fn focus_main_window(app: &AppHandle) {
@@ -109,22 +145,27 @@ fn focus_main_window(app: &AppHandle) {
     }
 }
 
-fn handle_second_instance(app: &AppHandle, args: Vec<String>, _cwd: String) {
-    dispatch_second_instance(
-        args,
-        || focus_main_window(app),
-        |event| {
-            if let Err(error) = app.emit(SINGLE_INSTANCE_EVENT, event) {
-                diagnostics::warn("single_instance.emit", &error.to_string());
-            }
+fn handle_second_instance(app: &AppHandle, args: Vec<String>, cwd: String) {
+    let (workspace, error) = match startup_workspace(&args) {
+        Some(path) => match resolve_launch_workspace(&path, &cwd) {
+            Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
+            Err(error) => (None, Some(error)),
         },
-    );
+        None => (None, None),
+    };
+    focus_main_window(app);
+    if let Err(error) = app.emit(
+        SINGLE_INSTANCE_EVENT,
+        SingleInstanceEvent { workspace, error },
+    ) {
+        diagnostics::warn("single_instance.emit", &error.to_string());
+    }
 }
 
 #[cfg(test)]
 mod single_instance_tests {
-    use super::{dispatch_second_instance, startup_workspace, SingleInstanceEvent};
-    use std::cell::RefCell;
+    use super::{resolve_launch_workspace, startup_workspace};
+    use std::path::PathBuf;
 
     #[test]
     fn explicit_startup_project_takes_precedence_over_positional_arguments() {
@@ -146,28 +187,85 @@ mod single_instance_tests {
     }
 
     #[test]
-    fn repeat_launch_focuses_before_forwarding_exact_arguments() {
-        let actions = RefCell::new(Vec::new());
-        let emitted = RefCell::new(None);
-        let expected = SingleInstanceEvent {
-            args: vec![
-                "omp-desktop".to_owned(),
-                "--project".to_owned(),
-                "D:\\Projects\\Пример".to_owned(),
-            ],
-        };
+    fn startup_workspace_accepts_flag_aliases_and_positional_paths() {
+        let cases: &[(&[&str], Option<&str>)] = &[
+            (
+                &["omp-desktop", "--project=./Мой проект"],
+                Some("./Мой проект"),
+            ),
+            (&["omp-desktop", "-p", "./repo"], Some("./repo")),
+            (&["omp-desktop", "--workspace", "./repo"], Some("./repo")),
+            (&["omp-desktop", "-w=./repo"], Some("./repo")),
+            (&["omp-desktop", "open", "./repo"], Some("./repo")),
+            (&["omp-desktop", "--verbose", "--", "-repo"], Some("-repo")),
+            (&["omp-desktop", "--verbose"], None),
+            (&["omp-desktop"], None),
+            (&[], None),
+        ];
+        for (args, expected) in cases {
+            let args = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+            assert_eq!(startup_workspace(&args).as_deref(), *expected);
+        }
+    }
 
-        dispatch_second_instance(
-            expected.args.clone(),
-            || actions.borrow_mut().push("focus"),
-            |event| {
-                actions.borrow_mut().push("emit");
-                emitted.replace(Some(event));
-            },
+    #[cfg(windows)]
+    #[test]
+    fn repeat_launch_paths_are_resolved_without_the_primary_process_cwd() {
+        for (path, cwd, expected) in [
+            (r".\repo", r"D:\Caller", r"D:\Caller\repo"),
+            (r"..\repo", r"D:\Caller", r"D:\repo"),
+            (r".\Мой проект", r"D:\Caller", r"D:\Caller\Мой проект"),
+            (
+                r"C:\Проекты\Мой проект",
+                r"D:\Caller",
+                r"C:\Проекты\Мой проект",
+            ),
+            (
+                "C:/Проекты/Мой проект",
+                r"D:\Caller",
+                r"C:\Проекты\Мой проект",
+            ),
+            (
+                r"\\server\share\Мой проект",
+                r"D:\Caller",
+                r"\\server\share\Мой проект",
+            ),
+            (r"\repo", r"D:\Caller", r"D:\repo"),
+            ("/repo", r"D:\Caller", r"D:\repo"),
+            (r"D:repo", r"D:\Caller", r"D:\Caller\repo"),
+            (r"d:repo", r"D:\Caller", r"D:\Caller\repo"),
+            (r"\repo", r"\\server\share\Caller", r"\\server\share\repo"),
+        ] {
+            assert_eq!(
+                resolve_launch_workspace(path, cwd).unwrap(),
+                PathBuf::from(expected)
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn another_drive_relative_path_is_rejected_without_caller_drive_context() {
+        assert!(resolve_launch_workspace(r"C:repo", r"D:\Caller").is_err());
+        assert!(resolve_launch_workspace(r"D:repo", r"\\server\share\Caller").is_err());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn repeat_launch_relative_path_uses_the_caller_directory() {
+        assert_eq!(
+            resolve_launch_workspace("./Мой проект", "/audit/caller").unwrap(),
+            PathBuf::from("/audit/caller/Мой проект")
         );
+        assert_eq!(
+            resolve_launch_workspace("/audit/project", "/other").unwrap(),
+            PathBuf::from("/audit/project")
+        );
+    }
 
-        assert_eq!(actions.into_inner(), ["focus", "emit"]);
-        assert_eq!(emitted.into_inner(), Some(expected));
+    #[test]
+    fn relative_launch_path_does_not_fall_back_when_caller_directory_is_missing() {
+        assert!(resolve_launch_workspace("repo", "relative/caller").is_err());
     }
 }
 

@@ -103,7 +103,6 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import {
-  extractSingleInstanceWorkspace,
   localeTag,
   mergeSessionIntoPayload,
   normalizedPath,
@@ -238,6 +237,7 @@ function App() {
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const sessionSelectionRequestRef = useRef(0)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
@@ -785,7 +785,13 @@ function App() {
     let needsReconcile = false
     void listen<SingleInstanceEvent>("single-instance", async (event) => {
       if (disposed) return
-      const requested = extractSingleInstanceWorkspace(event.payload.args)
+      if (event.payload.error) {
+        ++latestRequest
+        ++workspaceSelectionRequestRef.current
+        showError(event.payload.error)
+        return
+      }
+      const requested = event.payload.workspace
       if (requested) {
         const request = ++latestRequest
         const selectionRequest = ++workspaceSelectionRequestRef.current
@@ -888,6 +894,7 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
+      const sessionSelectionRequest = ++sessionSelectionRequestRef.current
       setSelectedSessionId(session.id)
       setSearch("")
       setTabs((current) =>
@@ -911,13 +918,19 @@ function App() {
             : tab,
         ),
       )
+      const workspaceSelectionRequest = workspaceSelectionRequestRef.current
       void loadBootstrap()
         .then((next) => {
           if (disposed) return
           const latest = discoveredSessionsRef.current.get(event.terminalId)
           if (latest && latest.id !== session.id) return
           applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
-          setSelectedSessionId(session.id)
+          if (
+            sessionSelectionRequest === sessionSelectionRequestRef.current &&
+            workspaceSelectionRequest === workspaceSelectionRequestRef.current
+          ) {
+            setSelectedSessionId(session.id)
+          }
         })
         .catch((error) => {
           if (!disposed) showError(errorMessage(error, langRef.current))
@@ -1171,6 +1184,7 @@ function App() {
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
+      ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionId) {
         setSelectedSessionId(target.sessionId)
@@ -1212,6 +1226,7 @@ function App() {
 
   const selectSession = useCallback(
     (session: SessionSummary) => {
+      ++sessionSelectionRequestRef.current
       setSelectedSessionId(session.id)
       setSearch("")
       const platform = payload?.runtime.platform ?? "windows"

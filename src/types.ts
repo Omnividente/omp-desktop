@@ -8,7 +8,8 @@ export interface SettingsUnavailableDetails {
 }
 
 export interface SingleInstanceEvent {
-  args: string[]
+  workspace: string | null
+  error: string | null
 }
 
 export interface SettingsWarning {

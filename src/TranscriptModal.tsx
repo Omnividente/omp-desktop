@@ -5,7 +5,8 @@ import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { useVirtualList } from "./useVirtualList"
-import { MarkdownContent, markdownContent, type TextMatch } from "./MarkdownContent"
+import { MarkdownContent, markdownContent } from "./MarkdownContent"
+import { TranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
@@ -218,38 +219,31 @@ export function TranscriptModal({
       ),
     [visibleEntries, transcriptMode, sourceMode],
   )
-  const search = useMemo(() => {
-    const byEntry: TextMatch[][] = contents.map(() => [])
-    const occurrences: Array<TextMatch & { entryIndex: number }> = []
-    if (transcriptSearch) {
-      const pattern = new RegExp(transcriptSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu")
-      contents.forEach((content, entryIndex) => {
-        for (const found of content.text.matchAll(pattern)) {
-          const match = {
-            start: found.index,
-            end: found.index + found[0].length,
-            index: occurrences.length,
-            entryIndex,
-          }
-          occurrences.push(match)
-          byEntry[entryIndex].push(match)
-        }
-      })
-    }
-    return { byEntry, occurrences }
-  }, [contents, transcriptSearch])
+  const search = useMemo(
+    () => new TranscriptSearch(contents, transcriptSearch),
+    [contents, transcriptSearch],
+  )
   const [navigation, setNavigation] = useState({ search, index: 0 })
-  const currentIndex = search.occurrences.length
-    ? navigation.search === search
-      ? navigation.index
-      : 0
-    : -1
-  const currentMatch = search.occurrences[currentIndex]
+  if (navigation.search !== search) setNavigation({ search, index: 0 })
+  const currentIndex = search.count ? (navigation.search === search ? navigation.index : 0) : -1
+  // Retain only bounded highlight windows for currently mounted virtual rows.
+  const renderedMatches = useMemo(
+    () =>
+      new Map(virtualItems.map((vi) => [vi.index, search.matchesForEntry(vi.index, currentIndex)])),
+    [search, virtualItems, currentIndex],
+  )
+  const currentMatch = useMemo(
+    () =>
+      currentIndex < 0
+        ? null
+        : { index: currentIndex, entryIndex: search.entryIndex(currentIndex) },
+    [search, currentIndex],
+  )
   const navigate = (direction: number) => {
-    if (!search.occurrences.length) return
+    if (!search.count) return
     setNavigation({
       search,
-      index: (currentIndex + direction + search.occurrences.length) % search.occurrences.length,
+      index: (currentIndex + direction + search.count) % search.count,
     })
   }
   const pendingMatchRef = useRef<{ index: number; entryIndex: number } | null>(null)
@@ -524,11 +518,11 @@ export function TranscriptModal({
             </div>
             <div className="transcript-find-navigation">
               <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
-                {currentIndex + 1} / {search.occurrences.length}
+                {currentIndex + 1} / {search.count}
               </span>
               <button
                 type="button"
-                disabled={!search.occurrences.length}
+                disabled={!search.count}
                 onClick={() => navigate(-1)}
                 aria-label={t(lang, "transcriptPreviousMatch")}
                 title={t(lang, "transcriptPreviousMatch")}
@@ -537,16 +531,14 @@ export function TranscriptModal({
               </button>
               <button
                 type="button"
-                disabled={!search.occurrences.length}
+                disabled={!search.count}
                 onClick={() => navigate(1)}
                 aria-label={t(lang, "transcriptNextMatch")}
                 title={t(lang, "transcriptNextMatch")}
               >
                 ↓
               </button>
-              {transcriptSearch && !search.occurrences.length && (
-                <span>{t(lang, "transcriptNoMatches")}</span>
-              )}
+              {transcriptSearch && !search.count && <span>{t(lang, "transcriptNoMatches")}</span>}
             </div>
             <div
               aria-label={t(lang, "transcriptFilter")}
@@ -734,7 +726,7 @@ export function TranscriptModal({
                       onError={onError}
                       onOpen={openLink}
                       content={contents[vi.index]}
-                      matches={search.byEntry[vi.index]}
+                      matches={renderedMatches.get(vi.index)}
                       currentMatch={currentIndex}
                       onLinkContextMenu={(event, uri) => {
                         const selection = window.getSelection()
