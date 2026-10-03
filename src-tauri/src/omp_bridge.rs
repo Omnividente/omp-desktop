@@ -1,9 +1,9 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, BootstrapPayload, OmpAccountLimitInfo, OmpAccountRouteInfo,
-        OmpAccountUsageInfo, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning,
-        OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
+        sanitize_error_text, AppSettings, BootstrapPayload, OmpAccountLimitInfo,
+        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpConfigSaveRequest, OmpConfigSnapshot,
+        OmpConfigWarning, OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
     },
     omp_command::{run_omp_command, OmpOperation},
     operational_config::{self, OperationalTransaction},
@@ -12,8 +12,12 @@ use crate::{
     update,
 };
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use tauri::AppHandle;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Mutex,
+    time::{Duration, Instant},
+};
+use tauri::{AppHandle, Manager};
 
 const KNOWN_ROLES: &[&str] = &[
     "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
@@ -41,9 +45,110 @@ const PROVIDER_ENV_KEYS: &[&str] = &[
     "A6API_KEY",
 ];
 
+const MODEL_CATALOG_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+const MODEL_CATALOG_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
+
+struct ModelCatalogAttempt {
+    executable: String,
+    env: HashMap<String, String>,
+    attempted_at: Instant,
+    forced_at: Option<Instant>,
+    error: Option<String>,
+}
+
+#[derive(Default)]
+pub struct ModelCatalogState(Mutex<Option<ModelCatalogAttempt>>);
+
+impl ModelCatalogState {
+    fn invalidate(&self) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    fn refresh<F>(
+        &self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        force: bool,
+        now: Instant,
+        fetch: F,
+    ) -> Result<Option<Value>, String>
+    where
+        F: FnOnce() -> Result<Value, String>,
+    {
+        // Keep the lock through discovery so concurrent snapshot loads share one fetch.
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = state
+            .as_ref()
+            .filter(|entry| entry.executable == executable && entry.env == *env);
+        let should_refresh = previous.is_none_or(|entry| {
+            if force {
+                entry.forced_at.is_none_or(|forced_at| {
+                    now.saturating_duration_since(forced_at) >= MODEL_CATALOG_REFRESH_COOLDOWN
+                })
+            } else {
+                let interval = if entry.error.is_some() {
+                    MODEL_CATALOG_REFRESH_COOLDOWN
+                } else {
+                    MODEL_CATALOG_STALE_AFTER
+                };
+                now.saturating_duration_since(entry.attempted_at) >= interval
+            }
+        });
+        if !should_refresh {
+            return match previous.and_then(|entry| entry.error.as_ref()) {
+                Some(error) => Err(error.clone()),
+                None => Ok(None),
+            };
+        }
+        let forced_at = if force {
+            Some(now)
+        } else {
+            previous.and_then(|entry| entry.forced_at)
+        };
+        let result = fetch().map_err(|error| sanitize_error_text(&error));
+        match state.as_mut() {
+            Some(entry) if entry.executable == executable && entry.env == *env => {
+                entry.attempted_at = now;
+                entry.forced_at = forced_at;
+                entry.error = result.as_ref().err().cloned();
+            }
+            _ => {
+                *state = Some(ModelCatalogAttempt {
+                    executable: executable.to_owned(),
+                    env: env.clone(),
+                    attempted_at: now,
+                    forced_at,
+                    error: result.as_ref().err().cloned(),
+                });
+            }
+        }
+        result.map(Some)
+    }
+}
+
+#[derive(Default)]
+struct ModelCatalogSnapshot {
+    models: Vec<OmpModelInfo>,
+    refresh_error: Option<String>,
+}
+
 pub fn load_config_snapshot(
     app: &AppHandle,
     app_settings: &AppSettings,
+) -> Result<OmpConfigSnapshot, String> {
+    load_config_snapshot_with_refresh(app, app_settings, false)
+}
+
+fn load_config_snapshot_with_refresh(
+    app: &AppHandle,
+    app_settings: &AppSettings,
+    force_catalog: bool,
 ) -> Result<OmpConfigSnapshot, String> {
     let omp = resolve_omp(app, app_settings);
     if omp.version.is_none() {
@@ -64,14 +169,30 @@ pub fn load_config_snapshot(
         .filter(|provider| !provider.is_empty())
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
+    let catalog = app.state::<ModelCatalogState>();
     let (models_result, usage_result) = std::thread::scope(|scope| {
-        let models = scope.spawn(|| load_models(&omp.executable, &app_settings.provider_env));
+        let models = scope.spawn(|| {
+            load_models(
+                &omp.executable,
+                &app_settings.provider_env,
+                &catalog,
+                force_catalog,
+            )
+        });
         let usage = scope.spawn(|| load_usage(&omp.executable, &app_settings.provider_env));
         (models.join(), usage.join())
     });
     let mut warnings = Vec::new();
-    let mut models =
+    let catalog_snapshot: ModelCatalogSnapshot =
         snapshot_value_or_warning(models_result, "models", "omp_models_failed", &mut warnings);
+    if let Some(error) = catalog_snapshot.refresh_error {
+        warnings.push(OmpConfigWarning {
+            source: "models".to_owned(),
+            code: "omp_models_refresh_failed".to_owned(),
+            message: format!("Не удалось обновить каталог OMP; показан доступный кэш: {error}"),
+        });
+    }
+    let mut models = catalog_snapshot.models;
     let usage = snapshot_value_or_warning(usage_result, "usage", "omp_usage_failed", &mut warnings);
     apply_usage_to_models(&mut models, &usage.providers);
     let roles_map = extract_roles(&raw);
@@ -139,14 +260,25 @@ pub fn refresh_config_snapshot(
     if omp.version.is_none() {
         return Err(format!("OMP не найден: {}", omp.executable));
     }
-    run_omp_text(
+    let usage_error = run_omp_text(
         &omp.executable,
         &["usage", "invalidate"],
         &app_settings.provider_env,
         OmpOperation::Usage,
     )
-    .map_err(|error| format!("Не удалось принудительно обновить usage OMP: {error}"))?;
-    load_config_snapshot(app, app_settings)
+    .err();
+    let mut snapshot = load_config_snapshot_with_refresh(app, app_settings, true)?;
+    if let Some(error) = usage_error {
+        snapshot.warnings.push(OmpConfigWarning {
+            source: "usage".to_owned(),
+            code: "omp_usage_refresh_failed".to_owned(),
+            message: format!(
+                "Не удалось обновить usage OMP: {}",
+                sanitize_error_text(&error)
+            ),
+        });
+    }
+    Ok(snapshot)
 }
 
 fn snapshot_value_or_warning<T: Default>(
@@ -651,11 +783,22 @@ pub fn save_config(
         }
 
         if provider_file_mutation.is_some() {
-            run_omp_text(
+            let catalog = app.state::<ModelCatalogState>();
+            catalog.invalidate();
+            catalog.refresh(
                 &omp.executable,
-                &["models", "refresh"],
                 &app_settings.provider_env,
-                OmpOperation::Models,
+                false,
+                Instant::now(),
+                || {
+                    run_omp_text(
+                        &omp.executable,
+                        &["models", "refresh"],
+                        &app_settings.provider_env,
+                        OmpOperation::Models,
+                    )
+                    .map(|_| Value::Null)
+                },
             )?;
         }
         if let Some(transaction) = operational_transaction.as_mut() {
@@ -711,16 +854,26 @@ pub fn save_config(
             expected_disabled_providers.is_some(),
         ));
         if models_file_applied {
+            app.state::<ModelCatalogState>().invalidate();
             if let Some(mutation) = provider_file_mutation.as_ref() {
                 if let Err(rollback_error) = mutation.rollback() {
                     rollback_errors.push(rollback_error);
                 }
             }
-            if let Err(rollback_error) = run_omp_text(
+            if let Err(rollback_error) = app.state::<ModelCatalogState>().refresh(
                 &omp.executable,
-                &["models", "refresh"],
                 &previous_settings.provider_env,
-                OmpOperation::Models,
+                false,
+                Instant::now(),
+                || {
+                    run_omp_text(
+                        &omp.executable,
+                        &["models", "refresh"],
+                        &previous_settings.provider_env,
+                        OmpOperation::Models,
+                    )
+                    .map(|_| Value::Null)
+                },
             ) {
                 rollback_errors.push(rollback_error);
             }
@@ -925,57 +1078,75 @@ pub fn check_update(app: &AppHandle, app_settings: &AppSettings) -> Result<OmpUp
 fn load_models(
     executable: &str,
     env_map: &HashMap<String, String>,
-) -> Result<Vec<OmpModelInfo>, String> {
-    let value = run_omp_json(
-        executable,
-        &["models", "--json"],
-        env_map,
-        OmpOperation::Models,
-    )?;
+    catalog: &ModelCatalogState,
+    force: bool,
+) -> Result<ModelCatalogSnapshot, String> {
+    let refreshed = catalog.refresh(executable, env_map, force, Instant::now(), || {
+        run_omp_json(
+            executable,
+            &["models", "refresh", "--json"],
+            env_map,
+            OmpOperation::Models,
+        )
+    });
+    let (value, refresh_error) = match refreshed {
+        Ok(Some(value)) => (value, None),
+        result => (
+            run_omp_json(
+                executable,
+                &["models", "--json"],
+                env_map,
+                OmpOperation::Models,
+            )?,
+            result.err(),
+        ),
+    };
     let models = value
         .get("models")
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+        .ok_or_else(|| "[omp_invalid_json] OMP не вернул массив models".to_owned())?;
 
-    Ok(models
-        .into_iter()
-        .filter_map(|model| {
-            let provider = model.get("provider")?.as_str()?.to_owned();
-            let id = model.get("id")?.as_str()?.to_owned();
-            let selector = model
-                .get("selector")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("{provider}/{id}"));
-            let name = model
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| id.clone());
-            let thinking = model
-                .get("thinking")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect::<Vec<_>>()
+    Ok(ModelCatalogSnapshot {
+        models: models
+            .iter()
+            .filter_map(|model| {
+                let provider = model.get("provider")?.as_str()?.to_owned();
+                let id = model.get("id")?.as_str()?.to_owned();
+                let selector = model
+                    .get("selector")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("{provider}/{id}"));
+                let name = model
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| id.clone());
+                let thinking = model
+                    .get("thinking")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Some(OmpModelInfo {
+                    provider,
+                    id,
+                    selector,
+                    name,
+                    available: true,
+                    status: "ok".to_owned(),
+                    detail: None,
+                    thinking,
                 })
-                .unwrap_or_default();
-            Some(OmpModelInfo {
-                provider,
-                id,
-                selector,
-                name,
-                available: true,
-                status: "ok".to_owned(),
-                detail: None,
-                thinking,
             })
-        })
-        .collect())
+            .collect(),
+        refresh_error,
+    })
 }
 
 fn load_usage(
@@ -2411,6 +2582,138 @@ fn interpret_omp_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_refresh_respects_success_failure_and_forced_boundaries() {
+        let state = ModelCatalogState::default();
+        let env = HashMap::new();
+        let start = Instant::now();
+        let fetch = || Ok(Value::Null);
+        assert!(state
+            .refresh("omp", &env, false, start, fetch)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh(
+                "omp",
+                &env,
+                false,
+                start + MODEL_CATALOG_STALE_AFTER - Duration::from_millis(1),
+                fetch
+            )
+            .unwrap()
+            .is_none());
+        assert!(state
+            .refresh("omp", &env, false, start + MODEL_CATALOG_STALE_AFTER, fetch)
+            .unwrap()
+            .is_some());
+        let forced = start + MODEL_CATALOG_STALE_AFTER;
+        assert!(state
+            .refresh("omp", &env, true, forced, fetch)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh(
+                "omp",
+                &env,
+                true,
+                forced + MODEL_CATALOG_REFRESH_COOLDOWN - Duration::from_millis(1),
+                fetch
+            )
+            .unwrap()
+            .is_none());
+        let failed = forced + MODEL_CATALOG_REFRESH_COOLDOWN;
+        assert_eq!(
+            state
+                .refresh("omp", &env, true, failed, || Err("offline".to_owned()))
+                .unwrap_err(),
+            "offline"
+        );
+        assert_eq!(
+            state
+                .refresh(
+                    "omp",
+                    &env,
+                    false,
+                    failed + MODEL_CATALOG_REFRESH_COOLDOWN - Duration::from_millis(1),
+                    fetch
+                )
+                .unwrap_err(),
+            "offline"
+        );
+        assert!(state
+            .refresh(
+                "omp",
+                &env,
+                false,
+                failed + MODEL_CATALOG_REFRESH_COOLDOWN,
+                fetch
+            )
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh(
+                "omp",
+                &env,
+                false,
+                failed + MODEL_CATALOG_REFRESH_COOLDOWN + Duration::from_secs(1),
+                fetch
+            )
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn catalog_refresh_changes_context_without_reusing_another_catalogs_cooldown() {
+        let state = ModelCatalogState::default();
+        let start = Instant::now();
+        let first = HashMap::from([("API_KEY".to_owned(), "fixture-a".to_owned())]);
+        let second = HashMap::from([("API_KEY".to_owned(), "fixture-b".to_owned())]);
+        let fetch = || Ok(Value::Null);
+        assert!(state
+            .refresh("omp-a", &first, true, start, fetch)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh("omp-b", &first, true, start, fetch)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh("omp-b", &second, true, start, fetch)
+            .unwrap()
+            .is_some());
+        assert!(state
+            .refresh("omp-b", &second, true, start, fetch)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn concurrent_catalog_loads_only_fetch_once() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Barrier,
+        };
+        let state = Arc::new(ModelCatalogState::default());
+        let ready = Arc::new(Barrier::new(4));
+        let fetched = Arc::new(AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let (state, ready, fetched) =
+                    (Arc::clone(&state), Arc::clone(&ready), Arc::clone(&fetched));
+                scope.spawn(move || {
+                    ready.wait();
+                    state
+                        .refresh("omp", &HashMap::new(), false, Instant::now(), || {
+                            fetched.fetch_add(1, Ordering::Relaxed);
+                            Ok(Value::Null)
+                        })
+                        .unwrap();
+                });
+            }
+        });
+        assert_eq!(fetched.load(Ordering::Relaxed), 1);
+    }
 
     fn model(provider: &str, id: &str) -> OmpModelInfo {
         OmpModelInfo {
