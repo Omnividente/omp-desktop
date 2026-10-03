@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
+import { SEARCH_HIGHLIGHT_LIMIT, TranscriptSearch } from "./transcriptSearch"
 import { t } from "./i18n"
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
@@ -187,4 +188,67 @@ it("keeps unknown-language, indented and unfinished code literal, and source mod
   expect(raw.text).toBe(rawSource)
   expect(container.textContent).toBe(rawSource)
   expect(container.querySelector("strong, a, button")).toBeNull()
+})
+
+it("renders bounded first, distant and last highlight windows without truncating a million-match entry", () => {
+  const content = markdownContent("x".repeat(1_000_000))
+  const search = new TranscriptSearch([content], "x")
+  expect(search.count).toBe(1_000_000)
+  for (const currentMatch of [0, 500_000, 999_999, 0, 999_999]) {
+    const matches = search.matchesForEntry(0, currentMatch)
+    expect(matches.length).toBeLessThanOrEqual(SEARCH_HIGHLIGHT_LIMIT)
+    act(() =>
+      root.render(
+        <MarkdownContent
+          content={content}
+          lang="en"
+          onOpen={vi.fn()}
+          onError={vi.fn()}
+          matches={matches}
+          currentMatch={currentMatch}
+        />,
+      ),
+    )
+    const marks = container.querySelectorAll("mark[data-match-index]")
+    expect(marks.length).toBeLessThanOrEqual(SEARCH_HIGHLIGHT_LIMIT)
+    expect(marks.length).toBe(matches.length)
+    expect(container.querySelector("mark.is-current")?.getAttribute("data-match-index")).toBe(
+      String(currentMatch),
+    )
+    expect(container.querySelector("mark.is-current")?.textContent).toBe("x")
+    expect(container.textContent).toBe(content.text)
+  }
+  act(() =>
+    root.render(<MarkdownContent content={content} lang="en" onOpen={vi.fn()} onError={vi.fn()} />),
+  )
+  expect(container.querySelector("mark")).toBeNull()
+  expect(container.textContent).toBe(content.text)
+})
+
+it("bounds marks across split Markdown leaves and reserves the late active anchor", () => {
+  const group = "**x** ".repeat(700)
+  const content = markdownContent(`${group}\n\n${group}`)
+  const search = new TranscriptSearch([content], markdownContent(group).text)
+  expect(search.count).toBe(2)
+  for (const currentMatch of [1, 0, 1]) {
+    act(() =>
+      root.render(
+        <MarkdownContent
+          content={content}
+          lang="en"
+          onOpen={vi.fn()}
+          onError={vi.fn()}
+          matches={search.matchesForEntry(0, currentMatch)}
+          currentMatch={currentMatch}
+        />,
+      ),
+    )
+    expect(container.querySelectorAll("mark").length).toBeLessThanOrEqual(SEARCH_HIGHLIGHT_LIMIT)
+    expect(container.querySelector("mark.is-current")?.getAttribute("data-match-index")).toBe(
+      String(currentMatch),
+    )
+    expect(container.querySelector("mark.is-current")?.textContent).toBe("x")
+    expect(container.querySelectorAll("strong")).toHaveLength(1400)
+    expect(container.textContent).toBe(content.text)
+  }
 })

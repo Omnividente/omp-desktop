@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
+import {
+  errorMessage,
+  loadOmpConfig,
+  refreshOmpConfig,
+  saveSettingsBundle,
+  settingsUnavailableDetails,
+} from "./api"
 import { Icon } from "./Icon"
 import {
   roleDescription,
@@ -344,7 +350,7 @@ export function SettingsPanel({
       if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
-      onError(message)
+      if (!settingsUnavailableDetails(error)) onError(message)
     } finally {
       if (isCurrent()) setLoadingConfig(false)
     }
@@ -752,7 +758,7 @@ export function SettingsPanel({
       )
     } catch (error) {
       const message = errorMessage(error, language, { includeDetails: true })
-      onError(message)
+      if (!settingsUnavailableDetails(error)) onError(message)
       if (disposedRef.current) return
       setSaveError(message)
       if (reloadConfigOnFailure && generation === configGenerationRef.current) {
