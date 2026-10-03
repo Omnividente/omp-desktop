@@ -137,6 +137,37 @@ class OwnerRecoveryQueueTests(OwnerRecoveryFixture, unittest.TestCase):
         self.assertEqual([item["inputs"]["task_id"] for item in self.records()], ["first", "second"])
         self.assertEqual(validate_requests(self.data), [])
 
+    def test_occupied_pair_defers_repair_without_spending_or_blocking_other_pairs(self):
+        target, independent, blocker = self.data["tasks"]
+        target["research"] = {"area_id": "clock", "perspective_id": "behavior"}
+        blocker["research"] = copy.deepcopy(target["research"])
+        independent["research"] = {"area_id": "clock", "perspective_id": "performance"}
+        first = self.queue()
+        second = self.queue(task_id="second", source=trigger("101"))
+        for state in ("dispatched", "quarantined", "awaiting_report"):
+            with self.subTest(state=state):
+                blocker["status"] = "in_progress" if state == "dispatched" else "blocked"
+                blocker["execution"]["state"] = state
+                if state == "awaiting_report":
+                    blocker["execution"].update(outcome="report_invalid", report_repair={
+                        "at": FAILED_AT, "result": "unknown", "status": "pending"})
+                before = encoded(self.data)
+                self.assertEqual(pending_recovery(self.data, self.config), second)
+                self.assertEqual(encoded(self.data), before)
+                self.assertNotIn("execution", self.records()[0])
+        blocker["execution"]["report_repair"]["status"] = "invalid"
+        self.assertEqual(pending_recovery(self.data, self.config), first)
+        self.assertEqual(self.records(), [first, second])
+
+    def test_collector_only_recovery_does_not_reserve_an_occupied_pair(self):
+        target, _, blocker = self.data["tasks"]
+        target["research"] = {"area_id": "clock", "perspective_id": "behavior"}
+        blocker["research"] = copy.deepcopy(target["research"])
+        collector = self.queue(after="")
+        before = encoded(self.data)
+        self.assertEqual(pending_recovery(self.data, self.config), collector)
+        self.assertEqual(encoded(self.data), before)
+
     def test_unauthorized_foreign_or_mixed_commands_are_rejected_atomically(self):
         sources = (trigger(actor="stranger"), trigger(repository="foreign/repository"),
                    trigger(event_name="schedule"))
@@ -448,6 +479,63 @@ class OwnerRecoveryExecutorTests(OwnerRecoveryFixture, unittest.TestCase):
         self.assertIsNone(pending_recovery(self.data, self.config))
         self.assertEqual(validate_requests(self.data), [])
         self.assertEqual(encoded(self.data), before)
+
+
+class OwnerRecoveryResumeTests(unittest.TestCase):
+    def fixture(self, *, complete_checkpoint=True):
+        from failed_recovery_checkpoint_test import FailedRecoveryCheckpointTests
+        fixture = FailedRecoveryCheckpointTests("runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.prepare()
+        if complete_checkpoint:
+            fixture.complete()
+        data = load_state(fixture.repo, fixture.store.manifest_path, fixture.store.revision_path)
+        return fixture, data
+
+    def test_only_observed_failure_allows_one_causal_resume_without_replacing_original_claim(self):
+        fixture, data = self.fixture()
+        original = copy.deepcopy(data["controller"]["owner_recovery_requests"][0])
+        before = encoded(data)
+        self.assertEqual(pending_recovery(data, fixture.config), original)
+        self.assertEqual(encoded(data), before)
+        with self.assertRaises(ValueError):
+            claim_recovery(data, fixture.config, inputs=original["inputs"], intent=fixture.intent,
+                           trigger=fixture.trigger("71"), capability=fixture.execution)
+        intent, send = fixture.store.reserve_send(NEXT, original["inputs"],
+            basis={"receipt_id": fixture.store.current()["completions"][fixture.intent["decision_id"]]["receipt_id"],
+                   "health": {"owner_recovery": {"request_id": original["request_id"]}}},
+            trigger=fixture.trigger("501"), control_sha=CONTROL)
+        send.consume()
+        _, capability = fixture.store.admit(NEXT, original["inputs"], key=intent["correlation_key"],
+                                            trigger=fixture.trigger("502"), control_sha=CONTROL)
+        capability.consume()
+        data = load_state(fixture.repo, fixture.store.manifest_path, fixture.store.revision_path)
+        resumed = claim_recovery(data, fixture.config, inputs=original["inputs"], intent=intent,
+                                 trigger=fixture.trigger("502"), capability=capability)
+        self.assertEqual(resumed["execution"], original["execution"])
+        self.assertEqual({key: value for key, value in resumed.items() if key != "resume_execution"}, original)
+        self.assertEqual(resumed["resume_execution"]["decision_id"], intent["decision_id"])
+        fixture.store.save_manifest(data)
+        self.assertIsNone(pending_recovery(data, fixture.config))
+        consumed = encoded(data)
+        self.assertIsNone(claim_recovery(data, fixture.config, inputs=original["inputs"], intent=intent,
+                                        trigger=fixture.trigger("502"), capability=capability))
+        self.assertEqual(encoded(data), consumed)
+        for field in ("execution", "resume_execution"):
+            altered = copy.deepcopy(data)
+            del altered["controller"]["owner_recovery_requests"][0][field]
+            with self.assertRaises(ValueError):
+                fixture.store.save_manifest(altered)
+
+    def test_unfinished_failed_execution_does_not_itself_authorize_resume(self):
+        fixture, data = self.fixture(complete_checkpoint=False)
+        self.assertIsNone(pending_recovery(data, fixture.config))
+        original = copy.deepcopy(data["controller"]["owner_recovery_requests"][0])
+        data["controller"]["owner_recovery_requests"][0]["resume_execution"] = original["execution"]
+        self.assertTrue(validate_requests(data))
+        with self.assertRaises(ValueError):
+            fixture.store.save_manifest(data)
 
 
 if __name__ == "__main__":
