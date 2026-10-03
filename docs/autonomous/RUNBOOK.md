@@ -96,6 +96,10 @@ delivery remains blocked. Reporting benign ingress grants no execution/send righ
 NEXT/SYNC source jobs and their handoff use that same observation-only disposition
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
+An authorized explicit report-recovery command is not a disposable wakeup signal:
+benign busy ingress additionally CAS-saves it in `controller.owner_recovery_requests`.
+That owner-command acknowledgement still grants no runtime right and never replaces
+the current intent; the normal causal chain must admit its own future NEXT executor.
 
 Exceptional **unclaimed delivery recovery** is a separate, explicitly authorized
 owner operation, not a retry or a normal no-effect result. The main-only
@@ -193,6 +197,45 @@ unclaimed OwnerFence operation and its distinct workflow/acknowledgement contrac
    Preserve the original fenced NEXT run and all worker identities. This cutover is
    not permission to delete a run, reset the journal or repin an old intent.
 
+Exceptional **observed original NEXT completion** also requires a distinct explicit
+owner decision after separately checked source deployment. It is neither revocation
+nor a NEXT rerun. `autonomous_complete_next.yml` accepts only `expected_state_sha`
+and `decision_id` and invokes the native owner entry with fixed
+`--operation next_completion`.
+
+1. Select the original consumed automatic sender NEXT with no effect, completion,
+   execution stage or phase claim. Save the exact current state and complete
+   task/controller body and journal prefix. Waiting status, a run title, POST ACK
+   or a report supplied by the operator is not completion evidence.
+2. The controller authenticates the original completed failed run and attempt 1,
+   main branch, repository/head-repository IDs, actor/triggering actor, exact frozen
+   head and correlation key, stable workflow ID/path, successful authenticated
+   checkout/policy steps, failed native CLI step and successful artifact upload.
+   REST `run.name` and `job.workflow_name` are dynamic run names, not static workflow
+   identity. This narrow operation rejects mixed event-head/frozen-pin sources.
+3. Authenticated GETs must find one nonexpired exact-name original artifact and
+   verify the downloaded ZIP SHA256 against mandatory metadata. The bounded archive
+   contains only a regular `lab-result.json`; its native result must bind this
+   decision and actual state SHA, `automatic=true`, `skipped=true`, `action=none`,
+   `reason=sync_running`, with no effect receipt, observations, proposals, waiting
+   workers or research change. Archives and raw reports remain in memory only.
+4. Actual Git checkpoints before the executor claim, named by the original report,
+   and at the fresh CAS pin must have identical full task/controller bodies. The
+   report checkpoint must retain the exact original consumed executor. One owner-
+   bound CAS appends only `OwnerNextCompletion(next_no_effect_observed)` and closes
+   that frontier once. It preserves all prior journal events and send/executor
+   rights, without dispatch, provider POST, task mutation, repin, revocation,
+   useful clock change or fabricated successful GitHub status.
+5. Conflicts, unknown acknowledgement or result-retention failure stay blocked;
+   reconcile the actual state, never substitute a fresh pin or blindly resend.
+   Only the same original owner event and inputs (rerun attempt may differ) can
+   observe `already_completed`, with no write or repeated artifact requests.
+6. After read-back of the receipt, preserved body/history and denied old execution,
+   use the separately authorized ordinary new-control sender and checked Sync.
+   The owner operation itself does not perform handoff or renew execution. Existing
+   report-invalid attention remains visible until original-source recovery and
+   strict intake actually succeed; this no-op is not useful scheduler progress.
+
 
 First introduction of the journal requires a separately authorized paused rollout;
 these initialization notes are not permission to run commands against production:
@@ -223,12 +266,15 @@ poll checkpoint; timestamp-only writes do not grant progress. Manual implementat
 approval and exact report/feedback recovery authorization remain independent.
 A normal unchanged NEXT result, such as an explicitly selected already-finished
 task, records `ExecutionCompletion(next_no_effect)` instead of leaving an unfinished
-executor claim. Its before/after state revisions and current substantive digest
-must match the original executor baseline; no attention, worker observations,
-proposals or waiting workers may be hidden by this result. This closes one frontier
-without a useful-effect receipt or useful clock update. Unknown outcomes cannot be
-completed this way. The original receipt permits only the ordinary causal handoff;
-replay never starts another worker or renews a claim.
+executor claim. Automatic `sync_running` and `sync_required` pauses use this same
+completion contract even with descriptive parked-report attention. The exact
+attention remains in the report and warning exit status; it is never hidden or
+reclassified as successful intake. Worker observations, proposals, waiting workers
+and research changes cannot be completed this way. Before/after state revisions
+and current substantive digest must match the original executor baseline. This
+closes one frontier without a useful-effect receipt or useful clock update; unknown
+outcomes stay spent and blocked. The original receipt permits only the ordinary
+causal handoff; replay never starts another worker or renews a claim.
 
 SYNC preparation saves a durable `sync_prepared` checkpoint after publishing and
 checking its isolated candidate ref. This checkpoint is not progress. A separate
@@ -869,10 +915,40 @@ For local administration use `lab_controller.py --recover-report --task-id ID
 independent state is saved with CAS. Actions passes the actual `github.actor`;
 an explicit CLI actor must match `GITHUB_ACTOR` when that variable is present.
 
+If another receiver already owns the journal, a trusted-main owner dispatch retains
+this distinct command instead of losing its inputs through generic coalescing.
+The result is `queued / owner_report_recovery_queued`, with
+`owner_recovery.request_id` and `state = pending`. Append-only
+`controller.owner_recovery_requests` preserves the original owner run/attempt/actor,
+normalized manual inputs, task/session/dispatch/attempt/base binding and request time.
+This is a saved command, not an executor claim, effect receipt, accepted report or
+evidence that Jules resumed. Blocked or uncertain ingress cannot grant that right.
+
+After existing main/SYNC compatibility checks, the genuinely owned CONTINUE gives
+the oldest pending command priority over ordinary polling, detachment and scheduling.
+It dispatches NEXT with the original `task_id`, `recover_report` and `repair_after`,
+never converting it into automatic research. Only the actual consumed NEXT execution
+capability can CAS-bind `execution` to that exact command before its normal recovery
+body runs. Revoked authorization, foreign repository, rebound attempt or malformed
+inputs fail closed; monitor attention for the unaccepted report remains truthful.
+
+Replaying an exact failed receipt deduplicates the saved command across later owner
+runs. Once claimed, ingress reports `observed / owner_report_recovery_already_claimed`
+and `state = claimed`; it neither renews the executor nor repeats provider messaging.
+Collector-only commands without `repair_after` deduplicate reruns by original run ID.
+Never delete or rewrite command history, including after a later task retry. Deploy
+and verify the compatible active controller before issuing recovery commands. Submit
+multiple distinct owner workflow commands one at a time and confirm their durable
+queue/claim result: GitHub's keyless ingress concurrency can replace a pending run
+before its body ever saves the command.
+
 Explicit recovery does not advance `controller.last_poll_at` or `last_tick_at`,
 or replace `controller.run_id`: these are global scheduler anchors. Its target's
 observations and report are still saved, while unrelated workers retain their
 polling deadlines, including workers awaiting completion of a rejection.
+Targeted observations are not serialized as global scheduler poll evidence. A
+successful recovery's causal checkpoint must come from real saved substantive
+task/receipt/command changes; it cannot manufacture `last_poll_at` to complete handoff.
 
 After `close_research_unaccepted`, ordinary recovery is strictly reparse-only.
 The controller CAS-saves a `recover_authorized` event before reading Jules, then

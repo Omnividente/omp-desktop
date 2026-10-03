@@ -34,8 +34,9 @@ from task_lifecycle import (
 )
 from validate_tasks import validate, validate_feedback_nudges
 from loop_health import WAITING_REASONS, worker_observation, waiting_attention
-from dispatch_journal import JournalStore, NEXT_NO_EFFECT_REASONS
+from dispatch_journal import JournalStore, next_no_effect_evidence
 from workflow_admission import add_arguments, context, recheck_context, substantive_manifest
+from owner_report_recovery import queue_recovery, claim_recovery
 
 LAB_BRANCH = "autonomous/lab"
 
@@ -904,6 +905,21 @@ def main(argv=None) -> int:
             disposition = store.nonexecution_outcome(
                 intent, key=binding.key, trigger=binding.trigger, control_sha=binding.control_sha, runs=runs)
             result = {"action": "none", "merge_mode": "manual", **disposition}
+            if (args.recover_report and not binding.key
+                    and binding.trigger["event_name"] == "workflow_dispatch"
+                    and disposition["outcome"] == "coalesced"):
+                queued = queue_recovery(manifest, config, inputs=inputs, trigger=binding.trigger)
+                recheck_context(binding)
+                try:
+                    persist(manifest)
+                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    raise StateWriteError("owner command save failed; reload before continuing") from exc
+                claimed = "execution" in queued
+                result.update(outcome="observed" if claimed else "queued",
+                              reason="owner_report_recovery_already_claimed" if claimed else "owner_report_recovery_queued",
+                              owner_recovery={"request_id": queued["request_id"],
+                                              "state": "claimed" if claimed else "pending"},
+                              state_sha=json.loads(args.revision_file.read_bytes())["state_sha"])
             atomic_write(args.out, json.dumps(result, indent=2) + "\n")
             return 1 if disposition["outcome"] == "blocked" else 0
         before_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
@@ -912,6 +928,15 @@ def main(argv=None) -> int:
             raise ValueError("loop disabled before execution")
         recheck_context(binding)
         capability.consume()
+        queued = None
+        if args.recover_report:
+            queued = claim_recovery(manifest, config, inputs=inputs, intent=intent,
+                                    trigger=binding.trigger, capability=capability)
+            if queued is not None:
+                try:
+                    persist(manifest)
+                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    raise StateWriteError("owner execution save failed; reload before continuing") from exc
         if args.recover_report and not args.task_id:
             raise ValueError("report recovery requires a task id")
         result = tick(manifest, config, repo=args.repo,
@@ -922,12 +947,15 @@ def main(argv=None) -> int:
                       automatic=args.automatic, run_id=args.run_id, repair_after=args.repair_after, actor=args.actor,
                       recover_feedback=args.recover_feedback, feedback_after=args.feedback_after,
                       observer_context=capability.observer_context())
+        if queued is not None:
+            result["owner_recovery_request_id"] = queued["request_id"]
         after_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
         poll_observations = [{field: observation[field] for field in
                               ("task_id", "session_id", "session_state", "observed_at")}
                              for observation in result.get("observations", [])
-                             if observation.get("reason") in {"worker_running", "worker_awaiting_feedback",
-                                                              "worker_awaiting_approval", "worker_paused"}
+                             if not (args.recover_report or args.recover_feedback)
+                             and observation.get("reason") in {"worker_running", "worker_awaiting_feedback",
+                                                               "worker_awaiting_approval", "worker_paused"}
                              and observation.get("session_id") and observation.get("session_state") != "UNKNOWN"]
         if substantive_manifest(manifest) != before or poll_observations:
             receipt = store.record_effect(capability, "controller_checkpoint", {
@@ -935,15 +963,12 @@ def main(argv=None) -> int:
                 "poll_observations": poll_observations,
             })
             result["effect_receipt_id"] = receipt["receipt_id"]
-        elif (result.get("action") == "none" and result.get("reason") in NEXT_NO_EFFECT_REASONS
-              and not any(result.get(field) for field in ("attention", "observations", "proposals", "waiting_workers"))
-              and not result.get("research", {}).get("research_changed")):
-            recheck_context(binding)
-            receipt = store.record_completion(capability, {
-                "status": "no_effect", "action": "none", "reason": result["reason"],
-                "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
-            })
-            result["effect_receipt_id"] = receipt["receipt_id"]
+        else:
+            evidence = next_no_effect_evidence(result, before_state_sha, after_state_sha)
+            if evidence is not None:
+                recheck_context(binding)
+                receipt = store.record_completion(capability, evidence)
+                result["effect_receipt_id"] = receipt["receipt_id"]
         result["decision_id"] = intent["decision_id"]
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",
