@@ -959,8 +959,10 @@ For local administration use `lab_controller.py --recover-report --task-id ID
 independent state is saved with CAS. Actions passes the actual `github.actor`;
 an explicit CLI actor must match `GITHUB_ACTOR` when that variable is present.
 
-If another receiver already owns the journal, a trusted-main owner dispatch retains
-this distinct command instead of losing its inputs through generic coalescing.
+If another receiver already owns the journal, or its execution outcome was recorded
+before the handoff, a distinct trusted-main, keyless owner report-recovery dispatch
+retains its command instead of losing the inputs through coalescing or a benign
+`execution_outcome_already_recorded` stop. Keyed runtime replay remains observation-only.
 The result is `queued / owner_report_recovery_queued`, with
 `owner_recovery.request_id` and `state = pending`. Append-only
 `controller.owner_recovery_requests` preserves the original owner run/attempt/actor,
