@@ -34,7 +34,7 @@ from task_lifecycle import (
 )
 from validate_tasks import validate, validate_feedback_nudges
 from loop_health import WAITING_REASONS, worker_observation, waiting_attention
-from dispatch_journal import JournalStore, NEXT_NO_EFFECT_REASONS
+from dispatch_journal import JournalStore, next_no_effect_evidence
 from workflow_admission import add_arguments, context, recheck_context, substantive_manifest
 from owner_report_recovery import queue_recovery, claim_recovery
 
@@ -963,15 +963,12 @@ def main(argv=None) -> int:
                 "poll_observations": poll_observations,
             })
             result["effect_receipt_id"] = receipt["receipt_id"]
-        elif (result.get("action") == "none" and result.get("reason") in NEXT_NO_EFFECT_REASONS
-              and not any(result.get(field) for field in ("attention", "observations", "proposals", "waiting_workers"))
-              and not result.get("research", {}).get("research_changed")):
-            recheck_context(binding)
-            receipt = store.record_completion(capability, {
-                "status": "no_effect", "action": "none", "reason": result["reason"],
-                "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
-            })
-            result["effect_receipt_id"] = receipt["receipt_id"]
+        else:
+            evidence = next_no_effect_evidence(result, before_state_sha, after_state_sha)
+            if evidence is not None:
+                recheck_context(binding)
+                receipt = store.record_completion(capability, evidence)
+                result["effect_receipt_id"] = receipt["receipt_id"]
         result["decision_id"] = intent["decision_id"]
     except (StateWriteError, ValueError, RuntimeError, OSError, KeyError, subprocess.SubprocessError) as exc:
         result = {"action": "stopped", "merge_mode": "manual",

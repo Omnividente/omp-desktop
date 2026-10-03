@@ -16,9 +16,11 @@ from unittest.mock import patch
 
 import recover_delivery
 import state_store
+import next_no_effect_artifact
+from next_no_effect_artifact_test import SyntheticSource
 import workflow_admission
-from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_CONTINUE_CUTOVER, OWNER_RECOVERY,
-                              JournalStore, JournalUncertain, substantive_digest)
+from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION,
+                              OWNER_RECOVERY, JournalStore, JournalUncertain, substantive_digest)
 from state_store import load_state, save_state
 
 REPOSITORY = "synthetic/owner-entry"
@@ -100,13 +102,14 @@ class OwnerEntryTests(unittest.TestCase):
         return {"run_id": run, "run_attempt": "1", "event_name": "workflow_dispatch",
                 "control_sha": self.control, "repository": REPOSITORY, "actor": "owner"}
 
-    def prepare(self, workflow=CONTINUE, *, claimed=False, owner_workflow=OWNER_CONTINUE_CUTOVER):
+    def prepare(self, workflow=CONTINUE, *, claimed=False, owner_workflow=OWNER_CONTINUE_CUTOVER,
+                inputs=None, execution_run="20"):
         self.intent, send = self.store.reserve_send(
-            workflow, {}, basis={}, trigger=self.trigger(), control_sha=self.control)
+            workflow, inputs or {}, basis={}, trigger=self.trigger(), control_sha=self.control)
         send.consume()
         if claimed:
-            _, execution = self.store.admit(workflow, {}, key=self.intent["correlation_key"],
-                                             trigger=self.trigger("20"), control_sha=self.control)
+            _, execution = self.store.admit(workflow, inputs or {}, key=self.intent["correlation_key"],
+                                             trigger=self.trigger(execution_run), control_sha=self.control)
             execution.consume()
         self.before = self.store.current()
         self.expected = self.before["state_sha"]
@@ -341,6 +344,141 @@ class OwnerEntryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cut over"):
             workflow_admission.checked_control_pin(args, CONFIG, self.store)
         self.assertEqual(self.store.current(), before)
+
+    def prepare_next_completion(self):
+        self.prepare(NEXT, claimed=True, owner_workflow=OWNER_NEXT_COMPLETION,
+                     inputs={"automatic": True}, execution_run="71")
+        os.environ["GITHUB_RUN_ID"] = "72"
+        source = SyntheticSource()
+        source.run.update(head_sha=self.control, display_title="Next " + self.intent["correlation_key"])
+        for field in ("repository", "head_repository"):
+            source.run[field]["full_name"] = REPOSITORY
+        for field in ("actor", "triggering_actor"):
+            source.run[field]["login"] = "owner"
+        source.attempt = copy.deepcopy(source.run)
+        source.jobs[0]["head_sha"] = self.control
+        source.artifacts[0]["workflow_run"]["head_sha"] = self.control
+        source.report.update(decision_id=self.intent["decision_id"], state_sha=self.expected)
+        source.set_report(source.report)
+
+        def metadata(repository, endpoint):
+            self.assertEqual(repository, REPOSITORY)
+            return source.get_json(endpoint)
+
+        def archive(repository, endpoint):
+            self.assertEqual(repository, REPOSITORY)
+            return source.get_archive(endpoint)
+
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_json", side_effect=metadata))
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_archive", side_effect=archive))
+        return source
+
+    def test_observed_next_completion_preserves_body_rights_and_original_history(self):
+        source = self.prepare_next_completion()
+        before_body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
+        pushes = self.pushes
+        status, result = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, result["outcome"]), (0, "completed"))
+        after = self.store.current()
+        after_body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual({k: v for k, v in before_body.items() if k != "dispatch_journal"},
+                         {k: v for k, v in after_body.items() if k != "dispatch_journal"})
+        self.assertEqual(after_body["dispatch_journal"]["events"][:-1],
+                         before_body["dispatch_journal"]["events"])
+        self.assertEqual(after["executor_claims"], self.before["executor_claims"])
+        self.assertEqual(after["send_claims"], self.before["send_claims"])
+        self.assertEqual((after["effects"], after["stages"], after["phase_claims"]), ({}, {}, {}))
+        self.assertIsNone(after["active_intent"])
+        self.assertEqual(after["frontier_seq"], self.before["frontier_seq"] + 1)
+        completion = after["completions"][self.intent["decision_id"]]
+        self.assertEqual(completion["proof"]["producer"],
+                         self.before["executor_claims"][self.intent["decision_id"]]["trigger"])
+        self.assertEqual(completion["owner_trigger"]["run_id"], "72")
+        self.assertEqual(self.pushes, pushes + 1)
+        calls = list(source.calls)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, replay = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, replay["outcome"], replay["receipt_id"]),
+                         (0, "already_completed", result["receipt_id"]))
+        self.assertEqual((self.store.current(), self.pushes, source.calls), (after, pushes + 1, calls))
+        _, denied = self.store.admit(NEXT, {"automatic": True}, key=self.intent["correlation_key"],
+                                     trigger=self.trigger("71"), control_sha=self.control)
+        self.assertIsNone(denied)
+        self.assertEqual(self.store.current(), after)
+
+    def test_completion_cannot_be_rebound_to_another_owner_event(self):
+        self.prepare_next_completion()
+        status, result = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, result["outcome"]), (0, "completed"))
+        os.environ["GITHUB_RUN_ID"] = "73"
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
+
+    def test_source_checkpoint_must_contain_the_original_executor(self):
+        source = self.prepare_next_completion()
+        source.report["state_sha"] = self.before["executor_claims"][self.intent["decision_id"]]["before_state_sha"]
+        source.set_report(source.report)
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
+
+    def test_a_fresh_cas_pin_does_not_authorize_changed_controller_or_task_body(self):
+        self.prepare_next_completion()
+        load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
+        body["controller"] = {"last_useful_tick_at": "2026-01-01T00:00:00Z"}
+        self.store.manifest_path.write_text(json.dumps(body), encoding="utf-8")
+        self.expected = save_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.write_event()
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
+
+    def test_race_after_authentication_cannot_be_retried_or_overwritten(self):
+        source = self.prepare_next_completion()
+        original_download = source.get_archive
+
+        def competing_writer(endpoint):
+            archive = original_download(endpoint)
+            other = JournalStore(self.repo, self.root / "other-queue.json", self.root / "other-revision.json")
+            load_state(self.repo, other.manifest_path, other.revision_path)
+            body = json.loads(other.manifest_path.read_text(encoding="utf-8"))
+            body["protected"]["identity"] = "competing owner change"
+            other.manifest_path.write_text(json.dumps(body), encoding="utf-8")
+            save_state(self.repo, other.manifest_path, other.revision_path)
+            return archive
+
+        source.get_archive = competing_writer
+        status, result = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, result["outcome"]), (1, "blocked"))
+        after = self.store.current()
+        self.assertNotIn(self.intent["decision_id"], after["completions"])
+        body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(body["protected"]["identity"], "competing owner change")
+        self.assertEqual(after["executor_claims"], self.before["executor_claims"])
+
+    def test_lost_completion_ack_only_observes_the_same_original_receipt_on_replay(self):
+        source = self.prepare_next_completion()
+        self.lose_ack = True
+        pushes = self.pushes
+        status, result = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, result["outcome"], result["reason"]),
+                         (1, "blocked", "owner_next_completion_acknowledgement_unknown"))
+        self.lose_ack = False
+        after = self.store.current()
+        calls = list(source.calls)
+        status, result = self.invoke(self.arguments("next_completion"))
+        self.assertEqual((status, result["outcome"]), (0, "already_completed"))
+        self.assertEqual((self.store.current(), self.pushes, source.calls), (after, pushes + 1, calls))
+
+    def test_owner_completion_cannot_observe_a_manual_next(self):
+        self.prepare(NEXT, claimed=True, owner_workflow=OWNER_NEXT_COMPLETION)
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
+
+    def test_owner_completion_cannot_observe_an_unclaimed_next(self):
+        self.prepare(NEXT, owner_workflow=OWNER_NEXT_COMPLETION, inputs={"automatic": True})
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
+
+    def test_other_owner_workflows_cannot_close_next_execution(self):
+        self.prepare_next_completion()
+        os.environ["GITHUB_WORKFLOW_REF"] = REPOSITORY + "/.github/workflows/" + OWNER_CONTINUE_CUTOVER + "@refs/heads/main"
+        self.assert_rejected_without_mutation(self.arguments("next_completion"))
 
     def test_each_operation_rejects_other_operations_acknowledgement(self):
         acknowledged = {"decision_id": "d" * 64, "receipt_id": "e" * 64,
