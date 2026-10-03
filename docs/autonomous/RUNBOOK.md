@@ -236,6 +236,50 @@ and `decision_id` and invokes the native owner entry with fixed
    report-invalid attention remains visible until original-source recovery and
    strict intake actually succeed; this no-op is not useful scheduler progress.
 
+Exceptional **observed failed report-recovery checkpoint** requires its own explicit
+owner decision and separately checked source deployment. The paused automatic NEXT
+operation above cannot be reused: this is a failed manual report command with a
+durable owner execution acknowledgement, not an unchanged `sync_running` no-op.
+`autonomous_complete_report_recovery.yml` accepts only `expected_state_sha` and
+`decision_id`, invoking `recover_delivery.py --operation report_checkpoint`.
+
+1. Select the original unfinished sender NEXT with `recover_report=true` and its
+   exact nonempty failed `repair_after`. Its original task/attempt and queued owner
+   command must be bound and authorized; effects, stages, phase claims and prior
+   completion are forbidden. Save the complete native/body/history baseline.
+2. Authenticate the original attempt-1 failed run and native artifact using the
+   same strict workflow/run/pin/actor/key/jobs/digest checks as the pause reader.
+   The exception envelope has exactly `action=stopped`, `merge_mode=manual`,
+   `reason=state_write_failed`, the fixed state-save attention and actual state SHA.
+   It does not serialize `decision_id`; original run/artifact/key identity supplies
+   that binding. Bounded regular native `research-diagnostics` ZIP members may be
+   present, but their contents are never parsed as evidence or retained in proof.
+3. Prove actual Git lineage and full before/native/current bodies. The only
+   substantive delta may be addition of the exact original `record.execution` to
+   one preexisting command. Every task, report receipt, request, identity and clock
+   must be unchanged; the target must still have the exact original invalid receipt.
+   This excludes the durable pending checkpoint required before a provider POST.
+   Unknown outcomes or any later task/receipt mutation cannot use this operation.
+4. One owner-bound, non-retrying CAS appends
+   `OwnerReportRecoveryCheckpointCompletion(report_recovery_checkpoint_observed)`
+   with `status=failed_before_provider_post`. It preserves the native failed
+   envelope, all original claims/history and useful clocks, and closes only that
+   frontier. It issues no runtime capability, performs no send/handoff and does
+   not manufacture successful worker or GitHub status. Same-owner original-input
+   replay may only observe `already_completed`; changed authorization fails closed.
+5. Read back the exact receipt/body/history and denied old execution. Old frozen
+   readers fail closed on this new event. Use one separately authorized ordinary
+   checked-main Sync/adoption to start compatible code, never rerun or repin the
+   old executor. Invalid-report attention remains truthful.
+6. Compatible planning recognizes only this exact original failure receipt as
+   permission to select the same previously unposted command again, subject to
+   normal pair occupancy. Only a new ordinary causally selected admitted NEXT may
+   append one `resume_execution`. Original `execution` stays immutable; both runtime
+   identities remain append-only. This uses the unchanged original failed-receipt
+   permission, not a new owner authorization or automatic POST retry. A consumed,
+   pending, rejected, unknown or lost-ack resume cannot renew itself.
+
+
 
 First introduction of the journal requires a separately authorized paused rollout;
 these initialization notes are not permission to run commands against production:
@@ -925,7 +969,13 @@ This is a saved command, not an executor claim, effect receipt, accepted report 
 evidence that Jules resumed. Blocked or uncertain ingress cannot grant that right.
 
 After existing main/SYNC compatibility checks, the genuinely owned CONTINUE gives
-the oldest pending command priority over ordinary polling, detachment and scheduling.
+the oldest eligible pending command priority over ordinary polling, detachment and
+scheduling. A new format-only send with `repair_after` is deferred while another
+unresolved attempt occupies its exact research area/perspective pair. The command
+and its original one-use permission remain unchanged; polling must settle the
+earlier attempt before that repair becomes eligible. Independent pairs remain
+eligible, and collector-only recovery without `repair_after` does not reserve a
+pair. This does not relax the validator's single-unresolved-pair invariant.
 It dispatches NEXT with the original `task_id`, `recover_report` and `repair_after`,
 never converting it into automatic research. Only the actual consumed NEXT execution
 capability can CAS-bind `execution` to that exact command before its normal recovery

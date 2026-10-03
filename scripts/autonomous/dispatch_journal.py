@@ -23,6 +23,7 @@ WORKFLOWS = frozenset((NEXT, CONTINUE, SYNC))
 OWNER_RECOVERY = "autonomous_recover_delivery.yml"
 OWNER_CONTINUE_CUTOVER = "autonomous_cutover_continue.yml"
 OWNER_NEXT_COMPLETION = "autonomous_complete_next.yml"
+OWNER_REPORT_CHECKPOINT = "autonomous_complete_report_recovery.yml"
 OWNER_TRIGGER_FIELDS = frozenset((
     "run_id", "run_attempt", "event_name", "control_sha", "repository", "actor",
     "workflow", "ref", "expected_state_sha", "decision_id",
@@ -390,6 +391,87 @@ def _valid_observed_next(event, intent, executor, state):
     return trigger
 
 
+def _report_checkpoint_receipt(event):
+    return _receipt_id(event["decision_id"], event["executor_claim_id"],
+                       "report_recovery_checkpoint_observed", {
+        "owner_trigger": event["owner_trigger"], "before_state_sha": event["before_state_sha"],
+        "evidence": event["evidence"], "proof": event["proof"],
+        "native_report": event["native_report"], "owner_request": event["owner_request"],
+    })
+
+
+def _valid_report_checkpoint(event, intent, executor, state):
+    """Validate a terminal failed checkpoint, never a successful no-effect receipt."""
+    from owner_report_recovery import IDENTITY_FIELDS, TRIGGER_FIELDS, _inputs, _request_id
+    trigger = _owner_trigger(event.get("owner_trigger"), intent["decision_id"],
+                             event.get("before_state_sha"), workflow=OWNER_REPORT_CHECKPOINT)
+    inputs = _inputs(intent["normalized_inputs"])
+    proof, evidence = event.get("proof"), event.get("evidence")
+    record, report = event.get("owner_request"), event.get("native_report")
+    fields = {"producer", "workflow", "ref", "artifact_id", "artifact_name",
+              "artifact_sha256", "report_sha256"}
+    if (intent["workflow"] != NEXT or intent["source_kind"] != "sender" or not inputs["repair_after"]
+            or intent["decision_id"] not in state["send_claims"]
+            or intent["decision_id"] in state["effects"] or intent["decision_id"] in state["phase_claims"]
+            or intent["decision_id"] in state["completions"]
+            or any(stage["decision_id"] == intent["decision_id"] for stage in state["stages"].values())
+            or _source_identity(trigger) in state["source_ids"]
+            or trigger["repository"] != intent["first_source_trigger"].get("repository")
+            or trigger["repository"] != executor["trigger"].get("repository")
+            or not isinstance(proof, dict) or set(proof) != fields
+            or proof["producer"] != executor["trigger"] or proof["workflow"] != NEXT
+            or proof["ref"] != "refs/heads/main"
+            or not re.fullmatch(r"[1-9][0-9]*", str(proof["artifact_id"]))
+            or proof["artifact_name"] != "laboratory-result-" + executor["trigger"]["run_id"]
+            + "-" + executor["trigger"]["run_attempt"]
+            or not all(DIGEST.fullmatch(str(proof[field])) for field in ("artifact_sha256", "report_sha256"))):
+        raise ValueError("report checkpoint requires the original owner-only unfinished NEXT and native proof")
+    if (not isinstance(report, dict) or set(report) != {"action", "merge_mode", "reason", "attention", "state_sha"}
+            or report["action"] != "stopped" or report["merge_mode"] != "manual"
+            or report["reason"] != "state_write_failed"
+            or report["attention"] != [{"reason": "state save failed; reload the authoritative queue before continuing"}]
+            or not SHA.fullmatch(str(report["state_sha"]))
+            or not isinstance(evidence, dict) or set(evidence) != {
+                "status", "action", "reason", "request_id", "task_id", "before_state_sha", "after_state_sha",
+                "before_digest", "after_digest"}
+            or evidence["status"] != "failed_before_provider_post" or evidence["action"] != "stopped"
+            or evidence["reason"] != "state_write_failed"
+            or evidence["before_state_sha"] != executor["before_state_sha"]
+            or evidence["after_state_sha"] != report["state_sha"]
+            or evidence["before_digest"] != executor["before_digest"]
+            or not DIGEST.fullmatch(str(evidence["after_digest"]))
+            or event.get("before_digest") != evidence["after_digest"]):
+        raise ValueError("report checkpoint cannot replace the original failure with a normal completion")
+    if (not isinstance(record, dict) or set(record) != {
+            "request_id", "inputs", "identity", "source_trigger", "requested_at", "execution"}
+            or record["inputs"] != inputs or record["request_id"] != _request_id(record)
+            or evidence["request_id"] != record["request_id"] or evidence["task_id"] != inputs["task_id"]
+            or not DIGEST.fullmatch(str(record["request_id"]))
+            or not isinstance(record["identity"], dict) or set(record["identity"]) != set(IDENTITY_FIELDS)
+            or not all(isinstance(record["identity"].get(field), str) and record["identity"][field].strip()
+                       for field in ("session_id", "dispatch_key"))
+            or type(record["identity"].get("attempts")) is not int or record["identity"]["attempts"] < 1
+            or not SHA.fullmatch(str(record["identity"].get("base_sha", "")))
+            or not isinstance(record["source_trigger"], dict) or set(record["source_trigger"]) != set(TRIGGER_FIELDS)
+            or record["source_trigger"]["event_name"] != "workflow_dispatch"
+            or record["source_trigger"]["repository"] != trigger["repository"]
+            or not isinstance(record["source_trigger"]["actor"], str) or not record["source_trigger"]["actor"].strip()
+            or not isinstance(record["execution"], dict) or set(record["execution"]) != {
+                "decision_id", "executor_claim_id", "run_id", "run_attempt", "actor", "at"}
+            or record["execution"]["decision_id"] != intent["decision_id"]
+            or record["execution"]["executor_claim_id"] != executor["claim_id"]
+            or any(record["execution"][field] != executor["trigger"].get(field)
+                   for field in ("run_id", "run_attempt", "actor"))):
+        raise ValueError("report checkpoint must retain the exact original owner request and execution")
+    _trigger(record["source_trigger"], record["source_trigger"]["control_sha"])
+    if _timestamp(record["execution"]["at"]) < _timestamp(record["requested_at"]):
+        raise ValueError("report checkpoint execution predates the owner command")
+    selected = (intent.get("basis", {}).get("health", {}).get("owner_recovery") or {}).get("request_id")
+    if selected and selected != record["request_id"]:
+        raise ValueError("report checkpoint request differs from the selected original command")
+    return trigger
+
+
 def materialize(journal: dict) -> dict:
     """Validate the complete append-only event state machine, then project it."""
     if (not isinstance(journal, dict) or set(journal) != {"version", "events"}
@@ -559,6 +641,18 @@ def materialize(journal: dict) -> dict:
                 if event.get("phase_claim_id") != phase["claim_id"]:
                     raise ValueError("publication does not bind the finalize claim")
             state["effects"][decision_id] = event
+        elif kind == "OwnerReportRecoveryCheckpointCompletion":
+            owner = _valid_report_checkpoint(event, intent, executor, state)
+            if (event.get("kind") != "report_recovery_checkpoint_observed"
+                    or event.get("receipt_id") != _report_checkpoint_receipt(event)
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("invalid failed report checkpoint receipt identity or frontier")
+            state["completions"][decision_id] = event
+            state["completed_receipts"].add(event["receipt_id"])
+            state["source_ids"].add(_source_identity(owner))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
         elif kind in ("ExecutionCompletion", "OwnerNextCompletion"):
             evidence = event.get("evidence")
             _valid_completion(evidence, intent, executor, state)
@@ -931,6 +1025,107 @@ class JournalStore:
 
         (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
         return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
+    def complete_failed_report_checkpoint(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Close only the authenticated native pre-POST failure; grant no execution right."""
+        from next_no_effect_artifact import authenticated_failed_report_checkpoint
+        from owner_report_recovery import _bound_request, _inputs, validate_requests
+        from proposal_backlog import authorize
+        from state_store import _git
+        from task_lifecycle import awaiting_report
+        from validate_tasks import validate
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_REPORT_CHECKPOINT)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("owner report checkpoint repository differs from configured authority")
+
+        def complete(data, state_sha, state):
+            prior = state["completions"].get(decision_id)
+            if prior is not None:
+                original = prior.get("owner_trigger", {})
+                if (prior.get("type") != "OwnerReportRecoveryCheckpointCompletion"
+                        or prior["before_state_sha"] != expected_state_sha
+                        or {key: value for key, value in original.items() if key != "run_attempt"}
+                        != {key: value for key, value in trigger.items() if key != "run_attempt"}):
+                    raise JournalConflict("owner report checkpoint replay changed the original authorization")
+                authorize(config, prior["owner_request"]["source_trigger"]["actor"])
+                authorize(config, prior["proof"]["producer"]["actor"])
+                return (prior, "already_completed"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("owner report checkpoint state pin moved")
+            intent, executor = state["active_intent"], state["executor_claims"].get(decision_id)
+            if (intent is None or intent["decision_id"] != decision_id or intent["workflow"] != NEXT
+                    or intent["source_kind"] != "sender" or executor is None
+                    or decision_id not in state["send_claims"] or decision_id in state["effects"]
+                    or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != executor["trigger"].get("repository")):
+                raise JournalConflict("owner report checkpoint requires the original unfinished sender NEXT")
+            inputs = _inputs(intent["normalized_inputs"])
+            if not inputs["repair_after"]:
+                raise JournalConflict("owner report checkpoint requires the original failed repair receipt")
+            authorize(config, executor["trigger"].get("actor", ""))
+            proof = copy.deepcopy(authenticated_failed_report_checkpoint(
+                config["repository"], executor["trigger"], decision_id, intent["correlation_key"]))
+            report = proof.pop("report")
+            before = self._checkpoint_state(executor["before_state_sha"])
+            after = self._checkpoint_state(report["state_sha"])
+            if validate(before) or validate(after) or validate_requests(after):
+                raise JournalConflict("native report checkpoint is not an authoritative valid queue")
+            observed = materialize(after["dispatch_journal"])
+            if (observed["active_intent"] != intent or observed["executor_claims"].get(decision_id) != executor
+                    or before["dispatch_journal"]["events"] != after["dispatch_journal"]["events"][
+                        :len(before["dispatch_journal"]["events"])]
+                    or after["dispatch_journal"]["events"] != data["dispatch_journal"]["events"][
+                        :len(after["dispatch_journal"]["events"])]
+                    or any(observed[field] != state[field] for field in (
+                        "intents", "send_claims", "executor_claims", "effects", "stages", "phase_claims",
+                        "completions", "frontier_seq", "predecessor_decision_id"))
+                    or _body(data) != _body(after)
+                    or substantive_digest(before) != executor["before_digest"]):
+                raise JournalConflict("native report checkpoint changed its original journal claims or body")
+            for old, new in ((executor["before_state_sha"], report["state_sha"]), (report["state_sha"], state_sha)):
+                if _git(self.repo, "merge-base", "--is-ancestor", old, new, check=False).returncode:
+                    raise JournalConflict("native report checkpoint is not in the authoritative state lineage")
+            records = (after.get("controller") or {}).get("owner_recovery_requests", [])
+            bound = [record for record in records if (record.get("execution") or {}).get("decision_id") == decision_id]
+            if len(bound) != 1:
+                raise JournalConflict("native checkpoint must acknowledge exactly one original owner request")
+            record = bound[0]
+            task = _bound_request(after, config, record)
+            repair = (task.get("execution") or {}).get("report_repair") or {}
+            if (record["inputs"] != inputs or not awaiting_report(task)
+                    or (task.get("execution") or {}).get("pull_request")
+                    or repair.get("at") != inputs["repair_after"] or repair.get("status") != "invalid"):
+                raise JournalConflict("native checkpoint must retain the exact original invalid report receipt")
+            stripped = copy.deepcopy(_body(after))
+            old_records = (before.get("controller") or {}).get("owner_recovery_requests", [])
+            matches = [saved for saved in old_records if saved.get("request_id") == record["request_id"]]
+            if len(matches) != 1 or "execution" in matches[0]:
+                raise JournalConflict("native checkpoint cannot manufacture or rebind an owner command")
+            for saved in stripped["controller"]["owner_recovery_requests"]:
+                if saved["request_id"] == record["request_id"]:
+                    saved.pop("execution", None)
+            if stripped != _body(before):
+                raise JournalConflict("native checkpoint changed more than the original owner execution acknowledgement")
+            evidence = {"status": "failed_before_provider_post", "action": "stopped", "reason": "state_write_failed",
+                        "request_id": record["request_id"], "task_id": inputs["task_id"],
+                        "before_state_sha": executor["before_state_sha"], "after_state_sha": report["state_sha"],
+                        "before_digest": substantive_digest(before), "after_digest": substantive_digest(after)}
+            fields = dict(decision_id=decision_id, executor_claim_id=executor["claim_id"],
+                          kind="report_recovery_checkpoint_observed", owner_trigger=trigger,
+                          before_state_sha=state_sha, before_digest=substantive_digest(data),
+                          evidence=evidence, proof=proof, native_report=report, owner_request=record,
+                          frontier_seq=state["frontier_seq"] + 1)
+            _valid_report_checkpoint(fields, intent, executor, state)
+            event = _event("OwnerReportRecoveryCheckpointCompletion",
+                           receipt_id=_report_checkpoint_receipt(fields), **fields)
+            return (event, "completed"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "request_id": event["evidence"]["request_id"], "task_id": event["evidence"]["task_id"],
                 "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
 
     def admit(self, workflow, inputs, *, key, trigger, control_sha):
