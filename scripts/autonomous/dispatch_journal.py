@@ -22,6 +22,7 @@ SYNC = "autonomous_sync.yml"
 WORKFLOWS = frozenset((NEXT, CONTINUE, SYNC))
 OWNER_RECOVERY = "autonomous_recover_delivery.yml"
 OWNER_CONTINUE_CUTOVER = "autonomous_cutover_continue.yml"
+OWNER_NEXT_COMPLETION = "autonomous_complete_next.yml"
 OWNER_TRIGGER_FIELDS = frozenset((
     "run_id", "run_attempt", "event_name", "control_sha", "repository", "actor",
     "workflow", "ref", "expected_state_sha", "decision_id",
@@ -36,6 +37,7 @@ NEXT_NO_EFFECT_REASONS = frozenset((
     "no_todo_tasks", "no_eligible_autonomous_task", "explicit_task_not_todo",
     "explicit_task_ineligible", "implementation_not_approved", "product_moved",
     "dispatch_conditions_changed", "loop_disabled",
+    "sync_running", "sync_required",
 ))
 _ISSUER = object()
 
@@ -313,6 +315,9 @@ def _valid_completion(evidence, intent, executor, state):
                 or intent["decision_id"] in state["phase_claims"]
                 or any(stage["decision_id"] == intent["decision_id"] for stage in state["stages"].values())):
             raise ValueError("no-effect completion requires a normal unchanged NEXT result")
+        if (evidence["reason"] in {"sync_running", "sync_required"}
+                and intent["normalized_inputs"].get("automatic") is not True):
+            raise ValueError("scheduler pause completion requires the original automatic NEXT")
         for field in ("before_state_sha", "after_state_sha"):
             if not SHA.fullmatch(str(evidence.get(field, ""))):
                 raise ValueError("NEXT completion requires actual state revisions")
@@ -336,6 +341,53 @@ def _valid_completion(evidence, intent, executor, state):
             or (evidence["status"] == "up_to_date" and
                 (evidence["reason"] != "main_already_integrated" or not evidence.get("queue_blob")))):
         raise ValueError("no-effect completion cannot claim a candidate publication")
+
+
+def next_no_effect_evidence(result, before_state_sha, after_state_sha):
+    """Classify a native no-op; existing attention is not useful progress."""
+    if (not isinstance(result, dict) or result.get("action") != "none"
+            or result.get("reason") not in NEXT_NO_EFFECT_REASONS
+            or any(result.get(field) for field in ("observations", "proposals", "waiting_workers"))
+            or not isinstance(result.get("research", {}), dict)
+            or result.get("research", {}).get("research_changed")
+            or result.get("research_changed")
+            or (result["reason"] in {"sync_running", "sync_required"}
+                and result.get("automatic") is not True)):
+        return None
+    return {"status": "no_effect", "action": "none", "reason": result["reason"],
+            "before_state_sha": before_state_sha, "after_state_sha": after_state_sha}
+
+
+def _observed_next_receipt(event):
+    return _receipt_id(event["decision_id"], event["executor_claim_id"], "next_no_effect_observed", {
+        "owner_trigger": event["owner_trigger"], "before_state_sha": event["before_state_sha"],
+        "evidence": event["evidence"], "proof": event["proof"],
+    })
+
+
+def _valid_observed_next(event, intent, executor, state):
+    trigger = _owner_trigger(event.get("owner_trigger"), intent["decision_id"],
+                             event.get("before_state_sha"), workflow=OWNER_NEXT_COMPLETION)
+    proof = event.get("proof")
+    fields = {"producer", "workflow", "ref", "artifact_id", "artifact_name",
+              "artifact_sha256", "report_sha256"}
+    if (intent["workflow"] != NEXT or intent["source_kind"] != "sender"
+            or intent["normalized_inputs"].get("automatic") is not True
+            or intent["decision_id"] not in state["send_claims"]
+            or _source_identity(trigger) in state["source_ids"]
+            or trigger["repository"] != intent["first_source_trigger"].get("repository")
+            or event.get("before_digest") != executor["before_digest"]
+            or not isinstance(proof, dict) or set(proof) != fields
+            or proof["producer"] != executor["trigger"]
+            or proof["workflow"] != NEXT or proof["ref"] != "refs/heads/main"
+            or not re.fullmatch(r"[1-9][0-9]*", str(proof["artifact_id"]))
+            or proof["artifact_name"] != "laboratory-result-" + executor["trigger"]["run_id"]
+            + "-" + executor["trigger"]["run_attempt"]
+            or not all(DIGEST.fullmatch(str(proof[field])) for field in ("artifact_sha256", "report_sha256"))
+            or event["evidence"].get("reason") != "sync_running"
+            or event["evidence"].get("before_state_sha") != executor["before_state_sha"]):
+        raise ValueError("observed completion requires the original unchanged paused NEXT and owner proof")
+    return trigger
 
 
 def materialize(journal: dict) -> dict:
@@ -507,12 +559,17 @@ def materialize(journal: dict) -> dict:
                 if event.get("phase_claim_id") != phase["claim_id"]:
                     raise ValueError("publication does not bind the finalize claim")
             state["effects"][decision_id] = event
-        elif kind == "ExecutionCompletion":
+        elif kind in ("ExecutionCompletion", "OwnerNextCompletion"):
             evidence = event.get("evidence")
             _valid_completion(evidence, intent, executor, state)
             completion_kind = "next_no_effect" if intent["workflow"] == NEXT else "sync_no_effect"
+            completion_receipt = _receipt_id(decision_id, executor["claim_id"], completion_kind, evidence)
+            if kind == "OwnerNextCompletion":
+                owner = _valid_observed_next(event, intent, executor, state)
+                completion_kind = "next_no_effect_observed"
+                completion_receipt = _observed_next_receipt(event)
             if (event.get("kind") != completion_kind
-                    or event.get("receipt_id") != _receipt_id(decision_id, executor["claim_id"], completion_kind, evidence)
+                    or event.get("receipt_id") != completion_receipt
                     or event.get("frontier_seq") != state["frontier_seq"] + 1):
                 raise ValueError("invalid no-effect completion identity or frontier")
             state["completions"][decision_id] = event
@@ -520,6 +577,8 @@ def materialize(journal: dict) -> dict:
             state["frontier_seq"] += 1
             state["predecessor_decision_id"] = decision_id
             state["active_intent"] = None
+            if kind == "OwnerNextCompletion":
+                state["source_ids"].add(_source_identity(owner))
         elif kind == "Advance":
             effect = state["effects"].get(decision_id)
             receipt_id = event.get("receipt_id")
@@ -812,6 +871,65 @@ class JournalStore:
             return (event, "cut_over"), [event]
 
         (event, outcome), state_sha, _ = self._mutate(cutover, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
+    def complete_observed_next(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Observe one authentic terminal no-op, without issuing execution authority."""
+        from proposal_backlog import authorize
+        from next_no_effect_artifact import authenticated_next_no_effect
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_NEXT_COMPLETION)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("owner completion repository differs from configured authority")
+
+        def complete(data, state_sha, state):
+            prior = state["completions"].get(decision_id)
+            if prior is not None:
+                original = prior.get("owner_trigger", {})
+                if (prior.get("type") != "OwnerNextCompletion"
+                        or prior["before_state_sha"] != expected_state_sha
+                        or {key: value for key, value in original.items() if key != "run_attempt"}
+                        != {key: value for key, value in trigger.items() if key != "run_attempt"}):
+                    raise JournalConflict("owner completion replay changed the original authorization")
+                return (prior, "already_completed"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("owner completion state pin moved")
+            intent = state["active_intent"]
+            executor = state["executor_claims"].get(decision_id)
+            if (intent is None or intent["decision_id"] != decision_id or intent["workflow"] != NEXT
+                    or intent["source_kind"] != "sender" or intent["normalized_inputs"].get("automatic") is not True
+                    or executor is None or decision_id in state["effects"] or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or trigger["repository"] != executor["trigger"].get("repository")):
+                raise JournalConflict("owner completion requires the original unfinished automatic NEXT")
+            proof = authenticated_next_no_effect(config["repository"], executor["trigger"],
+                                                 decision_id, intent["correlation_key"])
+            report = proof.pop("report")
+            before = self._checkpoint_state(executor["before_state_sha"])
+            after = self._checkpoint_state(report["state_sha"])
+            observed = materialize(after["dispatch_journal"])
+            if (observed["active_intent"] is None
+                    or observed["active_intent"]["decision_id"] != decision_id
+                    or observed["executor_claims"].get(decision_id) != executor
+                    or decision_id in observed["effects"] or decision_id in observed["completions"]
+                    or _body(before) != _body(after) or _body(data) != _body(after)):
+                raise JournalConflict("original native artifact changed its body or controller baseline")
+            evidence = next_no_effect_evidence(report, executor["before_state_sha"], report["state_sha"])
+            if evidence is None:
+                raise JournalConflict("original native artifact is not a supported no-effect")
+            evidence["before_digest"] = substantive_digest(before)
+            evidence["after_digest"] = substantive_digest(after)
+            _valid_completion(evidence, intent, executor, state)
+            fields = dict(decision_id=decision_id, executor_claim_id=executor["claim_id"],
+                          kind="next_no_effect_observed", owner_trigger=trigger,
+                          before_state_sha=state_sha, before_digest=substantive_digest(data),
+                          evidence=evidence, proof=proof, frontier_seq=state["frontier_seq"] + 1)
+            _valid_observed_next(fields, intent, executor, state)
+            event = _event("OwnerNextCompletion", receipt_id=_observed_next_receipt(fields), **fields)
+            return (event, "completed"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
         return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
                 "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
 

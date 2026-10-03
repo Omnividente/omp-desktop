@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Close one explicitly selected owner delivery by native state CAS.
+"""Apply one explicitly selected owner operation by native state CAS.
 
-Delivery recovery fences only unclaimed sends. CONTINUE cutover closes only a
-selected idle CONTINUE, including a claimed executor. Neither operation dispatches,
-completes execution, switches the loop, or changes tasks.
+Delivery fencing revokes only unclaimed sends. CONTINUE cutover closes only a
+selected idle CONTINUE. NEXT completion observes an authentic terminal native
+no-op against its original immutable baseline. None dispatches, switches the
+loop, issues execution rights, or changes tasks and controller clocks.
 """
 from __future__ import annotations
 
@@ -16,13 +17,15 @@ from pathlib import Path
 from dispatch_journal import DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
-from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_RECOVERY, add_arguments,
-                                context, recheck_context)
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_RECOVERY,
+                                add_arguments, context, recheck_context)
 
 OPERATIONS = {
     "delivery": (OWNER_RECOVERY, "owner_fence", frozenset(("fenced", "already_fenced"))),
     "continue_cutover": (OWNER_CONTINUE_CUTOVER, "owner_continue_cutover",
                          frozenset(("cut_over", "already_cut_over"))),
+    "next_completion": (OWNER_NEXT_COMPLETION, "owner_next_completion",
+                        frozenset(("completed", "already_completed"))),
 }
 
 
@@ -173,8 +176,9 @@ def main(argv=None):
         if _owner_binding(args, config).trigger != binding.trigger:
             raise ValueError("owner workflow identity changed before CAS")
         attempted = True
-        owner_operation = (store.cutover_continue if operation == "continue_cutover"
-                           else store.fence_unclaimed)
+        owner_operation = {"delivery": store.fence_unclaimed,
+                           "continue_cutover": store.cutover_continue,
+                           "next_completion": store.complete_observed_next}[operation]
         result = _acknowledged_result(owner_operation(
             decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
             owner_trigger=binding.trigger, config=config,
