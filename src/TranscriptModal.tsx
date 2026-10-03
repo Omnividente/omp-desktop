@@ -223,14 +223,15 @@ export function TranscriptModal({
     () => new TranscriptSearch(contents, transcriptSearch),
     [contents, transcriptSearch],
   )
-  // This memo holds only the current virtual window, never all visited rows.
-  const renderedMatches = useMemo(
-    () => new Map(virtualItems.map((vi) => [vi.index, search.matchesForEntry(vi.index)])),
-    [search, virtualItems],
-  )
   const [navigation, setNavigation] = useState({ search, index: 0 })
   if (navigation.search !== search) setNavigation({ search, index: 0 })
   const currentIndex = search.count ? (navigation.search === search ? navigation.index : 0) : -1
+  // Retain only bounded highlight windows for currently mounted virtual rows.
+  const renderedMatches = useMemo(
+    () =>
+      new Map(virtualItems.map((vi) => [vi.index, search.matchesForEntry(vi.index, currentIndex)])),
+    [search, virtualItems, currentIndex],
+  )
   const currentMatch = useMemo(
     () =>
       currentIndex < 0

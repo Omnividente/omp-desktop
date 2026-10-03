@@ -1029,6 +1029,76 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each(["resolve", "reject"] as const)(
+    "keeps the latest terminal's session selected when its bootstrap %ss after an older terminal refresh",
+    async (settlement) => {
+      const projects = {
+        ...bootstrap,
+        sessions: [
+          bootstrap.sessions[0],
+          {
+            ...bootstrap.sessions[0],
+            id: "second-session",
+            title: "Second session",
+            filePath: "C:/fixture/sessions/second.jsonl",
+            updatedAt: 0,
+          },
+        ],
+      }
+      const first = deferred<BootstrapPayload>()
+      const second = deferred<BootstrapPayload>()
+      const secondTerminal = { ...started, terminalId: "terminal-2", processId: 102 }
+      vi.mocked(api.bootstrap)
+        .mockResolvedValueOnce(projects)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce(started)
+        .mockResolvedValueOnce(secondTerminal)
+      await mountAndResume()
+      await act(async () => element(".new-tab-button").click())
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 2,
+          payload: { terminalId: secondTerminal.terminalId, session: projects.sessions[1] },
+        }),
+      )
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      await act(async () => first.resolve(projects))
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      expect(element('.session-select[aria-label="Fixture session"]')).toBeTruthy()
+      await act(async () => {
+        if (settlement === "resolve") second.resolve(projects)
+        else second.reject(new Error("Second terminal refresh failed"))
+      })
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      expect(element('.session-select[aria-label="Fixture session"]')).toBeTruthy()
+      if (settlement === "reject") {
+        expect(container.querySelector(".error-toast")?.textContent).toContain(
+          "Second terminal refresh failed",
+        )
+      }
+    },
+  )
+
   it.each(["close", "escape", "backdrop", "cancel", "incidents", "resources"] as const)(
     "shows a late Save failure after Settings leaves through %s",
     async (route) => {
@@ -1084,32 +1154,57 @@ describe("App lifecycle serialization", () => {
     expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
   })
 
-  it("presents a Save-triggered settings-unavailable failure on Recovery without a duplicate toast", async () => {
-    const actual = await vi.importActual<typeof api>("./api")
-    vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
-    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
-    invokeMock.mockImplementation((command) =>
-      command === "save_settings_bundle" ? pending.promise : Promise.resolve(),
-    )
-    await act(async () => root.render(<App />))
-    await openAndChangeSettings()
-    act(() => element(".settings-actions .primary").click())
-    await act(async () =>
-      pending.reject({
-        code: "settings_unavailable",
-        message: "Audit settings storage unavailable",
-        details: "Audit disk unavailable",
-        settingsPath: "C:/fixture/settings.json",
-        backupPath: null,
-        failureStage: "read",
-      }),
-    )
-    expect(container.querySelector(".settings-panel")).toBeNull()
-    expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
-      "Audit disk unavailable",
-    )
-    expect(container.querySelector(".error-toast")).toBeNull()
-  })
+  it.each(["save", "refresh"] as const)(
+    "recovers from a Settings %s failure through Retry without showing a duplicate toast",
+    async (operation) => {
+      const actual = await vi.importActual<typeof api>("./api")
+      vi.mocked(api.bootstrap).mockImplementation(actual.bootstrap)
+      vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
+      const pending = deferred<unknown>()
+      const restored = {
+        ...bootstrap,
+        sessions: [{ ...bootstrap.sessions[0], title: "Recovered session" }],
+      }
+      let bootstrapRequests = 0
+      invokeMock.mockImplementation((command) => {
+        if (command === "bootstrap") {
+          return Promise.resolve(++bootstrapRequests === 1 ? bootstrap : restored)
+        }
+        if (command === (operation === "save" ? "save_settings_bundle" : "refresh_omp_config")) {
+          return pending.promise
+        }
+        return Promise.resolve()
+      })
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() =>
+        element(
+          operation === "save" ? ".settings-actions .primary" : ".runtime-card button",
+        ).click(),
+      )
+      await act(async () =>
+        pending.reject({
+          code: "settings_unavailable",
+          message: "Audit settings storage unavailable",
+          details: "Audit disk unavailable",
+          settingsPath: "C:/fixture/settings.json",
+          backupPath: null,
+          failureStage: "read",
+        }),
+      )
+      expect(container.querySelector(".settings-panel")).toBeNull()
+      expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+        "Audit disk unavailable",
+      )
+      expect(container.querySelector(".error-toast")).toBeNull()
+      await act(async () => element(".settings-recovery-actions button:nth-child(2)").click())
+      expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+      expect(element(".project-item.is-active").textContent).toContain("Fixture")
+      expect(element('.session-select[aria-label="Recovered session"]')).toBeTruthy()
+      expect(document.documentElement.style.fontSize).toBe("16px")
+      expect(container.querySelector(".error-toast")).toBeNull()
+    },
+  )
 
   it("keeps post-save models when initial App and Settings requests resolve late after a save without config", async () => {
     const initial = deferred<OmpConfigSnapshot>()

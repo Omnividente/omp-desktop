@@ -457,6 +457,41 @@ describe("SettingsPanel configuration generations", () => {
     expect(container.textContent).toContain("codex-lb")
   })
 
+  it.each(["save", "refresh"] as const)(
+    "keeps a structured %s failure visible locally without forwarding a duplicate generic error",
+    async (operation) => {
+      const failure = {
+        code: "settings_unavailable",
+        message: "Settings storage unavailable",
+        details: "Fixture disk unavailable",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      }
+      if (operation === "save") saveSettingsBundleMock.mockRejectedValueOnce(failure)
+      else refreshOmpConfigMock.mockRejectedValueOnce(failure)
+      await renderPanel()
+      changeExecutable("draft-omp.exe")
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            operation === "save" ? ".settings-actions .primary" : ".runtime-card button",
+          )!
+          .click(),
+      )
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(container.querySelector('[role="alert"]')).not.toBeNull()
+      expect(container.querySelector<HTMLInputElement>("#omp-executable")!.value).toBe(
+        "draft-omp.exe",
+      )
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(false)
+      expect(onError).not.toHaveBeenCalled()
+      expect(onSaved).not.toHaveBeenCalled()
+    },
+  )
+
   it.each(["resolve", "reject"] as const)(
     "keeps the post-save draft when the pre-save initial load later %ss",
     async (settlement) => {

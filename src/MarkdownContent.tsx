@@ -3,6 +3,7 @@ import { marked, type MarkedToken, type Token, type Tokens } from "marked"
 import { contentLinks, isContentLink, isFileContentLink } from "./contentLinks"
 import { CopyButton } from "./CopyButton"
 import { t, type Lang } from "./i18n"
+import { SEARCH_HIGHLIGHT_LIMIT } from "./transcriptSearch"
 import "./MarkdownContent.css"
 
 export interface TextMatch {
@@ -269,7 +270,11 @@ export const MarkdownContent = memo(function MarkdownContent({
   currentMatch,
 }: MarkdownContentProps) {
   let matchCursor = 0
+  let marksRemaining = SEARCH_HIGHLIGHT_LIMIT
+  // Reserve an anchor even if earlier matches span enough leaves to use the budget.
+  let needsCurrentAnchor = matches.some((match) => match.index === currentMatch)
   const text = (node: TextNode): ReactNode => {
+    if (!marksRemaining || !matches.length) return node.value
     const parts: ReactNode[] = []
     const end = node.start + node.value.length
     let offset = 0
@@ -283,11 +288,15 @@ export const MarkdownContent = memo(function MarkdownContent({
       const start = Math.max(offset, match.start - node.start)
       const stop = Math.min(node.value.length, match.end - node.start)
       if (stop <= start) continue
+      const isCurrent = match.index === currentMatch
+      if (marksRemaining <= (needsCurrentAnchor && !isCurrent ? 1 : 0)) continue
+      marksRemaining--
+      if (isCurrent) needsCurrentAnchor = false
       parts.push(node.value.slice(offset, start))
       parts.push(
         <mark
           key={match.index}
-          className={match.index === currentMatch ? "is-current" : undefined}
+          className={isCurrent ? "is-current" : undefined}
           data-match-index={match.index}
         >
           {node.value.slice(start, stop)}

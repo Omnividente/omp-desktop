@@ -894,6 +894,7 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
+      const sessionSelectionRequest = ++sessionSelectionRequestRef.current
       setSelectedSessionId(session.id)
       setSearch("")
       setTabs((current) =>
@@ -917,7 +918,6 @@ function App() {
             : tab,
         ),
       )
-      const sessionSelectionRequest = sessionSelectionRequestRef.current
       const workspaceSelectionRequest = workspaceSelectionRequestRef.current
       void loadBootstrap()
         .then((next) => {
