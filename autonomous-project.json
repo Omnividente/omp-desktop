@@ -110,7 +110,7 @@
   "research": {
     "enabled": true,
     "revisit_after_hours": 24,
-    "max_sessions_per_day": 24,
+    "max_sessions_per_day": 95,
     "areas": [
       {
         "id": "terminal-input",
