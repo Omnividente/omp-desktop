@@ -10,9 +10,11 @@ import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from build_jules_request import build, dispatch_key
 from dispatch_journal import CONTINUE, NEXT, JournalStore, materialize, normalize_inputs
+from lab_controller import main as controller_main
 from owner_report_recovery import claim_recovery, pending_recovery, queue_recovery, validate_requests
 from research_request import snapshot
 from state_store import load_state, save_state
@@ -268,6 +270,74 @@ class OwnerRecoveryExecutorTests(OwnerRecoveryFixture, unittest.TestCase):
                 execution.consume()
         self.reload()
         return intent, execution
+
+    def owner_ingress(self, *, run_id="301"):
+        config_path, event_path = self.root / "config.json", self.root / "event.json"
+        inputs = recovery_inputs("second")
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
+        output = self.root / "lab-result.json"
+        environment = {"GITHUB_RUN_ID": run_id, "GITHUB_RUN_ATTEMPT": "1",
+                       "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_EVENT_PATH": str(event_path),
+                       "GITHUB_REPOSITORY": REPOSITORY, "GITHUB_ACTOR": "owner",
+                       "GITHUB_REF": "refs/heads/main", "CONTROL_SHA": CONTROL,
+                       "CONTINUATION_KEY": "",
+                       "GITHUB_WORKFLOW_REF": REPOSITORY + "/.github/workflows/" + NEXT + "@refs/heads/main"}
+        environment.update({name: os.environ[name] for name in ("PATH", "SYSTEMROOT", "TEMP", "TMP")
+                            if name in os.environ})
+        with (patch.dict(os.environ, environment, clear=True),
+              patch("workflow_admission.control_revision", return_value=CONTROL),
+              patch("health_snapshot.gh_get", side_effect=lambda _repo, _path, paginate=False:
+                    [{"total_count": 0, "workflow_runs": []}] if paginate
+                    else {"total_count": 0, "workflow_runs": []}),
+              patch("lab_controller.tick", side_effect=AssertionError("refused ingress cannot run a worker"))):
+            status = controller_main([
+                "--repo", str(self.repo), "--config", str(config_path),
+                "--manifest", str(self.store.manifest_path),
+                "--revision-file", str(self.store.revision_path),
+                "--recover-report", "--task-id", "second", "--repair-after", FAILED_AT,
+                "--out", str(output),
+            ])
+        self.reload()
+        return status, json.loads(output.read_text(encoding="utf-8"))
+
+    def test_cli_retains_distinct_owner_command_after_recorded_outcome_without_runtime_authority(self):
+        _, capability = self.reserve_receiver({"automatic": True})
+        before_sha = json.loads(self.store.revision_path.read_bytes())["state_sha"]
+        self.data["history"].append({"event": "original completed checkpoint"})
+        self.persist()
+        self.store.record_effect(capability, "controller_checkpoint", {
+            "before_state_sha": before_sha,
+            "after_state_sha": json.loads(self.store.revision_path.read_bytes())["state_sha"],
+            "poll_observations": [],
+        })
+        self.reload()
+        before = copy.deepcopy(self.data)
+        status, result = self.owner_ingress()
+        self.assertEqual(status, 0)
+        command = pending_recovery(self.data, self.config)
+        self.assertIsNotNone(command, result)
+        self.assertEqual(command["inputs"], recovery_inputs("second"))
+        self.assertEqual(command["source_trigger"], trigger("301"))
+        self.assertEqual(result["owner_recovery"], {"request_id": command["request_id"], "state": "pending"})
+        self.assertNotIn("execution", command)
+        restored = copy.deepcopy(self.data)
+        del restored["controller"]["owner_recovery_requests"]
+        self.assertEqual(encoded(restored), encoded(before))
+        committed = encoded(self.data)
+        status, repeated = self.owner_ingress(run_id="302")
+        self.assertEqual(status, 0)
+        self.assertEqual(repeated["owner_recovery"], result["owner_recovery"])
+        self.assertEqual(encoded(self.data), committed)
+
+    def test_cli_does_not_queue_owner_command_when_original_execution_is_unresolved(self):
+        self.reserve_receiver({"automatic": True})
+        before = encoded(self.data)
+        status, result = self.owner_ingress()
+        self.assertEqual(status, 1)
+        self.assertEqual(result["reason"], "executor_without_outcome")
+        self.assertNotIn("owner_recovery", result)
+        self.assertEqual(encoded(self.data), before)
 
     def test_real_cas_save_rejects_removing_or_replacing_owner_history_without_remote_mutation(self):
         first = self.queue()
