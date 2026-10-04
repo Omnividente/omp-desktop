@@ -290,7 +290,7 @@ def _report(archive, decision_id):
     _require(isinstance(report, dict) and report.get("decision_id") == decision_id
              and isinstance(report.get("state_sha"), str) and SHA.fullmatch(report["state_sha"]),
              "native report decision or state identity does not match")
-    _require(report.get("action") == "none" and report.get("reason") == "sync_running"
+    _require(report.get("action") == "none" and report.get("reason") in {"next_task_running", "sync_running"}
              and report.get("skipped") is True and report.get("automatic") is True
              and report.get("merge_mode") == "manual" and "effect_receipt_id" not in report,
              "native report is not the original no-effect scheduler pause")

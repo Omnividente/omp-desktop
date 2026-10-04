@@ -428,8 +428,9 @@ class OwnerEntryTests(unittest.TestCase):
         self.assertIsNone(after["active_intent"])
 
 
-    def test_observed_next_completion_preserves_body_rights_and_original_history(self):
+    def assert_observed_next_completion(self, reason):
         source = self.prepare_next_completion()
+        source.set_report(dict(source.report, reason=reason))
         before_body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
         pushes = self.pushes
         status, result = self.invoke(self.arguments("next_completion"))
@@ -460,6 +461,12 @@ class OwnerEntryTests(unittest.TestCase):
                                      trigger=self.trigger("71"), control_sha=self.control)
         self.assertIsNone(denied)
         self.assertEqual(self.store.current(), after)
+
+    def test_observed_next_completion_preserves_body_rights_and_original_history(self):
+        self.assert_observed_next_completion("sync_running")
+
+    def test_observed_busy_next_preserves_body_rights_and_original_history(self):
+        self.assert_observed_next_completion("next_task_running")
 
     def test_completion_cannot_be_rebound_to_another_owner_event(self):
         self.prepare_next_completion()

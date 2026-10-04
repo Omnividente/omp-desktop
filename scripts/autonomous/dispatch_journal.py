@@ -38,7 +38,7 @@ NEXT_NO_EFFECT_REASONS = frozenset((
     "no_todo_tasks", "no_eligible_autonomous_task", "explicit_task_not_todo",
     "explicit_task_ineligible", "implementation_not_approved", "product_moved",
     "dispatch_conditions_changed", "loop_disabled",
-    "sync_running", "sync_required",
+    "next_task_running", "sync_running", "sync_required",
 ))
 _ISSUER = object()
 
@@ -316,7 +316,7 @@ def _valid_completion(evidence, intent, executor, state):
                 or intent["decision_id"] in state["phase_claims"]
                 or any(stage["decision_id"] == intent["decision_id"] for stage in state["stages"].values())):
             raise ValueError("no-effect completion requires a normal unchanged NEXT result")
-        if (evidence["reason"] in {"sync_running", "sync_required"}
+        if (evidence["reason"] in {"next_task_running", "sync_running", "sync_required"}
                 and intent["normalized_inputs"].get("automatic") is not True):
             raise ValueError("scheduler pause completion requires the original automatic NEXT")
         for field in ("before_state_sha", "after_state_sha"):
@@ -352,7 +352,7 @@ def next_no_effect_evidence(result, before_state_sha, after_state_sha):
             or not isinstance(result.get("research", {}), dict)
             or result.get("research", {}).get("research_changed")
             or result.get("research_changed")
-            or (result["reason"] in {"sync_running", "sync_required"}
+            or (result["reason"] in {"next_task_running", "sync_running", "sync_required"}
                 and result.get("automatic") is not True)):
         return None
     return {"status": "no_effect", "action": "none", "reason": result["reason"],
@@ -385,7 +385,7 @@ def _valid_observed_next(event, intent, executor, state):
             or proof["artifact_name"] != "laboratory-result-" + executor["trigger"]["run_id"]
             + "-" + executor["trigger"]["run_attempt"]
             or not all(DIGEST.fullmatch(str(proof[field])) for field in ("artifact_sha256", "report_sha256"))
-            or event["evidence"].get("reason") != "sync_running"
+            or event["evidence"].get("reason") not in {"next_task_running", "sync_running"}
             or event["evidence"].get("before_state_sha") != executor["before_state_sha"]):
         raise ValueError("observed completion requires the original unchanged paused NEXT and owner proof")
     return trigger

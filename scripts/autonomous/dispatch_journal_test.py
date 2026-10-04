@@ -413,6 +413,17 @@ class JournalTests(unittest.TestCase):
                 "before_state_sha": before, "after_state_sha": before})
         self.assertEqual(self.store.current()["frontier_seq"], 0)
 
+    def test_manual_next_cannot_complete_as_an_automatic_busy_pause(self):
+        intent, execution = self.execute()
+        before = self.store.current()["state_sha"]
+        with self.assertRaises(ValueError):
+            self.store.record_completion(execution, {
+                "status": "no_effect", "action": "none", "reason": "next_task_running",
+                "before_state_sha": before, "after_state_sha": before})
+        state = self.store.current()
+        self.assertEqual(state["active_intent"]["decision_id"], intent["decision_id"])
+        self.assertEqual((state["frontier_seq"], state["completions"], state["effects"]), (0, {}, {}))
+
     def test_duplicate_receiver_only_coalesces_with_trusted_live_executor_evidence(self):
         intent, _ = self.execute(CONTINUE)
         trigger = self.trigger("99")
