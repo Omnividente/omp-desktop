@@ -192,6 +192,11 @@ class NativeNextNoEffectTests(unittest.TestCase):
         self.assertEqual(self.store.current()["effects"], {})
         self.assertEqual(self.body(state_snapshot(self.remote)), self.body(self.before))
 
+    def test_other_active_next_closes_without_effect_and_allows_successor(self):
+        self.runs[NEXT].append(dict(self.runs[NEXT][0], id=901,
+                                    display_title="Autonomous Next Task"))
+        self.assert_completed_pause("next_task_running")
+
     def test_sync_running_with_six_parked_reports_closes_and_allows_successor(self):
         self.runs["autonomous_sync.yml"] = [self.sync_run()]
         self.assert_completed_pause("sync_running")
