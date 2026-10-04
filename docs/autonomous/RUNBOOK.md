@@ -506,7 +506,7 @@ investigated pair. It fingerprints only tracked, permitted product blobs;
 queue/control commits and untracked fixtures do not reset coverage. A changed
 area can be investigated immediately after a successful report. Unchanged areas
 and unsuccessful attempts wait 24 hours before a new investigation of that pair.
-At most 24 new investigations are scheduled in a rolling 24-hour window; each
+At most 95 new investigations are scheduled in a rolling 24-hour window; each
 still has the existing bounded attempt budget. Explicitly selected approved
 implementation bypasses research throttling. Unresolved area/perspective pairs
 are never duplicated; if all scopes are unresolved, research waits rather than
