@@ -217,8 +217,9 @@ and `decision_id` and invokes the native owner entry with fixed
    verify the downloaded ZIP SHA256 against mandatory metadata. The bounded archive
    contains only a regular `lab-result.json`; its native result must bind this
    decision and actual state SHA, `automatic=true`, `skipped=true`, `action=none`,
-   `reason=sync_running`, with no effect receipt, observations, proposals, waiting
-   workers or research change. Archives and raw reports remain in memory only.
+   `reason=sync_running` or `reason=next_task_running`, with no effect receipt,
+   observations, proposals, waiting workers or research change. Archives and raw
+   reports remain in memory only.
 4. Actual Git checkpoints before the executor claim, named by the original report,
    and at the fresh CAS pin must have identical full task/controller bodies. The
    report checkpoint must retain the exact original consumed executor. One owner-
@@ -310,8 +311,10 @@ poll checkpoint; timestamp-only writes do not grant progress. Manual implementat
 approval and exact report/feedback recovery authorization remain independent.
 A normal unchanged NEXT result, such as an explicitly selected already-finished
 task, records `ExecutionCompletion(next_no_effect)` instead of leaving an unfinished
-executor claim. Automatic `sync_running` and `sync_required` pauses use this same
-completion contract even with descriptive parked-report attention. The exact
+executor claim. Automatic `next_task_running`, `sync_running` and `sync_required`
+pauses use this same completion contract even with descriptive parked-report
+attention. An overlapping NEXT remains a readiness blocker; completing this no-op
+does not authorize work while the other run is active. The exact
 attention remains in the report and warning exit status; it is never hidden or
 reclassified as successful intake. Worker observations, proposals, waiting workers
 and research changes cannot be completed this way. Before/after state revisions
