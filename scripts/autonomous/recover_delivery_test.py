@@ -431,6 +431,8 @@ class OwnerEntryTests(unittest.TestCase):
     def assert_observed_next_completion(self, reason):
         source = self.prepare_next_completion()
         source.set_report(dict(source.report, reason=reason))
+        if reason == "active_polling":
+            source.active_polling()
         before_body = json.loads(self.store.manifest_path.read_text(encoding="utf-8"))
         pushes = self.pushes
         status, result = self.invoke(self.arguments("next_completion"))
@@ -467,6 +469,9 @@ class OwnerEntryTests(unittest.TestCase):
 
     def test_observed_busy_next_preserves_body_rights_and_original_history(self):
         self.assert_observed_next_completion("next_task_running")
+
+    def test_observed_active_polling_successful_cli_preserves_body_and_closes_only_original_claim(self):
+        self.assert_observed_next_completion("active_polling")
 
     def test_completion_cannot_be_rebound_to_another_owner_event(self):
         self.prepare_next_completion()
