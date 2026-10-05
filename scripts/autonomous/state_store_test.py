@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 import json
 import subprocess
@@ -53,6 +54,118 @@ class StateStoreTests(unittest.TestCase):
         data = json.loads(queue.read_bytes())
         data["observation"] = value
         queue.write_text(json.dumps(data), encoding="utf-8")
+
+    def reader(self, name):
+        repo = self.root / name
+        self.git(self.root, "clone", "--no-local", "--single-branch", "--branch", "autonomous/lab",
+                 str(self.remote), str(repo))
+        return repo
+
+    def test_slow_state_fetch_loads_exact_bytes_and_preserves_checkpoint_ancestry(self):
+        self.load()
+        original = save_state(self.repo, self.queue, self.revision)
+        self.update(self.queue, "accepted report")
+        expected = self.queue.read_bytes()
+        saved = save_state(self.repo, self.queue, self.revision)
+        reader = self.reader("slow-reader")
+        native_run = subprocess.run
+
+        def slow_fetch(command, **kwargs):
+            if "fetch" in command and kwargs.get("timeout", 90) <= 90:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return native_run(command, **kwargs)
+
+        with patch.object(state_store.subprocess, "run", side_effect=slow_fetch), patch.object(state_store.time, "sleep"):
+            data = load_state(reader, self.queue, self.revision)
+        self.assertEqual(data["observation"], "accepted report")
+        self.assertEqual(self.queue.read_bytes(), expected)
+        metadata = json.loads(self.revision.read_bytes())
+        self.assertEqual(metadata["state_sha"], saved)
+        self.assertEqual(metadata["digest"], hashlib.sha256(expected).hexdigest())
+        self.assertEqual(self.git(reader, "show", original + ":agent_tasks.json"), self.seed.strip())
+        self.git(reader, "merge-base", "--is-ancestor", original, saved)
+        self.assertEqual(self.git(reader, "rev-parse", "HEAD"), self.head)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+
+    def test_fetch_retry_retains_original_pin_and_rejects_subsequent_stale_save(self):
+        self.load()
+        self.update(self.queue, "original accepted report")
+        expected = self.queue.read_bytes()
+        saved = save_state(self.repo, self.queue, self.revision)
+        reader = self.reader("retry-reader")
+        native_git = state_store._git
+        newer = []
+
+        def interrupted_fetch(repo, *args, **kwargs):
+            if repo == reader and "fetch" in args and not newer:
+                self.update(self.queue, "newer accepted report")
+                newer.append(save_state(self.repo, self.queue, self.revision))
+                raise subprocess.TimeoutExpired("git fetch", kwargs.get("timeout", 90))
+            return native_git(repo, *args, **kwargs)
+
+        queue, revision = self.root / "retry-queue.json", self.root / "retry-revision.json"
+        with patch.object(state_store, "_git", side_effect=interrupted_fetch), patch.object(state_store.time, "sleep"):
+            load_state(reader, queue, revision)
+        self.assertEqual(queue.read_bytes(), expected)
+        self.assertEqual(json.loads(revision.read_bytes())["state_sha"], saved)
+        self.update(queue, "stale mutation")
+        with self.assertRaises(StateConflict):
+            save_state(reader, queue, revision)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), newer[0])
+        self.assertEqual(json.loads(self.git(self.remote, "show", newer[0] + ":agent_tasks.json"))["observation"],
+                         "newer accepted report")
+
+    def test_exhausted_fetch_leaves_outputs_and_authoritative_state_untouched(self):
+        self.load()
+        saved = save_state(self.repo, self.queue, self.revision)
+        queue_before, revision_before = self.queue.read_bytes(), self.revision.read_bytes()
+        native_git = state_store._git
+        for failure in (subprocess.TimeoutExpired("git fetch", 180), RuntimeError("state git operation failed: fetch")):
+            with self.subTest(failure=type(failure).__name__):
+                reader = self.reader("failed-reader-" + type(failure).__name__)
+                fetches = []
+
+                def unavailable_fetch(repo, *args, **kwargs):
+                    if repo == reader and "fetch" in args:
+                        fetches.append(args)
+                        raise failure
+                    return native_git(repo, *args, **kwargs)
+
+                with patch.object(state_store, "_git", side_effect=unavailable_fetch), patch.object(state_store.time, "sleep"):
+                    with self.assertRaises(type(failure)):
+                        load_state(reader, self.queue, self.revision)
+                self.assertEqual(len(fetches), 2)
+                self.assertEqual(self.queue.read_bytes(), queue_before)
+                self.assertEqual(self.revision.read_bytes(), revision_before)
+                self.assertEqual((reader / "agent_tasks.json").read_bytes(), self.seed)
+                self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+
+    def test_cached_revision_avoids_fetch_but_never_replaces_fresh_remote_identity(self):
+        self.load()
+        saved = save_state(self.repo, self.queue, self.revision)
+        native_git = state_store._git
+
+        def unavailable_fetch(repo, *args, **kwargs):
+            if repo == self.repo and "fetch" in args:
+                raise RuntimeError("state git operation failed: fetch")
+            return native_git(repo, *args, **kwargs)
+
+        with patch.object(state_store, "_git", side_effect=unavailable_fetch), patch.object(state_store.time, "sleep"):
+            queue, revision = self.load("-cached")
+            self.assertEqual(queue.read_bytes(), self.seed)
+            self.assertEqual(json.loads(revision.read_bytes())["state_sha"], saved)
+            writer = self.reader("independent-writer")
+            data = load_state(writer, self.queue, self.revision)
+            data["observation"] = "new authoritative report"
+            self.queue.write_text(json.dumps(data), encoding="utf-8")
+            newer = save_state(writer, self.queue, self.revision)
+            with self.assertRaises(RuntimeError):
+                self.load("-cached")
+            self.assertEqual(queue.read_bytes(), self.seed)
+            self.assertEqual(json.loads(revision.read_bytes())["state_sha"], saved)
+        self.load("-cached")
+        self.assertEqual(json.loads(queue.read_bytes())["observation"], "new authoritative report")
+        self.assertEqual(json.loads(revision.read_bytes())["state_sha"], newer)
 
     def test_migration_preserves_legacy_bytes_without_moving_product(self):
         self.load()

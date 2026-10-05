@@ -33,10 +33,11 @@ class StateUncertain(RuntimeError):
     """Publication may be durable, but no effect capability may be issued."""
 
 
-def _git(repo: Path, *args: str, data: bytes | None = None, check: bool = True):
+def _git(repo: Path, *args: str, data: bytes | None = None, check: bool = True,
+         timeout: int = 90):
     result = subprocess.run(
         ["git", "-C", str(repo), "-c", "core.hooksPath=" + os.devnull, *args],
-        input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90,
+        input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
     )
     if check and result.returncode:
         # Git stderr can include credential-bearing remote URLs.
@@ -110,7 +111,17 @@ def load_state(
         raise ValueError("state output must not overwrite the legacy product queue")
     revision = _remote_head(repo, branch)
     if revision:
-        _git(repo, "fetch", "--no-tags", "origin", revision)
+        # Always resolve the live ref first; only that exact object may be reused.
+        if _git(repo, "cat-file", "-e", revision + ":" + QUEUE, check=False).returncode:
+            for attempt in range(2):
+                try:
+                    # Keep checkpoint ancestry; a shallow fetch breaks recovery.
+                    _git(repo, "fetch", "--no-tags", "origin", revision, timeout=180)
+                    break
+                except (subprocess.TimeoutExpired, RuntimeError):
+                    if attempt:
+                        raise
+                    time.sleep(1)
         raw = _git(repo, "show", revision + ":" + QUEUE).stdout
     else:
         # Missing state is distinct from a network/authentication failure.

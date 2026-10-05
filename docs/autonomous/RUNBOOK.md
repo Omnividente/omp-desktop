@@ -36,6 +36,17 @@ an explicit compare-and-swap lease. A stale writer or unreachable remote stops;
 it never falls back to an old product queue. State writes do not move product
 refs or invalidate strict up-to-date PR checks.
 
+Every load resolves the live state ref before consulting local Git objects. An
+available queue object is reused only for that exact SHA; a cache miss fetches
+the pinned SHA with a 180-second timeout and at most one read-only retry after
+one second. Both attempts retain the original pin even if the remote advances.
+Fetches retain checkpoint history and ancestry; do not make them shallow.
+Transport failure or invalid queue data leaves the previous output files intact,
+without reseeding or using an older cached revision. Callers retain their own
+overall deadlines, including Continue's 120-second snapshot supervision. These
+read retries grant no write, executor or POST permission; save leases and strict
+claim acknowledgement remain unchanged.
+
 Queue writers share `autonomous-lab-queue`, `queue: max` and
 `cancel-in-progress: false`; the Git lease also protects against independent
 writers. The switch's stop flag is deliberately outside that lock. There is no
