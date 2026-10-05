@@ -10,7 +10,7 @@ on:
         type: string
         required: true
       decision_id:
-        description: Exact unfinished automatic NEXT with its authentic sync_running native artifact
+        description: Exact unfinished automatic NEXT with its authentic original native pause artifact
         type: string
         required: true
 

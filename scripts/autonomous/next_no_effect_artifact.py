@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GET-only proof of original failed native NEXT pause and report checkpoints.
+"""GET-only proof of original native NEXT pauses and failed report checkpoints.
 
 Archives and native reports remain in memory. This is source authentication, not
 permission to complete a journal decision or evidence of substantive Git equality.
@@ -149,6 +149,32 @@ def _executed(step, conclusion):
     return start, end
 
 
+def _prove_job_steps(job, expected, *, failed_step=None):
+    steps = job.get("steps")
+    _require(isinstance(steps, list) and 0 < len(steps) <= 100, "incomplete source job steps")
+    numbered, named = {}, {}
+    for step in steps:
+        _require(isinstance(step, dict) and _positive_id(step.get("number"))
+                 and isinstance(step.get("name"), str), "invalid source step identity")
+        _require(step["number"] not in numbered and step["name"] not in named,
+                 "ambiguous source step identity")
+        numbered[step["number"]] = step
+        named[step["name"]] = step
+    _require(all(name in named for name in expected), "missing original trusted source step")
+    _require([named[name]["number"] for name in expected]
+             == sorted(named[name]["number"] for name in expected), "invalid source step order")
+    first_start, previous_end = None, None
+    for name in expected:
+        start, end = _executed(named[name], "failure" if name == failed_step else "success")
+        _require(previous_end is None or previous_end <= start, "invalid source step execution order")
+        if first_start is None:
+            first_start = start
+        previous_end = end
+    _require(all(step.get("conclusion") != "failure" or step["name"] == failed_step
+                 for step in steps), "source job failed outside its expected step")
+    return first_start, previous_end
+
+
 def _prove_jobs(jobs, identity):
     native = []
     for job in jobs:
@@ -162,32 +188,27 @@ def _prove_jobs(jobs, identity):
             native.append(job)
     _require(len(native) == 1, "missing or ambiguous original native job")
     job = native[0]
-    _require(job.get("status") == "completed" and job.get("conclusion") == "failure",
-             "original native job did not fail")
-    steps = job.get("steps")
-    _require(isinstance(steps, list) and 0 < len(steps) <= 100, "incomplete native job steps")
-    numbered, named = {}, {}
-    for step in steps:
-        _require(isinstance(step, dict) and _positive_id(step.get("number"))
-                 and isinstance(step.get("name"), str), "invalid native step identity")
-        _require(step["number"] not in numbered and step["name"] not in named,
-                 "ambiguous native step identity")
-        numbered[step["number"]] = step
-        named[step["name"]] = step
-    prerequisites = ("Authenticate the frozen receiver controller",
-                     "Check out the authenticated receiver revision",
-                     "Verify the laboratory policy")
-    expected = (*prerequisites, NATIVE_STEP, UPLOAD_STEP)
-    _require(all(name in named for name in expected), "missing original trusted native step")
-    _require([named[name]["number"] for name in expected]
-             == sorted(named[name]["number"] for name in expected), "invalid native step order")
-    previous_end = None
-    for name in expected:
-        start, end = _executed(named[name], "failure" if name == NATIVE_STEP else "success")
-        _require(previous_end is None or previous_end <= start, "invalid native step execution order")
-        previous_end = end
-    _require(all(step.get("conclusion") != "failure" or step["name"] == NATIVE_STEP
-                 for step in steps), "original native job failed outside the native CLI")
+    conclusion = job.get("conclusion")
+    _require(job.get("status") == "completed" and conclusion in {"failure", "success"},
+             "original native job has no supported terminal outcome")
+    expected = ("Authenticate the frozen receiver controller",
+                "Check out the authenticated receiver revision", "Verify the laboratory policy",
+                NATIVE_STEP, UPLOAD_STEP)
+    _, native_end = _prove_job_steps(job, expected,
+                                    failed_step=NATIVE_STEP if conclusion == "failure" else None)
+    if conclusion == "success":
+        handoffs = [item for item in jobs if item.get("name") == "handoff"]
+        _require(len(handoffs) == 1, "missing or ambiguous original failed handoff")
+        handoff = handoffs[0]
+        _require(handoff.get("status") == "completed" and handoff.get("conclusion") == "failure",
+                 "original successful no-op did not end in a failed handoff")
+        expected_handoff = ("Check out the trusted continuation controller", "Hand off outside the queue writer lock")
+        handoff_start, _ = _prove_job_steps(handoff, expected_handoff,
+                                          failed_step="Hand off outside the queue writer lock")
+        _require(native_end <= handoff_start, "handoff preceded the original native outcome")
+        _require(all(item.get("conclusion") != "failure" or item is handoff for item in jobs),
+                 "original successful no-op failed outside its handoff")
+    return conclusion
 
 
 def _prove_artifact(artifact, identity, name):
@@ -290,7 +311,7 @@ def _report(archive, decision_id):
     _require(isinstance(report, dict) and report.get("decision_id") == decision_id
              and isinstance(report.get("state_sha"), str) and SHA.fullmatch(report["state_sha"]),
              "native report decision or state identity does not match")
-    _require(report.get("action") == "none" and report.get("reason") in {"next_task_running", "sync_running"}
+    _require(report.get("action") == "none" and report.get("reason") in {"next_task_running", "sync_running", "active_polling"}
              and report.get("skipped") is True and report.get("automatic") is True
              and report.get("merge_mode") == "manual" and "effect_receipt_id" not in report,
              "native report is not the original no-effect scheduler pause")
@@ -356,7 +377,7 @@ def _authenticate(repository, executor_trigger, decision_id, correlation_key, re
                  "original source workflow identity changed")
         _require(_run_identity(get(endpoint + "/attempts/1"), repository, trigger, correlation_key)
                  == identity, "original run attempt source changed")
-        _prove_jobs(_pages(get, endpoint + "/attempts/1/jobs", "jobs"), identity)
+        native_conclusion = _prove_jobs(_pages(get, endpoint + "/attempts/1/jobs", "jobs"), identity)
         name = "laboratory-result-" + trigger["run_id"] + "-1"
         artifacts = _pages(get, endpoint + "/artifacts", "artifacts")
         matching = [item for item in artifacts if item.get("name") == name]
@@ -375,6 +396,8 @@ def _authenticate(repository, executor_trigger, decision_id, correlation_key, re
         archive_digest = hashlib.sha256(archive).hexdigest()
         _require(archive_digest == expected_digest, "native artifact SHA256 does not match")
         report, report_digest = report_reader(archive, decision_id)
+        _require((report.get("reason") == "active_polling") == (native_conclusion == "success"),
+                 "native report does not match its original CLI outcome")
         _require(_run_identity(get(endpoint), repository, trigger, correlation_key) == identity,
                  "original source changed during authentication")
         return {"producer": trigger, "workflow": WORKFLOW, "ref": "refs/heads/main",

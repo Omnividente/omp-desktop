@@ -36,6 +36,17 @@ an explicit compare-and-swap lease. A stale writer or unreachable remote stops;
 it never falls back to an old product queue. State writes do not move product
 refs or invalidate strict up-to-date PR checks.
 
+Every load resolves the live state ref before consulting local Git objects. An
+available queue object is reused only for that exact SHA; a cache miss fetches
+the pinned SHA with a 180-second timeout and at most one read-only retry after
+one second. Both attempts retain the original pin even if the remote advances.
+Fetches retain checkpoint history and ancestry; do not make them shallow.
+Transport failure or invalid queue data leaves the previous output files intact,
+without reseeding or using an older cached revision. Callers retain their own
+overall deadlines, including Continue's 120-second snapshot supervision. These
+read retries grant no write, executor or POST permission; save leases and strict
+claim acknowledgement remain unchanged.
+
 Queue writers share `autonomous-lab-queue`, `queue: max` and
 `cancel-in-progress: false`; the Git lease also protects against independent
 writers. The switch's stop flag is deliberately outside that lock. There is no
@@ -96,6 +107,13 @@ delivery remains blocked. Reporting benign ingress grants no execution/send righ
 NEXT/SYNC source jobs and their handoff use that same observation-only disposition
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
+An admitted automatic NEXT that returns `action=none`, `reason=active_polling` and
+`skipped=true` before its existing worker poll deadline records a normal no-effect
+completion only when its full task/controller body is unchanged and it has no
+substantive observations, proposals, waiting workers or research change. It does
+not poll workers or advance useful clocks. Its completion lets the normal causal
+handoff retain the existing deadline rather than strand a consumed executor.
+
 An authorized explicit report-recovery command is not a disposable wakeup signal:
 benign busy ingress additionally CAS-saves it in `controller.owner_recovery_requests`.
 That owner-command acknowledgement still grants no runtime right and never replaces
@@ -210,16 +228,22 @@ and `decision_id` and invokes the native owner entry with fixed
 2. The controller authenticates the original completed failed run and attempt 1,
    main branch, repository/head-repository IDs, actor/triggering actor, exact frozen
    head and correlation key, stable workflow ID/path, successful authenticated
-   checkout/policy steps, failed native CLI step and successful artifact upload.
-   REST `run.name` and `job.workflow_name` are dynamic run names, not static workflow
-   identity. This narrow operation rejects mixed event-head/frozen-pin sources.
+   checkout/policy steps and successful artifact upload. `sync_running` and
+   `next_task_running` require the original failed native CLI/job. `active_polling`
+   instead requires the original successful native CLI/job, followed by exactly
+   one same-source failed `handoff`: trusted continuation checkout succeeds,
+   only the handoff CLI fails, and it starts after native upload. Conditional
+   handoff-result retention is not an execution-proof prerequisite.
+   Other failed jobs or a reason that does not match the original CLI outcome deny
+   this completion. REST `run.name` and `job.workflow_name` are dynamic run names,
+   not static workflow identity; mixed event-head/frozen-pin sources are rejected.
 3. Authenticated GETs must find one nonexpired exact-name original artifact and
    verify the downloaded ZIP SHA256 against mandatory metadata. The bounded archive
    contains only a regular `lab-result.json`; its native result must bind this
    decision and actual state SHA, `automatic=true`, `skipped=true`, `action=none`,
-   `reason=sync_running` or `reason=next_task_running`, with no effect receipt,
-   observations, proposals, waiting workers or research change. Archives and raw
-   reports remain in memory only.
+   `reason=sync_running`, `reason=next_task_running` or `reason=active_polling`, with
+   no effect receipt, observations, proposals, waiting workers or research change.
+   Archives and raw reports remain in memory only.
 4. Actual Git checkpoints before the executor claim, named by the original report,
    and at the fresh CAS pin must have identical full task/controller bodies. The
    report checkpoint must retain the exact original consumed executor. One owner-
