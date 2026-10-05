@@ -132,6 +132,23 @@ class SyntheticSource:
             raise AssertionError("unexpected synthetic archive GET")
         return self.archive
 
+    def active_polling(self):
+        self.jobs[0]["conclusion"] = "success"
+        for step in self.jobs[0]["steps"]:
+            step["conclusion"] = "success"
+        names = ("Check out the trusted continuation controller",
+                 "Hand off outside the queue writer lock", "Retain observed handoff")
+        self.jobs.append({
+            "id": 202, "run_id": self.run["id"], "head_sha": self.run["head_sha"], "head_branch": "main",
+            "name": "handoff", "status": "completed", "conclusion": "failure",
+            "steps": [{"name": name, "number": number, "status": "completed",
+                       "conclusion": "failure" if number == 2 else "success",
+                       "started_at": f"2026-01-01T00:00:{20 + number * 2:02}Z",
+                       "completed_at": f"2026-01-01T00:00:{21 + number * 2:02}Z"}
+                      for number, name in enumerate(names, 1)],
+        })
+        self.set_report(dict(self.report, reason="active_polling", attention=[]))
+
     def authenticate(self, *, trigger=None, decision_id=DECISION, key=KEY):
         return proof.authenticated_next_no_effect(
             REPOSITORY, TRIGGER if trigger is None else trigger, decision_id, key,
@@ -186,6 +203,53 @@ class ArtifactProofTests(ArtifactProofAssertions):
         self.assertEqual(TRIGGER, original)
         self.assertEqual(source.downloads, ["actions/artifacts/301/zip"])
         self.assertNotIn("archive", result)
+
+    def test_active_polling_successful_cli_with_original_failed_handoff_is_authenticated(self):
+        for retained in (True, False):
+            with self.subTest(retained=retained):
+                source = SyntheticSource()
+                source.active_polling()
+                if not retained:
+                    source.jobs[1]["steps"][2].update(conclusion="skipped", started_at=None, completed_at=None)
+                result = source.authenticate()
+                self.assertEqual(result["report"]["reason"], "active_polling")
+                self.assertEqual(result["artifact_sha256"], hashlib.sha256(source.archive).hexdigest())
+                self.assertEqual(result["report_sha256"], hashlib.sha256(source.raw).hexdigest())
+                self.assertEqual(result["producer"], TRIGGER)
+
+    def test_active_polling_requires_successful_native_cli_and_only_original_failed_handoff(self):
+        mutations = [
+            lambda source: source.jobs.pop(),
+            lambda source: source.jobs.append(copy.deepcopy(source.jobs[1])),
+            lambda source: source.jobs[1].update(name="foreign handoff"),
+            lambda source: source.jobs[1].update(run_id=72),
+            lambda source: source.jobs[1].update(head_sha="e" * 40),
+            lambda source: source.jobs[1].update(conclusion="success"),
+            lambda source: source.jobs[1]["steps"][1].update(conclusion="success"),
+            lambda source: source.jobs[1]["steps"][0].update(conclusion="failure"),
+            lambda source: source.jobs[1]["steps"][2].update(conclusion="failure"),
+            lambda source: source.jobs[1]["steps"][0].update(started_at="2026-01-01T00:00:01Z"),
+            lambda source: source.jobs[0]["steps"][3].update(conclusion="failure"),
+            lambda source: source.jobs.append(dict(source.jobs[1], id=203, name="unrelated failed job")),
+        ]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(boundary=index):
+                source = SyntheticSource()
+                source.active_polling()
+                mutate(source)
+                self.assert_denied(source)
+                self.assertEqual(source.downloads, [])
+
+    def test_native_result_reason_cannot_replace_the_original_cli_outcome(self):
+        source = SyntheticSource()
+        source.set_report(dict(source.report, reason="active_polling"))
+        self.assert_denied(source)
+        for reason in ("sync_running", "next_task_running"):
+            with self.subTest(reason=reason):
+                source = SyntheticSource()
+                source.active_polling()
+                source.set_report(dict(source.report, reason=reason))
+                self.assert_denied(source)
 
     def test_coherent_foreign_event_head_cannot_replace_frozen_original_control(self):
         source = SyntheticSource()

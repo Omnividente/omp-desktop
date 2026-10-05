@@ -192,6 +192,23 @@ class NativeNextNoEffectTests(unittest.TestCase):
         self.assertEqual(self.store.current()["effects"], {})
         self.assertEqual(self.body(state_snapshot(self.remote)), self.body(self.before))
 
+    def test_active_worker_poll_not_due_closes_without_useful_progress(self):
+        now = datetime(2026, 10, 5, 17, tzinfo=timezone.utc)
+        manifest = load_state(self.repo, self.queue, self.revision)
+        worker = {key: copy.deepcopy(value) for key, value in manifest["tasks"][0].items()
+                  if key not in {"execution", "status"}}
+        worker.update(id="active-worker", status="todo")
+        manifest["tasks"].append(worker)
+        add_attempt(manifest, worker, "active-session", parked=False, now=now)
+        manifest["controller"]["last_poll_at"] = now.isoformat()
+        self.store.save_manifest(manifest)
+        self.before = state_snapshot(self.remote)
+        git(self.repo, "push", "origin", self.main_sha + ":refs/heads/autonomous/lab")
+        git(self.repo, "checkout", "--detach", self.main_sha)
+        with patch.object(lab_controller, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = now
+            self.assert_completed_pause("active_polling")
+
     def test_other_active_next_closes_without_effect_and_allows_successor(self):
         self.runs[NEXT].append(dict(self.runs[NEXT][0], id=901,
                                     display_title="Autonomous Next Task"))
