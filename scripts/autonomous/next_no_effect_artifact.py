@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GET-only proof of original native NEXT pauses and failed report checkpoints.
+"""GET-only proof of original native NEXT pauses and failed save checkpoints.
 
 Archives and native reports remain in memory. This is source authentication, not
 permission to complete a journal decision or evidence of substantive Git equality.
@@ -327,16 +327,16 @@ def _report(archive, decision_id):
     return report, report_digest
 
 
-def _failed_report_checkpoint(archive, decision_id):
+def _failed_save_checkpoint(archive, decision_id):
     # The exception path does not serialize decision_id. Its original decision
     # is bound by the authenticated executor run and correlation-key run title.
     report, report_digest = _native_json(archive, allow_diagnostics=True)
     _require(isinstance(report, dict)
              and set(report) == {"action", "merge_mode", "reason", "attention", "state_sha"},
-             "native report is not the original failed report checkpoint")
+             "native report is not the original failed save checkpoint")
     _require(report["action"] == "stopped" and report["merge_mode"] == "manual"
              and report["reason"] == "state_write_failed",
-             "native report is not the original failed report checkpoint")
+             "native report is not the original failed save checkpoint")
     _require(isinstance(report["state_sha"], str) and SHA.fullmatch(report["state_sha"]),
              "native report state identity does not match")
     _require(report["attention"] == [{
@@ -421,14 +421,14 @@ def authenticated_next_no_effect(repository, executor_trigger, decision_id, corr
                          get_json=get_json, get_archive=get_archive)
 
 
-def authenticated_failed_report_checkpoint(repository, executor_trigger, decision_id, correlation_key,
-                                          *, get_json=None, get_archive=None) -> dict:
-    """Authenticate the exact native pre-POST report-recovery save failure.
+def authenticated_failed_save_checkpoint(repository, executor_trigger, decision_id, correlation_key,
+                                       *, get_json=None, get_archive=None) -> dict:
+    """Authenticate one original native save failure, without inferring effects.
 
     The failed envelope has no decision_id: the original executor and correlation
-    key authenticate its source. The caller must prove the checkpoint body and
-    command binding separately. No permission or provider-effect proof is issued.
+    key authenticate its source. The caller must prove the saved checkpoint body
+    and any command/provider binding separately. No recovery permission is issued.
     Errors and injected GET callbacks follow the pause reader's fixed boundary.
     """
     return _authenticate(repository, executor_trigger, decision_id, correlation_key,
-                         _failed_report_checkpoint, get_json=get_json, get_archive=get_archive)
+                         _failed_save_checkpoint, get_json=get_json, get_archive=get_archive)

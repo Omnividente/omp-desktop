@@ -1,23 +1,33 @@
 #!/usr/bin/env python3
-"""Apply one explicitly selected owner operation by native state CAS.
+"""Observe or apply one explicitly selected owner operation.
 
 Delivery fencing revokes only unclaimed sends. CONTINUE cutover closes only a
 selected idle CONTINUE. NEXT completion observes an authentic terminal native
-no-op or failed queued report checkpoint against its immutable baseline. None
-dispatches, switches the loop, issues execution rights, or changes tasks and clocks.
+no-op or failed queued report checkpoint against its immutable baseline. Reserved
+dispatch observation is GET-only; original-session binding may change only the
+selected task's execution.state and execution.session_id by one native state CAS,
+appending only its typed owner recovery receipt to the journal.
+None creates a provider session, switches the loop, issues execution rights, or
+changes task attempts, requests, history, receipts, outcomes, or clocks.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
+from datetime import datetime
 
-from dispatch_journal import DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain
+from build_jules_request import dispatch_key
+from dispatch_journal import (DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain)
+from jules_dispatch import KeyRing
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
-from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+                                OWNER_DISPATCH_OBSERVATION, OWNER_NEXT_COMPLETION,
+                                OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
 
 OPERATIONS = {
@@ -28,6 +38,10 @@ OPERATIONS = {
                         frozenset(("completed", "already_completed"))),
     "report_checkpoint": (OWNER_REPORT_CHECKPOINT, "owner_report_checkpoint",
                           frozenset(("completed", "already_completed"))),
+    "dispatch_observation": (OWNER_DISPATCH_OBSERVATION, "owner_dispatch_observation",
+                             frozenset(("observed",))),
+    "dispatch_binding": (OWNER_DISPATCH_BINDING, "owner_dispatch_binding",
+                         frozenset(("bound", "already_bound"))),
 }
 
 
@@ -137,6 +151,86 @@ def _acknowledged_result(value, decision_id, operation):
             ("outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq")}
 
 
+def _observed_result(value, decision_id, expected_state_sha, config):
+    """Retain only typed proof facts; reject arbitrary provider/native text."""
+    def require(condition):
+        if not condition:
+            raise JournalUncertain("owner observation acknowledgement is not usable")
+
+    def shape(item, fields):
+        require(type(item) is dict and set(item) == set(fields))
+
+    def token(item, pattern):
+        require(type(item) is str and re.fullmatch(pattern, item) is not None)
+
+    shape(value, ("outcome", "decision_id", "state_sha", "frontier_seq", "identity",
+                  "provider_proof", "native_proof", "native_report"))
+    require(value["outcome"] == "observed" and value["decision_id"] == decision_id
+            and value["state_sha"] == expected_state_sha)
+    token(value["decision_id"], DIGEST.pattern)
+    token(value["state_sha"], SHA.pattern)
+    require(type(value["frontier_seq"]) is int and value["frontier_seq"] >= 0)
+    identity, provider = value["identity"], value["provider_proof"]
+    identity_fields = ("task_id", "attempts", "dispatch_key", "base_sha",
+                       "starting_branch", "research_request_sha256")
+    shape(identity, identity_fields)
+    token(identity["task_id"], r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}")
+    require(type(identity["attempts"]) is int and identity["attempts"] > 0)
+    token(identity["base_sha"], SHA.pattern)
+    token(identity["research_request_sha256"], DIGEST.pattern)
+    require(identity["dispatch_key"] == dispatch_key(config["repository"], identity["task_id"],
+                                                    identity["attempts"])
+            and identity["starting_branch"] == "autonomous/attempt-" + identity["dispatch_key"])
+    shape(provider, (*identity_fields, "kind", "repository", "provider", "method", "authenticated",
+                     "session_id", "session_state", "session_resource", "request_sha256",
+                     "session_sha256", "list_session_sha256", "observed_at"))
+    require(all(type(provider[name]) is type(identity[name]) and provider[name] == identity[name]
+                for name in identity_fields))
+    require(provider["kind"] == "reserved_dispatch_observation"
+            and provider["repository"] == config["repository"] and provider["provider"] == "jules"
+            and provider["method"] == "GET" and provider["authenticated"] is True)
+    token(provider["session_id"], r"[A-Za-z0-9_-]+")
+    token(provider["session_state"], r"[A-Z][A-Z0-9_]*")
+    require(provider["session_resource"] == "sessions/" + provider["session_id"])
+    for name in ("request_sha256", "session_sha256", "list_session_sha256"):
+        token(provider[name], DIGEST.pattern)
+    require(provider["session_sha256"] == provider["list_session_sha256"])
+    token(provider["observed_at"], r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
+    try:
+        datetime.fromisoformat(provider["observed_at"].replace("Z", "+00:00"))
+    except ValueError:
+        require(False)
+    native = value["native_proof"]
+    shape(native, ("producer", "workflow", "ref", "artifact_id", "artifact_name",
+                   "artifact_sha256", "report_sha256"))
+    producer = native["producer"]
+    shape(producer, ("run_id", "run_attempt", "event_name", "control_sha", "repository", "actor"))
+    for name in ("run_id", "run_attempt"):
+        token(producer[name], r"[1-9][0-9]*")
+    token(producer["control_sha"], SHA.pattern)
+    token(producer["actor"], r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\[bot\])?")
+    require(producer["repository"] == config["repository"]
+            and producer["event_name"] == "workflow_dispatch"
+            and native["workflow"] == "autonomous_next_task.yml" and native["ref"] == "refs/heads/main")
+    token(native["artifact_id"], r"[1-9][0-9]*")
+    require(native["artifact_name"] == "laboratory-result-" + producer["run_id"] + "-" + producer["run_attempt"])
+    for name in ("artifact_sha256", "report_sha256"):
+        token(native[name], DIGEST.pattern)
+    report = value["native_report"]
+    shape(report, ("action", "merge_mode", "reason", "attention", "state_sha"))
+    require(report["action"] == "stopped" and report["merge_mode"] == "manual"
+            and report["reason"] == "state_write_failed"
+            and report["attention"] == [{"reason": "state save failed; reload the authoritative queue before continuing"}])
+    token(report["state_sha"], SHA.pattern)
+    # Rebuild the whitelist so no unvalidated object reaches retention.
+    return {"outcome": "observed", "decision_id": decision_id,
+            "state_sha": expected_state_sha, "frontier_seq": value["frontier_seq"],
+            "identity": {name: identity[name] for name in identity_fields},
+            "provider_proof": dict(provider),
+            "native_proof": {**native, "producer": dict(producer)},
+            "native_report": {**report, "attention": [{"reason": report["attention"][0]["reason"]}]}}
+
+
 def main(argv=None):
     parser = _Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--operation", choices=tuple(OPERATIONS), default="delivery")
@@ -177,15 +271,23 @@ def main(argv=None):
             raise ValueError("owner checked configuration changed before CAS")
         if _owner_binding(args, config).trigger != binding.trigger:
             raise ValueError("owner workflow identity changed before CAS")
-        attempted = True
         owner_operation = {"delivery": store.fence_unclaimed,
                            "continue_cutover": store.cutover_continue,
                            "next_completion": store.complete_observed_next,
-                           "report_checkpoint": store.complete_failed_report_checkpoint}[operation]
-        result = _acknowledged_result(owner_operation(
-            decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
-            owner_trigger=binding.trigger, config=config,
-        ), args.decision_id, operation)
+                           "report_checkpoint": store.complete_failed_report_checkpoint,
+                           "dispatch_observation": store.observe_reserved_dispatch,
+                           "dispatch_binding": store.bind_reserved_dispatch}[operation]
+        parameters = dict(decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
+                          owner_trigger=binding.trigger, config=config)
+        if operation in {"dispatch_observation", "dispatch_binding"}:
+            # Reuse the existing Jules keyring, with no endpoint override or secret output.
+            parameters["api_keys"] = KeyRing([os.environ.get("JULES_API_KEY", ""),
+                                             os.environ.get("JULES_API_KEY_BACKUP", "")])
+        attempted = True
+        value = owner_operation(**parameters)
+        result = (_observed_result(value, args.decision_id, args.expected_state_sha, config)
+                  if operation == "dispatch_observation" else
+                  _acknowledged_result(value, args.decision_id, operation))
     except (JournalUncertain, StateUncertain):
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] + "_acknowledgement_unknown"}
     except (JournalConflict, StateConflict):
