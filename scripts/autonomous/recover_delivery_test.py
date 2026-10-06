@@ -19,7 +19,8 @@ import state_store
 import next_no_effect_artifact
 from next_no_effect_artifact_test import SyntheticSource
 import workflow_admission
-from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION,
+from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+                              OWNER_DISPATCH_OBSERVATION, OWNER_NEXT_COMPLETION,
                               OWNER_RECOVERY, JournalStore, JournalUncertain, substantive_digest)
 from state_store import load_state, save_state
 
@@ -556,6 +557,366 @@ class OwnerEntryTests(unittest.TestCase):
                 with self.subTest(operation=operation, outcome=outcome), self.assertRaises(JournalUncertain):
                     recover_delivery._acknowledged_result({**acknowledged, "outcome": outcome},
                                                           acknowledged["decision_id"], operation)
+
+    def test_reserved_dispatch_workflows_cannot_close_continue_or_revoke_delivery(self):
+        self.prepare(claimed=True)
+        for operation, workflow in (("dispatch_observation", OWNER_DISPATCH_OBSERVATION),
+                                    ("dispatch_binding", OWNER_DISPATCH_BINDING)):
+            os.environ["GITHUB_WORKFLOW_REF"] = REPOSITORY + "/.github/workflows/" + workflow + "@refs/heads/main"
+            with self.subTest(operation=operation):
+                self.assert_rejected_without_mutation(self.arguments(operation))
+                for other in ("delivery", "continue_cutover", "next_completion", "report_checkpoint"):
+                    self.assert_rejected_without_mutation(self.arguments(other))
+
+    def test_observation_cannot_be_treated_as_a_mutating_receipt(self):
+        value = {"outcome": "observed", "decision_id": "d" * 64,
+                 "state_sha": "a" * 40, "frontier_seq": 1}
+        for operation in ("delivery", "continue_cutover", "next_completion", "report_checkpoint", "dispatch_binding"):
+            with self.subTest(operation=operation), self.assertRaises(JournalUncertain):
+                recover_delivery._acknowledged_result(value, value["decision_id"], operation)
+
+    def test_binding_acknowledgement_rejects_foreign_or_incomplete_outcomes(self):
+        value = {"outcome": "bound", "decision_id": "d" * 64, "receipt_id": "e" * 64,
+                 "state_sha": "a" * 40, "frontier_seq": 1}
+        invalid = [{**value, "outcome": "completed"}, {**value, "decision_id": "f" * 64},
+                   {**value, "receipt_id": "raw private provider text"},
+                   {**value, "state_sha": "unknown"}, {**value, "frontier_seq": True},
+                   {key: item for key, item in value.items() if key != "receipt_id"}]
+        for item in invalid:
+            with self.subTest(item=item), self.assertRaises(JournalUncertain):
+                recover_delivery._acknowledged_result(item, value["decision_id"], "dispatch_binding")
+
+
+    def test_reserved_owner_entries_reject_actor_pin_payload_and_context_changes_before_observation(self):
+        self.prepare(NEXT, claimed=True, inputs={"automatic": True}, execution_run="70")
+        original_event = copy.deepcopy(self.event)
+        original_recheck = recover_delivery.recheck_context
+        for operation, workflow in (("dispatch_observation", OWNER_DISPATCH_OBSERVATION),
+                                    ("dispatch_binding", OWNER_DISPATCH_BINDING)):
+            os.environ["GITHUB_WORKFLOW_REF"] = REPOSITORY + "/.github/workflows/" + workflow + "@refs/heads/main"
+            changes = (("GITHUB_ACTOR", "foreign"), ("GITHUB_TRIGGERING_ACTOR", "foreign"),
+                       ("GITHUB_WORKFLOW_SHA", "f" * 40), ("GITHUB_SHA", "f" * 40),
+                       ("CONTROL_SHA", "f" * 40), ("GITHUB_REF", "refs/heads/foreign"),
+                       ("CONTINUATION_KEY", "d" * 32))
+            for variable, value in changes:
+                with self.subTest(operation=operation, variable=variable), patch.dict(os.environ, {variable: value}):
+                    result = self.assert_rejected_without_mutation(self.arguments(operation))
+                    self.assertEqual(result["reason"], "owner_" + operation + "_context_rejected")
+            self.event["inputs"]["control_sha"] = self.control
+            self.write_event()
+            result = self.assert_rejected_without_mutation(self.arguments(operation))
+            self.assertEqual(result["reason"], "owner_" + operation + "_context_rejected")
+            self.event = copy.deepcopy(original_event)
+            self.write_event()
+
+            def change_actor(binding):
+                original_recheck(binding)
+                os.environ["GITHUB_TRIGGERING_ACTOR"] = "foreign"
+
+            with patch.dict(os.environ), patch.object(recover_delivery, "recheck_context", side_effect=change_actor):
+                result = self.assert_rejected_without_mutation(self.arguments(operation))
+                self.assertEqual(result["reason"], "owner_" + operation + "_context_rejected")
+
+class ObservationOutputTests(unittest.TestCase):
+    def setUp(self):
+        from dispatch_recovery_test import (REPOSITORY as provider_repository, PRIMARY,
+                                            Transport, observe, page, provider_session, reserved_task)
+        from jules_dispatch import Response
+        from next_no_effect_artifact_test import DECISION, KEY, TRIGGER, FailedCheckpointSource
+        task = reserved_task()
+        self.session = provider_session(task)
+        transport = Transport([page(self.session), Response(200, copy.deepcopy(self.session))])
+        observed = observe(task, transport)
+        source = FailedCheckpointSource()
+        for run in (source.run, source.attempt):
+            for name in ("repository", "head_repository"):
+                run[name]["full_name"] = provider_repository
+        producer = {**TRIGGER, "repository": provider_repository}
+        native = next_no_effect_artifact.authenticated_failed_save_checkpoint(
+            provider_repository, producer, DECISION, KEY,
+            get_json=source.get_json, get_archive=source.get_archive)
+        report = native.pop("report")
+        self.value = {"outcome": "observed", "decision_id": DECISION, "state_sha": report["state_sha"],
+                      "frontier_seq": 3, "identity": observed["identity"], "provider_proof": observed["proof"],
+                      "native_proof": native, "native_report": report}
+        self.config = {"repository": provider_repository}
+        self.private = (PRIMARY, self.session["prompt"], self.session["title"],
+                        "SYNTHETIC_PRIVATE_WORKER_PROSE", "SYNTHETIC_PRIVATE_REQUEST")
+
+    def validate(self, value=None):
+        return recover_delivery._observed_result(self.value if value is None else value,
+                                                self.value["decision_id"], self.value["state_sha"], self.config)
+
+    def test_real_authenticated_proof_retains_no_private_provider_material(self):
+        before = copy.deepcopy(self.value)
+        result = self.validate()
+        self.assertEqual(result, before)
+        text = json.dumps(result)
+        for private in self.private:
+            self.assertNotIn(private, text)
+        result["native_proof"]["producer"]["actor"] = "foreign"
+        result["native_report"]["attention"][0]["reason"] = "foreign"
+        self.assertEqual(self.value, before)
+
+    def test_every_retained_object_rejects_unknown_or_missing_keys(self):
+        for name in (None, "identity", "provider_proof", "native_proof", "native_report", "producer"):
+            for change in ("extra", "missing"):
+                value = copy.deepcopy(self.value)
+                target = (value if name is None else value["native_proof"]["producer"]
+                          if name == "producer" else value[name])
+                if change == "extra":
+                    target["private"] = self.session
+                else:
+                    target.pop(next(iter(target)))
+                with self.subTest(object=name, change=change), self.assertRaises(JournalUncertain):
+                    self.validate(value)
+
+    def test_proof_mismatches_or_untyped_facts_cannot_reach_retention(self):
+        variants = [(None, "outcome", "bound"), (None, "decision_id", "f" * 64),
+                    (None, "state_sha", "f" * 40), (None, "frontier_seq", True),
+                    ("identity", "task_id", self.session["prompt"]), ("identity", "attempts", True),
+                    ("identity", "dispatch_key", "f" * 24), ("identity", "starting_branch", "main"),
+                    ("provider_proof", "attempts", True), ("provider_proof", "authenticated", 1),
+                    ("provider_proof", "method", "POST"), ("provider_proof", "repository", "foreign/repo"),
+                    ("provider_proof", "session_resource", "sessions/foreign"),
+                    ("provider_proof", "session_id", "private\ntext"),
+                    ("provider_proof", "session_state", "private text"),
+                    ("provider_proof", "session_sha256", "f" * 64),
+                    ("provider_proof", "observed_at", "2026-99-99T12:00:00Z"),
+                    ("native_proof", "artifact_name", "foreign"),
+                    ("native_proof", "workflow", OWNER_DISPATCH_OBSERVATION),
+                    ("native_report", "reason", "private diagnostic"),
+                    ("native_report", "attention", [{"reason": "private diagnostic"}])]
+        for name, field, item in variants:
+            value = copy.deepcopy(self.value)
+            (value if name is None else value[name])[field] = item
+            with self.subTest(object=name, field=field), self.assertRaises(JournalUncertain):
+                self.validate(value)
+
+
+class ReservedDispatchOwnerEntryTests(unittest.TestCase):
+    def setUp(self):
+        from reserved_dispatch_checkpoint_test import ReservedDispatchCheckpointTests
+        from dispatch_recovery_test import PRIMARY
+        self.fixture = f = ReservedDispatchCheckpointTests()
+        self.addCleanup(f.doCleanups)
+        f.setUp()
+        self.config_path = f.repo / "autonomous-project.json"
+        self.config_path.write_text(json.dumps(f.config), encoding="utf-8")
+        f.git(f.repo, "add", "autonomous-project.json")
+        f.git(f.repo, "commit", "-m", "synthetic checked owner config")
+        self.control = f.git(f.repo, "rev-parse", "HEAD")
+        f.prepare()
+        self.expected = f.pin
+        f.git(f.repo, "remote", "set-url", "origin", "https://github.com/" + f.config["repository"])
+        native_git = state_store._git
+        self.pushes = 0
+        self.lose_ack = False
+
+        def state_transport(repo, *args, **kwargs):
+            args = tuple(str(f.remote) if arg == "origin" else arg for arg in args)
+            result = native_git(repo, *args, **kwargs)
+            if "push" in args:
+                self.pushes += 1
+                if self.lose_ack:
+                    raise subprocess.TimeoutExpired("synthetic private acknowledged push", 90)
+            return result
+
+        self.start_patch(patch.object(state_store, "_git", side_effect=state_transport))
+        for module in (recover_delivery, workflow_admission):
+            self.start_patch(patch.object(module, "__file__", str(
+                f.repo / "scripts" / "autonomous" / (module.__name__ + ".py"))))
+        self.event_path = f.root / "owner-event.json"
+        self.result_path = f.root / "owner-result.json"
+        self.event = {"repository": {"full_name": f.config["repository"]}, "ref": "refs/heads/main",
+                      "sender": {"login": "owner-a"}, "inputs": {
+                          "expected_state_sha": self.expected, "decision_id": f.intent["decision_id"]}}
+        self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+        self.start_patch(patch.dict(os.environ, {
+            **{name: os.environ[name] for name in
+               ("PATH", "SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ},
+            "GITHUB_RUN_ID": "500", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REPOSITORY": f.config["repository"], "GITHUB_REF": "refs/heads/main",
+            "GITHUB_ACTOR": "owner-a", "GITHUB_TRIGGERING_ACTOR": "owner-a",
+            "GITHUB_SHA": self.control, "GITHUB_WORKFLOW_SHA": self.control, "CONTROL_SHA": self.control,
+            "CONTINUATION_KEY": "", "GITHUB_EVENT_PATH": str(self.event_path),
+            "GH_TOKEN": "SYNTHETIC_PRIVATE_GH_TOKEN", "JULES_API_KEY": PRIMARY,
+            "JULES_API_KEY_BACKUP": "SYNTHETIC_PRIVATE_BACKUP",
+            "JULES_API_BASE": "https://untrusted.invalid/not-canonical",
+        }, clear=True))
+        stack = f.transport()
+        stack.__enter__()
+        self.addCleanup(stack.close)
+        self.start_patch(patch("jules_dispatch.urllib.request.urlopen", side_effect=self.http_get))
+        self.select("dispatch_observation")
+
+    start_patch = OwnerEntryTests.start_patch
+
+    def select(self, operation):
+        self.operation = operation
+        workflow = recover_delivery.OPERATIONS[operation][0]
+        os.environ["GITHUB_WORKFLOW_REF"] = (
+            self.fixture.config["repository"] + "/.github/workflows/" + workflow + "@refs/heads/main")
+
+    def http_get(self, request, timeout):
+        from jules_dispatch import DEFAULT_API_BASE
+        self.assertTrue(request.full_url.startswith(DEFAULT_API_BASE + "/sessions"))
+        response = self.fixture.provider(request.get_method(), request.full_url,
+                                         {key.lower(): value for key, value in request.header_items()}, request.data)
+        self.assertEqual(response.status, 200)
+        body = json.dumps(response.payload).encode("utf-8")
+
+        class HttpResponse:
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return body
+
+        return HttpResponse()
+
+    def arguments(self):
+        f = self.fixture
+        return ["--operation", self.operation, "--repo", str(f.repo), "--config", str(self.config_path),
+                "--manifest", str(f.store.manifest_path), "--revision-file", str(f.store.revision_path),
+                "--expected-state-sha", self.expected, "--decision-id", f.intent["decision_id"],
+                "--out", str(self.result_path)]
+
+    def invoke(self, arguments=None):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            status = recover_delivery.main(self.arguments() if arguments is None else arguments)
+        text = output.getvalue()
+        result = json.loads(text)
+        self.assertEqual(json.loads(self.result_path.read_text(encoding="utf-8")), result)
+        self.fixture.assert_private(result)
+        for private in ("SYNTHETIC_PRIVATE_GH_TOKEN", "SYNTHETIC_PRIVATE_BACKUP", self.fixture.session["title"]):
+            self.assertNotIn(private, text)
+        return status, result
+
+    def assert_blocked_unchanged(self, reason):
+        before = self.fixture.authoritative()
+        pushes = self.pushes
+        status, result = self.invoke()
+        self.assertEqual((status, result), (1, {"outcome": "blocked", "reason": reason}))
+        self.assertEqual(self.fixture.authoritative(), before)
+        self.assertEqual(self.pushes, pushes)
+
+    def test_get_only_cli_observation_retains_proof_without_state_push(self):
+        before = self.fixture.authoritative()
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "observed"))
+        self.assertEqual(set(result), {"outcome", "decision_id", "state_sha", "frontier_seq", "identity",
+                                      "provider_proof", "native_proof", "native_report"})
+        self.assertEqual(self.fixture.authoritative(), before)
+        self.assertEqual(self.pushes, 0)
+        self.assertEqual(len(self.fixture.provider.calls), 2)
+        self.fixture.assert_get_only()
+
+    def test_binding_calls_one_cas_and_rerun_only_reads_same_receipt(self):
+        self.select("dispatch_binding")
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "bound"))
+        self.assertEqual(set(result), {"outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq"})
+        self.assertEqual(self.pushes, 1)
+        after = self.fixture.authoritative()
+        calls = len(self.fixture.provider.calls)
+        source_calls = list(self.fixture.source.calls)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, replay = self.invoke()
+        self.assertEqual((status, replay["outcome"], replay["receipt_id"]), (0, "already_bound", result["receipt_id"]))
+        self.assertEqual(self.fixture.authoritative(), after)
+        self.assertEqual((self.pushes, len(self.fixture.provider.calls), self.fixture.source.calls),
+                         (1, calls, source_calls))
+        os.environ["GITHUB_RUN_ID"] = "501"
+        self.assert_blocked_unchanged("owner_dispatch_binding_conflict")
+        self.assertEqual(len(self.fixture.provider.calls), calls)
+        os.environ["GITHUB_RUN_ID"] = "500"
+        with patch.dict(os.environ, {"GITHUB_ACTOR": "owner-b", "GITHUB_TRIGGERING_ACTOR": "owner-b"}):
+            self.event["sender"]["login"] = "owner-b"
+            self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+            self.assert_blocked_unchanged("owner_dispatch_binding_conflict")
+        self.event["sender"]["login"] = "owner-a"
+        self.expected = result["state_sha"]
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+        self.assert_blocked_unchanged("owner_dispatch_binding_conflict")
+        self.assertEqual((len(self.fixture.provider.calls), self.fixture.source.calls), (calls, source_calls))
+
+    def test_lost_binding_acknowledgement_blocks_and_same_owner_rerun_readbacks(self):
+        self.select("dispatch_binding")
+        self.lose_ack = True
+        status, result = self.invoke()
+        self.assertEqual((status, result), (1, {"outcome": "blocked",
+                                              "reason": "owner_dispatch_binding_acknowledgement_unknown"}))
+        self.assertEqual(self.pushes, 1)
+        self.lose_ack = False
+        after = self.fixture.authoritative()
+        calls = len(self.fixture.provider.calls)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "already_bound"))
+        self.assertEqual((self.fixture.authoritative(), self.pushes, len(self.fixture.provider.calls)),
+                         (after, 1, calls))
+
+    def test_valid_original_reservation_rejects_context_changes_before_any_external_get(self):
+        changes = (("GITHUB_TRIGGERING_ACTOR", "owner-b"), ("GITHUB_SHA", "f" * 40),
+                   ("GITHUB_WORKFLOW_SHA", "f" * 40), ("CONTROL_SHA", "f" * 40),
+                   ("GITHUB_WORKFLOW_REF", "foreign/repo/.github/workflows/autonomous_observe_dispatch.yml@refs/heads/main"))
+        for operation in ("dispatch_observation", "dispatch_binding"):
+            self.select(operation)
+            for variable, value in changes:
+                with self.subTest(operation=operation, variable=variable), patch.dict(os.environ, {variable: value}):
+                    self.assert_blocked_unchanged("owner_" + operation + "_context_rejected")
+        self.assertEqual(self.fixture.provider.calls, [])
+        self.assertEqual(self.fixture.source.calls, [])
+
+    def test_operation_isolation_and_stale_pin_never_retain_a_session(self):
+        for operation in ("delivery", "continue_cutover", "next_completion", "report_checkpoint", "dispatch_binding"):
+            arguments = self.arguments()
+            arguments[arguments.index("--operation") + 1] = operation
+            status, result = self.invoke(arguments)
+            self.assertEqual((status, result["reason"]), (1, recover_delivery.OPERATIONS[operation][1] + "_context_rejected"))
+        self.assertEqual(self.fixture.source.calls, [])
+        self.expected = "f" * 40
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+        self.assert_blocked_unchanged("owner_dispatch_observation_conflict")
+        self.assertEqual(self.fixture.provider.calls, [])
+
+    def test_original_provider_identity_mismatch_retains_only_safe_blocked_outcome(self):
+        from jules_dispatch import Response
+        self.fixture.provider.responses[-1] = Response(200, {**self.fixture.session, "prompt": "SYNTHETIC_PRIVATE_MISMATCH"})
+        self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assertEqual(len(self.fixture.provider.calls), 2)
+
+    def test_retention_failure_never_reports_observation_success_or_pushes(self):
+        before = self.fixture.authoritative()
+        with patch.object(recover_delivery, "_atomic_bytes", side_effect=OSError("SYNTHETIC_PRIVATE_IO")):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                status = recover_delivery.main(self.arguments())
+        self.assertEqual((status, json.loads(output.getvalue())), (1, {"outcome": "blocked",
+                         "reason": "owner_dispatch_observation_result_retention_failed"}))
+        self.assertEqual(self.fixture.authoritative(), before)
+        self.assertEqual(self.pushes, 0)
+
+    def test_raw_session_added_to_real_observation_is_rejected_before_retention(self):
+        original = JournalStore.observe_reserved_dispatch
+
+        def unsafe_acknowledgement(store, **parameters):
+            result = original(store, **parameters)
+            result["session"] = self.fixture.session
+            return result
+
+        with patch.object(JournalStore, "observe_reserved_dispatch", unsafe_acknowledgement):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assertEqual(len(self.fixture.provider.calls), 2)
+        self.assertEqual(self.pushes, 0)
 
 
 if __name__ == "__main__":

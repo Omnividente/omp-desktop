@@ -304,6 +304,54 @@ durable owner execution acknowledgement, not an unchanged `sync_running` no-op.
    permission, not a new owner authorization or automatic POST retry. A consumed,
    pending, rejected, unknown or lost-ack resume cannot renew itself.
 
+Exceptional **original reserved research dispatch recovery** is a separate owner
+operation, never a normal no-effect completion or permission to create a worker.
+It requires explicit owner selection and checked source deployment. Use
+`autonomous_observe_dispatch.yml` before `autonomous_recover_dispatch.yml`; both
+accept only `expected_state_sha` and `decision_id`, invoking respectively
+`recover_delivery.py --operation dispatch_observation` and `--operation dispatch_binding`.
+
+1. Select the original unfinished automatic sender NEXT with a consumed executor,
+   no effect, completion, stage or phase, and exactly one newly reserved research
+   task still `in_progress/dispatching` with an empty `session_id`. Explicit task,
+   report-recovery and feedback-recovery commands cannot use this operation.
+2. Authenticate the original failed attempt-1 native run/artifact, frozen control,
+   actor, correlation key, job outcome, archive and report digests. Its report must
+   retain the exact `stopped/manual/state_write_failed` envelope and actual state SHA.
+   Read real executor-before/native/current Git objects and ancestry. Native and
+   current full bodies/journals must match. Original protected policy/history,
+   useful clocks, owner decisions, accepted results, unrelated attempt identities
+   and saved requests/receipts remain unchanged; only the original observed
+   `last_poll_at` may advance. Legitimate original intake/new-task deltas stay saved.
+3. The observation workflow is GET-only and cannot save state. Fully paginate Jules
+   ListSessions, select exactly one original canonical task/attempt marker, and Get
+   that exact resource. Require actual ID/name/state and exact saved prompt, title,
+   repository/source and starting branch; the complete List/Get JSON hashes must
+   agree. Missing, foreign, duplicate, contradictory or unreadable observations
+   block recovery, never permit CreateSession. Retain only typed identities, state,
+   hashes, source/native proof and UTC observation time, not prompt/prose/credentials.
+4. Binding repeats those fresh checks and calls native `task_lifecycle.start` for
+   the existing observed session. One non-retrying owner-bound CAS changes only
+   `execution.state: dispatching -> dispatched` and the empty `execution.session_id`
+   to the observed ID, plus `OwnerDispatchRecovery(reserved_dispatch_bound)`.
+   Every task status, attempt, outcome, request, receipt/history and clock is
+   preserved. `COMPLETED` or `FAILED` is the actual provider state in proof, not a
+   fabricated task result; ordinary strict collection must still accept a report.
+5. The typed receipt closes only this spent frontier once. It issues no runtime
+   capability, provider/workflow POST, retry, repin, revocation or handoff. CAS
+   conflict, unknown acknowledgement and retention failure remain blocked. Only
+   the same original owner event/inputs (rerun attempt may differ) may read
+   `already_bound`, without new provider/artifact requests or another write.
+6. Read back the exact two-field delta, full preserved body/journal prefix, original
+   claims and denied old receiver/capability. Frozen readers fail closed on the new
+   event. Then use separately authorized ordinary checked-main Sync/adoption and
+   observe real continuation/intake; do not manufacture healthy monitor status.
+
+The authenticated failed-save boundary does not reveal an underlying exception
+discarded by its original wrapper. Successful isolated validation/Git save or
+session reconciliation is not evidence that the original fault was a timeout,
+validation error or acknowledged publication; do not change retries/CAS on that basis.
+
 
 
 First introduction of the journal requires a separately authorized paused rollout;
