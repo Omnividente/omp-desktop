@@ -8,13 +8,16 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from dispatch_journal import OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, normalize_inputs
+from dispatch_journal import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+                              OWNER_DISPATCH_OBSERVATION, OWNER_NEXT_COMPLETION,
+                              OWNER_REPORT_CHECKPOINT, normalize_inputs)
 
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 WORKFLOWS = {"autonomous_next_task.yml", "autonomous_continue.yml", "autonomous_sync.yml"}
 OWNER_RECOVERY = "autonomous_recover_delivery.yml"
-OWNER_WORKFLOWS = frozenset((OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT))
+OWNER_WORKFLOWS = frozenset((OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION,
+                            OWNER_REPORT_CHECKPOINT, OWNER_DISPATCH_OBSERVATION, OWNER_DISPATCH_BINDING))
 
 
 def add_arguments(parser, *, run_id=True):

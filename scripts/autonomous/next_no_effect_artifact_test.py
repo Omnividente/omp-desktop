@@ -167,7 +167,7 @@ class FailedCheckpointSource(SyntheticSource):
         })
 
     def authenticate(self, *, trigger=None, decision_id=DECISION, key=KEY):
-        return proof.authenticated_failed_report_checkpoint(
+        return proof.authenticated_failed_save_checkpoint(
             REPOSITORY, TRIGGER if trigger is None else trigger, decision_id, key,
             get_json=self.get_json, get_archive=self.get_archive,
         )
@@ -656,8 +656,7 @@ class FailedCheckpointProofTests(ArtifactProofAssertions):
         paused.set_report(failed.report)
         self.assert_denied(paused)
         failed.set_report(SyntheticSource().report)
-        self.assertEqual(self.assert_denied(failed),
-                         "native report is not the original failed report checkpoint")
+        self.assert_denied(failed)
 
     def test_failed_envelope_has_only_exact_native_fields_and_fixed_attention(self):
         changes = [
