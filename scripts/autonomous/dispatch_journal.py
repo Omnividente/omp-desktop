@@ -24,6 +24,7 @@ OWNER_RECOVERY = "autonomous_recover_delivery.yml"
 OWNER_CONTINUE_CUTOVER = "autonomous_cutover_continue.yml"
 OWNER_NEXT_COMPLETION = "autonomous_complete_next.yml"
 OWNER_REPORT_CHECKPOINT = "autonomous_complete_report_recovery.yml"
+OWNER_FAILED_NEXT_CHECKPOINT = "autonomous_complete_failed_next.yml"
 OWNER_DISPATCH_OBSERVATION = "autonomous_observe_dispatch.yml"
 OWNER_DISPATCH_BINDING = "autonomous_recover_dispatch.yml"
 OWNER_TRIGGER_FIELDS = frozenset((
@@ -397,6 +398,63 @@ def _valid_observed_next(event, intent, executor, state):
     return trigger
 
 
+def _failed_next_checkpoint_receipt(event):
+    from failed_next_checkpoint import FAILURE_KIND
+    return _receipt_id(event["decision_id"], event["executor_claim_id"], FAILURE_KIND, {
+        name: event[name] for name in ("owner_trigger", "before_state_sha", "before_digest",
+                                      "evidence", "proof", "native_report")
+    })
+
+
+def _valid_failed_next_checkpoint(event, intent, executor, state):
+    from failed_next_checkpoint import FAILURE_KIND, SUPPORTED_PRODUCER, automatic_inputs
+    trigger = _owner_trigger(event.get("owner_trigger"), intent["decision_id"],
+                             event.get("before_state_sha"), workflow=OWNER_FAILED_NEXT_CHECKPOINT)
+    proof, evidence, report = event.get("proof"), event.get("evidence"), event.get("native_report")
+    fields = {"producer", "workflow", "ref", "artifact_id", "artifact_name",
+              "artifact_sha256", "report_sha256"}
+    decision_id = intent["decision_id"]
+    if (intent["workflow"] != NEXT or intent["source_kind"] != "sender"
+            or not automatic_inputs(intent["normalized_inputs"])
+            or intent["control_sha"] != SUPPORTED_PRODUCER
+            or executor["trigger"].get("run_attempt") != "1"
+            or executor["trigger"].get("event_name") != "workflow_dispatch"
+            or executor.get("correlation_key") != intent["correlation_key"]
+            or decision_id not in state["send_claims"]
+            or decision_id in state["effects"] or decision_id in state["completions"]
+            or decision_id in state["phase_claims"]
+            or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+            or _source_identity(trigger) in state["source_ids"]
+            or trigger["repository"] != intent["first_source_trigger"].get("repository")
+            or trigger["repository"] != executor["trigger"].get("repository")
+            or not isinstance(proof, dict) or set(proof) != fields
+            or proof["producer"] != executor["trigger"] or proof["workflow"] != NEXT
+            or proof["ref"] != "refs/heads/main"
+            or not re.fullmatch(r"[1-9][0-9]*", str(proof["artifact_id"]))
+            or proof["artifact_name"] != "laboratory-result-" + executor["trigger"]["run_id"] + "-1"
+            or not all(DIGEST.fullmatch(str(proof[field])) for field in ("artifact_sha256", "report_sha256"))):
+        raise ValueError("failed automatic NEXT requires its supported original executor and native proof")
+    if (not isinstance(report, dict) or set(report) != {"action", "merge_mode", "reason", "attention", "state_sha"}
+            or report["action"] != "stopped" or report["merge_mode"] != "manual"
+            or report["reason"] != "state_write_failed"
+            or report["attention"] != [{"reason": "state save failed; reload the authoritative queue before continuing"}]
+            or report["state_sha"] != event["before_state_sha"]
+            or not isinstance(evidence, dict) or set(evidence) != {
+                "status", "action", "reason", "before_state_sha", "after_state_sha",
+                "before_digest", "after_digest", "body_sha256"}
+            or evidence["status"] != "failed_before_external_mutation" or evidence["action"] != "stopped"
+            or evidence["reason"] != "state_write_failed"
+            or evidence["before_state_sha"] != executor["before_state_sha"]
+            or evidence["after_state_sha"] != report["state_sha"]
+            or evidence["before_digest"] != executor["before_digest"]
+            or evidence["after_digest"] != evidence["before_digest"]
+            or event.get("before_digest") != evidence["after_digest"]
+            or not DIGEST.fullmatch(str(evidence["body_sha256"]))
+            or event.get("kind") != FAILURE_KIND):
+        raise ValueError("failed automatic NEXT cannot be laundered into success or a normal no-effect")
+    return trigger
+
+
 def _report_checkpoint_receipt(event):
     return _receipt_id(event["decision_id"], event["executor_claim_id"],
                        "report_recovery_checkpoint_observed", {
@@ -726,6 +784,20 @@ def materialize(journal: dict) -> dict:
                 if event.get("phase_claim_id") != phase["claim_id"]:
                     raise ValueError("publication does not bind the finalize claim")
             state["effects"][decision_id] = event
+        elif kind == "OwnerFailedNextCheckpointCompletion":
+            owner = _valid_failed_next_checkpoint(event, intent, executor, state)
+            if (set(event) != {"type", "at", "event_id", "decision_id", "executor_claim_id", "kind",
+                               "owner_trigger", "before_state_sha", "before_digest", "evidence", "proof",
+                               "native_report", "frontier_seq", "receipt_id"}
+                    or event.get("receipt_id") != _failed_next_checkpoint_receipt(event)
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("invalid failed automatic NEXT receipt identity or frontier")
+            state["completions"][decision_id] = event
+            state["completed_receipts"].add(event["receipt_id"])
+            state["source_ids"].add(_source_identity(owner))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
         elif kind == "OwnerReportRecoveryCheckpointCompletion":
             owner = _valid_report_checkpoint(event, intent, executor, state)
             if (event.get("kind") != "report_recovery_checkpoint_observed"
@@ -1123,6 +1195,86 @@ class JournalStore:
         (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
         return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
                 "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
+    def complete_failed_next_checkpoint(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Record one truthful terminal historical failure; never issue execution rights."""
+        from failed_next_checkpoint import FAILURE_KIND, SUPPORTED_PRODUCER, automatic_inputs, mutation_candidates
+        from next_no_effect_artifact import authenticated_failed_automatic_next_save
+        from proposal_backlog import authorize
+        from state_store import _git
+        from validate_tasks import validate
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha,
+                                 workflow=OWNER_FAILED_NEXT_CHECKPOINT)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("failed NEXT closure repository differs from configured authority")
+
+        def complete(data, state_sha, state):
+            prior = state["completions"].get(decision_id)
+            if prior is not None:
+                original = prior.get("owner_trigger", {})
+                if (prior.get("type") != "OwnerFailedNextCheckpointCompletion"
+                        or prior["before_state_sha"] != expected_state_sha
+                        or {key: value for key, value in original.items() if key != "run_attempt"}
+                        != {key: value for key, value in trigger.items() if key != "run_attempt"}):
+                    raise JournalConflict("failed NEXT replay changed the original authorization")
+                authorize(config, prior["proof"]["producer"].get("actor", ""))
+                return (prior, "already_completed"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("failed NEXT closure state pin moved")
+            intent, executor = state["active_intent"], state["executor_claims"].get(decision_id)
+            if (intent is None or intent["decision_id"] != decision_id or intent["workflow"] != NEXT
+                    or intent["source_kind"] != "sender" or not automatic_inputs(intent["normalized_inputs"])
+                    or intent["control_sha"] != SUPPORTED_PRODUCER or executor is None
+                    or executor["trigger"].get("run_attempt") != "1"
+                    or decision_id not in state["send_claims"] or decision_id in state["effects"]
+                    or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or _source_identity(trigger) in state["source_ids"]
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")
+                    or trigger["repository"] != executor["trigger"].get("repository")):
+                raise JournalConflict("failed NEXT closure requires the supported original automatic sender NEXT")
+            authorize(config, executor["trigger"].get("actor", ""))
+            proof = copy.deepcopy(authenticated_failed_automatic_next_save(
+                config["repository"], executor["trigger"], decision_id, intent["correlation_key"]))
+            report = proof.pop("report")
+            if report.get("state_sha") != expected_state_sha:
+                raise JournalConflict("failed NEXT native report does not name the requested current pin")
+            before = self._checkpoint_state(executor["before_state_sha"])
+            after = self._checkpoint_state(report["state_sha"])
+            if validate(before) or validate(after) or validate(data):
+                raise JournalConflict("failed NEXT snapshots must be complete authoritative valid queues")
+            original = materialize(before["dispatch_journal"])
+            observed = materialize(after["dispatch_journal"])
+            if (original["active_intent"] != intent or decision_id in original["executor_claims"]
+                    or observed["active_intent"] != intent or observed["executor_claims"].get(decision_id) != executor
+                    or after["dispatch_journal"]["events"] != [*before["dispatch_journal"]["events"], executor]
+                    or after["dispatch_journal"] != data["dispatch_journal"]
+                    or _body(before) != _body(after) or _body(after) != _body(data)
+                    or substantive_digest(before) != executor["before_digest"]):
+                raise JournalConflict("failed NEXT changed its full protected body or exact executor-only journal delta")
+            parents = _git(self.repo, "rev-list", "--parents", "-n", "1", report["state_sha"]).stdout.decode().split()
+            if (parents != [report["state_sha"], executor["before_state_sha"]]
+                    or _git(self.repo, "merge-base", "--is-ancestor", executor["before_state_sha"],
+                            state_sha, check=False).returncode):
+                raise JournalConflict("failed NEXT snapshots are not its exact original state lineage")
+            if mutation_candidates(before, intent["normalized_inputs"]):
+                raise JournalConflict("failed NEXT has an existing historical mutation candidate")
+            evidence = {"status": "failed_before_external_mutation", "action": "stopped",
+                        "reason": "state_write_failed", "before_state_sha": executor["before_state_sha"],
+                        "after_state_sha": report["state_sha"], "before_digest": substantive_digest(before),
+                        "after_digest": substantive_digest(after), "body_sha256": digest(_body(before))}
+            fields = dict(decision_id=decision_id, executor_claim_id=executor["claim_id"], kind=FAILURE_KIND,
+                          owner_trigger=trigger, before_state_sha=state_sha, before_digest=substantive_digest(data),
+                          evidence=evidence, proof=proof, native_report=report, frontier_seq=state["frontier_seq"] + 1)
+            _valid_failed_next_checkpoint(fields, intent, executor, state)
+            event = _event("OwnerFailedNextCheckpointCompletion",
+                           receipt_id=_failed_next_checkpoint_receipt(fields), **fields)
+            return (event, "completed"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "kind": event["kind"], "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
 
     def complete_failed_report_checkpoint(self, *, decision_id, expected_state_sha, owner_trigger, config):
         """Close only the authenticated native pre-POST failure; grant no execution right."""

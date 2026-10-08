@@ -317,13 +317,54 @@ class ControllerTests(unittest.TestCase):
         self.run_tick()
         self.assertEqual(self.api.posts, 2)
 
+    def test_first_checkpoint_failure_is_known_stage_without_speculative_git_facts(self):
+        from checkpoint_diagnostics import diagnostic_for_failure
+        failure = OSError("SENTINEL_USER_SECRET")
+
+        def unavailable(data):
+            raise failure
+
+        with self.assertRaises(StateWriteError) as caught:
+            self.run_tick(persist=unavailable, focus="SENTINEL_UNTRUSTED_STAGE")
+        value = diagnostic_for_failure(caught.exception.checkpoint_stage, caught.exception)
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(value["checkpoint_stage"], "reconcile")
+        self.assertEqual(value["causal_chain"], ["state_write", "os_error"])
+        self.assertEqual(value["git_operation"], "unknown")
+        self.assertIsNone(value["expected_state_sha"])
+        self.assertIsNone(value["observed_state_sha"])
+        self.assertIsNone(value["acknowledgement_uncertain"])
+        self.assertNotIn("SENTINEL", json.dumps(value))
+        self.assertEqual((self.api.posts, self.api.gets), (0, 0))
+
+    def test_planner_checkpoint_failure_never_reaches_attempt_ref_or_worker_creation(self):
+        saves = []
+        failure = RuntimeError("SENTINEL_PLANNER_ERROR")
+
+        def fail_planner(data):
+            saves.append(copy.deepcopy(data))
+            if len(saves) == 2:
+                raise failure
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError) as caught:
+            self.run_tick(persist=fail_planner)
+        self.assertEqual(caught.exception.checkpoint_stage, "research_planner")
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(self.api.posts, 0)
+        self.assertEqual(self.git(self.remote, "for-each-ref", "--format=%(refname)",
+                                  "refs/heads/autonomous/attempt-").stdout, b"")
+        self.assertEqual(self.reload()[0]["status"], "todo")
+
     def test_failed_reservation_save_never_creates_external_worker(self):
         def fail_reservation(data):
             if data["tasks"][0].get("execution", {}).get("state") == "dispatching":
                 raise RuntimeError("unreachable state remote")
             self.persist(data)
-        with self.assertRaises(StateWriteError):
+        with self.assertRaises(StateWriteError) as caught:
             self.run_tick(persist=fail_reservation)
+        self.assertEqual(caught.exception.checkpoint_stage, "dispatch_reservation")
+        self.assertIsInstance(caught.exception.__cause__, RuntimeError)
         self.assertEqual(self.api.posts, 0)
         self.assertEqual(self.reload()[0]["status"], "todo")
 
@@ -332,8 +373,10 @@ class ControllerTests(unittest.TestCase):
             if data["tasks"][0].get("execution", {}).get("session_id"):
                 raise RuntimeError("lost binding save")
             self.persist(data)
-        with self.assertRaises(StateWriteError):
+        with self.assertRaises(StateWriteError) as caught:
             self.run_tick(persist=fail_binding)
+        self.assertEqual(caught.exception.checkpoint_stage, "created_session_binding")
+        self.assertEqual(str(caught.exception.__cause__), "lost binding save")
         self.assertEqual(self.api.posts, 1)
         reserved = self.reload()[0]["execution"]
         self.assertEqual((reserved["state"], reserved["session_id"], reserved["attempts"]), ("dispatching", "", 1))

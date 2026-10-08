@@ -279,6 +279,8 @@ durable owner execution acknowledgement, not an unchanged `sync_running` no-op.
    It does not serialize `decision_id`; original run/artifact/key identity supplies
    that binding. Bounded regular native `research-diagnostics` ZIP members may be
    present, but their contents are never parsed as evidence or retained in proof.
+   An optional `checkpoint-diagnostics.json` must pass the safe schema and byte
+   bound below; it does not change the native result or supply execution proof.
 3. Prove actual Git lineage and full before/native/current bodies. The only
    substantive delta may be addition of the exact original `record.execution` to
    one preexisting command. Every task, report receipt, request, identity and clock
@@ -303,6 +305,79 @@ durable owner execution acknowledgement, not an unchanged `sync_running` no-op.
    identities remain append-only. This uses the unchanged original failed-receipt
    permission, not a new owner authorization or automatic POST retry. A consumed,
    pending, rejected, unknown or lost-ack resume cannot renew itself.
+
+Checkpoint failure diagnostics are a separate, optional artifact member, never an
+extension of the original five-key failure `lab-result.json`. Static checkpoint
+labels cover queue saves, including owner quarantine and recovery acknowledgements.
+`checkpoint-diagnostics.json` is at most 4096 UTF-8 bytes with an exact version-1
+schema: allowlisted stage and exception categories, at most eight causal categories,
+allowlisted Git operation, normalized return code/timeout marker, known expected
+and observed state SHA, and `acknowledgement_uncertain`. Unknown facts remain null
+or `unknown`; an empty SHA means the ref is known absent. No exception messages,
+stderr, argv, credential-bearing URLs or worker prose are serialized. Optional
+retention failure must not replace the original failure result. Failed-save archive
+readers validate this regular member, rejecting extra fields, malformed/duplicate
+JSON, unsafe paths/types and oversize content. The sidecar is not retained as
+closure evidence. A historical missing sidecar cannot identify the failed
+checkpoint or restore its root cause. Timeout, retries, CAS and required-ACK policy
+are unchanged: a committed push with lost required acknowledgement still stops.
+
+Exceptional **failed automatic NEXT before external mutation** requires its own
+explicit owner decision, checked source deployment and independent pinned-state
+and native-content proof. It is not a pause/no-effect completion, a failed manual
+report command, or reserved-session recovery. Use
+`autonomous_complete_failed_next.yml`, accepting only `expected_state_sha` and
+`decision_id`, invoking `recover_delivery.py --operation failed_next_checkpoint`.
+
+1. Only the immutable historical producer
+   `e4b46f52c431459fce33d25f93d7324440b59cb2` is supported. The selected unfinished
+   sender NEXT must have its exact default automatic inputs, original correlation
+   key and consumed attempt-1 executor, and no effect, completion, extra phase
+   grant or stage. Unknown producer revisions or explicit task/recovery inputs
+   are ineligible; matching a failure string alone is insufficient.
+2. Authenticate the original terminal failed run, workflow, repository, actors,
+   frozen revision, original attempt, jobs, artifact and SHA256 digests using the
+   strict native failed-save reader. Keep exactly the original
+   `stopped/manual/state_write_failed` envelope. Its state SHA must equal the
+   requested current pin; its original decision binding comes from the saved
+   key/run/artifact context, not an invented field in that envelope.
+3. Fully validate before/native/current queues. The native/current revision must
+   have exactly one immediate parent, the executor's `before_state_sha`, and the
+   journal delta must be exactly that one ExecutorClaim. Compare the entire
+   structural `_body` (everything except `dispatch_journal`), not only task counts
+   or `substantive_digest`. Preserve every task, controller clock, owner decision,
+   accepted report/provenance, saved request, attempt identity and history.
+4. Exclude every historical existing mutation candidate: review, pending repair,
+   disposition-aware poll/collect including both nudge branches, quarantine,
+   reserved-unbound dispatch even with `allow_create=False`, unreleased terminal
+   attempt ref, and initial task selection. Historical research selection is
+   enabled for this producer; changing the current research flag cannot hide a
+   candidate. For newly planned work, this producer requires an acknowledged
+   durable new-task checkpoint before `ensure_attempt`, and a durable reservation
+   before CreateSession. A failed/unknown required ACK cannot continue those paths.
+   This conditional ordering proof does not identify the original failed stage.
+5. One exact-state, single-attempt CAS appends only
+   `OwnerFailedNextCheckpointCompletion`, with
+   `kind=automatic_next_failed_before_external_mutation` and
+   `status=failed_before_external_mutation`. It closes the frontier, not successful
+   work. It grants no capability, records no useful effect, changes no useful
+   clocks and performs no worker/ref/workflow POST, retry, handoff or repin.
+6. Always check current owner/repository authorization before replay. The stored
+   event type, original expected pin and complete original owner context must
+   match; only the owner rerun's `run_attempt` may differ, never the original NEXT
+   attempt. Exact replay returns the same receipt with `already_completed`, no
+   new event/CAS or repeated native-artifact GET. Changed or distinct authorization
+   is rejected. A conflict or lost ACK remains blocked even if the event committed:
+   discover it read-only, then use only exact authorized replay with the original
+   pin, not the newly returned/current state SHA. The late original receiver and
+   old execution capability remain denied.
+7. Read back the honest receipt, conserved body/history and old-executor denial.
+   Source permission does not permit Git publication or production recovery. A
+   GitHub-only reviewer needs a separately authorized checked PR and must not be
+   described as having reviewed a local diff. Only separately authorized recovery
+   may perform the owner CAS, checked main-to-lab Sync and a distinct new
+   NEXT-to-CONTINUE cycle. Keep genuine invalid-report attention; do not reset the
+   journal, restart the spent original NEXT or claim the unknown cause was fixed.
 
 Exceptional **original reserved research dispatch recovery** is a separate owner
 operation, never a normal no-effect completion or permission to create a worker.

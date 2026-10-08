@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, StateWriteError, diagnostic_for_failure, validate_diagnostics
 from build_jules_request import build, dispatch_key, next_attempt, research_completion_prompt
 from complete_jules_task import atomic_write, bound_session, configured_secrets, harvest, latest_report, redact
 from health_snapshot import inspect_health
@@ -41,8 +42,14 @@ from owner_report_recovery import queue_recovery, claim_recovery
 LAB_BRANCH = "autonomous/lab"
 
 
-class StateWriteError(Exception):
-    """Stop all external effects when the queue could not be durably saved."""
+def _persist_checkpoint(data, persist, stage, message):
+    try:
+        return persist(data)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        if message is None:
+            exc.checkpoint_stage = stage
+            raise
+        raise StateWriteError(message, stage=stage) from exc
 
 
 class GitHub:
@@ -247,11 +254,9 @@ def tick(
         if not github.enabled():
             return dict(result, reason="loop_disabled", skipped=True)
 
-    def checkpoint():
-        try:
-            persist(manifest)
-        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-            raise StateWriteError("state save failed; reload the authoritative queue before continuing") from exc
+    def checkpoint(stage):
+        _persist_checkpoint(manifest, persist, stage,
+                            "state save failed; reload the authoritative queue before continuing")
 
     def finish():
         useful = (result["observations"] or result["proposals"]
@@ -263,7 +268,7 @@ def tick(
             controller["last_tick_at"] = iso(clock())
             if run_id:
                 controller["run_id"] = run_id
-            checkpoint()
+            checkpoint("finish")
         return result
 
     disposed_recovery = False
@@ -307,13 +312,13 @@ def tick(
     # Explicit recovery must not reconcile or quarantine unrelated attempts.
     if not targeted_recovery:
         reconcile(manifest, now=now)
-    checkpoint()
+    checkpoint("reconcile")
     enabled = github.enabled()
     if not enabled and not targeted_recovery:
         for task in manifest["tasks"]:
             if task.get("status") == "in_progress":
                 quarantine(manifest, task["id"], reason="loop_disabled", now=now)
-        checkpoint()
+        checkpoint("quarantine_disabled")
 
     def record_error(task, exc):
         task = find_task(manifest, task["id"])
@@ -326,7 +331,7 @@ def tick(
         observation = dict(worker_observation(task, now), reason=message)
         result["observations"].append(observation)
         result["attention"].append(observation)
-        checkpoint()
+        checkpoint("record_error")
     def completion_context(task, source=None):
         """Fresh same-session messages are untrusted input, never accepted reports."""
         execution = task["execution"]
@@ -434,7 +439,7 @@ def tick(
         if recover_feedback:
             receipt["authorization"] = {"actor": actor, "after": feedback_after}
         execution["feedback_nudge"] = receipt
-        checkpoint()  # CAS every event before POST; a lost acknowledgement never permits retry.
+        checkpoint("feedback_intent")  # CAS every event before POST; a lost acknowledgement never permits retry.
         if not github.enabled():
             return
         response = request_with_keys(
@@ -444,7 +449,7 @@ def tick(
         )
         receipt["result"] = ("sent" if response.status // 100 == 2 else "unknown"
                              if response.status == 0 or response.status >= 500 else "rejected")
-        checkpoint()
+        checkpoint("feedback_result")
 
     def detach_waiting_research(task, state):
         # A reported question is not permission to implement or invent an answer.
@@ -459,7 +464,7 @@ def tick(
             return
         if not execution.get("research_detached"):
             execution["research_detached"] = detached
-            checkpoint()
+            checkpoint("research_detach")
         if state == "AWAITING_USER_FEEDBACK":
             nudge_waiting_worker(task, research_completion_prompt(
                 task["id"], execution["dispatch_key"], repair=True,
@@ -507,10 +512,10 @@ def tick(
         if source:
             receipt["source"] = source
         execution["report_repair"] = receipt
-        checkpoint()  # Even a crash before POST consumes the sole send permission.
+        checkpoint("report_repair_intent")  # Even a crash before POST consumes the sole send permission.
         if not github.enabled():
             receipt.update(status="rejected", detail="loop_disabled_before_report_repair")
-            checkpoint()
+            checkpoint("report_repair_disabled")
             return
         response = request_with_keys(
             transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
@@ -520,7 +525,7 @@ def tick(
         receipt["result"] = "sent" if response.status // 100 == 2 else "unknown" if response.status == 0 or response.status >= 500 else "rejected"
         if receipt["result"] == "rejected":
             receipt.update(status="rejected", detail="report_repair_send_rejected_http_" + str(response.status))
-        checkpoint()
+        checkpoint("report_repair_result")
 
     def collect_rejection(task, session, state, number):
         execution = task["execution"]
@@ -542,7 +547,7 @@ def tick(
             staged["proposal_decision"].update(status="completed", completed_at=iso(now))
             staged["execution"].pop("last_error", None)
             task.update(staged)
-            checkpoint()
+            checkpoint("rejection_closed")
             return
         if execution.get("pull_request"):
             raise ValueError("rejected worker no longer reports its saved PR")
@@ -555,7 +560,7 @@ def tick(
         elif not execution.get("rejection_stop") and enabled and github.enabled():
             receipt = {"at": iso(clock()), "result": "pending"}
             execution["rejection_stop"] = receipt
-            checkpoint()  # An uncertain send is not permission to send again.
+            checkpoint("rejection_stop_intent")  # An uncertain send is not permission to send again.
             if github.enabled():
                 response = request_with_keys(
                     transport, KeyRing([ring.current]), "POST", api_base.rstrip("/") + "/"
@@ -575,7 +580,7 @@ def tick(
         if pending_rejection(task):
             result["attention"].append({"task_id": task["id"], "reason": "rejection_awaiting_worker",
                                         "send_result": (execution.get("rejection_stop") or {}).get("result")})
-        checkpoint()
+        checkpoint("rejection_result")
 
     def collect(task, session):
         execution = task["execution"]
@@ -651,7 +656,7 @@ def tick(
         attention = waiting_attention(find_task(manifest, task["id"]), now)
         if attention:
             result["attention"].append(attention)
-        checkpoint()
+        checkpoint("collect")
 
     # Only stored identities are queried. A foreign PR cannot occupy the worker.
     for identifier in [entry["id"] for entry in manifest["tasks"]]:
@@ -667,7 +672,7 @@ def tick(
                 sweep(manifest, [pr], config=config, now=now)
                 result["proposals"].append({"task_id": task["id"], "number": pr["number"],
                                             "url": pr["html_url"], "state": pr["state"]})
-                checkpoint()
+                checkpoint("review_sweep")
             except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
                 record_error(task, exc)
             continue
@@ -679,7 +684,7 @@ def tick(
                 result["attention"].append({"task_id": task["id"], "reason": "report_repair_expired"})
                 if disposition_state(task) == "recover_authorized":
                     append_recovery_event(task, "recovery_failed", now=iso(now), reason="report_repair_expired")
-                checkpoint()
+                checkpoint("report_repair_expired")
         if (not recovering and disposition_state(task)
                 and not (disposition_state(task) == "recover_authorized" and pending_report_repair(task)
                          and task["research_disposition"]["events"][-1].get("mode") == "repair")):
@@ -701,7 +706,7 @@ def tick(
                     continue
                 start(manifest, task["id"], session_id=response["session_id"],
                       dispatch_key=execution["dispatch_key"], now=now)
-                checkpoint()
+                checkpoint("existing_session_binding")
                 session = get_session(transport, api_base, ring, response["session_id"])
             collect(task, session)
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
@@ -724,7 +729,7 @@ def tick(
             result.setdefault("attempt_refs", []).append({"task_id": task["id"], "branch": branch, "outcome": outcome})
             if outcome in ("removed", "absent"):
                 execution["released_attempt_ref"] = branch
-                checkpoint()
+                checkpoint("attempt_ref_release")
             elif outcome == "ref_moved":
                 result["attention"].append({"task_id": task["id"], "reason": "attempt_ref_moved"})
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
@@ -760,7 +765,7 @@ def tick(
         manifest.clear()
         manifest.update(updated)
     result["research"] = research
-    checkpoint()
+    checkpoint("research_planner")
     selection = select(manifest, task_id=task_id or None, focus=focus.split(",") if focus else [],
                        risk_ceiling=risk, allow_discovery=bool(config.get("research", {}).get("enabled")))
     if not selection["selected"]:
@@ -794,10 +799,10 @@ def tick(
         intent = snapshot(request, context, control_sha)
     reserve(manifest, task["id"], key, base_sha=lab_sha, starting_branch=starting_branch,
             research_request=intent, now=now)
-    checkpoint()  # No external session exists before the reservation is durable.
+    checkpoint("dispatch_reservation")  # No external session exists before the reservation is durable.
     if not github.enabled():
         quarantine(manifest, task["id"], reason="loop_disabled_before_create", now=now)
-        checkpoint()
+        checkpoint("quarantine_before_create")
         result["reason"] = "loop_disabled"
         return finish()
 
@@ -809,7 +814,7 @@ def tick(
                 reason = "product_moved_before_create"
             if reason:
                 quarantine(manifest, task["id"], reason=reason, now=now)
-                checkpoint()
+                checkpoint("quarantine_create_guard")
                 raise RuntimeError(reason)
         return transport(method, url, headers, payload)
 
@@ -819,10 +824,10 @@ def tick(
             result.update(action="reconcile", reason=response.get("reason", "unbound_dispatch_intent"))
             return finish()
         start(manifest, task["id"], session_id=response["session_id"], dispatch_key=key, now=now)
-        checkpoint()
+        checkpoint("created_session_binding")
         if not github.enabled():
             quarantine(manifest, task["id"], reason="loop_disabled_during_create", now=now)
-            checkpoint()
+            checkpoint("quarantine_during_create")
         collect(task, get_session(transport, api_base, ring, response["session_id"]))
         reason = WAITING_REASONS.get(find_task(manifest, task["id"])["execution"].get("session_state"), response["result"])
         result.update(action="dispatched", reason=reason, task_id=task["id"])
@@ -885,7 +890,7 @@ def main(argv=None) -> int:
             for task in manifest["tasks"]:
                 if task.get("status") == "in_progress":
                     quarantine(manifest, task["id"], reason="owner_disabled_loop")
-            persist(manifest)
+            _persist_checkpoint(manifest, persist, "owner_quarantine", None)
             result = {"reason": "loop_disabled", "merge_mode": "manual"}
             atomic_write(args.out, json.dumps(result, indent=2) + "\n")
             return 0
@@ -912,10 +917,8 @@ def main(argv=None) -> int:
                              and disposition["reason"] == "execution_outcome_already_recorded"))):
                 queued = queue_recovery(manifest, config, inputs=inputs, trigger=binding.trigger)
                 recheck_context(binding)
-                try:
-                    persist(manifest)
-                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                    raise StateWriteError("owner command save failed; reload before continuing") from exc
+                _persist_checkpoint(manifest, persist, "owner_recovery_queue",
+                                    "owner command save failed; reload before continuing")
                 claimed = "execution" in queued
                 result.update(outcome="observed" if claimed else "queued",
                               reason="owner_report_recovery_already_claimed" if claimed else "owner_report_recovery_queued",
@@ -935,10 +938,8 @@ def main(argv=None) -> int:
             queued = claim_recovery(manifest, config, inputs=inputs, intent=intent,
                                     trigger=binding.trigger, capability=capability)
             if queued is not None:
-                try:
-                    persist(manifest)
-                except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                    raise StateWriteError("owner execution save failed; reload before continuing") from exc
+                _persist_checkpoint(manifest, persist, "owner_recovery_claim",
+                                    "owner execution save failed; reload before continuing")
         if args.recover_report and not args.task_id:
             raise ValueError("report recovery requires a task id")
         result = tick(manifest, config, repo=args.repo,
@@ -976,6 +977,15 @@ def main(argv=None) -> int:
         result = {"action": "stopped", "merge_mode": "manual",
                   "reason": "state_write_failed" if isinstance(exc, StateWriteError) else "controller_error",
                   "attention": [{"reason": redact(str(exc), api_keys + [os.environ.get("GH_TOKEN", "")])[:500]}]}
+        if isinstance(exc, StateWriteError) or getattr(exc, "checkpoint_stage", None) == "owner_quarantine":
+            # Optional retention cannot mask the original five-key failure report.
+            try:
+                diagnostic = diagnostic_for_failure(exc.checkpoint_stage, exc)
+                encoded = json.dumps(diagnostic, ensure_ascii=True, separators=(",", ":")) + "\n"
+                if validate_diagnostics(diagnostic) and len(encoded.encode("utf-8")) <= MAX_DIAGNOSTIC_BYTES:
+                    atomic_write(args.out.with_name("checkpoint-diagnostics.json"), encoded)
+            except Exception:
+                pass
     result["state_sha"] = json.loads(args.revision_file.read_bytes())["state_sha"] if loaded else ""
     atomic_write(args.out, json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
