@@ -6,8 +6,9 @@ use crate::{
     session_lease::{SessionLease, SessionLeasePurpose},
     sessions::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
-        canonical_project_path, parse_session, path_key, session_title_fallback_from_line,
-        transfer_session_primary_provider_pin, validated_session_file,
+        canonical_project_path, encode_session_dir_name, parse_session, path_key,
+        session_title_fallback_from_line, transfer_session_primary_provider_pin,
+        validated_session_file,
     },
     settings::{
         ensure_primary_provider_pin_overlay, ensure_proxy_provider_overlay, resolve_omp,
@@ -1069,12 +1070,17 @@ fn start_terminal_blocking(
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-    let args = if restartable {
-        initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths)
+    let (args, fresh_session_file) = if restartable {
+        initial_terminal_args_with_config(
+            &cwd,
+            resume_path.as_deref(),
+            &config_paths,
+            &session_root,
+        )?
     } else {
-        request.args.unwrap_or_default()
+        (request.args.unwrap_or_default(), None)
     };
-    spawn_terminal_process(
+    let result = spawn_terminal_process(
         &app,
         &terminals,
         &omp.executable,
@@ -1090,7 +1096,13 @@ fn start_terminal_blocking(
         },
         restartable,
         request.force_session_lease,
-    )
+    );
+    if result.is_err() {
+        if let Some(path) = fresh_session_file.as_deref() {
+            remove_empty_session_placeholder(path);
+        }
+    }
+    result
 }
 
 #[tauri::command]
@@ -2053,6 +2065,53 @@ fn initial_agent_args_with_config(
         args.push(cli_path_arg(resume_path));
     }
     args
+}
+
+fn initial_terminal_args_with_config(
+    cwd: &str,
+    resume_path: Option<&str>,
+    config_paths: &[PathBuf],
+    session_root: &Path,
+) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    let mut args = initial_agent_args_with_config(cwd, resume_path, config_paths);
+    if resume_path.is_some() {
+        return Ok((args, None));
+    }
+    let directory = session_root.join(encode_session_dir_name(cwd));
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Не удалось создать папку сессии {}: {error}",
+            directory.display()
+        )
+    })?;
+    let path = loop {
+        let path = directory.join(format!("desktop-{:032x}.jsonl", rand::random::<u128>()));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Не удалось создать файл сессии {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    };
+    // OMP accepts an existing empty path as a fresh session and writes its
+    // own valid header. A missing path is treated as a resume failure.
+    args.push("--session".to_owned());
+    args.push(cli_path_arg(&path.to_string_lossy()));
+    Ok((args, Some(path)))
+}
+
+fn remove_empty_session_placeholder(path: &Path) {
+    if fs::metadata(path).is_ok_and(|metadata| metadata.len() == 0) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn build_omp_command(
@@ -4493,18 +4552,19 @@ mod tests {
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
         decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
         drain_output_batches, feed_runtime_lines, finalize_switch_result,
-        initial_agent_args_with_config, lock_processes, lock_terminal_output, model_switch_input,
-        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
-        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
-        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, send_switch_input_recovery_blocking, session_title_for_emit,
-        session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
-        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
-        RuntimeWatchCursor, SessionDiscovery, SessionLease, SessionLeasePurpose,
-        SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
-        TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
-        MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
+        initial_agent_args_with_config, initial_terminal_args_with_config, lock_processes,
+        lock_terminal_output, model_switch_input, normalize_thinking_level, output_event_name,
+        poll_runtime_file, read_runtime_tail, receive_ready_output_batch,
+        receive_timed_output_batch, recover_runtime_cursor, resolve_resume_path_for_current,
+        run_output_pipeline, runtime_event_for_emit, runtime_event_from_line,
+        send_switch_input_recovery_blocking, session_title_for_emit, session_title_from_line,
+        spawn_terminal_writer, thinking_cycle, validate_switch_request, validated_resume_path,
+        write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor,
+        SessionDiscovery, SessionLease, SessionLeasePurpose, SwitchInputRecoveryRequest,
+        SwitchInputRecoveryState, SwitchRequest, TerminalAttachmentRequest, TerminalOutputState,
+        TerminalProcess, TerminalState, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE,
+        MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR,
+        PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -5508,11 +5568,41 @@ mod tests {
     }
 
     #[test]
-    fn new_session_args_do_not_supply_a_resume_target() {
-        assert_eq!(
-            initial_agent_args_with_config("/tmp/project", None, &[]),
-            vec!["--cwd", "/tmp/project"]
+    fn fresh_terminal_args_create_empty_session_before_passing_it_to_omp() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-fresh-args-{}-{nonce}",
+            std::process::id()
+        ));
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&session_root).expect("session root should be writable");
+
+        let (args, session_file) =
+            initial_terminal_args_with_config("/tmp/project", None, &[], &session_root)
+                .expect("fresh terminal args should be built");
+        let session_file = session_file.expect("fresh terminals should receive a session path");
+
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[0], "--cwd");
+        assert_eq!(args[1], "/tmp/project");
+        assert_eq!(args[2], "--session");
+        assert_eq!(args[3], cli_path_arg(&session_file.to_string_lossy()));
+        assert!(
+            session_file.is_file(),
+            "OMP's session path must exist before launch"
         );
+        assert_eq!(
+            fs::metadata(&session_file)
+                .expect("session placeholder metadata should be readable")
+                .len(),
+            0,
+            "OMP should initialize the empty session file"
+        );
+
+        fs::remove_dir_all(&root).expect("session fixture should be removable");
     }
 
     #[test]
