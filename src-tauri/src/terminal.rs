@@ -1071,30 +1071,12 @@ fn start_terminal_blocking(
         .flatten()
         .collect::<Vec<_>>();
     let args = if restartable {
-        let mut args = initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths);
-        if resume_path.is_none() {
-            // OMP otherwise keeps model/thinking changes only in memory until the first
-            // response. An explicit new path lets OMP write its own session header and
-            // acknowledge changes immediately, without submitting input or restarting.
-            let directory = session_root.join(encode_session_dir_name(&cwd));
-            fs::create_dir_all(&directory).map_err(|error| {
-                format!(
-                    "Не удалось создать папку сессии {}: {error}",
-                    directory.display()
-                )
-            })?;
-            let path = loop {
-                let path = directory.join(format!("desktop-{:032x}.jsonl", rand::random::<u128>()));
-                match path.try_exists() {
-                    Ok(false) => break path,
-                    Ok(true) => continue,
-                    Err(error) => return Err(format!("Не удалось проверить путь сессии: {error}")),
-                }
-            };
-            args.push("--session".to_owned());
-            args.push(cli_path_arg(&path.to_string_lossy()));
-        }
-        args
+        initial_terminal_args_with_config(
+            &cwd,
+            resume_path.as_deref(),
+            &config_paths,
+            &session_root,
+        )?
     } else {
         request.args.unwrap_or_default()
     };
@@ -1265,7 +1247,7 @@ fn switch_terminal_blocking(
 ) -> Result<TerminalRuntime, TerminalSwitchError> {
     validate_switch_request(&request).map_err(TerminalSwitchError::from)?;
     let terminals = app.state::<TerminalState>();
-    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (known_resume_path, pending_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
         let processes = lock_processes(&terminals);
         let process = processes.get(&request.terminal_id).ok_or_else(|| {
             TerminalSwitchError::new(
@@ -1300,12 +1282,15 @@ fn switch_terminal_blocking(
         }
         (
             process.resume_path.clone(),
+            process.pending_resume_path.clone(),
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
         )
     };
     let resume_path = known_resume_path
+        .clone()
+        .or_else(|| pending_resume_path.clone())
         .or_else(|| {
             resolve_resume_path(
                 &request.terminal_id,
@@ -1320,7 +1305,18 @@ fn switch_terminal_blocking(
                 "Сессия OMP ещё не готова к переключению",
             )
         })?;
-    if !Path::new(&resume_path).is_file() {
+    let session_file_exists = Path::new(&resume_path).is_file();
+    let pending_fresh = !session_file_exists
+        && (pending_resume_path
+            .as_deref()
+            .is_some_and(|pending| path_key(pending) == path_key(&resume_path))
+            || is_pending_fresh_breadcrumb(
+                &request.terminal_id,
+                &cwd,
+                &terminal_sessions_dir,
+                &resume_path,
+            ));
+    if !session_file_exists && !pending_fresh {
         return Err(TerminalSwitchError::new(
             "terminal_switch_failed",
             format!("Файл сессии не найден: {resume_path}"),
@@ -1360,8 +1356,13 @@ fn switch_terminal_blocking(
                 "Исчерпан счётчик поколений смены модели",
             )
         })?;
-        let should_spawn = process.resume_path.is_none();
-        process.resume_path = Some(resume_path.clone());
+        let should_spawn = !pending_fresh && process.resume_path.is_none();
+        if pending_fresh {
+            process.pending_resume_path = Some(resume_path.clone());
+        } else {
+            process.pending_resume_path = None;
+            process.resume_path = Some(resume_path.clone());
+        }
         process.switch_pending = true;
         process.switch_generation = next_generation;
         process.switch_input_buffer.clear();
@@ -1376,11 +1377,12 @@ fn switch_terminal_blocking(
         );
     }
 
-    finalize_switch_result(
-        &request.terminal_id,
-        &terminals,
-        perform_terminal_switch(&request, &resume_path, &terminals),
-    )
+    let result = if pending_fresh {
+        perform_pending_fresh_terminal_switch(&request, &terminals)
+    } else {
+        perform_terminal_switch(&request, &resume_path, &terminals)
+    };
+    finalize_switch_result(&request.terminal_id, &terminals, result)
 }
 
 fn finalize_switch_result<T>(
@@ -1789,6 +1791,74 @@ fn perform_terminal_switch(
     })
 }
 
+fn pending_fresh_switch_plan(
+    request: &SwitchRequest,
+) -> Result<(Vec<u8>, TerminalRuntime), String> {
+    let runtime = SessionRuntimeState::from_request(request);
+    let model_changed = runtime
+        .model
+        .as_deref()
+        .is_none_or(|model| !model.eq_ignore_ascii_case(&request.model_selector));
+    let mut input = Vec::new();
+    if model_changed {
+        input.extend_from_slice(&model_switch_input(&request.model_selector));
+    }
+
+    let mut thinking_level = runtime.thinking_level.clone();
+    let mut configured_thinking_level = runtime.configured_thinking_level.clone();
+    if let Some(target) = request.thinking_level.as_deref() {
+        let levels = thinking_cycle(&request.supported_thinking);
+        let target_index = levels
+            .iter()
+            .position(|level| level == target)
+            .ok_or_else(|| format!("Модель не поддерживает уровень рассуждений: {target}"))?;
+        let current = configured_thinking_level
+            .as_deref()
+            .or(thinking_level.as_deref())
+            .unwrap_or("off");
+        let current = normalize_thinking_level(current, &levels);
+        let current_index = levels
+            .iter()
+            .position(|level| level == current)
+            .ok_or_else(|| format!("Неизвестный текущий уровень рассуждений: {current}"))?;
+        let steps = (target_index + levels.len() - current_index) % levels.len();
+        for _ in 0..steps {
+            input.extend_from_slice(OMP_THINKING_CYCLE_ESC);
+        }
+        thinking_level = Some(target.to_owned());
+        configured_thinking_level = Some(target.to_owned());
+    }
+
+    Ok((
+        input,
+        TerminalRuntime {
+            terminal_id: request.terminal_id.clone(),
+            model: if model_changed {
+                request.model_selector.clone()
+            } else {
+                runtime
+                    .model
+                    .unwrap_or_else(|| request.model_selector.clone())
+            },
+            model_role: runtime.model_role,
+            thinking_level: thinking_level.or_else(|| request.thinking_level.clone()),
+            configured_thinking_level: configured_thinking_level
+                .or_else(|| request.thinking_level.clone()),
+        },
+    ))
+}
+
+fn perform_pending_fresh_terminal_switch(
+    request: &SwitchRequest,
+    terminals: &TerminalState,
+) -> Result<TerminalRuntime, String> {
+    let (input, runtime) = pending_fresh_switch_plan(request)?;
+    if !input.is_empty() {
+        write_switch_input(&request.terminal_id, input, terminals)?;
+    }
+    Ok(runtime)
+}
+
 fn apply_thinking_level(
     terminal_id: &str,
     target: &str,
@@ -2077,6 +2147,28 @@ fn initial_agent_args_with_config(
         args.push(cli_path_arg(resume_path));
     }
     args
+}
+
+fn initial_terminal_args_with_config(
+    cwd: &str,
+    resume_path: Option<&str>,
+    config_paths: &[PathBuf],
+    session_root: &Path,
+) -> Result<Vec<String>, String> {
+    let mut args = initial_agent_args_with_config(cwd, resume_path, config_paths);
+    if resume_path.is_some() {
+        return Ok(args);
+    }
+    let directory = session_root.join(encode_session_dir_name(cwd));
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Не удалось создать папку сессии {}: {error}",
+            directory.display()
+        )
+    })?;
+    args.push("--session-dir".to_owned());
+    args.push(cli_path_arg(&directory.to_string_lossy()));
+    Ok(args)
 }
 
 fn build_omp_command(
@@ -2403,7 +2495,7 @@ fn breadcrumb_changed(path: &Path, snapshot: &HashMap<PathBuf, u128>) -> bool {
         .is_none_or(|previous| current > *previous)
 }
 
-fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
+fn read_breadcrumb_state(path: &Path, cwd: &str) -> Option<(String, bool)> {
     let contents = fs::read_to_string(path).ok()?;
     let mut lines = contents.lines();
     let breadcrumb_cwd = lines.next()?.trim();
@@ -2412,7 +2504,25 @@ fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
     if path_key(breadcrumb_cwd) != path_key(cwd) || (!fresh && !Path::new(session_path).is_file()) {
         return None;
     }
-    Some(session_path.to_owned())
+    Some((session_path.to_owned(), fresh))
+}
+
+fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
+    read_breadcrumb_state(path, cwd).map(|(session_path, _)| session_path)
+}
+
+fn is_pending_fresh_breadcrumb(
+    terminal_id: &str,
+    cwd: &str,
+    directory: &Path,
+    expected_path: &str,
+) -> bool {
+    let breadcrumb = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    read_breadcrumb_state(&breadcrumb, cwd).is_some_and(|(session_path, fresh)| {
+        fresh
+            && path_key(&session_path) == path_key(expected_path)
+            && !Path::new(&session_path).is_file()
+    })
 }
 
 enum SessionDiscovery {
@@ -4516,19 +4626,21 @@ mod tests {
     use super::{
         append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
         decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
-        drain_output_batches, feed_runtime_lines, finalize_switch_result,
-        initial_agent_args_with_config, lock_processes, lock_terminal_output, model_switch_input,
-        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
-        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
-        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
-        runtime_event_from_line, send_switch_input_recovery_blocking, session_title_for_emit,
-        session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
-        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
-        RuntimeWatchCursor, SessionDiscovery, SessionLease, SessionLeasePurpose,
-        SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
+        drain_output_batches, encode_session_dir_name, feed_runtime_lines, finalize_switch_result,
+        initial_agent_args_with_config, initial_terminal_args_with_config,
+        is_pending_fresh_breadcrumb, lock_processes, lock_terminal_output, model_switch_input,
+        normalize_thinking_level, output_event_name, pending_fresh_switch_plan, poll_runtime_file,
+        read_runtime_tail, receive_ready_output_batch, receive_timed_output_batch,
+        recover_runtime_cursor, resolve_resume_path_for_current, run_output_pipeline,
+        runtime_event_for_emit, runtime_event_from_line, send_switch_input_recovery_blocking,
+        session_title_for_emit, session_title_from_line, spawn_terminal_writer, thinking_cycle,
+        validate_switch_request, validated_resume_path, write_bytes, PtyExitEvent,
+        PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SessionDiscovery, SessionLease,
+        SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
         TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
-        MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
+        BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -4912,6 +5024,17 @@ mod tests {
             b"\x1bpprovider/model\r"
         );
         assert_eq!(OMP_THINKING_CYCLE_ESC, b"\x1b[Z");
+    }
+
+    #[test]
+    fn pending_fresh_switch_uses_live_controls_without_a_session_file() {
+        let (input, runtime) =
+            pending_fresh_switch_plan(&switch_request()).expect("fresh switch should be planned");
+
+        assert_eq!(input, b"\x1bpprovider/model\r\x1b[Z");
+        assert_eq!(runtime.model, "provider/model");
+        assert_eq!(runtime.thinking_level.as_deref(), Some("max"));
+        assert_eq!(runtime.configured_thinking_level.as_deref(), Some("max"));
     }
 
     #[test]
@@ -5529,6 +5652,75 @@ mod tests {
             initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), &[]),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
         );
+    }
+
+    #[test]
+    fn fresh_terminal_args_use_session_directory_without_a_resume_target() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-fresh-args-{}-{nonce}",
+            std::process::id()
+        ));
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&session_root).expect("session root should be writable");
+
+        let args = initial_terminal_args_with_config("/tmp/project", None, &[], &session_root)
+            .expect("fresh terminal args should be built");
+        let session_dir = session_root.join(encode_session_dir_name("/tmp/project"));
+
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[0], "--cwd");
+        assert_eq!(args[1], "/tmp/project");
+        assert_eq!(args[2], "--session-dir");
+        assert_eq!(args[3], cli_path_arg(&session_dir.to_string_lossy()));
+        assert!(
+            session_dir.is_dir(),
+            "OMP's session directory must exist before launch"
+        );
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "--resume" || arg == "--session"));
+
+        fs::remove_dir_all(&root).expect("session fixture should be removable");
+    }
+
+    #[test]
+    fn fresh_breadcrumb_allows_model_switch_before_the_session_file_exists() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-pending-fresh-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("breadcrumb directory should be writable");
+        let session_file = root.join("session.jsonl");
+        let breadcrumb = root.join(format!("{BREADCRUMB_FILE_PREFIX}terminal-1"));
+        fs::write(
+            &breadcrumb,
+            format!("/tmp/project\n{}\nfresh\n", session_file.display()),
+        )
+        .expect("fresh breadcrumb should be writable");
+
+        assert!(is_pending_fresh_breadcrumb(
+            "terminal-1",
+            "/tmp/project",
+            &root,
+            &session_file.to_string_lossy(),
+        ));
+
+        fs::write(&session_file, "session data").expect("session file should materialize");
+        assert!(!is_pending_fresh_breadcrumb(
+            "terminal-1",
+            "/tmp/project",
+            &root,
+            &session_file.to_string_lossy(),
+        ));
+        fs::remove_dir_all(&root).expect("breadcrumb fixture should be removable");
     }
 
     #[test]
