@@ -62,7 +62,7 @@ jobs:
 
       - name: Retain owner cutover receipt without worker request payloads
         if: ${{ always() && hashFiles('migration-result.json') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: research-contract-migration-${{ github.run_id }}-${{ github.run_attempt }}
           path: migration-result.json
