@@ -375,6 +375,105 @@ class OwnerEntryTests(unittest.TestCase):
         self.start_patch(patch.object(next_no_effect_artifact, "_default_archive", side_effect=archive))
         return source
 
+    def prepare_failed_automatic_next(self):
+        from dispatch_journal import OWNER_FAILED_NEXT_CHECKPOINT
+        from next_no_effect_artifact_test import FailedCheckpointSource
+        producer = next_no_effect_artifact.FAILED_AUTOMATIC_NEXT_PRODUCER
+        source_trigger = {**self.trigger(), "control_sha": producer}
+        inputs = {"automatic": True}
+        self.intent, send = self.store.reserve_send(
+            NEXT, inputs, basis={}, trigger=source_trigger, control_sha=producer)
+        send.consume()
+        _, self.execution = self.store.admit(
+            NEXT, inputs, key=self.intent["correlation_key"],
+            trigger={**source_trigger, "run_id": "71"}, control_sha=producer)
+        self.execution.consume()
+        self.before = self.store.current()
+        self.expected = self.before["state_sha"]
+        self.event = {"repository": {"full_name": REPOSITORY}, "ref": "refs/heads/main",
+                      "sender": {"login": "owner"}, "inputs": {
+                          "expected_state_sha": self.expected, "decision_id": self.intent["decision_id"]}}
+        self.write_event()
+        os.environ["GITHUB_RUN_ID"] = "72"
+        os.environ["GITHUB_WORKFLOW_REF"] = (
+            REPOSITORY + "/.github/workflows/" + OWNER_FAILED_NEXT_CHECKPOINT + "@refs/heads/main")
+        source = FailedCheckpointSource()
+        for run in (source.run, source.attempt):
+            run.update(head_sha=producer, display_title="Next " + self.intent["correlation_key"])
+            for field in ("repository", "head_repository"):
+                run[field]["full_name"] = REPOSITORY
+            for field in ("actor", "triggering_actor"):
+                run[field]["login"] = "owner"
+        source.jobs[0]["head_sha"] = producer
+        source.artifacts[0]["workflow_run"]["head_sha"] = producer
+        source.set_report({**source.report, "state_sha": self.expected})
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_json",
+                                     side_effect=lambda repository, endpoint: source.get_json(endpoint)))
+        self.start_patch(patch.object(next_no_effect_artifact, "_default_archive",
+                                     side_effect=lambda repository, endpoint: source.get_archive(endpoint)))
+        return source
+
+    def test_failed_automatic_next_cli_requires_own_workflow_and_is_replayable_without_write(self):
+        from dispatch_journal import OWNER_FAILED_NEXT_CHECKPOINT
+        source = self.prepare_failed_automatic_next()
+        before = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        args = self.arguments("failed_next_checkpoint")
+        os.environ["GITHUB_WORKFLOW_REF"] = (
+            REPOSITORY + "/.github/workflows/" + OWNER_NEXT_COMPLETION + "@refs/heads/main")
+        self.assert_rejected_without_mutation(args)
+        self.assertEqual(source.calls, [])
+        os.environ["GITHUB_WORKFLOW_REF"] = (
+            REPOSITORY + "/.github/workflows/" + OWNER_FAILED_NEXT_CHECKPOINT + "@refs/heads/main")
+        pushes = self.pushes
+        status, result = self.invoke(args)
+        self.assertEqual((status, result["outcome"]), (0, "completed"))
+        self.assertEqual(result["kind"], "automatic_next_failed_before_external_mutation")
+        self.assertEqual(self.pushes, pushes + 1)
+        saved = load_state(self.repo, self.store.manifest_path, self.store.revision_path)
+        self.assertEqual({key: value for key, value in before.items() if key != "dispatch_journal"},
+                         {key: value for key, value in saved.items() if key != "dispatch_journal"})
+        self.assertEqual(saved["dispatch_journal"]["events"][:-1], before["dispatch_journal"]["events"])
+        receipt = self.store.current()["completions"][self.intent["decision_id"]]
+        self.assertEqual(receipt["native_report"], source.report)
+        self.assertEqual((self.store.current()["effects"], self.store.current()["phase_claims"]), ({}, {}))
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        reads, pushes = len(source.calls), self.pushes
+        status, replay = self.invoke(args)
+        self.assertEqual((status, replay["outcome"]), (0, "already_completed"))
+        self.assertEqual(replay["receipt_id"], result["receipt_id"])
+        self.assertEqual((len(source.calls), self.pushes), (reads, pushes))
+        self.assertEqual(load_state(self.repo, self.store.manifest_path, self.store.revision_path), saved)
+
+    def test_failed_next_cli_lost_ack_is_not_success_and_exact_rerun_recovers_only_existing_receipt(self):
+        self.prepare_failed_automatic_next()
+        args = self.arguments("failed_next_checkpoint")
+        self.lose_ack = True
+        pushes = self.pushes
+        status, result = self.invoke(args)
+        self.assertEqual((status, result), (1, {
+            "outcome": "blocked", "reason": "owner_failed_next_checkpoint_acknowledgement_unknown"}))
+        self.assertEqual(self.pushes, pushes + 1)
+        committed = self.store.current()
+        receipt = committed["completions"][self.intent["decision_id"]]
+        self.assertEqual(receipt["kind"], "automatic_next_failed_before_external_mutation")
+        self.assertEqual((committed["effects"], committed["phase_claims"], committed["stages"]), ({}, {}, {}))
+        self.lose_ack = False
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, replay = self.invoke(args)
+        self.assertEqual((status, replay["outcome"]), (0, "already_completed"))
+        self.assertEqual(replay["receipt_id"], receipt["receipt_id"])
+        self.assertEqual(self.store.current(), committed)
+        self.assertEqual(self.pushes, pushes + 1)
+
+    def test_failed_next_cli_changed_original_owner_inputs_remain_rejected_after_closure(self):
+        self.prepare_failed_automatic_next()
+        args = self.arguments("failed_next_checkpoint")
+        self.invoke(args)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        self.event["inputs"]["expected_state_sha"] = self.store.current()["state_sha"]
+        self.write_event()
+        self.assert_rejected_without_mutation(args)
+
     def test_failed_report_checkpoint_uses_distinct_owner_workflow_and_preserves_original_body(self):
         from dispatch_journal import OWNER_REPORT_CHECKPOINT
         from next_no_effect_artifact_test import FailedCheckpointSource

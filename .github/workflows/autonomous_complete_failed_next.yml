@@ -1,0 +1,66 @@
+name: Autonomous Complete Failed Automatic NEXT
+
+# Close only a proven original pre-mutation save failure. No execution, resend,
+# dispatch, switch, task mutation, or manufactured useful progress is authorized.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_state_sha:
+        description: Exact independently reviewed autonomous/state SHA before closure
+        type: string
+        required: true
+      decision_id:
+        description: Original unfinished automatic NEXT with authenticated failed native artifact
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+        'autonomous-lab-queue' || format('autonomous-failed-next-ignored-{0}', github.run_id) }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  complete:
+    name: Close one owner-selected original failed automatic NEXT
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
+      CONTROL_SHA: ${{ github.sha }}
+      CONTINUATION_KEY: ""
+      EXPECTED_STATE_SHA: ${{ inputs.expected_state_sha }}
+      DECISION_ID: ${{ inputs.decision_id }}
+    steps:
+      - name: Check out the full checked event-main control revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: control
+          persist-credentials: false
+
+      - name: Close only the proven failed automatic NEXT by owner-bound state CAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/recover_delivery.py \
+            --operation failed_next_checkpoint \
+            --repo control --config control/autonomous-project.json \
+            --manifest queue.json --revision-file queue-revision.json \
+            --expected-state-sha "${EXPECTED_STATE_SHA}" --decision-id "${DECISION_ID}" \
+            --out owner-failed-next-checkpoint-result.json
+
+      - name: Retain acknowledged closure or safe blocked outcome
+        if: ${{ always() && hashFiles('owner-failed-next-checkpoint-result.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owner-failed-next-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: owner-failed-next-checkpoint-result.json
+          retention-days: 30
+          if-no-files-found: error

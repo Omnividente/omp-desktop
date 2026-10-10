@@ -17,6 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from checkpoint_diagnostics import GIT_OPERATIONS, normalized_returncode
+
 from validate_tasks import validate
 from research_request import ATTEMPT_FIELDS, CONTRACT_VERSION
 
@@ -35,13 +37,31 @@ class StateUncertain(RuntimeError):
 
 def _git(repo: Path, *args: str, data: bytes | None = None, check: bool = True,
          timeout: int = 90):
-    result = subprocess.run(
-        ["git", "-C", str(repo), "-c", "core.hooksPath=" + os.devnull, *args],
-        input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
-    )
+    # Skip only Git's fixed -c option pairs; never inspect option values/URLs.
+    index = 0
+    while index < len(args) and args[index] == "-c":
+        index += 2
+    command = args[index] if index < len(args) else "unknown"
+    operation = command if command in GIT_OPERATIONS else "unknown"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "-c", "core.hooksPath=" + os.devnull, *args],
+            input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        exc.checkpoint_metadata = {
+            "git_operation": operation, "git_returncode": None,
+            "git_timeout": isinstance(exc, subprocess.TimeoutExpired),
+        }
+        raise
     if check and result.returncode:
         # Git stderr can include credential-bearing remote URLs.
-        raise RuntimeError("state git operation failed: " + args[0])
+        exc = RuntimeError("state git operation failed: " + args[0])
+        exc.checkpoint_metadata = {
+            "git_operation": operation,
+            "git_returncode": normalized_returncode(result.returncode), "git_timeout": False,
+        }
+        raise exc
     return result
 
 
@@ -57,7 +77,12 @@ def _remote_head(repo: Path, branch: str) -> str:
     if result.returncode == 2:
         return ""
     if result.returncode:
-        raise RuntimeError("cannot read the state ref; refusing a fallback queue")
+        exc = RuntimeError("cannot read the state ref; refusing a fallback queue")
+        exc.checkpoint_metadata = {
+            "git_operation": "ls-remote", "git_returncode": normalized_returncode(result.returncode),
+            "git_timeout": False,
+        }
+        raise exc
     rows = result.stdout.decode("utf-8").splitlines()
     if len(rows) != 1:
         raise RuntimeError("ambiguous state ref response")
@@ -150,17 +175,31 @@ def save_state(
     branch: str = STATE_BRANCH, *, require_ack: bool = False,
 ) -> str:
     """Publish one validated queue revision using compare-and-swap."""
+    facts = {"expected_state_sha": None, "observed_state_sha": None,
+             "acknowledgement_uncertain": False}
+    try:
+        return _save_state(repo, manifest_path, revision_path, branch, require_ack=require_ack, facts=facts)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        facts.update(getattr(exc, "checkpoint_metadata", {}))
+        exc.checkpoint_metadata = facts
+        raise
+
+
+def _save_state(repo, manifest_path, revision_path, branch, *, require_ack, facts):
     repo, manifest_path, revision_path = map(Path, (repo, manifest_path, revision_path))
     ref = _ref(branch)
     metadata = json.loads(revision_path.read_text(encoding="utf-8"))
     expected = metadata.get("state_sha", "")
     if metadata.get("branch") != branch or (expected and not SHA.fullmatch(expected)):
         raise ValueError("invalid state revision metadata")
+    facts["expected_state_sha"] = expected
     if manifest_path.resolve() == (repo / QUEUE).resolve():
         raise ValueError("state output must not be the product queue")
     raw = manifest_path.read_bytes()
     data = _manifest(raw)
-    if _remote_head(repo, branch) != expected:
+    facts["observed_state_sha"] = None
+    facts["observed_state_sha"] = _remote_head(repo, branch)
+    if facts["observed_state_sha"] != expected:
         raise StateConflict("state advanced since it was read")
     if expected and hashlib.sha256(raw).hexdigest() == metadata.get("digest"):
         return expected
@@ -205,21 +244,29 @@ def save_state(
         commit = _commit(repo, raw, parent)
     for attempt in range(1 if require_ack else 3):
         try:
+            facts.update(git_operation="push", git_returncode=None, git_timeout=None,
+                         observed_state_sha=None, acknowledgement_uncertain=True)
             result = _git(
                 repo, "-c", "http.https://github.com/.extraheader=", "-c", "credential.helper=",
                 "-c", "credential.https://github.com.helper=!gh auth git-credential",
                 "push", "--force-with-lease=" + ref + ":" + expected,
                 "origin", commit + ":" + ref, check=False,
             )
+            facts.update(git_returncode=normalized_returncode(result.returncode), git_timeout=False)
         except subprocess.TimeoutExpired:
             result = None
+            facts["git_timeout"] = True
         observed = _remote_head(repo, branch)
+        facts["observed_state_sha"] = observed
         if observed == commit:
+            if result is not None and result.returncode == 0:
+                facts["acknowledgement_uncertain"] = False
             _record(revision_path, revision=commit, raw=raw, branch=branch, source="state")
             if require_ack and (result is None or result.returncode != 0):
                 raise StateUncertain("state claim acknowledgement was lost; no effect is authorized")
             return commit
         if observed != expected:
+            facts["acknowledgement_uncertain"] = False
             raise StateConflict("state changed during publication; local result retained")
         if result is not None and result.returncode == 0:
             raise RuntimeError("state publication could not be verified")

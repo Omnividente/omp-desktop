@@ -3,7 +3,8 @@
 
 Delivery fencing revokes only unclaimed sends. CONTINUE cutover closes only a
 selected idle CONTINUE. NEXT completion observes an authentic terminal native
-no-op or failed queued report checkpoint against its immutable baseline. Reserved
+no-op, failed queued report checkpoint, or proven automatic pre-mutation save
+failure against its immutable baseline. Reserved
 dispatch observation is GET-only; original-session binding may change only the
 selected task's execution.state and execution.session_id by one native state CAS,
 appending only its typed owner recovery receipt to the journal.
@@ -26,8 +27,8 @@ from jules_dispatch import KeyRing
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
 from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
-                                OWNER_DISPATCH_OBSERVATION, OWNER_NEXT_COMPLETION,
-                                OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
+                                OWNER_DISPATCH_OBSERVATION, OWNER_FAILED_NEXT_CHECKPOINT,
+                                OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
 
 OPERATIONS = {
@@ -38,6 +39,8 @@ OPERATIONS = {
                         frozenset(("completed", "already_completed"))),
     "report_checkpoint": (OWNER_REPORT_CHECKPOINT, "owner_report_checkpoint",
                           frozenset(("completed", "already_completed"))),
+    "failed_next_checkpoint": (OWNER_FAILED_NEXT_CHECKPOINT, "owner_failed_next_checkpoint",
+                               frozenset(("completed", "already_completed"))),
     "dispatch_observation": (OWNER_DISPATCH_OBSERVATION, "owner_dispatch_observation",
                              frozenset(("observed",))),
     "dispatch_binding": (OWNER_DISPATCH_BINDING, "owner_dispatch_binding",
@@ -147,8 +150,13 @@ def _acknowledged_result(value, decision_id, operation):
             or type(value.get("frontier_seq")) is not int or value["frontier_seq"] < 0):
         raise JournalUncertain("owner operation acknowledgement is not usable")
     # Retain only the public contract, never raw transport/config/event data.
-    return {name: value[name] for name in
-            ("outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq")}
+    result = {name: value[name] for name in
+              ("outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq")}
+    if operation == "failed_next_checkpoint":
+        if value.get("kind") != "automatic_next_failed_before_external_mutation":
+            raise JournalUncertain("owner failed NEXT acknowledgement is not usable")
+        result["kind"] = value["kind"]
+    return result
 
 
 def _observed_result(value, decision_id, expected_state_sha, config):
@@ -275,6 +283,7 @@ def main(argv=None):
                            "continue_cutover": store.cutover_continue,
                            "next_completion": store.complete_observed_next,
                            "report_checkpoint": store.complete_failed_report_checkpoint,
+                           "failed_next_checkpoint": store.complete_failed_next_checkpoint,
                            "dispatch_observation": store.observe_reserved_dispatch,
                            "dispatch_binding": store.bind_reserved_dispatch}[operation]
         parameters = dict(decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
