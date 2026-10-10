@@ -18,6 +18,8 @@ import zipfile
 from datetime import datetime
 
 WORKFLOW = "autonomous_next_task.yml"
+# Source-order proof is established only for this immutable historical producer.
+FAILED_AUTOMATIC_NEXT_PRODUCER = "e4b46f52c431459fce33d25f93d7324440b59cb2"
 NATIVE_JOB = "Research and collect proposals without accepting them"
 NATIVE_STEP = "Reconcile saved attempts and run one laboratory tick"
 UPLOAD_STEP = "Preserve laboratory outcome and redacted report diagnostics"
@@ -255,7 +257,8 @@ def _native_json(archive, *, allow_diagnostics=False):
         if allow_diagnostics:
             _require(0 < len(entries) <= MAX_METADATA_ROWS
                      and len({item.filename for item in entries}) == len(entries)
-                     and sum(item.file_size for item in entries) <= MAX_ARCHIVE_BYTES,
+                     and sum(item.file_size for item in entries) <= MAX_ARCHIVE_BYTES
+                     and entries[0].header_offset == 0,
                      "invalid or oversized native ZIP members")
             for item in entries:
                 if item.filename == "lab-result.json":
@@ -265,7 +268,19 @@ def _native_json(archive, *, allow_diagnostics=False):
                          and item.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED),
                          "invalid native diagnostic ZIP metadata")
                 mode = stat.S_IFMT(item.external_attr >> 16)
-                if item.filename == "research-diagnostics/":
+                if item.filename == "checkpoint-diagnostics.json":
+                    from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+                    _require(not item.is_dir() and mode in (0, stat.S_IFREG)
+                             and not (item.external_attr & 0x10)
+                             and 0 < item.file_size <= MAX_DIAGNOSTIC_BYTES,
+                             "invalid native checkpoint diagnostic ZIP member")
+                    diagnostic_raw = bundle.read(item)
+                    _require(len(diagnostic_raw) <= MAX_DIAGNOSTIC_BYTES,
+                             "native checkpoint diagnostic exceeds its bound")
+                    diagnostic = json.loads(diagnostic_raw.decode("utf-8"), object_pairs_hook=_unique_object,
+                                            parse_constant=_invalid_constant)
+                    _require(validate_diagnostics(diagnostic), "invalid native checkpoint diagnostic schema")
+                elif item.filename == "research-diagnostics/":
                     _require(item.is_dir() and item.file_size == 0 and mode in (0, stat.S_IFDIR),
                              "invalid native diagnostic ZIP directory")
                 else:
@@ -288,7 +303,7 @@ def _native_json(archive, *, allow_diagnostics=False):
                  and entry.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
                  and 0 < entry.file_size <= MAX_REPORT_BYTES
                  and 0 < entry.compress_size <= MAX_ARCHIVE_BYTES
-                 and entry.header_offset == 0, "invalid or oversized native ZIP member")
+                 and (allow_diagnostics or entry.header_offset == 0), "invalid or oversized native ZIP member")
         raw = bundle.read(entry)
     _require(len(raw) <= MAX_REPORT_BYTES, "native JSON exceeds the report bound")
     report = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
@@ -430,5 +445,19 @@ def authenticated_failed_save_checkpoint(repository, executor_trigger, decision_
     and any command/provider binding separately. No recovery permission is issued.
     Errors and injected GET callbacks follow the pause reader's fixed boundary.
     """
+    return _authenticate(repository, executor_trigger, decision_id, correlation_key,
+                         _failed_save_checkpoint, get_json=get_json, get_archive=get_archive)
+
+
+def authenticated_failed_automatic_next_save(repository, executor_trigger, decision_id, correlation_key,
+                                             *, get_json=None, get_archive=None) -> dict:
+    """Authenticate the failed producer whose pre-effect ordering is established.
+
+    Authentication alone grants no closure: the caller must prove the complete
+    original state, journal delta and absence of every worker/ref candidate.
+    """
+    if (not isinstance(executor_trigger, dict)
+            or executor_trigger.get("control_sha") != FAILED_AUTOMATIC_NEXT_PRODUCER):
+        raise ValueError("unsupported failed automatic NEXT producer")
     return _authenticate(repository, executor_trigger, decision_id, correlation_key,
                          _failed_save_checkpoint, get_json=get_json, get_archive=get_archive)

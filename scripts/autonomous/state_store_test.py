@@ -281,6 +281,86 @@ class StateStoreTests(unittest.TestCase):
             saved = save_state(self.repo, self.queue, self.revision)
         self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
 
+    def test_required_ack_diagnostics_identify_saved_commit_without_authorizing_success(self):
+        from checkpoint_diagnostics import diagnostic_for_failure, validate_diagnostics
+        self.load()
+        expected = save_state(self.repo, self.queue, self.revision)
+        self.update(self.queue, "durable synthetic observation")
+        native_run = state_store.subprocess.run
+        pushes = []
+
+        def saved_without_ack(command, **kwargs):
+            result = native_run(command, **kwargs)
+            if "push" in command:
+                pushes.append(command)
+                raise subprocess.TimeoutExpired(["SENTINEL_SECRET_URL"], 90,
+                                                output=b"SENTINEL_STDOUT", stderr=b"SENTINEL_STDERR")
+            return result
+
+        with patch.object(state_store.subprocess, "run", side_effect=saved_without_ack):
+            with self.assertRaises(state_store.StateUncertain) as caught:
+                save_state(self.repo, self.queue, self.revision, require_ack=True)
+        saved = self.git(self.remote, "rev-parse", "autonomous/state").decode()
+        value = diagnostic_for_failure("research_planner", caught.exception)
+        self.assertTrue(validate_diagnostics(value))
+        self.assertEqual(len(pushes), 1)
+        self.assertNotEqual(saved, expected)
+        self.assertEqual(value["expected_state_sha"], expected)
+        self.assertEqual(value["observed_state_sha"], saved)
+        self.assertEqual(value["exception_category"], "state_uncertain")
+        self.assertEqual(value["git_operation"], "push")
+        self.assertIsNone(value["git_returncode"])
+        self.assertIs(value["git_timeout"], True)
+        self.assertIs(value["acknowledgement_uncertain"], True)
+        self.assertNotIn("SENTINEL", json.dumps(value))
+        self.assertEqual(json.loads(self.revision.read_bytes())["state_sha"], saved)
+
+    def test_conflict_diagnostics_retain_both_known_revisions_without_publication(self):
+        from checkpoint_diagnostics import diagnostic_for_failure
+        self.load()
+        expected = save_state(self.repo, self.queue, self.revision)
+        stale_queue, stale_revision = self.load("-diagnostic-stale")
+        self.update(self.queue, "winner")
+        observed = save_state(self.repo, self.queue, self.revision)
+        self.update(stale_queue, "loser")
+        with self.assertRaises(StateConflict) as caught:
+            save_state(self.repo, stale_queue, stale_revision, require_ack=True)
+        value = diagnostic_for_failure("dispatch_reservation", caught.exception)
+        self.assertEqual(value["exception_category"], "state_conflict")
+        self.assertEqual(value["expected_state_sha"], expected)
+        self.assertEqual(value["observed_state_sha"], observed)
+        self.assertIs(value["acknowledgement_uncertain"], False)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), observed)
+
+    def test_failed_publication_without_remote_observation_stays_unknown(self):
+        from checkpoint_diagnostics import diagnostic_for_failure
+        self.load()
+        expected = save_state(self.repo, self.queue, self.revision)
+        self.update(self.queue, "unpublished")
+        native_run = state_store.subprocess.run
+        pushed = []
+
+        def unavailable(command, **kwargs):
+            if "push" in command:
+                pushed.append(command)
+                return subprocess.CompletedProcess(command, 1, b"SENTINEL_OUT", b"SENTINEL_PUSH")
+            if pushed and "ls-remote" in command:
+                return subprocess.CompletedProcess(command, 128, b"", b"SENTINEL_REMOTE")
+            return native_run(command, **kwargs)
+
+        with patch.object(state_store.subprocess, "run", side_effect=unavailable):
+            with self.assertRaises(RuntimeError) as caught:
+                save_state(self.repo, self.queue, self.revision, require_ack=True)
+        value = diagnostic_for_failure("research_planner", caught.exception)
+        self.assertEqual(value["git_operation"], "ls-remote")
+        self.assertEqual(value["git_returncode"], 128)
+        self.assertEqual(value["expected_state_sha"], expected)
+        self.assertIsNone(value["observed_state_sha"])
+        self.assertIs(value["acknowledgement_uncertain"], True)
+        self.assertNotIn("SENTINEL", json.dumps(value))
+        self.assertEqual(len(pushed), 1)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), expected)
+
     def test_unreachable_remote_does_not_fall_back_to_legacy_seed(self):
         self.git(self.repo, "remote", "set-url", "origin", str(self.root / "absent.git"))
         with self.assertRaises(RuntimeError):

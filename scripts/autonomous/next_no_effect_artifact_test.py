@@ -731,5 +731,110 @@ class FailedCheckpointProofTests(ArtifactProofAssertions):
                          "original native artifact authentication failed")
 
 
+class CheckpointDiagnosticProofTests(ArtifactProofAssertions):
+    def diagnostic(self):
+        return {"version": 1, "checkpoint_stage": "research_planner",
+                "exception_category": "state_write",
+                "causal_chain": ["state_write", "journal_uncertain", "state_uncertain"],
+                "git_operation": "push", "git_returncode": None, "git_timeout": True,
+                "expected_state_sha": CONTROL, "observed_state_sha": STATE,
+                "acknowledgement_uncertain": True}
+
+    def test_valid_sidecar_cannot_replace_or_extend_native_failed_result(self):
+        source = FailedCheckpointSource()
+        raw = json.dumps(self.diagnostic()).encode("utf-8")
+        source.set_archive(zip_bytes(source.raw, extra=("checkpoint-diagnostics.json", raw)))
+        result = source.authenticate()
+        self.assertEqual(result["report"], source.report)
+        self.assertEqual(result["artifact_sha256"], hashlib.sha256(source.archive).hexdigest())
+        self.assertNotIn("checkpoint_stage", json.dumps(result))
+        paused = SyntheticSource()
+        paused.set_archive(zip_bytes(paused.raw, extra=("checkpoint-diagnostics.json", raw)))
+        self.assert_denied(paused)
+
+    def test_diagnostic_first_archive_preserves_authenticated_lab_result(self):
+        source = FailedCheckpointSource()
+        raw = json.dumps(self.diagnostic()).encode("utf-8")
+        source.set_archive(zip_bytes(raw, filename="checkpoint-diagnostics.json",
+                                    extra=("lab-result.json", source.raw)))
+        self.assertEqual(source.authenticate()["report_sha256"], hashlib.sha256(source.raw).hexdigest())
+
+    def test_sidecar_rejects_untrusted_fields_values_duplicates_and_oversize_without_leaking(self):
+        changes = [{"detail": "private-sidecar-sentinel"}, {"checkpoint_stage": "private-sidecar-sentinel"},
+                   {"version": True}, {"exception_category": "private-sidecar-sentinel"},
+                   {"causal_chain": ["unknown"] * 9}, {"git_returncode": True},
+                   {"git_returncode": 256}, {"git_timeout": "private-sidecar-sentinel"},
+                   {"expected_state_sha": "A" * 40}, {"observed_state_sha": "private-sidecar-sentinel"},
+                   {"acknowledgement_uncertain": "private-sidecar-sentinel"}]
+        raws = [json.dumps({**self.diagnostic(), **change}).encode("utf-8") for change in changes]
+        raw = json.dumps(self.diagnostic()).encode("utf-8")
+        raws.extend([raw[:-1] + b',"version":1}', b'{"version":NaN}',
+                     b"private-sidecar-sentinel" * 256, b"\xff"])
+        for raw in raws:
+            with self.subTest(raw=raw[:32]):
+                source = FailedCheckpointSource()
+                source.set_archive(zip_bytes(source.raw, extra=("checkpoint-diagnostics.json", raw)))
+                self.assert_denied(source, forbidden="private-sidecar-sentinel")
+
+    def test_sidecar_member_cannot_be_a_link_directory_duplicate_or_path_escape(self):
+        raw = json.dumps(self.diagnostic()).encode("utf-8")
+        for name, mode in (("../checkpoint-diagnostics.json", stat.S_IFREG),
+                           ("checkpoint-diagnostics.json/", stat.S_IFDIR),
+                           ("checkpoint-diagnostics.json", stat.S_IFLNK)):
+            with self.subTest(name=name, mode=mode):
+                source = FailedCheckpointSource()
+                member = zipfile.ZipInfo(name)
+                member.create_system = 3
+                member.external_attr = mode << 16
+                source.set_archive(zip_bytes(source.raw, extra=(member, raw)))
+                self.assert_denied(source)
+        source = FailedCheckpointSource()
+        with io.BytesIO() as output:
+            with zipfile.ZipFile(output, "w") as bundle:
+                bundle.writestr("lab-result.json", source.raw)
+                bundle.writestr("checkpoint-diagnostics.json", raw)
+                with unittest.mock.patch("warnings.warn"):
+                    bundle.writestr("checkpoint-diagnostics.json", raw)
+            source.set_archive(output.getvalue())
+        self.assert_denied(source)
+
+
+class AutomaticFailedCheckpointProofTests(unittest.TestCase):
+    def source(self):
+        source = FailedCheckpointSource()
+        control = proof.FAILED_AUTOMATIC_NEXT_PRODUCER
+        for run in (source.run, source.attempt):
+            run["head_sha"] = control
+        source.jobs[0]["head_sha"] = control
+        source.artifacts[0]["workflow_run"]["head_sha"] = control
+        source.set_archive(source.archive)
+        return source, {**TRIGGER, "control_sha": control}
+
+    def authenticate(self, source, trigger):
+        return proof.authenticated_failed_automatic_next_save(
+            REPOSITORY, trigger, DECISION, KEY,
+            get_json=source.get_json, get_archive=source.get_archive)
+
+    def test_unknown_producer_failure_is_not_a_generic_closure_authority(self):
+        source = FailedCheckpointSource()
+        with self.assertRaisesRegex(ValueError, "unsupported failed automatic NEXT producer"):
+            self.authenticate(source, TRIGGER)
+        self.assertEqual(source.calls, [])
+        self.assertEqual(source.downloads, [])
+
+    def test_supported_producer_does_not_bypass_native_source_and_digest_proof(self):
+        source, trigger = self.source()
+        self.assertEqual(self.authenticate(source, trigger)["report"]["reason"], "state_write_failed")
+        for mutate in (lambda value: value.run.update(head_sha="f" * 40),
+                       lambda value: value.detail.update(digest="sha256:" + "f" * 64),
+                       lambda value: setattr(value, "archive", zip_bytes(b"foreign private result"))):
+            with self.subTest(mutation=mutate):
+                source, trigger = self.source()
+                mutate(source)
+                with self.assertRaises(ValueError) as caught:
+                    self.authenticate(source, trigger)
+                self.assertNotIn("foreign private result", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
