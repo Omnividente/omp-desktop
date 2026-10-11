@@ -197705,7 +197705,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T06:26:20.789732Z"
+        "observed_at": "2026-10-11T06:26:20.789732Z",
+        "released_attempt_ref": "autonomous/attempt-2a7c35c275f5bf0790c633a8"
       },
       "research_result": {
         "summary": "Investigated Settings recovery fallback, ModelPicker keyboard focus behavior, and proxy overlay generation in terminal.rs. Confirmed that non-settings errors trap the user in the SettingsRecoveryScreen, ModelPicker's ArrowDown navigation inappropriately removes focus from the search input by directly focusing option buttons, and disabled_providers from OmpConfigSnapshot are not considered when generating the proxy-providers.yml overlay.",
