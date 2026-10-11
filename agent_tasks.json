@@ -195265,7 +195265,7 @@
       "id": "research-workspace-navigation-reliability-20",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -195459,16 +195459,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3614250633747604412",
         "dispatch_key": "28eaef5d02fce1afd6b2891f",
         "base_sha": "8c05faab30ca25f9d7e22a69e026f7a19f18cbcf",
         "starting_branch": "autonomous/attempt-28eaef5d02fce1afd6b2891f",
         "started_at": "2026-10-11T03:32:29.615271Z",
-        "finished_at": "",
+        "finished_at": "2026-10-11T04:15:30.826632Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "02b1c38010e76b3651193c635288cf9fac01ff56",
@@ -195638,13 +195638,121 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-11T03:56:40.465766Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-11T04:15:30.826632Z"
+      },
+      "research_result": {
+        "summary": "Verified the UX defect regarding workspace/session rename state reset on API failure.",
+        "observations": [
+          {
+            "scenario": "Analyzed App.tsx source code for workspace and session rename.",
+            "evidence": "In src/App.tsx, `submitWorkspaceRename` sets `renamingWorkspaceKey` to null before the try/catch block executing `renameWorkspace`. `submitRenameSession` similarly sets `renamingSessionId` to null unconditionally before executing `updateSessionTitlePin`. Even though `updateSessionTitlePin` catches the error, the local state is already cleared.",
+            "result": "Confirmed the defect exists. The state should only be cleared on success."
+          },
+          {
+            "scenario": "Analyzed hardcoded Ctrl shortcuts.",
+            "evidence": "src/WorkspaceHome.tsx uses hardcoded 'Ctrl + Shift + O'. src/ProjectRail.tsx uses 'Ctrl + B'. src/i18n.ts has translations with 'Ctrl'. The `runtime.platform` parameter is available via `payload?.runtime.platform` in App.tsx but needs to be passed down or utilized to display '⌘' on macOS.",
+            "result": "Confirmed the defect exists."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-11T04:15:30.826632Z",
+        "source": {
+          "activity_id": "sessions/3614250633747604412/activities/cabba602a45c469b80d979cda2137f04",
+          "report_sha256": "95d691f1e836e39115df17cf3f45af46140104ac04ed0da5b138d046c7748526",
+          "activity_created_at": "2026-10-11T03:52:50.677074Z",
+          "session_id": "3614250633747604412",
+          "dispatch_key": "28eaef5d02fce1afd6b2891f"
+        },
+        "deferred_findings": [
+          {
+            "title": "Preserve renaming UI state on backend failure during workspace and session renaming",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-b343e6c8e66ef195; not established as a duplicate. {\"detail\": \"The implementation in src/App.tsx synchronously clears renaming UI state prior to awaiting API promises. If the backend fails, the user loses their input. The state should only be cleared upon success.\", \"reproduction\": {\"actual\": \"The input field is closed synchronously and state is reset.\", \"expected\": \"The input field remains open with the user's text intact when an error is caught.\", \"steps\": [\"Locate submitWorkspaceRename and submitRenameSession in src/App.tsx.\", \"Simulate a backend error in renameWorkspace or setSessionTitlePin.\", \"Trigger a rename operation and observe the UI state.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via source inspection that renaming UI state is reset prior to awaiting the result.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-5577ea4e9ef26ca2\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Workspace rename state (`renamingWorkspaceKey` and `workspaceNameValue`) is preserved if the backend operation throws an error.",
+              "Session rename state (`renamingSessionId`) is only cleared after a successful backend response, preserving user input on failure."
+            ]
+          },
+          {
+            "title": "Localize hardcoded workspace shortcuts for macOS",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Shortcut texts are hardcoded strings ('Ctrl + ...') within src/WorkspaceHome.tsx, src/ProjectRail.tsx, and src/i18n.ts. The runtime.platform property is available but currently ignored.\", \"reproduction\": {\"actual\": \"Shortcuts statically render 'Ctrl' on all platforms.\", \"expected\": \"Shortcuts dynamically use the Command symbol (⌘) on macOS platforms.\", \"steps\": [\"Open src/WorkspaceHome.tsx and observe the hardcoded 'Ctrl + Shift + O'.\", \"Open src/ProjectRail.tsx and observe the hardcoded 'Ctrl + B'.\", \"Open src/i18n.ts and search for 'Ctrl'.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed the previous observation that hardcoded UI shortcuts degrade UX on macOS. Proposing to use the existing runtime.platform prop.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-7ea0512cd4985404\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/WorkspaceHome.tsx",
+              "src/ProjectRail.tsx",
+              "src/i18n.ts"
+            ],
+            "acceptance": [
+              "Shortcut hints dynamically use the Command symbol (⌘) on macOS platforms, and 'Ctrl' on Windows/Linux."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/3614250633747604412/activities/cabba602a45c469b80d979cda2137f04",
+          "report_sha256": "95d691f1e836e39115df17cf3f45af46140104ac04ed0da5b138d046c7748526",
+          "activity_created_at": "2026-10-11T03:52:50.677074Z",
+          "session_id": "3614250633747604412",
+          "dispatch_key": "28eaef5d02fce1afd6b2891f"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-d5e58df258611f91",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-b343e6c8e66ef195"
+            },
+            {
+              "id": "discovery-47799e83a647884f",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-7ea0512cd4985404"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Preserve renaming UI state on backend failure during workspace and session renaming",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-b343e6c8e66ef195; not established as a duplicate. {\"detail\": \"The implementation in src/App.tsx synchronously clears renaming UI state prior to awaiting API promises. If the backend fails, the user loses their input. The state should only be cleared upon success.\", \"reproduction\": {\"actual\": \"The input field is closed synchronously and state is reset.\", \"expected\": \"The input field remains open with the user's text intact when an error is caught.\", \"steps\": [\"Locate submitWorkspaceRename and submitRenameSession in src/App.tsx.\", \"Simulate a backend error in renameWorkspace or setSessionTitlePin.\", \"Trigger a rename operation and observe the UI state.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via source inspection that renaming UI state is reset prior to awaiting the result.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-5577ea4e9ef26ca2\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Workspace rename state (`renamingWorkspaceKey` and `workspaceNameValue`) is preserved if the backend operation throws an error.",
+                "Session rename state (`renamingSessionId`) is only cleared after a successful backend response, preserving user input on failure."
+              ]
+            },
+            {
+              "title": "Localize hardcoded workspace shortcuts for macOS",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-7ea0512cd4985404; not established as a duplicate. {\"detail\": \"Shortcut texts are hardcoded strings ('Ctrl + ...') within src/WorkspaceHome.tsx, src/ProjectRail.tsx, and src/i18n.ts. The runtime.platform property is available but currently ignored.\", \"reproduction\": {\"actual\": \"Shortcuts statically render 'Ctrl' on all platforms.\", \"expected\": \"Shortcuts dynamically use the Command symbol (⌘) on macOS platforms.\", \"steps\": [\"Open src/WorkspaceHome.tsx and observe the hardcoded 'Ctrl + Shift + O'.\", \"Open src/ProjectRail.tsx and observe the hardcoded 'Ctrl + B'.\", \"Open src/i18n.ts and search for 'Ctrl'.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed the previous observation that hardcoded UI shortcuts degrade UX on macOS. Proposing to use the existing runtime.platform prop.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-7ea0512cd4985404\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/WorkspaceHome.tsx",
+                "src/ProjectRail.tsx",
+                "src/i18n.ts"
+              ],
+              "acceptance": [
+                "Shortcut hints dynamically use the Command symbol (⌘) on macOS platforms, and 'Ctrl' on Windows/Linux."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-11T03:57:03.145409Z",
+    "last_poll_at": "2026-10-11T04:15:55.534737Z",
     "last_tick_at": "2026-10-11T03:57:16.372962Z",
     "run_id": "38109616945",
     "owner_recovery_requests": [
