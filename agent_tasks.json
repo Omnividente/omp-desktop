@@ -196127,7 +196127,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T04:58:55.106307Z"
+        "observed_at": "2026-10-11T04:58:55.106307Z",
+        "released_attempt_ref": "autonomous/attempt-47087aaf9db5be2fc1c52cb0"
       },
       "research_result": {
         "summary": "Confirmed that renaming UI state is incorrectly reset before backend calls complete, and workspace shortcuts statically use 'Ctrl' without considering the current platform.",
