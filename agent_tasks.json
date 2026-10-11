@@ -461520,6 +461520,16 @@
           "actor": "Omnividente"
         },
         "event_id": "c7a202878e90c6c8763743f06d95b9f807ffe3b50328e209f2e734c0936bfbf8"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-11T08:26:22.232603Z",
+        "decision_id": "327908eda31a3bcaf51898d7a3a5625ecee87cdd46c6cf0ff1faa022eac343b5",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-11T08:26:20.772698Z"
+        },
+        "event_id": "f30b8b4df71f6b2ce6495c7e5d8e23fe3c01ee731f04ced442cc7a7226596cdc"
       }
     ]
   }
