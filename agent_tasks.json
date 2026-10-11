@@ -197851,7 +197851,7 @@
       "id": "research-settings-models-reliability-20",
       "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -198092,16 +198092,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1025400506894255782",
         "dispatch_key": "5b0b4bccdea47d070e87c31b",
         "base_sha": "8c05faab30ca25f9d7e22a69e026f7a19f18cbcf",
         "starting_branch": "autonomous/attempt-5b0b4bccdea47d070e87c31b",
         "started_at": "2026-10-11T06:26:20.789732Z",
-        "finished_at": "",
+        "finished_at": "2026-10-11T07:13:48.405130Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "02b1c38010e76b3651193c635288cf9fac01ff56",
@@ -198271,13 +198271,151 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-11T06:49:35.023019Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-11T07:13:48.405130Z"
+      },
+      "research_result": {
+        "summary": "Investigated Settings recovery fallback, ModelPicker keyboard focus behavior, and proxy overlay generation in terminal.rs. Confirmed that non-settings errors trap the user in the SettingsRecoveryScreen, ModelPicker's ArrowDown navigation inappropriately removes focus from the search input by directly focusing option buttons, and disabled_providers from OmpConfigSnapshot are not considered when generating the proxy-providers.yml overlay.",
+        "observations": [
+          {
+            "scenario": "Simulating a non-settings error during startWithDefaults fallback.",
+            "evidence": "Executed an isolated Vitest JSdom test simulating a fallback error in App.tsx. Triggered SettingsRecoveryScreen, mocked startWithDefaults to throw a generic Network Timeout error. The assertion showed that the error dialog appears but the settings recovery state is not reset, leaving the user permanently trapped on the recovery screen.",
+            "result": "A non-settings error during the defaults fallback process permanently traps the user on the recovery screen without returning to the normal splash screen or error state."
+          },
+          {
+            "scenario": "Using arrow keys to navigate the list in ModelPicker's search input.",
+            "evidence": "Executed an isolated Vitest JSdom test rendering ModelPicker and simulating ArrowDown key press on the search input. It was observed that document.activeElement changes away from the input to an undefined object (in test failing due to old broken focus logic manually moving focus to button options instead of keeping it on input). Source review confirmed manual .focus() calls on option buttons inside handleListboxKeyDown.",
+            "result": "The current keyboard navigation implementation physically moves DOM focus from the <input> to the <button> options, which interrupts continuous typing."
+          },
+          {
+            "scenario": "Generating proxy-providers.yml overlay upon terminal launch or restart.",
+            "evidence": "Source code review of terminal.rs (e.g. `ensure_proxy_provider_overlay` calls) showed that it directly uses `settings.proxy_providers` from AppSettings without loading the backend catalog state via `load_config_snapshot` to filter out `disabled_providers`. The `omp_bridge.rs` does manage disabled_providers but this information is not used when constructing the proxy overlay in `terminal.rs`.",
+            "result": "Disabled proxy providers are still included in the proxy-providers.yml overlay, which may unintentionally enable them when starting the terminal process."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-11T07:13:48.405130Z",
+        "source": {
+          "activity_id": "sessions/1025400506894255782/activities/b83ef7fd7658424ba2dc603fa8f49b4b",
+          "report_sha256": "a4ef8e32347d76400a07a42308e59539415e6a76f443d6216157bf7d47306030",
+          "activity_created_at": "2026-10-11T06:44:52.420160Z",
+          "session_id": "1025400506894255782",
+          "dispatch_key": "5b0b4bccdea47d070e87c31b"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-31392473c06b5573; not established as a duplicate. {\"detail\": \"Measured via an isolated synthetic JS test of the App component. Mocked startWithDefaults to return a generic error. The user remains trapped on the recovery screen because recoverSettingsWithDefaults does not reset settingsRecovery.\", \"reproduction\": {\"actual\": \"The user remains trapped on the recovery screen with the initial settings parse error.\", \"expected\": \"The recovery screen clears its state allowing the app to show the standard splash error after a non-settings failure.\", \"steps\": [\"Trigger the SettingsRecoveryScreen.\", \"Click 'Start with Defaults' and simulate a non-settings error (like a network timeout).\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+            ]
+          },
+          {
+            "title": "Fix ModelPicker to keep focus on input during keyboard navigation",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-e3f725a71e16644f; not established as a duplicate. {\"detail\": \"Measured via an isolated synthetic JS test and source code review. The component already has aria-activedescendant properly mapped but handleListboxKeyDown manually focuses the option buttons, shifting DOM focus away from the input.\", \"reproduction\": {\"actual\": \"DOM focus moves to the listbox option button, interrupting typing.\", \"expected\": \"Focus remains on the input and continuous typing works while aria-activedescendant tracks the highlighted option.\", \"steps\": [\"Open ModelPicker and click the search input.\", \"Type part of a model name.\", \"Press ArrowDown to highlight an option.\", \"Type another character.\"]}, \"revisit\": {\"change_kind\": \"code_change\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Previous proposals attempted to add a combobox role to ModelPicker which was rejected due to lack of the complete combobox contract. This proposal utilizes the existing aria-activedescendant attribute without changing ARIA roles and simply removes the focus() call to prevent typing interruption.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-9c8886af63d9bea5\", \"responses\": [{\"decision_context_id\": \"1a96f44c0a06f6949961226b2cd19d5642f4dc4a9b0569c81f55db9cceaacdd4\", \"decision_task_id\": \"discovery-9c8886af63d9bea5\", \"why_previous_reason_no_longer_explains\": \"The owner's rejection highlighted that adding a combobox role without the complete contract is misleading. We are not adding a combobox role. Instead, we remove the problematic .focus() call and rely on the already-present aria-activedescendant attribute.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/ModelPicker.tsx"
+            ],
+            "acceptance": [
+              "Arrow keys navigate the list without removing DOM focus from the search input.",
+              "Continuous typing after arrow navigation works.",
+              "The aria-activedescendant attribute properly updates without focusing option buttons."
+            ]
+          },
+          {
+            "title": "Exclude disabled proxy providers from the proxy-providers.yml overlay",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-f7cec393fa805278; not established as a duplicate. {\"detail\": \"Source code review of terminal.rs shows ensure_proxy_provider_overlay is called directly with settings.proxy_providers. It does not check if those providers are disabled in the OMP config (via load_config_snapshot).\", \"reproduction\": {\"actual\": \"Disabled proxy providers are still included in the proxy-providers.yml overlay when the terminal restarts.\", \"expected\": \"Disabled proxy providers are excluded from the proxy-providers.yml overlay.\", \"steps\": [\"Disable a provider that is currently active as a proxy provider.\", \"Check the generated proxy-providers.yml overlay file in the config dir.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src-tauri/src/terminal.rs"
+            ],
+            "acceptance": [
+              "When the proxy overlay is generated on terminal launch or restart, providers listed in OmpConfigSnapshot.disabled_providers are not passed to ensure_proxy_provider_overlay."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1025400506894255782/activities/b83ef7fd7658424ba2dc603fa8f49b4b",
+          "report_sha256": "a4ef8e32347d76400a07a42308e59539415e6a76f443d6216157bf7d47306030",
+          "activity_created_at": "2026-10-11T06:44:52.420160Z",
+          "session_id": "1025400506894255782",
+          "dispatch_key": "5b0b4bccdea47d070e87c31b"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e982e435945a44d3",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-31392473c06b5573"
+            },
+            {
+              "id": "discovery-abc11926eafc8db2",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-e3f725a71e16644f"
+            },
+            {
+              "id": "discovery-f4a49ed47e689960",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-f7cec393fa805278"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-31392473c06b5573; not established as a duplicate. {\"detail\": \"Measured via an isolated synthetic JS test of the App component. Mocked startWithDefaults to return a generic error. The user remains trapped on the recovery screen because recoverSettingsWithDefaults does not reset settingsRecovery.\", \"reproduction\": {\"actual\": \"The user remains trapped on the recovery screen with the initial settings parse error.\", \"expected\": \"The recovery screen clears its state allowing the app to show the standard splash error after a non-settings failure.\", \"steps\": [\"Trigger the SettingsRecoveryScreen.\", \"Click 'Start with Defaults' and simulate a non-settings error (like a network timeout).\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+              ]
+            },
+            {
+              "title": "Fix ModelPicker to keep focus on input during keyboard navigation",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-e3f725a71e16644f; not established as a duplicate. {\"detail\": \"Measured via an isolated synthetic JS test and source code review. The component already has aria-activedescendant properly mapped but handleListboxKeyDown manually focuses the option buttons, shifting DOM focus away from the input.\", \"reproduction\": {\"actual\": \"DOM focus moves to the listbox option button, interrupting typing.\", \"expected\": \"Focus remains on the input and continuous typing works while aria-activedescendant tracks the highlighted option.\", \"steps\": [\"Open ModelPicker and click the search input.\", \"Type part of a model name.\", \"Press ArrowDown to highlight an option.\", \"Type another character.\"]}, \"revisit\": {\"change_kind\": \"code_change\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Previous proposals attempted to add a combobox role to ModelPicker which was rejected due to lack of the complete combobox contract. This proposal utilizes the existing aria-activedescendant attribute without changing ARIA roles and simply removes the focus() call to prevent typing interruption.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-9c8886af63d9bea5\", \"responses\": [{\"decision_context_id\": \"1a96f44c0a06f6949961226b2cd19d5642f4dc4a9b0569c81f55db9cceaacdd4\", \"decision_task_id\": \"discovery-9c8886af63d9bea5\", \"why_previous_reason_no_longer_explains\": \"The owner's rejection highlighted that adding a combobox role without the complete contract is misleading. We are not adding a combobox role. Instead, we remove the problematic .focus() call and rely on the already-present aria-activedescendant attribute.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/ModelPicker.tsx"
+              ],
+              "acceptance": [
+                "Arrow keys navigate the list without removing DOM focus from the search input.",
+                "Continuous typing after arrow navigation works.",
+                "The aria-activedescendant attribute properly updates without focusing option buttons."
+              ]
+            },
+            {
+              "title": "Exclude disabled proxy providers from the proxy-providers.yml overlay",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-f7cec393fa805278; not established as a duplicate. {\"detail\": \"Source code review of terminal.rs shows ensure_proxy_provider_overlay is called directly with settings.proxy_providers. It does not check if those providers are disabled in the OMP config (via load_config_snapshot).\", \"reproduction\": {\"actual\": \"Disabled proxy providers are still included in the proxy-providers.yml overlay when the terminal restarts.\", \"expected\": \"Disabled proxy providers are excluded from the proxy-providers.yml overlay.\", \"steps\": [\"Disable a provider that is currently active as a proxy provider.\", \"Check the generated proxy-providers.yml overlay file in the config dir.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src-tauri/src/terminal.rs"
+              ],
+              "acceptance": [
+                "When the proxy overlay is generated on terminal launch or restart, providers listed in OmpConfigSnapshot.disabled_providers are not passed to ensure_proxy_provider_overlay."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-11T06:50:02.390992Z",
+    "last_poll_at": "2026-10-11T07:14:17.885885Z",
     "last_tick_at": "2026-10-11T06:50:17.970997Z",
     "run_id": "38118911993",
     "owner_recovery_requests": [
