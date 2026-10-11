@@ -195947,8 +195947,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "2131688214805308715",
         "dispatch_key": "47087aaf9db5be2fc1c52cb0",
         "base_sha": "8c05faab30ca25f9d7e22a69e026f7a19f18cbcf",
         "starting_branch": "autonomous/attempt-47087aaf9db5be2fc1c52cb0",
