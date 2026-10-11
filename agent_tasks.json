@@ -195639,7 +195639,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T04:15:30.826632Z"
+        "observed_at": "2026-10-11T04:15:30.826632Z",
+        "released_attempt_ref": "autonomous/attempt-28eaef5d02fce1afd6b2891f"
       },
       "research_result": {
         "summary": "Verified the UX defect regarding workspace/session rename state reset on API failure.",
