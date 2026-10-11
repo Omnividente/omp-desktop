@@ -196613,7 +196613,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T05:20:18.721102Z"
+        "observed_at": "2026-10-11T05:20:18.721102Z",
+        "released_attempt_ref": "autonomous/attempt-ab59b517abcfed157e611165"
       },
       "research_result": {
         "summary": "Verified the UX defect regarding workspace/session rename state reset on API failure and hardcoded Ctrl shortcuts.",
