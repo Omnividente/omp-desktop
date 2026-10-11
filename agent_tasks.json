@@ -454952,6 +454952,15 @@
         },
         "receipt_id": "2df4d77a0c4449cf65d2596a5ab61aaa9d105c3f7d2d7e8fef28d5ff62cb72c9",
         "event_id": "60bd31ca39b92e95b70c6212eadd52d0a708fae0ba32de087ddcb6b5d396a30d"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-11T06:33:39.753349Z",
+        "decision_id": "335a1f88ffd9cd30762d9f0703f68a013863a663ae2d06e88096801647a57f34",
+        "executor_claim_id": "7ba796d7bc7be6c743e12bfac4aea1ca3f8cbebed90e5508efe91c195c897be7",
+        "receipt_id": "2df4d77a0c4449cf65d2596a5ab61aaa9d105c3f7d2d7e8fef28d5ff62cb72c9",
+        "frontier_seq": 587,
+        "event_id": "13f7e3fbbe7b94050930bcd5742acbdbedd9357a09a3227a01accb1db635188b"
       }
     ]
   }
