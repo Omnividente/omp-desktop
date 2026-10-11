@@ -199320,7 +199320,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T08:20:39.534729Z"
+        "observed_at": "2026-10-11T08:20:39.534729Z",
+        "released_attempt_ref": "autonomous/attempt-50cfc331ca7465c9778571c4"
       },
       "research_result": {
         "summary": "Investigated content links regex performance, useTranscript loadTranscriptPath error handling, and virtual list scroll alignment. Confirmed catastrophic backtracking in MARKDOWN_LINK regex when testing with 100,000 unclosed '[' characters (taking ~17.5s). Verified that loadTranscriptPath does not properly handle promise rejections, leaving the error uncaught instead of updating state. Verified that scrollToIndex in useVirtualList intrinsically aligns oversized items by top offset, preventing bottom alignment.",
