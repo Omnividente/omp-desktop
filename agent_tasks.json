@@ -447508,6 +447508,16 @@
           "actor": "Omnividente"
         },
         "event_id": "2cdfd2afa42570b9dd9462a43a14c3693f69c44802828a53c148eb68de1ee6ba"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-11T04:42:37.455203Z",
+        "decision_id": "679f199bfeb20575a353452ea16b2f292bbac591aecb5a39a8b96d31a5aec750",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-11T04:42:36.001332Z"
+        },
+        "event_id": "65fefe5ce83d967f09a1a5ac699dfbadb6b491627ab0c38eac032e2e22433663"
       }
     ]
   }
