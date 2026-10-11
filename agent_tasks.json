@@ -198831,7 +198831,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-11T07:38:55.394263Z"
+        "observed_at": "2026-10-11T07:38:55.394263Z",
+        "released_attempt_ref": "autonomous/attempt-5cab5f819d5392441dee2e9d"
       },
       "research_result": {
         "summary": "Investigated the three proposed findings from prior cycles: the App.tsx recovery screen bug, the ModelPicker focus issue, and the proxy overlay missing disabled providers check. Confirmed all three via read-only examination.",
