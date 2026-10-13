@@ -13,6 +13,10 @@ export function localeTag(lang: Lang): string {
   return lang === "en" ? "en" : "ru"
 }
 
+export function formatShortcut(shortcut: string, platform: string): string {
+  return platform === "macos" ? shortcut.replace(/\bCtrl\b/g, "⌘") : shortcut
+}
+
 export function formatTerminalExitLine(event: PtyExitEvent, language: Lang): string {
   if (event.error) {
     return `\r\n\x1b[38;2;239;112;112m${t(language, "ompTerminated")}: ${event.error}\x1b[0m\r\n`
@@ -118,6 +122,7 @@ export function replaceTerminalAfterRestart(
     switchRecovery: null,
     primaryProviderPinned,
     primaryProviderPinPending: false,
+    preserveFocusOnAttach: true,
   }
 }
 

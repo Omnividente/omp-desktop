@@ -9,6 +9,7 @@ import { Icon, type IconName } from "./Icon"
 import { t } from "./i18n"
 import { SessionList, type SessionListProps } from "./SessionList"
 import type { RailMode, WorkspaceSummary } from "./types"
+import { formatShortcut } from "./uiUtils"
 
 interface ProjectRailProps {
   autoHidePaused: boolean
@@ -67,6 +68,7 @@ export function ProjectRail({
   onRemoveWorkspace,
 }: ProjectRailProps) {
   const { lang } = sessionList
+  const shortcutHint = formatShortcut(t(lang, "railModeShortcut"), sessionList.platform)
   const railRef = useRef<HTMLElement>(null)
   const openFolderRef = useRef<HTMLButtonElement>(null)
   const removalFocusRef = useRef<{ key: string; button: HTMLButtonElement } | null>(null)
@@ -193,7 +195,7 @@ export function ProjectRail({
     >
       <div className="rail-toolbar">
         <span className="rail-heading">{t(lang, "projects")}</span>
-        <div className="rail-mode-controls" role="group" aria-label={t(lang, "railModeShortcut")}>
+        <div className="rail-mode-controls" role="group" aria-label={shortcutHint}>
           {MODE_OPTIONS.map((option) => (
             <button
               aria-label={t(lang, option.label)}
@@ -326,8 +328,8 @@ export function ProjectRail({
       )}
       <div className="rail-footer">
         <Icon name="command" size={15} />
-        <span>Ctrl + B</span>
-        <small>{t(lang, "railModeShortcut")}</small>
+        <span>{formatShortcut("Ctrl + B", sessionList.platform)}</span>
+        <small>{shortcutHint}</small>
       </div>
     </aside>
   )

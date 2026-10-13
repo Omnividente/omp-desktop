@@ -8,6 +8,7 @@ import * as api from "./api"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { listen, type EventCallback } from "@tauri-apps/api/event"
 import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
+import { t } from "./i18n"
 import type {
   BootstrapPayload,
   ImportBatchPayload,
@@ -505,6 +506,44 @@ describe("App lifecycle serialization", () => {
     expect(container.textContent).toContain("C session")
   })
 
+  it("retains a failed session rename for retry and submits an unchanged pending draft only once", async () => {
+    const pending = deferred<BootstrapPayload>()
+    invokeMock.mockReturnValue(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      element(`[title="${t(bootstrap.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        "Retry title",
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    })
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    await act(async () => pending.reject(new Error("Session rename could not be saved")))
+    expect(element<HTMLInputElement>(".session-rename").value).toBe("Retry title")
+    expect(container.textContent).toContain("Session rename could not be saved")
+    invokeMock.mockResolvedValue({
+      ...bootstrap,
+      sessions: bootstrap.sessions.map((session) => ({
+        ...session,
+        title: "Retry title",
+        pinnedTitle: "Retry title",
+      })),
+    })
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(container.querySelector(".session-select strong")?.textContent).toBe("Retry title")
+  })
+
   it("preserves a successful workspace write when an overlapping rename later fails", async () => {
     const backend = await workspaceBackend(workspacePayload("A", "B"))
     const deliverSuccess = backend.hold("rename_workspace", "C:/fixture/A")
@@ -518,8 +557,13 @@ describe("App lifecycle serialization", () => {
     await renameProject("B", "Unsaved B")
     await act(async () => deliverSuccess())
     await act(async () => deliverFailure())
-    expect(projectNames()).toEqual(["Saved A", "B"])
     expect(container.textContent).toContain("Workspace rename could not be saved")
+    const draft = element<HTMLInputElement>(".project-rename")
+    expect(draft.value).toBe("Unsaved B")
+    await act(async () =>
+      draft.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    )
+    expect(projectNames()).toEqual(["Saved A", "B"])
     await act(async () => element('.project-item[aria-label^="Saved A,"]').click())
     expect(container.textContent).toContain("A session")
   })
@@ -866,6 +910,36 @@ describe("App lifecycle serialization", () => {
       expect(installClientUpdate).not.toHaveBeenCalled()
       await act(async () => confirmation.resolve(false))
       expect(installClientUpdate).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([false, true])(
+    "retains provider-pin focus across a replacement terminal without reclaiming external focus (%s)",
+    async (externalFocus) => {
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValue(restart.promise)
+      await mountAndResume()
+      const outside = document.createElement("button")
+      document.body.appendChild(outside)
+      try {
+        const pin = element<HTMLButtonElement>(".primary-provider-pin")
+        act(() => {
+          pin.focus()
+          pin.click()
+        })
+        expect(pin.disabled).toBe(true)
+        expect(document.activeElement).toBe(element(".session-controls"))
+        if (externalFocus) act(() => outside.focus())
+        await act(async () =>
+          restart.resolve({ ...started, terminalId: "terminal-restarted", processId: 102 }),
+        )
+        const currentPin = element<HTMLButtonElement>(".primary-provider-pin")
+        expect(currentPin.disabled).toBe(false)
+        expect(currentPin.getAttribute("aria-checked")).toBe("true")
+        expect(document.activeElement).toBe(externalFocus ? outside : currentPin)
+      } finally {
+        outside.remove()
+      }
     },
   )
 

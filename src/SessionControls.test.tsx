@@ -109,6 +109,49 @@ describe("SessionControls primary provider pin", () => {
     expect(onToggle).toHaveBeenCalledWith("terminal-1", true)
   })
 
+  it.each([false, true])(
+    "keeps a valid focus target during pin restart without reclaiming external focus (%s)",
+    (externalFocus) => {
+      const outside = document.createElement("button")
+      document.body.appendChild(outside)
+      const render = (pending: boolean) =>
+        root.render(
+          <SessionControls
+            installingDesktopUpdate={false}
+            lang="ru"
+            ompConfig={config()}
+            onDiscardSwitchRecovery={vi.fn()}
+            onSendSwitchRecovery={vi.fn()}
+            onSwitch={vi.fn()}
+            onTogglePrimaryProviderPin={() => render(true)}
+            runtimeStatus="normal"
+            tab={{ ...tab, primaryProviderPinPending: pending }}
+          />,
+        )
+      try {
+        act(() => render(false))
+        const pin = container.querySelector<HTMLButtonElement>(".primary-provider-pin")!
+        act(() => {
+          pin.focus()
+          pin.click()
+        })
+        expect(pin.disabled).toBe(true)
+        const controls = container.querySelector(".session-controls")
+        expect(document.activeElement).toBe(controls)
+        if (externalFocus)
+          act(() => {
+            outside.focus()
+            outside.blur()
+          })
+        act(() => render(false))
+        expect(pin.disabled).toBe(false)
+        expect(document.activeElement).toBe(externalFocus ? document.body : pin)
+      } finally {
+        outside.remove()
+      }
+    },
+  )
+
   it("waits for session discovery before enabling restart", () => {
     const onToggle = vi.fn()
     act(() => {

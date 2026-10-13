@@ -460,4 +460,5 @@ export interface TerminalTab {
   completedResponseVersion?: number
   primaryProviderPinned: boolean
   primaryProviderPinPending: boolean
+  preserveFocusOnAttach?: boolean
 }

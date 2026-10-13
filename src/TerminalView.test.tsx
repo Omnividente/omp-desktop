@@ -56,12 +56,16 @@ vi.mock("@xterm/xterm", () => ({
     modes = { bracketedPasteMode: false, mouseTrackingMode: "none" }
     buffer = { active: { viewportY: 0, baseY: 0 } }
     options: Record<string, unknown>
+    private readonly input = document.createElement("textarea")
     constructor(options: Record<string, unknown>) {
       this.options = options
       terminalState.instance = this
     }
     loadAddon() {}
-    open() {}
+    open(container: HTMLElement) {
+      this.input.className = "mock-terminal-input"
+      container.appendChild(this.input)
+    }
     refresh() {}
     attachCustomKeyEventHandler() {}
     onSelectionChange(callback: () => void) {
@@ -91,6 +95,7 @@ vi.mock("@xterm/xterm", () => ({
     }
     focus() {
       terminalState.focus()
+      this.input.focus()
     }
     paste(input: string) {
       terminalState.paste(input)
@@ -103,7 +108,9 @@ vi.mock("@xterm/xterm", () => ({
     write(_data: string | Uint8Array, callback?: () => void) {
       if (callback) terminalState.writeCallbacks.push(callback)
     }
-    dispose() {}
+    dispose() {
+      this.input.remove()
+    }
   },
 }))
 vi.mock("./api", () => ({
@@ -345,6 +352,45 @@ it("restores keyboard focus when fit fails during tab activation", async () => {
     width.mockRestore()
     height.mockRestore()
     rects.mockRestore()
+  }
+})
+
+it("preserves replacement focus while allowing explicit requests and later tab activation", async () => {
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  const outside = document.createElement("button")
+  document.body.appendChild(outside)
+  const replacement = { ...tab, id: "replacement-focus", preserveFocusOnAttach: true }
+  const render = (focusRequestSequence: number, active = true) =>
+    root.render(
+      <TerminalView
+        tab={replacement}
+        active={active}
+        focusRequestSequence={focusRequestSequence}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    )
+  try {
+    outside.focus()
+    await act(async () => render(0))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(outside)
+    await act(async () => render(1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+    outside.focus()
+    await act(async () => render(1, false))
+    await act(async () => render(1, true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+  } finally {
+    outside.remove()
   }
 })
 

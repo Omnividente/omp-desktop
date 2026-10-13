@@ -76,6 +76,10 @@ function decodeBase64(data: string): Uint8Array {
   return bytes
 }
 
+function canAutoFocusTerminal(): boolean {
+  return !document.activeElement?.closest(".terminal-meta")
+}
+
 export function TerminalView({
   tab,
   active,
@@ -101,6 +105,8 @@ export function TerminalView({
   const fitRef = useRef<(() => void) | null>(null)
   const jumpToBottomRef = useRef<(() => void) | null>(null)
   const activeRef = useRef(active)
+  const lastFocusRequestRef = useRef(focusRequestSequence)
+  const activationTerminalIdRef = useRef<string | null>(null)
   const languageRef = useRef(language)
   const terminalFontFamilyRef = useRef(terminalFontFamily)
   const terminalFontSizeRef = useRef(terminalFontSize)
@@ -749,7 +755,8 @@ export function TerminalView({
       fitFrame = window.requestAnimationFrame(() => {
         fitFrame = null
         fit()
-        if (activeRef.current) terminal.focus()
+        if (activeRef.current && !tab.preserveFocusOnAttach && canAutoFocusTerminal())
+          terminal.focus()
       })
     }
 
@@ -789,7 +796,7 @@ export function TerminalView({
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [platform, tab.id, tab.kind])
+  }, [platform, tab.id, tab.kind, tab.preserveFocusOnAttach])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -801,16 +808,25 @@ export function TerminalView({
   }, [terminalFontFamily, terminalFontSize])
 
   useEffect(() => {
+    const initialAttachment = activationTerminalIdRef.current !== tab.id
+    activationTerminalIdRef.current = tab.id
     if (!active) {
       if (platform === "linux") fitRef.current?.()
       return
     }
+    const explicitlyRequested = focusRequestSequence !== lastFocusRequestRef.current
+    lastFocusRequestRef.current = focusRequestSequence
     const frame = window.requestAnimationFrame(() => {
       fitRef.current?.()
-      terminalRef.current?.focus()
+      if (
+        explicitlyRequested ||
+        ((!initialAttachment || !tab.preserveFocusOnAttach) && canAutoFocusTerminal())
+      ) {
+        terminalRef.current?.focus()
+      }
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [active, focusRequestSequence, platform, tab.id])
+  }, [active, focusRequestSequence, platform, tab.id, tab.preserveFocusOnAttach])
 
   useEffect(() => {
     if (active) return

@@ -281,8 +281,12 @@ function App() {
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const sessionRenameRequestRef = useRef(0)
+  const sessionRenamePendingRef = useRef<number | null>(null)
   const [renamingWorkspaceKey, setRenamingWorkspaceKey] = useState<string | null>(null)
   const [workspaceNameValue, setWorkspaceNameValue] = useState("")
+  const workspaceRenameRequestRef = useRef(0)
+  const workspaceRenamePendingRef = useRef<number | null>(null)
   const [workspaceBusyKey, setWorkspaceBusyKey] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null)
@@ -650,25 +654,39 @@ function App() {
   )
 
   const startWorkspaceRename = useCallback((workspace: WorkspaceSummary) => {
+    ++workspaceRenameRequestRef.current
     setRenamingWorkspaceKey(workspace.key)
     setWorkspaceNameValue(workspace.name)
+  }, [])
+
+  const changeWorkspaceName = useCallback((value: string) => {
+    ++workspaceRenameRequestRef.current
+    setWorkspaceNameValue(value)
   }, [])
 
   const submitWorkspaceRename = useCallback(
     async (workspace: WorkspaceSummary) => {
       if (renamingWorkspaceKey !== workspace.key || workspaceBusyKey === workspace.key) return
       const name = workspaceNameValue.trim()
-      setRenamingWorkspaceKey(null)
-      setWorkspaceNameValue("")
+      const request = workspaceRenameRequestRef.current
+      if (workspaceRenamePendingRef.current === request) return
       if (!name || name === workspace.name) {
+        setRenamingWorkspaceKey(null)
+        setWorkspaceNameValue("")
         return
       }
+      workspaceRenamePendingRef.current = request
       setWorkspaceBusyKey(workspace.key)
       try {
         applyPayload(await renameWorkspace(workspace.path, name))
+        if (request === workspaceRenameRequestRef.current) {
+          setRenamingWorkspaceKey(null)
+          setWorkspaceNameValue("")
+        }
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        if (workspaceRenamePendingRef.current === request) workspaceRenamePendingRef.current = null
         setWorkspaceBusyKey((current) => (current === workspace.key ? null : current))
       }
     },
@@ -679,14 +697,15 @@ function App() {
     (event: ReactKeyboardEvent<HTMLInputElement>, workspace: WorkspaceSummary) => {
       if (event.key === "Enter") {
         event.preventDefault()
-        event.currentTarget.blur()
+        void submitWorkspaceRename(workspace)
       } else if (event.key === "Escape") {
         event.preventDefault()
+        ++workspaceRenameRequestRef.current
         setRenamingWorkspaceKey(null)
         setWorkspaceNameValue(workspace.name)
       }
     },
-    [],
+    [submitWorkspaceRename],
   )
 
   const removeWorkspace = useCallback(
@@ -1908,16 +1927,24 @@ function App() {
     async (session: SessionSummary, title: string | null) => {
       try {
         applyPayload(await setSessionTitlePin(session.filePath, title))
+        return true
       } catch (error) {
         showError(errorMessage(error, lang))
+        return false
       }
     },
     [applyPayload, lang, showError],
   )
 
   const startRenameSession = useCallback((session: SessionSummary) => {
+    ++sessionRenameRequestRef.current
     setRenameValue(session.title)
     setRenamingSessionId(session.id)
+  }, [])
+
+  const changeRenameValue = useCallback((value: string) => {
+    ++sessionRenameRequestRef.current
+    setRenameValue(value)
   }, [])
 
   const toggleSessionTitlePin = useCallback(
@@ -1928,11 +1955,23 @@ function App() {
   )
 
   const submitRenameSession = useCallback(
-    (session: SessionSummary) => {
+    async (session: SessionSummary) => {
       if (renamingSessionId !== session.id) return
-      setRenamingSessionId(null)
+      const request = sessionRenameRequestRef.current
+      if (sessionRenamePendingRef.current === request) return
       const trimmed = renameValue.trim()
-      if (trimmed) void updateSessionTitlePin(session, trimmed)
+      if (!trimmed) {
+        setRenamingSessionId(null)
+        return
+      }
+      sessionRenamePendingRef.current = request
+      try {
+        if (await updateSessionTitlePin(session, trimmed)) {
+          if (request === sessionRenameRequestRef.current) setRenamingSessionId(null)
+        }
+      } finally {
+        if (sessionRenamePendingRef.current === request) sessionRenamePendingRef.current = null
+      }
     },
     [renameValue, renamingSessionId, updateSessionTitlePin],
   )
@@ -1955,6 +1994,7 @@ function App() {
         submitRenameSession(session)
       } else if (event.key === "Escape") {
         event.preventDefault()
+        ++sessionRenameRequestRef.current
         setRenamingSessionId(null)
       }
     },
@@ -2261,7 +2301,7 @@ function App() {
           onRemoveWorkspace={(workspace) => void removeWorkspace(workspace)}
           onStartWorkspaceRename={startWorkspaceRename}
           onSubmitWorkspaceRename={(workspace) => void submitWorkspaceRename(workspace)}
-          onWorkspaceNameChange={setWorkspaceNameValue}
+          onWorkspaceNameChange={changeWorkspaceName}
           onWorkspaceRenameKeyDown={handleWorkspaceRenameKeyDown}
           sessionList={{
             canLaunch: payload.runtime.ompAvailable && !installingClientUpdate,
@@ -2277,7 +2317,7 @@ function App() {
             onNewSession: () => void launchSession(),
             onOpenCodex: () => void openCodexImport(),
             onRenameKeyDown: handleRenameKeyDown,
-            onRenameValueChange: setRenameValue,
+            onRenameValueChange: changeRenameValue,
             onRevealWorkspace: reveal,
             onSearchChange: setSearch,
             onSelectSession: selectSession,
