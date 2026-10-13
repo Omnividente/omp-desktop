@@ -313,6 +313,11 @@ button:disabled {
   animation: spin 0.85s linear infinite;
 }
 
+.app-shell.is-linux .icon-button.is-spinning svg,
+.app-shell.is-linux .mini-loader {
+  animation: none;
+}
+
 .incident-center-trigger {
   position: relative;
 }
@@ -4181,6 +4186,17 @@ button:disabled {
   background: rgba(4, 6, 5, 0.62);
   backdrop-filter: blur(4px);
   animation: fade-in 140ms ease-out;
+}
+
+.settings-backdrop.is-linux {
+  backdrop-filter: none;
+}
+
+.settings-backdrop.is-linux .settings-loading-orbit::before,
+.settings-backdrop.is-linux .settings-loading-progress > span,
+.settings-backdrop.is-linux .settings-role-skeleton::after,
+.settings-backdrop.is-linux .mini-loader {
+  animation: none;
 }
 
 .settings-panel {

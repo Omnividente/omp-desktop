@@ -8,6 +8,7 @@ import type {
   OmpUpdateInfo,
   SessionTranscript,
   ResourceHealthSnapshot,
+  RuntimeInfo,
   SettingsSavePayload,
   SettingsSaveRequest,
   SettingsUnavailableDetails,
@@ -21,6 +22,15 @@ import type { Lang } from "./i18n"
 type SettingsUnavailableListener = (details: SettingsUnavailableDetails) => void
 
 const settingsUnavailableListeners = new Set<SettingsUnavailableListener>()
+
+export const OMP_CONFIG_STALE_MS = 10 * 60_000
+
+export type OmpConfigRuntime = Pick<RuntimeInfo, "ompAvailable" | "ompExecutable" | "ompVersion">
+
+let ompConfigFlight: {
+  runtime: OmpConfigRuntime
+  request: Promise<OmpConfigSnapshot>
+} | null = null
 
 async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
   try {
@@ -82,8 +92,15 @@ export function saveWorkspaceSelection(path: string | null): Promise<void> {
   return invoke("save_workspace_selection", { path })
 }
 
-export function saveSettingsBundle(request: SettingsSaveRequest): Promise<SettingsSavePayload> {
-  return invokeBootstrap("save_settings_bundle", { request })
+export async function saveSettingsBundle(
+  request: SettingsSaveRequest,
+): Promise<SettingsSavePayload> {
+  ompConfigFlight = null
+  try {
+    return await invokeBootstrap("save_settings_bundle", { request })
+  } finally {
+    ompConfigFlight = null
+  }
 }
 
 export function startTerminal(
@@ -213,11 +230,24 @@ export function listCodexSessions(): Promise<CodexSessionSummary[]> {
   return invoke("list_codex_sessions")
 }
 
-export function loadOmpConfig(): Promise<OmpConfigSnapshot> {
-  return invoke("load_omp_config")
+export function loadOmpConfig(runtime: OmpConfigRuntime): Promise<OmpConfigSnapshot> {
+  if (
+    ompConfigFlight &&
+    ompConfigFlight.runtime.ompAvailable === runtime.ompAvailable &&
+    ompConfigFlight.runtime.ompExecutable === runtime.ompExecutable &&
+    ompConfigFlight.runtime.ompVersion === runtime.ompVersion
+  ) {
+    return ompConfigFlight.request
+  }
+  const request = invoke<OmpConfigSnapshot>("load_omp_config").finally(() => {
+    if (ompConfigFlight?.request === request) ompConfigFlight = null
+  })
+  ompConfigFlight = { runtime, request }
+  return request
 }
 
 export function refreshOmpConfig(): Promise<OmpConfigSnapshot> {
+  ompConfigFlight = null
   return invoke("refresh_omp_config")
 }
 

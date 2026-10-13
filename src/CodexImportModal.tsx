@@ -53,17 +53,20 @@ export function CodexImportModal({
     input.focus({ preventScroll: true })
   })
   const focusAdjacent = (index: number, key: string) => {
+    const currentIndex = pendingFocusRef.current ?? index
     const next =
       key === "Home"
         ? 0
         : key === "End"
           ? sessions.length - 1
-          : index + (key === "ArrowDown" ? 1 : -1)
+          : currentIndex + (key === "ArrowDown" ? 1 : -1)
     if (next < 0 || next >= sessions.length) return
     const input = listRef.current?.querySelector<HTMLInputElement>(
       `[data-virtual-index="${next}"] input`,
     )
     if (input) {
+      if (pendingFocusRef.current !== null) scrollToIndex(next)
+      pendingFocusRef.current = null
       input.focus()
     } else {
       pendingFocusRef.current = next

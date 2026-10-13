@@ -107,19 +107,24 @@ function sharesWrappedInputLine(terminal: Terminal, firstRow: number, secondRow:
   return true
 }
 
-export function cursorMoveInput(terminal: Terminal, target: TerminalCell): string | null {
+function cursorInputDistance(terminal: Terminal, target: TerminalCell): number | null {
   const buffer = terminal.buffer.active
   if (buffer.viewportY !== buffer.baseY) return null
-  const cursor = { x: buffer.cursorX, y: buffer.baseY + buffer.cursorY }
+  const cursorY = buffer.baseY + buffer.cursorY
   if (
     target.y < buffer.baseY ||
     target.y >= buffer.baseY + terminal.rows ||
-    !sharesWrappedInputLine(terminal, cursor.y, target.y)
+    !sharesWrappedInputLine(terminal, cursorY, target.y)
   ) {
     return null
   }
-  const distance = (target.y - cursor.y) * terminal.cols + target.x - cursor.x
-  if (Math.abs(distance) > MAX_MOUSE_EDIT_CELLS) return null
+  const distance = (target.y - cursorY) * terminal.cols + target.x - buffer.cursorX
+  return Math.abs(distance) > MAX_MOUSE_EDIT_CELLS ? null : distance
+}
+
+export function cursorMoveInput(terminal: Terminal, target: TerminalCell): string | null {
+  const distance = cursorInputDistance(terminal, target)
+  if (distance === null) return null
   if (distance < 0) return CURSOR_LEFT.repeat(-distance)
   if (distance > 0) return CURSOR_RIGHT.repeat(distance)
   return ""
@@ -138,15 +143,18 @@ export function createMouseSelectionEdit(
   // xterm 6.0 exposes the selection service's zero-based coordinates at runtime.
   const start = range.start
   const end = range.end
-  const length = Array.from(text.replace(/[\r\n]/g, "")).length
   if (
-    length === 0 ||
-    length > MAX_MOUSE_EDIT_CELLS ||
-    cursorMoveInput(terminal, start) === null ||
-    cursorMoveInput(terminal, end) === null
+    cursorInputDistance(terminal, start) === null ||
+    cursorInputDistance(terminal, end) === null
   ) {
     return null
   }
+  let length = 0
+  for (const character of text) {
+    if (character === "\r" || character === "\n") continue
+    if (++length > MAX_MOUSE_EDIT_CELLS) return null
+  }
+  if (length === 0) return null
 
   const releaseIndex = cellIndex(terminal, releaseCell)
   const startDistance = Math.abs(releaseIndex - cellIndex(terminal, start))

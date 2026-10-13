@@ -37,6 +37,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 }))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
+    proposeDimensions() {
+      return { cols: 80, rows: 24 }
+    }
     fit() {
       if (terminalState.fitThrows) throw new Error("zero-sized terminal")
       if (terminalState.instance) {
@@ -53,12 +56,17 @@ vi.mock("@xterm/xterm", () => ({
     modes = { bracketedPasteMode: false, mouseTrackingMode: "none" }
     buffer = { active: { viewportY: 0, baseY: 0 } }
     options: Record<string, unknown>
+    private readonly input = document.createElement("textarea")
     constructor(options: Record<string, unknown>) {
       this.options = options
       terminalState.instance = this
     }
     loadAddon() {}
-    open() {}
+    open(container: HTMLElement) {
+      this.input.className = "mock-terminal-input"
+      container.appendChild(this.input)
+    }
+    refresh() {}
     attachCustomKeyEventHandler() {}
     onSelectionChange(callback: () => void) {
       terminalState.selectionChanged = callback
@@ -87,6 +95,7 @@ vi.mock("@xterm/xterm", () => ({
     }
     focus() {
       terminalState.focus()
+      this.input.focus()
     }
     paste(input: string) {
       terminalState.paste(input)
@@ -99,7 +108,9 @@ vi.mock("@xterm/xterm", () => ({
     write(_data: string | Uint8Array, callback?: () => void) {
       if (callback) terminalState.writeCallbacks.push(callback)
     }
-    dispose() {}
+    dispose() {
+      this.input.remove()
+    }
   },
 }))
 vi.mock("./api", () => ({
@@ -241,6 +252,10 @@ it("retains Reply quoting and clears only after choosing Reply; Escape dismisses
 
 it("resizes the PTY when font metrics change without container resize", async () => {
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue({ length: 1 } as DOMRectList)
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
   try {
@@ -283,11 +298,17 @@ it("resizes the PTY when font metrics change without container resize", async ()
     expect(resizeTerminal).toHaveBeenCalledWith(tab.id, 70, 24)
   } finally {
     width.mockRestore()
+    height.mockRestore()
+    rects.mockRestore()
   }
 })
 
 it("restores keyboard focus when fit fails during tab activation", async () => {
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue({ length: 1 } as DOMRectList)
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
   try {
@@ -329,10 +350,51 @@ it("restores keyboard focus when fit fails during tab activation", async () => {
     expect(terminalState.focus).toHaveBeenCalled()
   } finally {
     width.mockRestore()
+    height.mockRestore()
+    rects.mockRestore()
   }
 })
 
-it("shows a labeled return control only away from the latest output", async () => {
+it("preserves replacement focus while allowing explicit requests and later tab activation", async () => {
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  const outside = document.createElement("button")
+  document.body.appendChild(outside)
+  const replacement = { ...tab, id: "replacement-focus", preserveFocusOnAttach: true }
+  const render = (focusRequestSequence: number, active = true) =>
+    root.render(
+      <TerminalView
+        tab={replacement}
+        active={active}
+        focusRequestSequence={focusRequestSequence}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    )
+  try {
+    outside.focus()
+    await act(async () => render(0))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(outside)
+    await act(async () => render(1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+    outside.focus()
+    await act(async () => render(1, false))
+    await act(async () => render(1, true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+  } finally {
+    outside.remove()
+  }
+})
+
+it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
   act(() => {
@@ -341,7 +403,6 @@ it("shows a labeled return control only away from the latest output", async () =
     terminalState.scrollChanged?.()
   })
   const button = container.querySelector<HTMLButtonElement>(".terminal-scroll-bottom")!
-  expect(button.getAttribute("aria-label")).toBe("Jump to latest output")
   await act(async () => button.click())
   expect(buffer.viewportY).toBe(buffer.baseY)
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()

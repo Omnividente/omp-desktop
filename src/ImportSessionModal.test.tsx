@@ -262,7 +262,38 @@ it("keeps distant Codex sessions keyboard-reachable and selectable without mount
   expect(last.checked).toBe(true)
   act(() => dialog().querySelector<HTMLButtonElement>("footer .primary")!.click())
   expect(imported).toHaveBeenCalledWith({ [sessions[199].filePath]: true })
-  expect(press(last, "Home").defaultPrevented).toBe(true)
+  const firstAgain = () =>
+    dialog().querySelector<HTMLInputElement>('.codex-item[data-virtual-index="0"] input')!
+  press(last, "Home")
+  act(() => {
+    const input = firstAgain()
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    )
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    )
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    )
+  })
+  expect(document.activeElement).toBe(
+    dialog().querySelector('.codex-item[data-virtual-index="197"] input'),
+  )
+  const pendingLast = document.activeElement!
+  press(pendingLast, "Home")
+  act(() => {
+    const input = firstAgain()
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    )
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }),
+    )
+  })
+  expect(document.activeElement).toBe(firstAgain())
+  press(firstAgain(), "End")
+  expect(press(document.activeElement!, "Home").defaultPrevented).toBe(true)
   const back = dialog().querySelector<HTMLInputElement>(
     '.codex-item[data-virtual-index="0"] input',
   )!

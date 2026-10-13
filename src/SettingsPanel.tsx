@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
+import {
+  errorMessage,
+  loadOmpConfig,
+  OMP_CONFIG_STALE_MS,
+  refreshOmpConfig,
+  saveSettingsBundle,
+  settingsUnavailableDetails,
+} from "./api"
 import { Icon } from "./Icon"
 import {
   roleDescription,
@@ -28,13 +35,13 @@ import type {
 interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
+  initialOmpConfig: OmpConfigSnapshot | null
   onClose: () => void
   onSaved: (payload: SettingsSavePayload) => void
   onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
 }
 
-const USAGE_STALE_MS = 10 * 60_000
 const CONFIG_REFRESH_COOLDOWN_MS = 30_000
 const MANAGED_PROVIDER_KEY_PREFIX = "OMP_DESKTOP_PROVIDER_"
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
@@ -215,6 +222,7 @@ function accountReasonLabel(language: Lang, reason: string): string {
 export function SettingsPanel({
   settings,
   runtime,
+  initialOmpConfig,
   onClose,
   onSaved,
   onConfigLoaded,
@@ -232,30 +240,46 @@ export function SettingsPanel({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
-  const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
+  const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(initialOmpConfig)
   const configGenerationRef = useRef(0)
   const disposedRef = useRef(false)
-  const configRuntimeRef = useRef<RuntimeInfo | null>(null)
+  const configRuntimeRef = useRef<RuntimeInfo | null>(initialOmpConfig ? runtime : null)
   const invalidateConfig = useCallback(() => ++configGenerationRef.current, [])
   const [configError, setConfigError] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
   const [openRole, setOpenRole] = useState<string | null>(null)
-  const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>({})
-  const [advisorEnabled, setAdvisorEnabled] = useState(false)
-  const [autoResume, setAutoResume] = useState(false)
-  const [thinkingLevel, setThinkingLevel] = useState("medium")
-  const [modelFallbackEnabled, setModelFallbackEnabled] = useState(true)
-  const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>([])
-  const [proxyProviders, setProxyProviders] = useState<string[]>([])
-  const [disabledProviders, setDisabledProviders] = useState<string[]>([])
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(initialOmpConfig?.roles.map((role) => [role.role, role.selector]) ?? []),
+  )
+  const [advisorEnabled, setAdvisorEnabled] = useState(initialOmpConfig?.advisorEnabled ?? false)
+  const [autoResume, setAutoResume] = useState(initialOmpConfig?.autoResume ?? false)
+  const [thinkingLevel, setThinkingLevel] = useState(
+    initialOmpConfig?.defaultThinkingLevel ?? "medium",
+  )
+  const [modelFallbackEnabled, setModelFallbackEnabled] = useState(
+    initialOmpConfig?.modelFallbackEnabled ?? true,
+  )
+  const fallbackDraftSequence = useRef(0)
+  const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>(() =>
+    Object.entries(initialOmpConfig?.fallbackChains ?? {}).map(([key, selectors]) => ({
+      id: `fallback-chain-${fallbackDraftSequence.current++}`,
+      key,
+      selectors,
+    })),
+  )
+  const [proxyProviders, setProxyProviders] = useState<string[]>(
+    initialOmpConfig?.proxyProviders ?? [],
+  )
+  const [disabledProviders, setDisabledProviders] = useState<string[]>(
+    initialOmpConfig?.disabledProviders ?? [],
+  )
   const [removedCustomProviders, setRemovedCustomProviders] = useState<string[]>([])
   const [customProviderId, setCustomProviderId] = useState("")
   const [customProviderUrl, setCustomProviderUrl] = useState("")
   const [customProviderApi, setCustomProviderApi] =
     useState<OmpCustomProviderRequest["api"]>("openai-completions")
   const [customProviderKey, setCustomProviderKey] = useState("")
-  const fallbackDraftSequence = useRef(0)
   const [appFontFamily, setAppFontFamily] = useState(settings.appFontFamily)
   const [appFontSize, setAppFontSize] = useState(settings.appFontSize)
   const [terminalFontFamily, setTerminalFontFamily] = useState(
@@ -316,7 +340,7 @@ export function SettingsPanel({
       setRefreshCooldownUntil(requestedAt + CONFIG_REFRESH_COOLDOWN_MS)
     }
     try {
-      const snapshot = forceCatalog ? await refreshOmpConfig() : await loadOmpConfig()
+      const snapshot = forceCatalog ? await refreshOmpConfig() : await loadOmpConfig(requestRuntime)
       if (isCurrent()) {
         if (ompConfig && !resetDrafts) {
           setOmpConfig((current) =>
@@ -344,7 +368,7 @@ export function SettingsPanel({
       if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
-      onError(message)
+      if (!settingsUnavailableDetails(error)) onError(message)
     } finally {
       if (isCurrent()) setLoadingConfig(false)
     }
@@ -367,10 +391,15 @@ export function SettingsPanel({
       previous.ompVersion === runtime.ompVersion
     )
       return
+    if (previous === null && initialOmpConfig) {
+      configRuntimeRef.current = runtime
+      acceptConfig(initialOmpConfig)
+      return
+    }
     acceptConfig(null)
     void refreshConfig(false, runtime, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
+  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion, initialOmpConfig])
 
   useEffect(() => {
     setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
@@ -413,7 +442,7 @@ export function SettingsPanel({
     ompConfig?.usageObservedAt === null || ompConfig?.usageObservedAt === undefined
       ? null
       : Math.max(0, clockNow - ompConfig.usageObservedAt)
-  const usageIsStale = usageAgeMs !== null && usageAgeMs > USAGE_STALE_MS
+  const usageIsStale = usageAgeMs !== null && usageAgeMs > OMP_CONFIG_STALE_MS
   const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
 
   const operationGroups = useMemo(() => {
@@ -688,7 +717,13 @@ export function SettingsPanel({
         },
         ompConfig: includeOmpConfig
           ? {
-              roles: roleDrafts,
+              roles: Object.fromEntries(
+                Object.entries(roleDrafts).filter(
+                  ([role, selector]) =>
+                    ompConfig.roles.find((baseline) => baseline.role === role)?.selector !==
+                    selector,
+                ),
+              ),
               advisorEnabled:
                 advisorEnabled !== ompConfig?.advisorEnabled ? advisorEnabled : undefined,
               autoResume: autoResume !== ompConfig?.autoResume ? autoResume : undefined,
@@ -751,10 +786,10 @@ export function SettingsPanel({
         providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
       )
     } catch (error) {
-      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
+      if (!settingsUnavailableDetails(error)) onError(message)
+      if (disposedRef.current) return
       setSaveError(message)
-      onError(message)
       if (reloadConfigOnFailure && generation === configGenerationRef.current) {
         void refreshConfig(false, configRuntimeRef.current ?? runtime)
       }
@@ -764,7 +799,11 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
+    <div
+      className={`settings-backdrop${runtime.platform === "linux" ? " is-linux" : ""}`}
+      onMouseDown={onClose}
+      role="presentation"
+    >
       <section
         aria-labelledby="settings-title"
         aria-modal="true"

@@ -558,6 +558,25 @@ pub(crate) struct OmpConfigSaveResult {
     pub bootstrap: BootstrapPayload,
 }
 
+fn merge_role_updates(roles: &mut BTreeMap<String, String>, previous: &[OmpRoleInfo]) -> bool {
+    let changed = roles.iter().any(|(name, selector)| {
+        previous
+            .iter()
+            .find(|role| &role.role == name)
+            .map(|role| role.selector.trim())
+            .unwrap_or_default()
+            != selector.as_str()
+    });
+    for role in previous {
+        let selector = role.selector.trim();
+        if !selector.is_empty() && !roles.contains_key(&role.role) {
+            roles.insert(role.role.clone(), selector.to_owned());
+        }
+    }
+    roles.retain(|_, selector| !selector.is_empty());
+    changed
+}
+
 pub fn save_config(
     app: &AppHandle,
     transaction: &mut SettingsTransaction<'_>,
@@ -570,13 +589,15 @@ pub fn save_config(
         return Err(format!("OMP не найден: {}", omp.executable));
     }
 
-    let expected_roles = request
+    let mut expected_roles = request
         .roles
         .iter()
-        .filter(|(_, selector)| !selector.trim().is_empty())
         .map(|(role, selector)| (role.clone(), selector.trim().to_owned()))
         .collect::<BTreeMap<_, _>>();
-    for (role, selector) in &expected_roles {
+    for (role, selector) in expected_roles
+        .iter()
+        .filter(|(_, selector)| !selector.is_empty())
+    {
         validate_role_selector(selector)
             .map_err(|error| format!("Некорректная модель для роли `{role}`: {error}"))?;
     }
@@ -600,6 +621,7 @@ pub fn save_config(
         .map(normalize_disabled_providers)
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
+    let model_config_touched = merge_role_updates(&mut expected_roles, &previous_config.roles);
     operational_config::validate_changes(
         &previous_config.operational_settings,
         &request.operational_changes,
@@ -697,13 +719,6 @@ pub fn save_config(
             .map(|(role, selector)| (role.clone(), Value::String(selector.clone())))
             .collect::<Map<String, Value>>(),
     );
-    let previous_roles = previous_config
-        .roles
-        .iter()
-        .filter(|role| !role.selector.trim().is_empty())
-        .map(|role| (role.role.clone(), role.selector.trim().to_owned()))
-        .collect::<BTreeMap<_, _>>();
-    let model_config_touched = expected_roles != previous_roles;
     let disabled_value = expected_disabled_providers.as_ref().map(|providers| {
         merge_disabled_provider_entries(&previous_config.disabled_provider_entries, providers)
     });
@@ -2811,6 +2826,71 @@ providers:
         )]);
         assert!(validate_removed_provider_references(&removed, &roles, &BTreeMap::new()).is_err());
         assert!(validate_removed_provider_references(&removed, &BTreeMap::new(), &chains).is_err());
+    }
+
+    #[test]
+    fn partial_role_updates_preserve_untouched_live_assignments() {
+        let live = BTreeMap::from([
+            ("default".to_owned(), "catalog/old".to_owned()),
+            ("slow".to_owned(), "catalog/externally-updated".to_owned()),
+            (
+                "custom-role".to_owned(),
+                "private-gateway/custom".to_owned(),
+            ),
+        ]);
+        let previous = build_roles(&live, &[]);
+        let mut updates = BTreeMap::from([("default".to_owned(), "catalog/new".to_owned())]);
+        assert!(merge_role_updates(&mut updates, &previous));
+        let mut expected = live;
+        expected.insert("default".to_owned(), "catalog/new".to_owned());
+        assert_eq!(updates, expected);
+        assert!(validate_removed_provider_references(
+            &BTreeSet::from(["private-gateway".to_owned()]),
+            &updates,
+            &BTreeMap::new(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn unchanged_role_updates_do_not_request_full_replacement() {
+        let live = BTreeMap::from([
+            ("default".to_owned(), "catalog/main".to_owned()),
+            ("slow".to_owned(), "catalog/slow".to_owned()),
+        ]);
+        let previous = build_roles(&live, &[]);
+        let mut unchanged = BTreeMap::from([("default".to_owned(), "catalog/main".to_owned())]);
+        assert!(!merge_role_updates(&mut unchanged, &previous));
+        assert_eq!(unchanged, live);
+        let mut empty = BTreeMap::new();
+        assert!(!merge_role_updates(&mut empty, &previous));
+        assert_eq!(empty, live);
+    }
+
+    #[test]
+    fn explicit_role_clear_removes_only_the_selected_assignment() {
+        let mut live = BTreeMap::from([
+            ("default".to_owned(), "catalog/main".to_owned()),
+            ("slow".to_owned(), "catalog/externally-updated".to_owned()),
+            ("custom-role".to_owned(), "catalog/custom".to_owned()),
+        ]);
+        let previous = build_roles(&live, &[]);
+        let mut updates = BTreeMap::from([("default".to_owned(), String::new())]);
+        assert!(merge_role_updates(&mut updates, &previous));
+        live.remove("default");
+        assert_eq!(updates, live);
+
+        let previous = build_roles(&live, &[]);
+        let mut updates = BTreeMap::from([("default".to_owned(), String::new())]);
+        assert!(!merge_role_updates(&mut updates, &previous));
+        assert_eq!(updates, live);
+
+        // A stale panel can clear a custom role already removed outside Desktop.
+        live.remove("custom-role");
+        let previous = build_roles(&live, &[]);
+        let mut updates = BTreeMap::from([("custom-role".to_owned(), String::new())]);
+        assert!(!merge_role_updates(&mut updates, &previous));
+        assert_eq!(updates, live);
     }
 
     #[test]

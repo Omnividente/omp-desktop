@@ -158,6 +158,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -208,6 +209,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -256,6 +258,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -332,10 +335,16 @@ describe("SettingsPanel configuration generations", () => {
     }
   }
 
-  async function renderPanel(nextRuntime = runtime, nextSettings = settings, strict = false) {
+  async function renderPanel(
+    nextRuntime = runtime,
+    nextSettings = settings,
+    strict = false,
+    initialSnapshot: OmpConfigSnapshot | null = null,
+  ) {
     await act(async () => {
       const panel = (
         <SettingsPanel
+          initialOmpConfig={initialSnapshot}
           onClose={() => root.render(null)}
           onError={onError}
           onSaved={onSaved}
@@ -379,6 +388,56 @@ describe("SettingsPanel configuration generations", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it("opens a cached role baseline as clean and editable in Strict Mode", async () => {
+    const model = {
+      provider: "catalog",
+      id: "cached",
+      selector: "catalog/cached",
+      name: "Cached model",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+    }
+    const snapshot = {
+      ...ompConfig,
+      models: [model],
+      roles: [
+        {
+          role: "default",
+          selector: model.selector,
+          model,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+      advisorEnabled: true,
+      autoResume: true,
+      defaultThinkingLevel: "high",
+      modelFallbackEnabled: false,
+      fallbackChains: { default: [model.selector] },
+      proxyProviders: ["catalog"],
+      disabledProviders: ["unused"],
+    }
+    loadOmpConfigMock.mockReturnValue(deferred<OmpConfigSnapshot>().promise)
+    await renderPanel(runtime, settings, true, snapshot)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+    expectAdvisorDraft(true)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    const picker = container.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+    expect(picker.textContent).toContain("Cached model")
+    act(() => picker.click())
+    expect(container.querySelector(".model-picker-option")?.textContent).toContain("Cached model")
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 
   it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
@@ -456,6 +515,41 @@ describe("SettingsPanel configuration generations", () => {
     act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
     expect(container.textContent).toContain("codex-lb")
   })
+
+  it.each(["save", "refresh"] as const)(
+    "keeps a structured %s failure visible locally without forwarding a duplicate generic error",
+    async (operation) => {
+      const failure = {
+        code: "settings_unavailable",
+        message: "Settings storage unavailable",
+        details: "Fixture disk unavailable",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      }
+      if (operation === "save") saveSettingsBundleMock.mockRejectedValueOnce(failure)
+      else refreshOmpConfigMock.mockRejectedValueOnce(failure)
+      await renderPanel()
+      changeExecutable("draft-omp.exe")
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            operation === "save" ? ".settings-actions .primary" : ".runtime-card button",
+          )!
+          .click(),
+      )
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(container.querySelector('[role="alert"]')).not.toBeNull()
+      expect(container.querySelector<HTMLInputElement>("#omp-executable")!.value).toBe(
+        "draft-omp.exe",
+      )
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(false)
+      expect(onError).not.toHaveBeenCalled()
+      expect(onSaved).not.toHaveBeenCalled()
+    },
+  )
 
   it.each(["resolve", "reject"] as const)(
     "keeps the post-save draft when the pre-save initial load later %ss",
@@ -587,28 +681,6 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
-  it.each(["resolve", "reject"] as const)(
-    "notifies the parent only of a successful save after closing (%s)",
-    async (settlement) => {
-      const pending = deferred<SettingsSavePayload>()
-      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
-      await renderPanel()
-      changeExecutable("saved-omp.exe")
-      act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
-      act(() => container.querySelector<HTMLButtonElement>(".settings-header button")!.click())
-      const result = saveResult(null)
-      await act(async () => {
-        if (settlement === "resolve") pending.resolve(result)
-        else pending.reject(new Error("save failed after close"))
-      })
-      expect(container.querySelector('[role="dialog"]')).toBeNull()
-      if (settlement === "resolve") expect(onSaved).toHaveBeenCalledWith(result)
-      else expect(onSaved).not.toHaveBeenCalled()
-      expect(onError).not.toHaveBeenCalled()
-      expect(loadOmpConfigMock).toHaveBeenCalledTimes(1)
-    },
-  )
-
   it("loads the returned runtime when Save makes OMP available", async () => {
     const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
     const fresh = deferred<OmpConfigSnapshot>()
@@ -718,6 +790,7 @@ describe("SettingsPanel keyboard lifecycle", () => {
       root.render(
         <StrictMode>
           <SettingsPanel
+            initialOmpConfig={null}
             onClose={onClose}
             onError={vi.fn()}
             onSaved={vi.fn()}

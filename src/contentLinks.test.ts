@@ -50,3 +50,29 @@ it("preserves folder and selected document destinations for open and reveal menu
   expect(isFileContentLink("mailto:dev@example.test")).toBe(false)
   expect(isFileContentLink("javascript:alert(1)")).toBe(false)
 })
+
+it.each(["http://example.test/", "http://[::1]/path"])(
+  "separates %s from an adjacent labelled destination without overlapping ranges",
+  (url) => {
+    const text = `${url}[Label](local://path)`
+    const links = contentLinks(text)
+    expect(links.map(({ label, uri }) => [label, uri])).toEqual([
+      [url, url],
+      ["Label", "local://path"],
+    ])
+    expect(links[0].end).toBe(links[1].start)
+    expect(text.slice(links[1].start, links[1].end)).toBe("[Label](local://path)")
+  },
+)
+
+it("keeps a valid label after unmatched opening brackets without consuming its prefix", () => {
+  const prefix = "[".repeat(1000)
+  expect(contentLinks(`${prefix}[Label](local://path)`)).toEqual([
+    { start: prefix.length, end: prefix.length + 21, label: "Label", uri: "local://path" },
+  ])
+})
+
+it("preserves escaped literal brackets in a label", () => {
+  const links = contentLinks(String.raw`[a\[b](local://path)`)
+  expect(links.map(({ label, uri }) => [label, uri])).toEqual([[String.raw`a\[b`, "local://path"]])
+})

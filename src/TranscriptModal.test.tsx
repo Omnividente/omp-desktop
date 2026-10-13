@@ -6,6 +6,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { readSessionTranscript, openContentLink } from "./api"
 import { TranscriptModal } from "./TranscriptModal"
 import { useTranscript } from "./useTranscript"
+import { SEARCH_HIGHLIGHT_LIMIT } from "./transcriptSearch"
 import type { SessionSummary, SessionTranscript } from "./types"
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
@@ -422,6 +423,51 @@ it("finds offscreen occurrences, scrolls inside one tall message and wraps in bo
   expect(currentOccurrence()?.dataset.matchIndex).toBe("2")
 })
 
+it("reindexes rendered and source text without shifting Unicode highlights or selection", async () => {
+  const source = "😀**K** [k](local://k.txt)"
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: [{ ...transcript.entries[0], text: source, dialogueText: source }],
+  })
+  await click("Reread file")
+  await searchFor("k")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("K")
+  expect(currentOccurrence()?.closest("strong")).not.toBeNull()
+  await click("Previous match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("1")
+  expect(currentOccurrence()?.closest("a")?.getAttribute("href")).toBe("local://k.txt")
+
+  await click("Source")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 3")
+  const pre = container.querySelector<HTMLElement>("pre.markdown-source")!
+  expect(pre.textContent).toBe(source)
+  const marks = Array.from(pre.querySelectorAll("mark"))
+  expect(marks.map((mark) => [mark.dataset.matchIndex, mark.textContent])).toEqual([
+    ["0", "K"],
+    ["1", "k"],
+    ["2", "k"],
+  ])
+  expect(marks[0].previousSibling?.textContent).toBe("😀**")
+  expect(marks[0].nextSibling?.textContent).toBe("** [")
+  expect(marks[1].nextSibling?.textContent).toBe("](local://")
+  expect(marks[2].nextSibling?.textContent).toBe(".txt)")
+  const range = document.createRange()
+  range.selectNodeContents(pre)
+  window.getSelection()!.removeAllRanges()
+  window.getSelection()!.addRange(range)
+  expect(window.getSelection()!.toString()).toBe(source)
+  window.getSelection()!.removeAllRanges()
+
+  await click("Previous match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("2")
+  await click("Next match")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("0")
+  await click("Formatted")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("K")
+})
+
 it("allows manual scrolling after find and returns to a lone match on Next", async () => {
   await searchFor("needle")
   await click("Dialogue only")
@@ -803,4 +849,70 @@ it("consumes menu-item Tab in both directions but leaves outside Tab navigation 
   } finally {
     document.removeEventListener("keydown", downstream)
   }
+})
+
+it("navigates and wraps a million-match entry with bounded replacement windows through reindex and clear", async () => {
+  const text = "x".repeat(1_000_000)
+  const dense = {
+    ...transcript,
+    entries: [{ ...transcript.entries[0], text, dialogueText: text }],
+  }
+  rowHeights.set(0, 1200)
+  vi.mocked(readSessionTranscript).mockResolvedValue(dense)
+  await click("Open transcript")
+  await searchFor("x")
+  const expectWindow = (index: number) => {
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe(
+      `${index + 1} / 1000000`,
+    )
+    const marks = container.querySelectorAll("mark[data-match-index]")
+    expect(marks.length).toBeGreaterThan(0)
+    expect(marks.length).toBeLessThanOrEqual(SEARCH_HIGHLIGHT_LIMIT)
+    const current = currentOccurrence()!
+    expect(current?.dataset.matchIndex).toBe(String(index))
+    expect(current?.textContent).toBe("x")
+    let precedingLength = 0
+    for (let sibling = current.previousSibling; sibling; sibling = sibling.previousSibling) {
+      precedingLength += sibling.textContent?.length ?? 0
+    }
+    expect(precedingLength).toBe(index)
+    expect(container.querySelector(".markdown-content")?.textContent).toBe(text)
+    if (index === 999_999) expect(container.querySelector('mark[data-match-index="0"]')).toBeNull()
+    if (index === 0) expect(container.querySelector('mark[data-match-index="999999"]')).toBeNull()
+  }
+  expectWindow(0)
+  for (let repeat = 0; repeat < 2; repeat++) {
+    await click("Previous match")
+    expectWindow(999_999)
+    await click("Next match")
+    expectWindow(0)
+    await click("Next match")
+    expectWindow(1)
+    await click("Previous match")
+    expectWindow(0)
+  }
+  await click("Previous match")
+  expectWindow(999_999)
+  await click("Source")
+  expectWindow(0)
+  await click("Previous match")
+  expectWindow(999_999)
+  await click("Formatted")
+  expectWindow(0)
+  await searchFor("X")
+  expectWindow(0)
+  await click("Previous match")
+  expectWindow(999_999)
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...dense, updatedAt: 2 })
+  await click("Reread file")
+  expectWindow(0)
+  await click("Copy text")
+  expect(writeText).toHaveBeenLastCalledWith(text)
+  await click("Copy Markdown")
+  expect(writeText).toHaveBeenLastCalledWith(text)
+  await searchFor("")
+  expect(container.querySelector("mark")).toBeNull()
+  expect(container.querySelector(".markdown-content")?.textContent).toBe(text)
+  await searchFor("x")
+  expectWindow(0)
 })

@@ -8,7 +8,8 @@ export interface SettingsUnavailableDetails {
 }
 
 export interface SingleInstanceEvent {
-  args: string[]
+  workspace: string | null
+  error: string | null
 }
 
 export interface SettingsWarning {
@@ -301,6 +302,7 @@ export interface OmpCustomProviderRequest {
 }
 
 export interface OmpConfigSaveRequest {
+  /** Partial updates; omitted roles keep their current on-disk assignments. */
   roles: Record<string, string>
   advisorEnabled?: boolean | null
   autoResume?: boolean | null
@@ -458,4 +460,5 @@ export interface TerminalTab {
   completedResponseVersion?: number
   primaryProviderPinned: boolean
   primaryProviderPinPending: boolean
+  preserveFocusOnAttach?: boolean
 }

@@ -297,3 +297,79 @@ describe("SessionRow rename input", () => {
     },
   )
 })
+
+describe("session pin search transitions", () => {
+  it.each([false, true])(
+    "keeps useful focus when unpinning removes the search result (%s)",
+    (externalFocus) => {
+      const container = document.createElement("div")
+      document.body.appendChild(container)
+      const root = createRoot(container)
+      function PinFixture() {
+        const [pinned, setPinned] = useState(true)
+        const [search, setSearch] = useState("Pinned")
+        const current = {
+          ...session,
+          title: pinned ? "Pinned" : "Original",
+          pinnedTitle: pinned ? "Pinned" : null,
+        }
+        return (
+          <>
+            <button className="outside-list" type="button">
+              Outside list
+            </button>
+            <SessionList
+              allSessions={[current]}
+              visibleSessions={current.title.includes(search) ? [current] : []}
+              workspaceSessionsCount={1}
+              search={search}
+              onSearchChange={setSearch}
+              onClearSearch={() => setSearch("")}
+              lang="ru"
+              selectedSessionId={current.id}
+              launching={null}
+              renamingSessionId={null}
+              renameValue=""
+              deletingSessionId={null}
+              tabs={[]}
+              platform="linux"
+              canLaunch
+              onSelectSession={vi.fn()}
+              onLaunchSession={vi.fn()}
+              onNewSession={vi.fn()}
+              onLoadTranscript={vi.fn()}
+              onStartRename={vi.fn()}
+              onToggleTitlePin={() => setPinned(false)}
+              onDeleteSession={vi.fn()}
+              onSubmitRename={vi.fn()}
+              onRenameValueChange={vi.fn()}
+              onRenameKeyDown={vi.fn()}
+              onOpenCodex={vi.fn()}
+              onImportOmp={vi.fn()}
+              onRevealWorkspace={vi.fn()}
+              selectedWorkspacePath={current.cwd}
+              selectedWorkspaceName="Project"
+            />
+          </>
+        )
+      }
+      try {
+        act(() => root.render(<PinFixture />))
+        const pin = container.querySelector<HTMLButtonElement>(".session-pin")!
+        const outside = container.querySelector<HTMLButtonElement>(".outside-list")!
+        act(() => {
+          if (externalFocus) outside.focus()
+          else pin.focus()
+          pin.click()
+        })
+        expect(container.querySelector(".session-item")).toBeNull()
+        expect(document.activeElement).toBe(
+          externalFocus ? outside : container.querySelector(".search-box input"),
+        )
+      } finally {
+        act(() => root.unmount())
+        container.remove()
+      }
+    },
+  )
+})
