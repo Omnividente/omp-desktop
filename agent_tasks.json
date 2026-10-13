@@ -172297,6 +172297,46 @@
             "dispatch_key": "97a20c68fa995a5816882364"
           }
         }
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-10-13T11:09:24Z",
+            "note": "Production 0.9.9 triage 2026-10-13: recorded bound Jules session is COMPLETED but report validation is research_invalid, execution awaiting_report/report_invalid, no accepted research_result and no PR. Close settled research unaccepted; preserve exact machine outcome/report-error/repair history, do not approve findings or dispatch another worker.",
+            "attempt": {
+              "session_id": "2657373676992352406",
+              "dispatch_key": "97a20c68fa995a5816882364",
+              "attempts": 1
+            },
+            "basis": {
+              "state": "awaiting_report",
+              "outcome": "report_invalid",
+              "session_state": "COMPLETED",
+              "event_at": "2026-10-06T14:25:56.323705Z",
+              "source": {
+                "activity_id": "sessions/2657373676992352406/activities/b49ac8fe1f7c4e75b3fe9bc6bf0c4124",
+                "report_sha256": "a7ebd13406912bb38ad23bf12b7b0d1af7e4bc0a01d7059483af7068f5bb1a55",
+                "activity_created_at": "2026-10-06T00:17:03.540840Z",
+                "session_id": "2657373676992352406",
+                "dispatch_key": "97a20c68fa995a5816882364"
+              },
+              "report_error": {
+                "code": "research_invalid",
+                "detail": "expected exactly one ordered research report block",
+                "reported_at": "2026-10-06T14:25:56.323705Z",
+                "source": {
+                  "activity_id": "sessions/2657373676992352406/activities/b49ac8fe1f7c4e75b3fe9bc6bf0c4124",
+                  "report_sha256": "a7ebd13406912bb38ad23bf12b7b0d1af7e4bc0a01d7059483af7068f5bb1a55",
+                  "activity_created_at": "2026-10-06T00:17:03.540840Z",
+                  "session_id": "2657373676992352406",
+                  "dispatch_key": "97a20c68fa995a5816882364"
+                }
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -182548,6 +182588,59 @@
           },
           "detail": "expected exactly one ordered research report block"
         }
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-10-13T11:09:25Z",
+            "note": "Production 0.9.9 triage 2026-10-13: recorded bound Jules session is COMPLETED but report validation is research_invalid, execution awaiting_report/report_invalid, no accepted research_result and no PR. Close settled research unaccepted; preserve exact machine outcome/report-error/repair history, do not approve findings or dispatch another worker.",
+            "attempt": {
+              "session_id": "1145829882092346481",
+              "dispatch_key": "078e41c6521a4af02174b3e9",
+              "attempts": 1
+            },
+            "basis": {
+              "state": "awaiting_report",
+              "outcome": "report_invalid",
+              "session_state": "COMPLETED",
+              "event_at": "2026-10-06T23:44:09.689628Z",
+              "source": {
+                "activity_id": "sessions/1145829882092346481/activities/c2238f86c7864c69b548f718d2e7e5a4",
+                "report_sha256": "fc7f5cbfc3814056921fcea49471ac6f626a3763ba6246c506a26c0639286baf",
+                "activity_created_at": "2026-10-06T23:48:15.700590Z",
+                "session_id": "1145829882092346481",
+                "dispatch_key": "078e41c6521a4af02174b3e9"
+              },
+              "report_error": {
+                "code": "research_invalid",
+                "detail": "expected exactly one ordered research report block",
+                "reported_at": "2026-10-06T23:44:09.689628Z",
+                "source": {
+                  "activity_id": "sessions/1145829882092346481/activities/6505781113f2417cb697911e808cd9cb",
+                  "report_sha256": "a21b20583579e46df21f5fa861de488c63750fcfc5ebb4a3c4003ace21cc7e4e",
+                  "activity_created_at": "2026-10-06T23:28:35.309302Z",
+                  "session_id": "1145829882092346481",
+                  "dispatch_key": "078e41c6521a4af02174b3e9"
+                }
+              },
+              "report_repair": {
+                "at": "2026-10-06T23:44:39.156056Z",
+                "result": "sent",
+                "status": "invalid",
+                "source": {
+                  "activity_id": "sessions/1145829882092346481/activities/c2238f86c7864c69b548f718d2e7e5a4",
+                  "report_sha256": "fc7f5cbfc3814056921fcea49471ac6f626a3763ba6246c506a26c0639286baf",
+                  "activity_created_at": "2026-10-06T23:48:15.700590Z",
+                  "session_id": "1145829882092346481",
+                  "dispatch_key": "078e41c6521a4af02174b3e9"
+                },
+                "detail": "expected exactly one ordered research report block"
+              }
+            }
+          }
+        ]
       }
     },
     {
@@ -182929,6 +183022,59 @@
           },
           "detail": "expected exactly one ordered research report block"
         }
+      },
+      "research_disposition": {
+        "events": [
+          {
+            "action": "close_unaccepted",
+            "actor": "Omnividente",
+            "at": "2026-10-13T11:09:26Z",
+            "note": "Production 0.9.9 triage 2026-10-13: recorded bound Jules session is COMPLETED but report validation is research_invalid, execution awaiting_report/report_invalid, no accepted research_result and no PR. Close settled research unaccepted; preserve exact machine outcome/report-error/repair history, do not approve findings or dispatch another worker.",
+            "attempt": {
+              "session_id": "14548281690863559570",
+              "dispatch_key": "623d356bdb144cc7ee0d0891",
+              "attempts": 1
+            },
+            "basis": {
+              "state": "awaiting_report",
+              "outcome": "report_invalid",
+              "session_state": "COMPLETED",
+              "event_at": "2026-10-07T00:03:48.284498Z",
+              "source": {
+                "activity_id": "sessions/14548281690863559570/activities/7f4e6f86630b41e0a0ff684d2f7d4b6f",
+                "report_sha256": "0a88c8d26e7d99230302cf240612a72ae4c771e0324d62166bd9d04cb73b507f",
+                "activity_created_at": "2026-10-07T00:08:00.376500Z",
+                "session_id": "14548281690863559570",
+                "dispatch_key": "623d356bdb144cc7ee0d0891"
+              },
+              "report_error": {
+                "code": "research_invalid",
+                "detail": "expected exactly one ordered research report block",
+                "reported_at": "2026-10-07T00:03:48.284498Z",
+                "source": {
+                  "activity_id": "sessions/14548281690863559570/activities/2973c9cc857e4961b17aef39a3d965bf",
+                  "report_sha256": "16db3fb67436ffa3b96d613c89a613f61528f5c5d694b25a6faf82ae73b7758d",
+                  "activity_created_at": "2026-10-06T23:57:01.682057Z",
+                  "session_id": "14548281690863559570",
+                  "dispatch_key": "623d356bdb144cc7ee0d0891"
+                }
+              },
+              "report_repair": {
+                "at": "2026-10-07T00:04:36.411000Z",
+                "result": "sent",
+                "status": "invalid",
+                "source": {
+                  "activity_id": "sessions/14548281690863559570/activities/7f4e6f86630b41e0a0ff684d2f7d4b6f",
+                  "report_sha256": "0a88c8d26e7d99230302cf240612a72ae4c771e0324d62166bd9d04cb73b507f",
+                  "activity_created_at": "2026-10-07T00:08:00.376500Z",
+                  "session_id": "14548281690863559570",
+                  "dispatch_key": "623d356bdb144cc7ee0d0891"
+                },
+                "detail": "expected exactly one ordered research report block"
+              }
+            }
+          }
+        ]
       }
     },
     {
