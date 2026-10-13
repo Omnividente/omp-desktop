@@ -101178,7 +101178,7 @@
       "id": "discovery-2f867a193102363a",
       "title": "Restore focus when a session pin toggle removes the session from the active search",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 45,
       "risk": "low",
       "focus": [
@@ -101214,6 +101214,12 @@
         "activity_created_at": "2026-09-29T09:13:20.934905Z",
         "session_id": "15842647214670378477",
         "dispatch_key": "0617047fa6dd0451b999ee02"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:17Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. SessionList captures focus ownership for pin actions and restores connected search input after the result row disappears; actual Chrome before/after and external-focus regression. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -102569,7 +102575,7 @@
       "id": "discovery-5577ea4e9ef26ca2",
       "title": "Retain workspace rename input state on failure",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -102605,6 +102611,12 @@
         "activity_created_at": "2026-09-29T10:36:59.713718Z",
         "session_id": "17931433267199088846",
         "dispatch_key": "dd36781bbd08d9ef8235a3a1"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:18Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Workspace-only duplicate of discovery-b343e6c8e66ef195; rename draft is retained on write failure and newer drafts survive stale completion. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -103928,7 +103940,7 @@
       "id": "discovery-f7cec393fa805278",
       "title": "Exclude disabled proxy providers from the runtime proxy overlay generation",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -103965,13 +103977,19 @@
         "activity_created_at": "2026-09-29T12:34:16.848398Z",
         "session_id": "14574839716979966196",
         "dispatch_key": "558b5b27f2d44336a75ceade"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:19Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Premise confuses Desktop AppSettings with the real OMP disabledProviders setting. Provider Enable toggle exists, but proxy overlay only constrains retry.fallbackChains and providers.openaiWebsockets; it never defines or clears disabledProviders and does not enable credentials. No disabled-provider execution bypass established; preserve the user proxy preference when a provider is temporarily disabled. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-863caf28d16304d6",
       "title": "Update SettingsRecoveryScreen state accurately on consecutive errors",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -104007,6 +104025,12 @@
         "activity_created_at": "2026-09-29T12:34:16.848398Z",
         "session_id": "14574839716979966196",
         "dispatch_key": "558b5b27f2d44336a75ceade"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:20Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Keeping SettingsRecoveryScreen after failed defaults preserves recovery-folder access and original failure context; latest operation error is already shown. Hiding the recovery action is harmful. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -104375,7 +104399,7 @@
       "id": "discovery-e3f725a71e16644f",
       "title": "Keep focus in ModelPicker search input while navigating options",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -104414,6 +104438,12 @@
         "activity_created_at": "2026-09-29T13:06:02.929081Z",
         "session_id": "1335323404806890926",
         "dispatch_key": "669f9484ae9ef00811696cb1"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:21Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Existing ModelPicker uses intentional roving focus among button options. Replacing it with a different focus pattern is not a correctness fix and duplicates two claims. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -104823,7 +104853,7 @@
       "id": "discovery-31392473c06b5573",
       "title": "Clear the SettingsRecoveryScreen if startWithDefaults throws a non-settings error",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -104856,13 +104886,19 @@
         "activity_created_at": "2026-09-29T13:33:58.124401Z",
         "session_id": "13711902405118567956",
         "dispatch_key": "7fa8e59c816de002d00b2cc9"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:22Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate of discovery-863caf28d16304d6: failed defaults must retain usable recovery UI; current error toast reports failure. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-41885cca7ee5cfa0",
       "title": "Filter removed custom providers from proxy and disabled provider lists during save",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -104895,6 +104931,12 @@
         "activity_created_at": "2026-09-29T13:33:58.124401Z",
         "session_id": "13711902405118567956",
         "dispatch_key": "7fa8e59c816de002d00b2cc9"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:23Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Obsolete duplication request: native save owns the atomic cleanup of BOTH proxy and disabled provider lists in omp_bridge.rs (removed proxy IDs at 668-672; inherited or explicitly changed disabled IDs at 673-679). Both real fields exist. Frontend payload filtering is not required for persisted correctness; removal references and resulting snapshot are checked in the native save contract. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -105249,7 +105291,7 @@
       "id": "discovery-cafe449bf1013d81",
       "title": "Fix broken reading position restoration when clearing transcript search",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -105284,6 +105326,12 @@
         "activity_created_at": "2026-09-29T14:09:04.738985Z",
         "session_id": "8969723610217188553",
         "dispatch_key": "c4975515b7640397637398e5"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:24Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Transcript explicit filter/find navigation intentionally wins over an unfinished reading-position restore; clearing search keeps the current position rather than jumping back. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -105979,7 +106027,7 @@
       "id": "discovery-b343e6c8e66ef195",
       "title": "Retain renaming state on failure during workspace or session rename",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -106016,6 +106064,12 @@
         "activity_created_at": "2026-09-29T15:21:47.752615Z",
         "session_id": "15564505969197262178",
         "dispatch_key": "7ab1e4cfda38fe44cf2da0ae"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:26Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. App workspace/session rename now closes only after successful matching completion; failed writes retain draft and input, late completion cannot dismiss newer edit. Behavioral regressions and integrated smoke. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -107516,7 +107570,7 @@
       "id": "discovery-bbd895a33d52b5c5",
       "title": "Retain keyboard focus when toggling the primary provider pin",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -107550,6 +107604,12 @@
         "activity_created_at": "2026-09-29T16:24:59.330141Z",
         "session_id": "4721148774950394326",
         "dispatch_key": "81a9d1b0acdadab02e2b9afa"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:27Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Actual Chrome confirmed disabled pin focus loss before correction. SessionControls holds owned focus on enabled group while restart pending, restores pin on completion, and never reclaims external focus. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -108458,7 +108518,7 @@
       "id": "discovery-c3c404bd71dbb2bb",
       "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -108522,6 +108582,12 @@
         "activity_created_at": "2026-09-29T18:43:00.457207Z",
         "session_id": "13484823116462744748",
         "dispatch_key": "caa50bf7506de899b6e110b7"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:28Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Already fixed in main by PR95 / discovery-940b5f71f3979b02; terminal balancing and within-terminal bounded FIFO semantics retained. Historical pinned-base finding, not a new regression. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -109200,7 +109266,7 @@
       "id": "discovery-4a32b30c5b16b56a67de0576a850864b384884aa3f04647b241fe6cda73a4ec6",
       "title": "Fix failure to resolve active fallbacks when primary model recovers",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -109277,6 +109343,12 @@
         "activity_created_at": "2026-09-29T19:10:28.728480Z",
         "session_id": "13175791998878670979",
         "dispatch_key": "65668b1a04194122219d7639"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:30Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Fallback recovery is role-scoped by contract. Restoring primary/default must not clear active unrelated secondary/review roles; existing behavioral regression explicitly covers role isolation. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -110027,7 +110099,7 @@
       "id": "discovery-c9c737b0f3c2f5a7",
       "title": "Prevent main thread ReDoS block on unclosed markdown brackets",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 85,
       "risk": "low",
       "focus": [
@@ -110061,13 +110133,19 @@
         "activity_created_at": "2026-09-29T22:39:43.587153Z",
         "session_id": "11846649909323179230",
         "dispatch_key": "12b3f563d46225d4b4525a2f"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:31Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. contentLinks label matcher excludes unescaped opening brackets with disjoint escaped-character alternative; fresh Node/V8 actual-function smoke proves bounded scan and preserves escaped literal labels. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-2a158a6f04197055",
       "title": "Fix 'Latest message' anchoring the top of excessively long messages",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -110100,13 +110178,19 @@
         "activity_created_at": "2026-09-29T22:39:43.587153Z",
         "session_id": "11846649909323179230",
         "dispatch_key": "12b3f563d46225d4b4525a2f"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:32Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Claim references nonexistent Latest message button, scrollToIndex and anchor.offset in transcript virtualization. No reachable current source path matches reproduction. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-0bf555f965eef312",
       "title": "Remove misleading search state and Clear button when transcript mode hides all entries",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "low",
       "focus": [
@@ -110143,13 +110227,19 @@
         "activity_created_at": "2026-09-29T22:39:59.895591Z",
         "session_id": "6658890549132550599",
         "dispatch_key": "4e9d859c1639592ae33bdef2"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:34Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Transcript query and mode filters intentionally combine; empty result and Clear action remain meaningful while query is active. Copy preference is not a broken state transition. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-3a195f089e608aaa",
       "title": "Fix URL parser consuming markdown link syntax",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -110184,6 +110274,12 @@
         "activity_created_at": "2026-09-29T22:39:59.895591Z",
         "session_id": "6658890549132550599",
         "dispatch_key": "4e9d859c1639592ae33bdef2"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:35Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Bare URL extraction clips at actual Markdown span boundary and re-matches prefix; actual functions return separate non-overlapping adjacent destinations including IPv6 hosts. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -113026,7 +113122,7 @@
       "id": "discovery-482c04fbc014fcd9",
       "title": "Fix empty state attribution to search query during mode filter exclusion",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -113063,6 +113159,12 @@
         "activity_created_at": "2026-09-30T08:56:51.025516Z",
         "session_id": "14435770682200383938",
         "dispatch_key": "68705996fb66f06a0b6af4a4"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:36Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate empty-state copy preference discovery-0bf555f965eef312; active query remains a real independent filter and Clear remains usable. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -115387,7 +115489,7 @@
       "id": "discovery-9ed762c2644c4940",
       "title": "Report single-instance workspace loading errors even when superseded",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 20,
       "risk": "low",
       "focus": [
@@ -115423,6 +115525,12 @@
         "activity_created_at": "2026-09-30T11:02:17.352488Z",
         "session_id": "14761483836212938920",
         "dispatch_key": "a9b92358664085639532f705"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:37Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Superseded/cancelled workspace request must not surface obsolete failure over newer selected workspace. Current generation guard preserves user intent and prevents stale alerts. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -115797,7 +115905,7 @@
       "id": "discovery-7ea0512cd4985404",
       "title": "Format hardcoded keyboard shortcuts for macOS users",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 15,
       "risk": "low",
       "focus": [
@@ -115837,6 +115945,12 @@
         "activity_created_at": "2026-09-30T11:27:34.967987Z",
         "session_id": "8395185255671479127",
         "dispatch_key": "7f0e33a9aaa9d21e1fb38e8f"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:39Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. WorkspaceHome and ProjectRail shortcut hints use shared platform-aware formatShortcut; macOS renders Command symbol, other platforms retain Ctrl. Keyboard bindings unchanged. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -116704,7 +116818,7 @@
       "id": "discovery-5994f186e2d442af",
       "title": "Unify ModelPicker keyboard navigation using aria-activedescendant instead of roving focus",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 80,
       "risk": "low",
       "focus": [
@@ -116744,13 +116858,19 @@
         "activity_created_at": "2026-09-30T12:39:31.017706Z",
         "session_id": "11044497663003173201",
         "dispatch_key": "2a82cb6d178c165ce1719b2c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:40Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate ModelPicker focus-pattern replacement discovery-e3f725a71e16644f; current roving focus is intentional, not accidental focus loss. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
       "id": "discovery-f18dbebb2de355a7",
       "title": "Exclude removed custom providers from SettingsPanel proxyProviders payload",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -116784,6 +116904,12 @@
         "activity_created_at": "2026-09-30T12:39:31.017706Z",
         "session_id": "11044497663003173201",
         "dispatch_key": "2a82cb6d178c165ce1719b2c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:41Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate provider-removal payload claim discovery-41885cca7ee5cfa0. Backend already canonicalizes deleted provider routing; no second client cleanup source of truth required. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -127210,7 +127336,7 @@
       "id": "discovery-431acae01e82042ff88dc3b9143ffddd91f0e4cf1adbf6c1190f66c3cca2c922",
       "title": "Prevent main thread block on massive transcript regex search",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 80,
       "risk": "medium",
       "focus": [
@@ -127273,6 +127399,12 @@
         "activity_created_at": "2026-10-01T10:20:07.165423Z",
         "session_id": "11758327255500680234",
         "dispatch_key": "9325460697f0ed2b9756f45c"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:43Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate of discovery-c9c737b0f3c2f5a7; same bounded escaped-label parser fix and fresh Node/V8 smoke. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -130755,7 +130887,7 @@
       "id": "discovery-d9cbf8a07e35e4d1",
       "title": "Keep ModelPicker focus on search input during arrow navigation to allow continuous typing",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -130810,6 +130942,12 @@
         "activity_created_at": "2026-10-01T14:26:15.069445Z",
         "session_id": "11563050521169356669",
         "dispatch_key": "8dc16ab1d4e1dcf571b293b0"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:44Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Third duplicate ModelPicker focus-pattern replacement; current button-option keyboard navigation remains accessible and intentional. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -133902,7 +134040,7 @@
       "id": "discovery-4c16b7af622c16a3",
       "title": "Optimize large session imports by avoiding unconditional JSON parsing",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -133939,6 +134077,12 @@
         "activity_created_at": "2026-10-01T17:51:14.533554Z",
         "session_id": "3560624228044212840",
         "dispatch_key": "c4bae223476808c7bb916d28"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:45Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Replacing JSON parsing with substring detection can misclassify user message strings as session headers and corrupt import. Reliable validation retained; import is explicit one-shot action. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -136487,7 +136631,7 @@
       "id": "discovery-bf62c58c8a7837b4",
       "title": "Ensure aria-live regions in SessionControls are persistently mounted",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -136525,6 +136669,12 @@
         "activity_created_at": "2026-10-02T00:58:55.835749Z",
         "session_id": "73680883247317414",
         "dispatch_key": "42503ffb46d81ab98c80d3b3"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:47Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. One status live region remains mounted, updates existing node and sits outside aria-busy controls ancestry; actual Chrome verifies identity across status changes. No voice/AT-specific claim made. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -137279,7 +137429,7 @@
       "id": "discovery-7215338a62e7266d",
       "title": "Fix false output gap reports caused by delayed terminal attachments",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "medium",
       "focus": [
@@ -137315,6 +137465,12 @@
         "activity_created_at": "2026-10-02T01:31:15.029706Z",
         "session_id": "1151237153385552834",
         "dispatch_key": "26e5113dc1ba39e6d49cd502"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:48Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. TerminalView already defers PTY events while outputReady=false and applies attachment before draining sequence buffer. Alleged ordering bypass does not occur in actual consumer. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -138875,7 +139031,7 @@
       "id": "discovery-d4ad428a2f0b09e4",
       "title": "Remove session lease and lock files upon session deletion",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -138912,6 +139068,12 @@
         "activity_created_at": "2026-10-02T06:05:57.510284Z",
         "session_id": "7363201851654324489",
         "dispatch_key": "42534839e2935ef2316ce107"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:49Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Deleting stable lease lock inode permits split ownership/race. Session scan filters JSONL only; quarantined sidecars bounded. Keep lock integrity rather than unsafe cleanup. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -139388,7 +139550,7 @@
       "id": "discovery-8b9df9e91031d19a",
       "title": "Fix early return lockup in launchSession and launchUpdate",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 80,
       "risk": "medium",
       "focus": [
@@ -139425,6 +139587,12 @@
         "activity_created_at": "2026-10-02T09:42:06.168228Z",
         "session_id": "11431104841937568038",
         "dispatch_key": "6a09e7226b112e43690f1503"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:51Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. JavaScript return inside try still executes finally; launching state is cleared there. Claimed launch lockup is based on false language semantics. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -146690,7 +146858,7 @@
       "id": "discovery-3852fd8a985baab8dd6029da168d54658461a37ceb966f3c4394c3ba07b2ab08",
       "title": "Fix duplicate fallback toasts from differing provider aliases",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -146756,6 +146924,12 @@
         "activity_created_at": "2026-10-03T19:29:20.197433Z",
         "session_id": "5004071109833010379",
         "dispatch_key": "fb7a0f428ab20d1dac0d8206"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:52Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Different resolved providers represent real execution-domain changes; suppressing their fallback notifications hides actual route transitions. Not identical aliases by contract. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -147118,7 +147292,7 @@
       "id": "discovery-08c4fdce170604f4",
       "title": "Clean up lease lock files when deleting a session",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 20,
       "risk": "medium",
       "focus": [
@@ -147158,6 +147332,12 @@
         "activity_created_at": "2026-10-03T20:01:08.257147Z",
         "session_id": "2312148740630618734",
         "dispatch_key": "12c4d24798951d5b3f031065"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:53Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate unsafe stable-lock deletion discovery-d4ad428a2f0b09e4; preserve lease ownership invariant. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -149660,7 +149840,7 @@
       "id": "discovery-09e445abc32b2e75",
       "title": "Fix rapid keyboard navigation state in CodexImportModal",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 50,
       "risk": "low",
       "focus": [
@@ -149695,6 +149875,12 @@
         "activity_created_at": "2026-10-04T08:34:40.363580Z",
         "session_id": "1036977624802150239",
         "dispatch_key": "5a6173ef82e99a68fea8cbc0"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:54Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. CodexImportModal bases rapid navigation on pending target before virtual row renders. Actual Chrome End then ArrowUp burst focuses index198 of200, supports selection and import, renders10rows. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -159535,7 +159721,7 @@
       "id": "discovery-b9ede6b04866a6c0",
       "title": "Clean up session lease lock and related sidecar files during session deletion",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -159583,6 +159769,12 @@
         "activity_created_at": "2026-10-04T20:44:22.694976Z",
         "session_id": "10787728216812462490",
         "dispatch_key": "07dba80196abf067980eb77c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:56Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Third duplicate unsafe lease/lock cleanup. Sidecars do not participate in JSONL scanning; stable lock inode protects concurrent owners. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -167215,7 +167407,7 @@
       "id": "discovery-c712c992b6f7438e",
       "title": "Fix terminal UI latency by early exiting createMouseSelectionEdit on massive multi-line selections",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -167281,6 +167473,12 @@
         "activity_created_at": "2026-10-05T12:47:29.254499Z",
         "session_id": "3730119683255543154",
         "dispatch_key": "5e8e7bf21bf1d7d3499099bf"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:57Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. createMouseSelectionEdit rejects off-input coordinates before text scan and counts Unicode cells with bounded early exit, without replace/Array.from copies. Fresh actual-function large-text/Unicode smoke. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -168315,7 +168513,7 @@
       "id": "discovery-2555d4a3811aad53",
       "title": "Restore terminal focus when toggling input help to avoid keyboard disruption",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -168350,6 +168548,12 @@
         "activity_created_at": "2026-10-05T13:55:57.091010Z",
         "session_id": "7012793283655976941",
         "dispatch_key": "09d96eac3dbf01c51df436a3"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:16:59Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Input-help toggle is an interactive expanded/collapsed button; retaining button focus is required for keyboard/accessibility navigation. Forcing terminal focus would steal it. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -171845,7 +172049,7 @@
       "id": "discovery-692bacbce80f79b1",
       "title": "Fix uncaught promise rejection in loadTranscriptPath",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "low",
       "focus": [
@@ -171880,6 +172084,12 @@
         "activity_created_at": "2026-10-05T23:36:55.341992Z",
         "session_id": "14568345164608329355",
         "dispatch_key": "1542e45c099f5e828e5b3f6f"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:17:00Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. loadTranscriptPath intentionally rejects so App deep-link handler reports failure without opening empty modal; existing caller catches it. Replacing contract with silent failure hides errors. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -181695,7 +181905,7 @@
       "id": "discovery-c2c03e2397af3d9c",
       "title": "Flush pending terminal output before disposing the batcher to prevent data loss",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 80,
       "risk": "low",
       "focus": [
@@ -181731,6 +181941,12 @@
         "activity_created_at": "2026-10-06T22:25:25.631842Z",
         "session_id": "13376297701714051870",
         "dispatch_key": "c589f1e3ba2a0f6329c8c916"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:17:01Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Output batcher disposal occurs before xterm destruction on unmount; flushing into disposed terminal is unsafe, and reattachment replays backend buffer. Not lost persistent output. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -191926,7 +192142,7 @@
       "id": "discovery-5d2c2a7141e1fb4a",
       "title": "Disable the Import button in ImportSessionModal when the path is empty",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -191963,6 +192179,12 @@
         "activity_created_at": "2026-10-11T00:06:00.632517Z",
         "session_id": "7750126581380499046",
         "dispatch_key": "e69fed47b67d10e4e65883b1"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:17:03Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Import dialog mounts only after OS picker returns nonblank path; nonexistent empty-path state is not user reachable. Extra defensive validation outside current release ask is unnecessary. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -194075,7 +194297,7 @@
       "id": "discovery-43ddfa5331407086",
       "title": "Cancel pending fit animation frame on TerminalView unmount to prevent layout crashes",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -194111,6 +194333,12 @@
         "activity_created_at": "2026-10-11T02:29:23.910435Z",
         "session_id": "1905554458114203191",
         "dispatch_key": "9be99e4cde7ec080d7cd3322"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:17:04Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. PR101 already captures/cancels fitFrame on cleanup and clears terminal scheduling; integrated unchanged lifecycle removes pending callbacks. No second timer cleanup convention. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
@@ -195370,7 +195598,7 @@
       "id": "discovery-fac97a536044c667",
       "title": "Cancel terminal fit requestAnimationFrame on unmount to prevent leaks",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "medium",
       "focus": [
@@ -195405,6 +195633,12 @@
         "activity_created_at": "2026-10-11T03:19:03.285539Z",
         "session_id": "3702992851397545764",
         "dispatch_key": "8567a532d552067e43543a9f"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-13T17:17:05Z",
+        "note": "Production 0.9.9 owner triage 2026-10-13. Duplicate fitFrame claim discovery-43ddfa5331407086; addressed by integrated PR101 lifecycle cleanup. Current implementation/rejection basis reviewed against verified signed source 7ca97d36579a1ba1ffe128f77e50410ee2f03d59 (https://github.com/Omnividente/omp-desktop/commit/7ca97d36579a1ba1ffe128f77e50410ee2f03d59), source PR #126. Actual source/core/native evidence accepted; no worker execution histories changed."
       }
     },
     {
