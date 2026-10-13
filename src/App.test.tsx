@@ -970,6 +970,33 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".switch-input-recovery")).toBeNull()
   })
 
+  it("reuses a fresh role baseline but waits for current assignments after expiry", async () => {
+    let clock = 1_700_000_000_000
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    const refreshed = deferred<OmpConfigSnapshot>()
+    vi.mocked(api.loadOmpConfig)
+      .mockResolvedValueOnce(config("Cached"))
+      .mockReturnValue(refreshed.promise)
+    try {
+      await act(async () => root.render(<App />))
+      await act(async () => element(".runtime-pill").click())
+      act(() => element("#settings-tab-models").click())
+      expect(element(".role-row .model-picker-trigger").textContent).toContain("Cached")
+      expect(container.querySelector(".settings-loading-banner")).toBeNull()
+      await act(async () => element(".settings-header button").click())
+      clock += api.OMP_CONFIG_STALE_MS + 1
+      await act(async () => element(".runtime-pill").click())
+      expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+      act(() => element("#settings-tab-models").click())
+      expect(container.querySelector(".role-row")).toBeNull()
+      await act(async () => refreshed.resolve(config("Current")))
+      expect(element(".role-row .model-picker-trigger").textContent).toContain("Current")
+      expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it("keeps post-save models when initial App and Settings requests resolve late after a save without config", async () => {
     const initial = deferred<OmpConfigSnapshot>()
     const panelInitial = deferred<OmpConfigSnapshot>()

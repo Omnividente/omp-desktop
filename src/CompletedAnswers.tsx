@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState, type MouseEvent } from "react"
 import { errorMessage, openContentLink, readSessionAnswers } from "./api"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { CopyButton } from "./CopyButton"
@@ -88,6 +88,11 @@ export function CompletedAnswers({
     },
     [sessionPath, onError, lang],
   )
+  const showLinkMenu = useCallback((event: MouseEvent<HTMLAnchorElement>, uri: string) => {
+    if (!window.getSelection()?.isCollapsed) return
+    event.preventDefault()
+    setMenu({ left: event.clientX, top: event.clientY, uri, focus: event.currentTarget })
+  }, [])
   const dismissMenu = (restoreFocus: boolean) => {
     if (restoreFocus && menu?.focus.isConnected) menu.focus.focus()
     setMenu(null)
@@ -199,11 +204,7 @@ export function CompletedAnswers({
             lang={lang}
             onError={onError}
             onOpen={openLink}
-            onLinkContextMenu={(event, uri) => {
-              if (!window.getSelection()?.isCollapsed) return
-              event.preventDefault()
-              setMenu({ left: event.clientX, top: event.clientY, uri, focus: event.currentTarget })
-            }}
+            onLinkContextMenu={showLinkMenu}
           />
         )}
       </div>
