@@ -5,7 +5,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
 import { WebglAddon } from "@xterm/addon-webgl"
-import { Terminal } from "@xterm/xterm"
+import { Terminal, type IDisposable } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import {
   attachTerminal,
@@ -28,7 +28,11 @@ import {
   type TerminalCell,
   terminalInputBlocked,
 } from "./terminalInput"
-import { createTerminalOutputBatcher } from "./terminalOutputBatcher"
+import {
+  createTerminalOutputBatcher,
+  LINUX_TERMINAL_WRITE_BATCH_DELAY_MS,
+  TERMINAL_WRITE_BATCH_DELAY_MS,
+} from "./terminalOutputBatcher"
 import {
   applyTerminalAttachment,
   applyTerminalOutputEvent,
@@ -39,6 +43,7 @@ import type { PtyExitEvent, PtyOutputEvent, RuntimeInfo, TerminalTab } from "./t
 import { t, type Lang } from "./i18n"
 import { CONTENT_URL_PATTERN, isContentLink, isFileContentLink } from "./contentLinks"
 import { terminalShortcutInput } from "./terminalShortcuts"
+import { WEBGL_SIMPLE_COLOR_ATTRIBUTE } from "./terminalWebglCells"
 
 // The xterm addon adds its own global flag when scanning wrapped lines.
 const TERMINAL_URL_PATTERN = new RegExp(CONTENT_URL_PATTERN.source, "i")
@@ -230,21 +235,13 @@ export function TerminalView({
       }),
     )
     terminal.open(container)
-    if (isLinuxRuntime) {
-      let webglAddon: WebglAddon | undefined
-      try {
-        webglAddon = new WebglAddon()
-        const addon = webglAddon
-        addon.onContextLoss(() => {
-          addon.dispose()
-          fitRef.current?.()
-        })
-        terminal.loadAddon(addon)
-      } catch {
-        // Unsupported WebGL2 leaves the existing DOM renderer usable.
-        webglAddon?.dispose()
+    if (isLinuxRuntime) terminal.element?.setAttribute(WEBGL_SIMPLE_COLOR_ATTRIBUTE, "")
+    const markDomFallback = () => {
+      if (isLinuxRuntime) {
+        container.querySelector(".xterm-rows")?.setAttribute("data-omp-reuse-dom-rows", "")
       }
     }
+    markDomFallback()
     terminalRef.current = terminal
 
     let pointerDownCell: TerminalCell | null = null
@@ -465,6 +462,57 @@ export function TerminalView({
     let lastCols = 0
     let fitFrame: number | null = null
     let lastRows = 0
+    let webglAddon: WebglAddon | null = null
+    let contextLossSubscription: IDisposable | null = null
+    let lastWebglFit: {
+      width: number
+      height: number
+      fontFamily: string
+      fontSize: number
+      devicePixelRatio: number
+    } | null = null
+    const releaseWebgl = () => {
+      const addon = webglAddon
+      webglAddon = null
+      contextLossSubscription?.dispose()
+      contextLossSubscription = null
+      if (!addon) return
+      addon.dispose()
+      // Addon disposal recreates DOM rows; the Linux fallback still needs row reuse.
+      markDomFallback()
+    }
+    const activateWebgl = (width: number, height: number) => {
+      if (!isLinuxRuntime) return
+      const fontFamily = terminalFontFamilyRef.current
+      const fontSize = terminalFontSizeRef.current
+      const devicePixelRatio = window.devicePixelRatio
+      if (
+        lastWebglFit?.width === width &&
+        lastWebglFit.height === height &&
+        lastWebglFit.fontFamily === fontFamily &&
+        lastWebglFit.fontSize === fontSize &&
+        lastWebglFit.devicePixelRatio === devicePixelRatio
+      )
+        return
+      // A failed/lost context is retried only after a different fit or hide/show.
+      // Output, focus requests and repeated same-size observer callbacks are not retries.
+      lastWebglFit = { width, height, fontFamily, fontSize, devicePixelRatio }
+      if (webglAddon) return
+      try {
+        const addon = new WebglAddon()
+        webglAddon = addon
+        contextLossSubscription = addon.onContextLoss(() => {
+          if (disposed || webglAddon !== addon) return
+          releaseWebgl()
+          leaveLink()
+          terminal.refresh(0, terminal.rows - 1)
+        })
+        terminal.loadAddon(addon)
+      } catch {
+        // Keep the same Terminal and all PTY/input/selection subscriptions on DOM.
+        releaseWebgl()
+      }
+    }
     const unlisteners: UnlistenFn[] = []
     const attachmentId =
       globalThis.crypto?.randomUUID?.() ??
@@ -491,10 +539,14 @@ export function TerminalView({
       syncScrollPosition()
       terminal.focus()
     }
-    const outputBatcher = createTerminalOutputBatcher(writeOutput, {
-      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
-      cancel: (handle) => window.clearTimeout(handle),
-    })
+    const outputBatcher = createTerminalOutputBatcher(
+      writeOutput,
+      {
+        schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        cancel: (handle) => window.clearTimeout(handle),
+      },
+      isLinuxRuntime ? LINUX_TERMINAL_WRITE_BATCH_DELAY_MS : TERMINAL_WRITE_BATCH_DELAY_MS,
+    )
     let deferredOutput: PtyOutputEvent[] = []
     let outputReady = false
     let exitHandled = false
@@ -532,17 +584,62 @@ export function TerminalView({
     }
 
     const fit = () => {
-      if (disposed || !activeRef.current || container.clientWidth === 0) {
+      if (disposed) return
+      const width = container.clientWidth
+      const height = isLinuxRuntime ? container.clientHeight : 0
+      if (
+        !activeRef.current ||
+        width === 0 ||
+        (isLinuxRuntime &&
+          (height === 0 || document.hidden || container.getClientRects().length === 0))
+      ) {
+        if (isLinuxRuntime) {
+          lastWebglFit = null
+          releaseWebgl()
+        }
         return
       }
       try {
+        if (isLinuxRuntime) {
+          const dimensions = fitAddon.proposeDimensions()
+          if (
+            !dimensions ||
+            !Number.isFinite(dimensions.cols) ||
+            dimensions.cols <= 0 ||
+            !Number.isFinite(dimensions.rows) ||
+            dimensions.rows <= 0
+          )
+            return
+        }
         const followAfterFit = followingOutput && atBottom()
+        const previousCols = terminal.cols
+        const previousRows = terminal.rows
+        const previousWebglFit = lastWebglFit
+        // DOM and WebGL round cell widths differently; fit the chosen renderer.
+        activateWebgl(width, height)
         fitAddon.fit()
+        if (
+          webglAddon &&
+          (terminal.cols !== previousCols ||
+            terminal.rows !== previousRows ||
+            (previousWebglFit &&
+              (previousWebglFit.fontFamily !== terminalFontFamilyRef.current ||
+                previousWebglFit.fontSize !== terminalFontSizeRef.current ||
+                previousWebglFit.devicePixelRatio !== window.devicePixelRatio)))
+        ) {
+          // WebKitGTK can keep a resized WebGL surface blank despite successful draws.
+          // Create its replacement at the final grid; keep the Terminal, PTY and input.
+          releaseWebgl()
+          lastWebglFit = null
+          activateWebgl(width, height)
+        }
         if (followAfterFit && !atBottom()) {
           restoringBottom = true
           terminal.scrollToBottom()
         }
         syncScrollPosition()
+        // A layout/visibility change can invalidate the surface without changing the grid.
+        terminal.refresh(0, terminal.rows - 1)
         if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
           lastCols = terminal.cols
           lastRows = terminal.rows
@@ -554,14 +651,26 @@ export function TerminalView({
     }
     fitRef.current = fit
 
-    const resizeObserver = new ResizeObserver(() => {
+    const scheduleFit = () => {
       if (fitFrame === null)
         fitFrame = window.requestAnimationFrame(() => {
           fitFrame = null
           fit()
         })
-    })
+    }
+    const resizeObserver = new ResizeObserver(scheduleFit)
     resizeObserver.observe(container)
+    if (isLinuxRuntime) {
+      // A terminal opened hidden gets valid cell metrics only after xterm sees it.
+      // Observe that one-time screen layout too, rather than polling for a fit.
+      const screen = container.querySelector(".xterm-screen")
+      if (screen) resizeObserver.observe(screen)
+    }
+    const handleVisibilityChange = () => {
+      if (document.hidden) fit()
+      else scheduleFit()
+    }
+    if (isLinuxRuntime) document.addEventListener("visibilitychange", handleVisibilityChange)
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
@@ -659,6 +768,8 @@ export function TerminalView({
       deferredOutput = []
       resizeObserver.disconnect()
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
+      if (isLinuxRuntime) document.removeEventListener("visibilitychange", handleVisibilityChange)
+      releaseWebgl()
       container.removeEventListener("mousedown", handleMouseDown)
       container.removeEventListener("mouseup", handleMouseUp)
       container.removeEventListener("focusout", handleFocusOut)
@@ -691,6 +802,7 @@ export function TerminalView({
 
   useEffect(() => {
     if (!active) {
+      if (platform === "linux") fitRef.current?.()
       return
     }
     const frame = window.requestAnimationFrame(() => {
@@ -698,7 +810,7 @@ export function TerminalView({
       terminalRef.current?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [active, focusRequestSequence, tab.id])
+  }, [active, focusRequestSequence, platform, tab.id])
 
   useEffect(() => {
     if (active) return

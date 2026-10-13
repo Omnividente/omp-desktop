@@ -158,6 +158,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -208,6 +209,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -256,6 +258,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -332,10 +335,16 @@ describe("SettingsPanel configuration generations", () => {
     }
   }
 
-  async function renderPanel(nextRuntime = runtime, nextSettings = settings, strict = false) {
+  async function renderPanel(
+    nextRuntime = runtime,
+    nextSettings = settings,
+    strict = false,
+    initialSnapshot: OmpConfigSnapshot | null = null,
+  ) {
     await act(async () => {
       const panel = (
         <SettingsPanel
+          initialOmpConfig={initialSnapshot}
           onClose={() => root.render(null)}
           onError={onError}
           onSaved={onSaved}
@@ -379,6 +388,56 @@ describe("SettingsPanel configuration generations", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it("opens a cached role baseline as clean and editable in Strict Mode", async () => {
+    const model = {
+      provider: "catalog",
+      id: "cached",
+      selector: "catalog/cached",
+      name: "Cached model",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+    }
+    const snapshot = {
+      ...ompConfig,
+      models: [model],
+      roles: [
+        {
+          role: "default",
+          selector: model.selector,
+          model,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+      advisorEnabled: true,
+      autoResume: true,
+      defaultThinkingLevel: "high",
+      modelFallbackEnabled: false,
+      fallbackChains: { default: [model.selector] },
+      proxyProviders: ["catalog"],
+      disabledProviders: ["unused"],
+    }
+    loadOmpConfigMock.mockReturnValue(deferred<OmpConfigSnapshot>().promise)
+    await renderPanel(runtime, settings, true, snapshot)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+    expectAdvisorDraft(true)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    const picker = container.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+    expect(picker.textContent).toContain("Cached model")
+    act(() => picker.click())
+    expect(container.querySelector(".model-picker-option")?.textContent).toContain("Cached model")
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 
   it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
@@ -731,6 +790,7 @@ describe("SettingsPanel keyboard lifecycle", () => {
       root.render(
         <StrictMode>
           <SettingsPanel
+            initialOmpConfig={null}
             onClose={onClose}
             onError={vi.fn()}
             onSaved={vi.fn()}

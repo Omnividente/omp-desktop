@@ -37,6 +37,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 }))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
+    proposeDimensions() {
+      return { cols: 80, rows: 24 }
+    }
     fit() {
       if (terminalState.fitThrows) throw new Error("zero-sized terminal")
       if (terminalState.instance) {
@@ -59,6 +62,7 @@ vi.mock("@xterm/xterm", () => ({
     }
     loadAddon() {}
     open() {}
+    refresh() {}
     attachCustomKeyEventHandler() {}
     onSelectionChange(callback: () => void) {
       terminalState.selectionChanged = callback
@@ -241,6 +245,10 @@ it("retains Reply quoting and clears only after choosing Reply; Escape dismisses
 
 it("resizes the PTY when font metrics change without container resize", async () => {
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue({ length: 1 } as DOMRectList)
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
   try {
@@ -283,11 +291,17 @@ it("resizes the PTY when font metrics change without container resize", async ()
     expect(resizeTerminal).toHaveBeenCalledWith(tab.id, 70, 24)
   } finally {
     width.mockRestore()
+    height.mockRestore()
+    rects.mockRestore()
   }
 })
 
 it("restores keyboard focus when fit fails during tab activation", async () => {
   const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800)
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600)
+  const rects = vi
+    .spyOn(HTMLElement.prototype, "getClientRects")
+    .mockReturnValue({ length: 1 } as DOMRectList)
   const frames: FrameRequestCallback[] = []
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
   try {
@@ -329,10 +343,12 @@ it("restores keyboard focus when fit fails during tab activation", async () => {
     expect(terminalState.focus).toHaveBeenCalled()
   } finally {
     width.mockRestore()
+    height.mockRestore()
+    rects.mockRestore()
   }
 })
 
-it("shows a labeled return control only away from the latest output", async () => {
+it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
   act(() => {
@@ -341,7 +357,6 @@ it("shows a labeled return control only away from the latest output", async () =
     terminalState.scrollChanged?.()
   })
   const button = container.querySelector<HTMLButtonElement>(".terminal-scroll-bottom")!
-  expect(button.getAttribute("aria-label")).toBe("Jump to latest output")
   await act(async () => button.click())
   expect(buffer.viewportY).toBe(buffer.baseY)
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()

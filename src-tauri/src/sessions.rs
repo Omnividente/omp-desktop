@@ -9,6 +9,7 @@ use crate::{
 };
 use serde_json::Value;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env, fs,
     io::{self, Read, Seek, SeekFrom, Write},
@@ -1050,6 +1051,166 @@ enum TranscriptEntryFilter {
     CompletedAnswers,
 }
 
+#[derive(Default)]
+struct AnswerRecordHeader {
+    message_type: bool,
+    assistant_role: bool,
+    message_role: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(field_identifier)]
+enum AnswerHeaderField {
+    #[serde(rename = "type")]
+    Kind,
+    #[serde(rename = "role")]
+    Role,
+    #[serde(rename = "message")]
+    Message,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Copy)]
+enum AnswerJsonProbe {
+    Ignore,
+    MessageType,
+    AssistantRole,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for AnswerJsonProbe {
+    type Value = bool;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<bool, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+// IgnoredAny skips Unicode validation. Walk discarded values without building a
+// Value tree so malformed tool payloads still produce corruption warnings.
+impl<'de> serde::de::Visitor<'de> for AnswerJsonProbe {
+    type Value = bool;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_unit<E: serde::de::Error>(self) -> Result<bool, E> {
+        Ok(false)
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, _value: bool) -> Result<bool, E> {
+        Ok(false)
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, _value: i64) -> Result<bool, E> {
+        Ok(false)
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, _value: u64) -> Result<bool, E> {
+        Ok(false)
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, _value: f64) -> Result<bool, E> {
+        Ok(false)
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<bool, E> {
+        Ok(match self {
+            Self::Ignore => false,
+            Self::MessageType => value == "message",
+            Self::AssistantRole => value.trim().eq_ignore_ascii_case("assistant"),
+        })
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut values: A) -> Result<bool, A::Error> {
+        while values.next_element_seed(Self::Ignore)?.is_some() {}
+        Ok(false)
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut values: A) -> Result<bool, A::Error> {
+        while values.next_key_seed(Self::Ignore)?.is_some() {
+            values.next_value_seed(Self::Ignore)?;
+        }
+        Ok(false)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AnswerRecordHeader {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct HeaderVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for HeaderVisitor {
+            type Value = AnswerRecordHeader;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, _value: bool) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, _value: i64) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, _value: u64) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, _value: f64) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_str<E: serde::de::Error>(self, _value: &str) -> Result<Self::Value, E> {
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut values: A,
+            ) -> Result<Self::Value, A::Error> {
+                while values.next_element_seed(AnswerJsonProbe::Ignore)?.is_some() {}
+                Ok(AnswerRecordHeader::default())
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut values: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut header = AnswerRecordHeader::default();
+                while let Some(field) = values.next_key::<AnswerHeaderField>()? {
+                    match field {
+                        AnswerHeaderField::Kind => {
+                            header.message_type =
+                                values.next_value_seed(AnswerJsonProbe::MessageType)?;
+                        }
+                        AnswerHeaderField::Role => {
+                            header.assistant_role =
+                                values.next_value_seed(AnswerJsonProbe::AssistantRole)?;
+                        }
+                        AnswerHeaderField::Message => {
+                            header.message_role =
+                                Some(values.next_value::<AnswerRecordHeader>()?.assistant_role);
+                        }
+                        AnswerHeaderField::Other => {
+                            values.next_value_seed(AnswerJsonProbe::Ignore)?;
+                        }
+                    }
+                }
+                Ok(header)
+            }
+        }
+
+        deserializer.deserialize_any(HeaderVisitor)
+    }
+}
+
 pub fn read_session_transcript(
     path: &str,
     session_root: &Path,
@@ -1247,6 +1408,22 @@ fn parse_transcript_region(
         }
         if row.iter().all(u8::is_ascii_whitespace) {
             continue;
+        }
+        if entry_filter == TranscriptEntryFilter::CompletedAnswers {
+            match serde_json::from_slice::<AnswerRecordHeader>(row) {
+                Ok(header)
+                    if header.message_type
+                        && header.message_role.unwrap_or(header.assistant_role) => {}
+                Ok(_) => continue,
+                Err(_) => {
+                    if terminated {
+                        malformed_records += 1;
+                    } else {
+                        incomplete_last_record = true;
+                    }
+                    continue;
+                }
+            }
         }
         match serde_json::from_slice::<Value>(row) {
             Ok(value) => {
@@ -2847,16 +3024,16 @@ fn restorable_session_model(
     }
 }
 
-fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|candidate| candidate == needle)
-}
-
 fn parse_session_with_names(
     path: &Path,
     thread_names: &HashMap<String, String>,
 ) -> Result<Option<SessionSummary>, String> {
+    #[derive(serde::Deserialize)]
+    struct RecordType<'a> {
+        #[serde(rename = "type", borrow)]
+        kind: Cow<'a, str>,
+    }
+
     let regions = read_transcript_regions(
         path,
         SESSION_SUMMARY_REGION_BYTES,
@@ -2887,11 +3064,19 @@ fn parse_session_with_names(
         }
         let parse_prefix = line_index < 12;
         line_index += 1;
-        if !parse_prefix
-            && !bytes_contain(line, b"\"model_change\"")
-            && !bytes_contain(line, b"\"thinking_level_change\"")
-            && !bytes_contain(line, b"\"title_change\"")
-            && !bytes_contain(line, b"\"message\"")
+        let Ok(record) = serde_json::from_slice::<RecordType<'_>>(line) else {
+            continue;
+        };
+        let kind = record.kind.as_ref();
+        if !parse_prefix && matches!(kind, "session" | "title") {
+            continue;
+        }
+        // Once dialogue presence and its fallback title are known, message bodies add no state.
+        if !matches!(
+            kind,
+            "session" | "title" | "title_change" | "model_change" | "thinking_level_change"
+        ) && (!matches!(kind, "message" | "custom_message")
+            || (has_messages && fallback_title.is_some()))
         {
             continue;
         }
@@ -2899,8 +3084,8 @@ fn parse_session_with_names(
         let Ok(value) = serde_json::from_slice::<Value>(line) else {
             continue;
         };
-        match value.get("type").and_then(Value::as_str) {
-            Some("title" | "title_change") => {
+        match kind {
+            "title" | "title_change" => {
                 let candidate = value
                     .get("title")
                     .and_then(Value::as_str)
@@ -2909,7 +3094,7 @@ fn parse_session_with_names(
                     title = candidate;
                 }
             }
-            Some("session") => {
+            "session" => {
                 id = value.get("id").and_then(Value::as_str).map(str::to_owned);
                 cwd = value.get("cwd").and_then(Value::as_str).map(str::to_owned);
                 created_at = value
@@ -2928,7 +3113,7 @@ fn parse_session_with_names(
                     }
                 }
             }
-            Some("model_change") => {
+            "model_change" => {
                 if let Some(model) = value.get("model").and_then(Value::as_str) {
                     let role = value
                         .get("role")
@@ -2939,7 +3124,7 @@ fn parse_session_with_names(
                     last_model_role = Some(role);
                 }
             }
-            Some("thinking_level_change") => {
+            "thinking_level_change" => {
                 let effective = value
                     .get("thinkingLevel")
                     .and_then(Value::as_str)
@@ -2951,7 +3136,7 @@ fn parse_session_with_names(
                     .or_else(|| effective.clone());
                 thinking_level = effective;
             }
-            Some("message" | "custom_message") => {
+            "message" | "custom_message" => {
                 let message = value.get("message").unwrap_or(&value);
                 let role = message.get("role").and_then(Value::as_str);
                 if role == Some("user") || role == Some("assistant") {
@@ -4363,9 +4548,19 @@ mod tests {
                 "\n",
                 r#"{"type":"message","id":"legacy","message":{"role":"assistant","content":"legacy answer"}}"#,
                 "\n",
+                r#"{"type":"message","id":"flat","role":" ASSISTANT ","content":"flat legacy answer"}"#,
+                "\n",
+                r#"{"type":"message","id":"escaped-role","message":{"role":"ass\u0069stant","content":"escaped role answer"}}"#,
+                "\n",
+                r#"{"type":"message","id":"nested-tool","role":"assistant","message":{"role":"toolResult","content":"not dialogue","details":{"role":"assistant"}}}"#,
+                "\n",
+                r#"{"type":"message","id":"non-string-role","message":{"role":{"value":"assistant"},"content":"not dialogue"}}"#,
+                "\n",
                 r#"{"type":"message","id":"legacy-tool","message":{"role":"assistant","content":[{"type":"tool_use","name":"read"},{"type":"text","text":"legacy tool"}]}}"#,
                 "\n",
                 r#"{"type":"message","id":"thinking","message":{"role":"assistant","stopReason":"stop","content":[{"type":"thinking","thinking":"private reasoning"}]}}"#,
+                "\n",
+                r#"{"type":"message","id":"malformed-tool","message":{"role":"toolResult","content":"\uD800"}}"#,
                 "\n",
                 "{malformed}\n",
                 r#"{"type":"message","id":"partial","message":{"role":"assistant","stopReason":"stop","content":"incomplete"}"#,
@@ -4384,13 +4579,20 @@ mod tests {
                 .iter()
                 .map(|entry| entry.id.as_str())
                 .collect::<Vec<_>>(),
-            ["final", "length", "end-turn", "legacy"]
+            [
+                "final",
+                "length",
+                "end-turn",
+                "legacy",
+                "flat",
+                "escaped-role"
+            ]
         );
         assert_eq!(
             transcript.entries[0].dialogue_text.as_deref(),
             Some("# Answer\n\ncode")
         );
-        assert_eq!(transcript.malformed_records, 1);
+        assert_eq!(transcript.malformed_records, 2);
         assert!(transcript.incomplete_last_record);
         assert!(!transcript.truncated);
 

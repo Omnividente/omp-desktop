@@ -1,4 +1,5 @@
 export const TERMINAL_WRITE_BATCH_DELAY_MS = 16
+export const LINUX_TERMINAL_WRITE_BATCH_DELAY_MS = 50
 export const MAX_TERMINAL_WRITE_BATCH = 256 * 1024
 
 export interface TerminalOutputScheduler {
@@ -52,7 +53,10 @@ export function createTerminalOutputBatcher(
 
   const endWindow = () => {
     timer = null
+    if (disposed || length === 0) return
     writePending()
+    // A trailing write starts its own window; the next event must not bypass it.
+    if (!disposed) scheduleWindow()
   }
 
   const scheduleWindow = () => {

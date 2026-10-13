@@ -302,6 +302,7 @@ export interface OmpCustomProviderRequest {
 }
 
 export interface OmpConfigSaveRequest {
+  /** Partial updates; omitted roles keep their current on-disk assignments. */
   roles: Record<string, string>
   advisorEnabled?: boolean | null
   autoResume?: boolean | null

@@ -21,6 +21,8 @@ import {
   importSessions,
   listCodexSessions,
   loadOmpConfig,
+  OMP_CONFIG_STALE_MS,
+  type OmpConfigRuntime,
   openSettingsFolder,
   removeWorkspace as removeWorkspaceFromList,
   renameWorkspace,
@@ -272,7 +274,8 @@ function App() {
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
   const launchingRef = useRef(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpenedAt, setSettingsOpenedAt] = useState<number | null>(null)
+  const settingsOpen = settingsOpenedAt !== null
   const [startupError, setStartupError] = useState<string | null>(null)
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
@@ -315,8 +318,10 @@ function App() {
   const [ompConfigLoading, setOmpConfigLoading] = useState(false)
   const [ompConfigAttempt, setOmpConfigAttempt] = useState(0)
   const ompConfigRequestRef = useRef(0)
-  const acceptOmpConfig = useCallback((snapshot: OmpConfigSnapshot) => {
+  const ompConfigBaselineRef = useRef<{ runtime: OmpConfigRuntime; loadedAt: number } | null>(null)
+  const acceptOmpConfig = useCallback((snapshot: OmpConfigSnapshot, runtime: OmpConfigRuntime) => {
     ++ompConfigRequestRef.current
+    ompConfigBaselineRef.current = { runtime, loadedAt: Date.now() }
     setOmpConfig(snapshot)
     setOmpConfigError(null)
     setOmpConfigLoading(false)
@@ -339,19 +344,23 @@ function App() {
   const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
   ompVersionRef.current = payload?.runtime.ompVersion ?? null
 
+  const ompAvailable = payload?.runtime.ompAvailable
+  const ompExecutable = payload?.runtime.ompExecutable
+  const ompVersion = payload?.runtime.ompVersion
+
   useEffect(() => {
     const request = ++ompConfigRequestRef.current
     let disposed = false
     const current = () => !disposed && request === ompConfigRequestRef.current
     setOmpConfigError(null)
     setOmpConfig(null)
-    setOmpConfigLoading(Boolean(payload?.runtime.ompAvailable))
-    if (!payload?.runtime.ompAvailable) {
-      return
-    }
-    void loadOmpConfig()
+    ompConfigBaselineRef.current = null
+    setOmpConfigLoading(Boolean(ompAvailable))
+    if (!ompAvailable || ompExecutable === undefined) return
+    const runtime = { ompAvailable, ompExecutable, ompVersion: ompVersion ?? null }
+    void loadOmpConfig(runtime)
       .then((snapshot) => {
-        if (current()) acceptOmpConfig(snapshot)
+        if (current()) acceptOmpConfig(snapshot, runtime)
       })
       .catch((error) => {
         if (current()) setOmpConfigError(errorMessage(error, langRef.current))
@@ -362,13 +371,7 @@ function App() {
     return () => {
       disposed = true
     }
-  }, [
-    acceptOmpConfig,
-    ompConfigAttempt,
-    payload?.runtime.ompAvailable,
-    payload?.runtime.ompExecutable,
-    payload?.runtime.ompVersion,
-  ])
+  }, [acceptOmpConfig, ompConfigAttempt, ompAvailable, ompExecutable, ompVersion])
   const railMode = payload?.settings.railMode ?? "expanded"
   const {
     transcriptSession,
@@ -615,10 +618,11 @@ function App() {
   const handleSettingsSaved = useCallback(
     (result: SettingsSavePayload) => {
       if (result.ompConfig) {
-        acceptOmpConfig(result.ompConfig)
+        acceptOmpConfig(result.ompConfig, result.bootstrap.runtime)
       } else {
         ++ompConfigRequestRef.current
         setOmpConfig(null)
+        ompConfigBaselineRef.current = null
         setOmpConfigError(null)
         setOmpConfigLoading(result.bootstrap.runtime.ompAvailable)
         setOmpConfigAttempt((attempt) => attempt + 1)
@@ -1207,14 +1211,14 @@ function App() {
   const closeResourceHealth = useCallback(() => setResourceHealthOpen(false), [])
   const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
   const openIncidentCenter = useCallback(() => {
-    setSettingsOpen(false)
+    setSettingsOpenedAt(null)
     setCodexOpen(false)
     closeTranscript()
     setResourceHealthOpen(false)
     setIncidentCenterOpen(true)
   }, [closeTranscript])
   const openResourceHealth = useCallback(() => {
-    setSettingsOpen(false)
+    setSettingsOpenedAt(null)
     setCodexOpen(false)
     closeTranscript()
     setIncidentCenterOpen(false)
@@ -1277,7 +1281,7 @@ function App() {
         return
       }
       if (!payload.runtime.ompAvailable) {
-        setSettingsOpen(true)
+        setSettingsOpenedAt(Date.now())
         showError(t(lang, "requireOmp"))
         return
       }
@@ -2140,7 +2144,10 @@ function App() {
   }
 
   return (
-    <div className="app-shell" style={{ fontFamily: payload.settings.appFontFamily }}>
+    <div
+      className={`app-shell${payload.runtime.platform === "linux" ? " is-linux" : ""}`}
+      style={{ fontFamily: payload.settings.appFontFamily }}
+    >
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}
@@ -2156,7 +2163,7 @@ function App() {
         resourceTriggerRef={resourceHealthTriggerRef}
         onOpenIncidentCenter={openIncidentCenter}
         onOpenResourceHealth={openResourceHealth}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => setSettingsOpenedAt(Date.now())}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
         refreshing={refreshing}
@@ -2347,10 +2354,19 @@ function App() {
         />
       )}
 
-      {settingsOpen && (
+      {settingsOpenedAt !== null && (
         <SettingsPanel
-          onClose={() => setSettingsOpen(false)}
-          onConfigLoaded={acceptOmpConfig}
+          initialOmpConfig={
+            ompConfig &&
+            ompConfigBaselineRef.current?.runtime.ompAvailable === payload.runtime.ompAvailable &&
+            ompConfigBaselineRef.current.runtime.ompExecutable === payload.runtime.ompExecutable &&
+            ompConfigBaselineRef.current.runtime.ompVersion === payload.runtime.ompVersion &&
+            settingsOpenedAt - ompConfigBaselineRef.current.loadedAt < OMP_CONFIG_STALE_MS
+              ? ompConfig
+              : null
+          }
+          onClose={() => setSettingsOpenedAt(null)}
+          onConfigLoaded={(snapshot) => acceptOmpConfig(snapshot, payload.runtime)}
           onError={showError}
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}
