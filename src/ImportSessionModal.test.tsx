@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, StrictMode, useState } from "react"
+import { act, StrictMode, useEffect, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CodexImportModal } from "./CodexImportModal"
@@ -304,4 +304,196 @@ it("keeps distant Codex sessions keyboard-reachable and selectable without mount
   act(() => dialog().querySelector<HTMLButtonElement>("footer .primary")!.click())
   expect(Object.keys(imported.mock.lastCall![0]).length).toBe(sessions.length)
   expect(imported.mock.lastCall![0][sessions[199].filePath]).toBe(true)
+})
+
+it("scrolls deferred Codex discovery and preserves reload/close boundaries", async () => {
+  const sessions = Array.from({ length: 200 }, (_, index): CodexSessionSummary => ({
+    ...session,
+    id: `async-${index}`,
+    title: `Discovered ${index}`,
+    filePath: `/synthetic/discovered-${index}.jsonl`,
+  }))
+  let discover!: (sessions: CodexSessionSummary[]) => void
+  const discovery = new Promise<CodexSessionSummary[]>((resolve) => {
+    discover = resolve
+  })
+  const imported = vi.fn()
+  const observers = new Set<() => void>()
+  const frames = new Map<number, FrameRequestCallback>()
+  let nextFrame = 0
+  let viewportHeight = 480
+  let viewportWidth = 700
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback)
+    return nextFrame
+  })
+  vi.stubGlobal("cancelAnimationFrame", (frame: number) => frames.delete(frame))
+  vi.stubGlobal(
+    "ResizeObserver",
+    class implements ResizeObserver {
+      private targets = new Set<Element>()
+      private notify: () => void
+      constructor(callback: ResizeObserverCallback) {
+        this.notify = () =>
+          callback(
+            Array.from(this.targets, (target) => ({ target }) as ResizeObserverEntry),
+            this,
+          )
+        observers.add(this.notify)
+      }
+      observe(target: Element) {
+        this.targets.add(target)
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target)
+      }
+      disconnect() {
+        this.targets.clear()
+        observers.delete(this.notify)
+      }
+    },
+  )
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => viewportHeight)
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => viewportWidth)
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const contents = this.querySelector<HTMLElement>(".codex-list-contents")
+    return contents ? Number.parseFloat(contents.style.height) : viewportHeight
+  })
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const list = this.closest<HTMLElement>(".codex-list")
+    const top = this.classList.contains("codex-item")
+      ? Number.parseFloat(this.style.top) - (list?.scrollTop ?? 0)
+      : 0
+    const height = this.classList.contains("codex-item") ? 86 : viewportHeight
+    return {
+      x: 0,
+      y: top,
+      top,
+      left: 0,
+      right: viewportWidth,
+      bottom: top + height,
+      width: viewportWidth,
+      height,
+      toJSON: () => ({}),
+    }
+  })
+  async function flushFrames() {
+    await act(async () => {
+      const pending = [...frames.values()]
+      frames.clear()
+      for (const callback of pending) callback(0)
+    })
+  }
+  function AsyncImport({ reloading = false }: { reloading?: boolean }) {
+    const [loaded, setLoaded] = useState<CodexSessionSummary[]>([])
+    const [selected, setSelected] = useState<Record<string, boolean>>({})
+    useEffect(() => {
+      let active = true
+      void discovery.then((rows) => {
+        if (active) setLoaded(rows)
+      })
+      return () => {
+        active = false
+      }
+    }, [])
+    return (
+      <CodexImportModal
+        language="en"
+        loading={reloading || loaded.length === 0}
+        importing={false}
+        mode="skip"
+        sessions={loaded}
+        selected={selected}
+        onSelectedChange={setSelected}
+        onClose={() => root.render(null)}
+        onImport={() => imported(selected)}
+        onModeChange={() => undefined}
+      />
+    )
+  }
+  try {
+    act(() =>
+      root.render(
+        <StrictMode>
+          <AsyncImport />
+        </StrictMode>,
+      ),
+    )
+    const list = container.querySelector<HTMLElement>(".codex-list")!
+    expect(list).not.toBeNull()
+    expect(list.querySelector(".codex-item")).toBeNull()
+    await act(async () => discover(sessions))
+    expect(list.querySelector('.codex-item[data-virtual-index="0"]')).not.toBeNull()
+    expect(list.querySelectorAll(".codex-item").length).toBeLessThan(40)
+    act(() => {
+      list.scrollTop = list.scrollHeight - list.clientHeight
+      list.dispatchEvent(new Event("scroll"))
+    })
+    expect(frames.size).toBe(1)
+    await flushFrames()
+    const last = list.querySelector<HTMLInputElement>(
+      '.codex-item[data-virtual-index="199"] input',
+    )!
+    expect(last).not.toBeNull()
+    expect(list.querySelector('.codex-item[data-virtual-index="0"]')).toBeNull()
+    expect(last.closest<HTMLElement>(".codex-item")!.getBoundingClientRect().bottom).toBe(
+      viewportHeight,
+    )
+    act(() => last.click())
+    expect(last.checked).toBe(true)
+    act(() => dialog().querySelector<HTMLButtonElement>("footer .primary")!.click())
+    expect(imported).toHaveBeenCalledWith({ [sessions[199].filePath]: true })
+
+    const position = list.scrollTop
+    act(() =>
+      root.render(
+        <StrictMode>
+          <AsyncImport reloading />
+        </StrictMode>,
+      ),
+    )
+    expect(container.querySelector(".codex-list")).toBe(list)
+    expect(list.scrollTop).toBe(position)
+    expect(list.querySelector('.codex-item[data-virtual-index="199"]')).not.toBeNull()
+    act(() =>
+      root.render(
+        <StrictMode>
+          <AsyncImport />
+        </StrictMode>,
+      ),
+    )
+    const oldCount = list.querySelectorAll(".codex-item").length
+    await act(async () => {
+      viewportWidth = 400
+      viewportHeight = 240
+      for (const notify of [...observers]) notify()
+    })
+    act(() => {
+      list.scrollTop = list.scrollHeight - list.clientHeight
+      list.dispatchEvent(new Event("scroll"))
+    })
+    expect(frames.size).toBe(1)
+    await flushFrames()
+    expect(list.querySelectorAll(".codex-item").length).toBeLessThan(oldCount)
+    expect(
+      list.querySelector('.codex-item[data-virtual-index="199"]')!.getBoundingClientRect().bottom,
+    ).toBe(viewportHeight)
+
+    act(() => list.dispatchEvent(new Event("scroll")))
+    expect(frames.size).toBe(1)
+    act(() => closeButton().click())
+    expect(dialog()).toBeNull()
+    expect(frames.size).toBe(0)
+    expect(observers.size).toBe(0)
+    list.dispatchEvent(new Event("scroll"))
+    expect(frames.size).toBe(0)
+  } finally {
+    act(() => root.render(null))
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  }
 })

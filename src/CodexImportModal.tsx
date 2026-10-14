@@ -117,12 +117,17 @@ export function CodexImportModal({
           </button>
         </header>
         <div className="settings-scroll">
-          {loading ? (
-            <p className="field-help">{t(language, "loading")}</p>
-          ) : sessions.length === 0 ? (
-            <p className="field-help">{t(language, "noCodexSessions")}</p>
-          ) : (
-            <div className="codex-list" ref={listRef}>
+          {loading && sessions.length > 0 && (
+            <p className="field-help" role="status">
+              {t(language, "loading")}
+            </p>
+          )}
+          <div className="codex-list" ref={listRef} aria-busy={loading}>
+            {sessions.length === 0 ? (
+              <p className="field-help" role="status">
+                {t(language, loading ? "loading" : "noCodexSessions")}
+              </p>
+            ) : (
               <div
                 className="codex-list-contents"
                 style={{ height: totalHeight, position: "relative" }}
@@ -168,8 +173,8 @@ export function CodexImportModal({
                   </label>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           <ImportModeSelect
             disabled={importing}
             language={language}

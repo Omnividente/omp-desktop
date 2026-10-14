@@ -33,11 +33,7 @@ import {
   LINUX_TERMINAL_WRITE_BATCH_DELAY_MS,
   TERMINAL_WRITE_BATCH_DELAY_MS,
 } from "./terminalOutputBatcher"
-import {
-  applyTerminalAttachment,
-  applyTerminalOutputEvent,
-  terminalContinuityBaseline,
-} from "./terminalContinuity"
+import { applyTerminalAttachment, applyTerminalOutputEvent } from "./terminalContinuity"
 import { formatTerminalExitLine } from "./uiUtils"
 import type { PtyExitEvent, PtyOutputEvent, RuntimeInfo, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
@@ -188,7 +184,7 @@ export function TerminalView({
       })
     }
     const terminal = new Terminal({
-      cursorBlink: !isLinuxRuntime,
+      cursorBlink: false,
       cursorStyle: "bar",
       cursorWidth: 2,
       fontFamily: terminalFontFamilyRef.current,
@@ -711,13 +707,10 @@ export function TerminalView({
       }
       unlisteners.push(stopExit)
 
-      const baseline = terminalContinuityBaseline(tab.id)
-      const attachment = await attachTerminal(
-        tab.id,
-        attachmentId,
-        baseline?.generation ?? null,
-        baseline?.lastSeq ?? null,
-      )
+      // This effect creates a new, empty display: an old display's cursor
+      // cannot substitute for its scrollback. Live events are deferred until
+      // the attachment seeds a fresh baseline and de-duplicates their replay.
+      const attachment = await attachTerminal(tab.id, attachmentId, null, null)
       if (disposed) {
         void detachTerminal(tab.id, attachmentId).catch(() => undefined)
         return

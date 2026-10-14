@@ -2,8 +2,9 @@ use crate::{
     diagnostics,
     models::{
         sanitize_error_text, AppSettings, BootstrapPayload, OmpAccountLimitInfo,
-        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpConfigSaveRequest, OmpConfigSnapshot,
-        OmpConfigWarning, OmpCredentialInfo, OmpModelInfo, OmpRoleInfo, OmpUpdateInfo,
+        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpAgentInfo, OmpConfigSaveRequest,
+        OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo, OmpModelInfo, OmpOperationalChange,
+        OmpRoleInfo, OmpUpdateInfo, SettingsPatch,
     },
     omp_command::{run_omp_command, OmpOperation},
     operational_config::{self, OperationalTransaction},
@@ -11,17 +12,33 @@ use crate::{
     settings::{resolve_omp, SettingsTransaction},
     update,
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    sync::Mutex,
+    fs,
+    io::{BufRead, BufReader},
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 
 const KNOWN_ROLES: &[&str] = &[
-    "default", "smol", "slow", "plan", "advisor", "task", "designer", "vision", "commit", "tiny",
-    "consult",
+    "default",
+    "smol",
+    "slow",
+    "plan",
+    "vision",
+    "commit",
+    "tiny",
+    "memory",
+    "task",
+    "advisor",
+    "image",
+    "web",
+    "speech",
+    "dictation",
+    "judge",
 ];
 
 const PROVIDER_ENV_KEYS: &[&str] = &[
@@ -197,7 +214,19 @@ fn load_config_snapshot_with_refresh(
     apply_usage_to_models(&mut models, &usage.providers);
     let roles_map = extract_roles(&raw);
     let fallback_chains = extract_string_lists(&raw, "retry.fallbackChains");
-    let roles = build_roles(&roles_map, &models);
+    let mut roles = build_roles(&roles_map, &models);
+    for name in configured_role_names(&raw) {
+        if !roles.iter().any(|role| role.role == name) {
+            roles.push(OmpRoleInfo {
+                role: name,
+                selector: String::new(),
+                model: None,
+                available: false,
+                status: "unset".to_owned(),
+                detail: Some("Role is not assigned".to_owned()),
+            });
+        }
+    }
     warnings.extend(build_model_config_warnings(
         &roles_map,
         &fallback_chains,
@@ -228,9 +257,28 @@ fn load_config_snapshot_with_refresh(
     );
     let operational_settings =
         operational_config::load_catalog(&omp.executable, &app_settings.provider_env, &raw)?;
+    let agent_settings_supported = raw
+        .get("task.disabledAgents")
+        .and_then(|entry| entry.get("type"))
+        .and_then(Value::as_str)
+        == Some("array")
+        && raw
+            .get("task.agentModelOverrides")
+            .and_then(|entry| entry.get("type"))
+            .and_then(Value::as_str)
+            == Some("record");
+    let agents = load_agents(
+        &omp.executable,
+        omp.version.as_deref().unwrap_or_default(),
+        app_settings,
+        &raw,
+        &mut warnings,
+    );
 
     Ok(OmpConfigSnapshot {
         roles,
+        agents,
+        agent_settings_supported,
         usage_observed_at: usage.observed_at,
         models,
         accounts: usage.accounts,
@@ -290,6 +338,7 @@ fn snapshot_value_or_warning<T: Default>(
     match result {
         Ok(Ok(value)) => value,
         Ok(Err(message)) => {
+            let message = sanitize_error_text(&message);
             diagnostics::warn(source, &message);
             warnings.push(OmpConfigWarning {
                 source: source.to_owned(),
@@ -621,19 +670,27 @@ pub fn save_config(
         .map(normalize_disabled_providers)
         .transpose()?;
     let previous_config = load_config_snapshot(app, &app_settings)?;
-    let model_config_touched = merge_role_updates(&mut expected_roles, &previous_config.roles);
+    validate_agent_changes(&previous_config, &request.agent_changes)?;
+    let role_changes = expected_roles
+        .iter()
+        .filter(|(name, selector)| {
+            previous_config
+                .roles
+                .iter()
+                .find(|role| &role.role == *name)
+                .map(|role| role.selector.trim())
+                .unwrap_or_default()
+                != selector.as_str()
+        })
+        .map(|(name, selector)| (name.clone(), selector.clone()))
+        .collect::<BTreeMap<_, _>>();
+    merge_role_updates(&mut expected_roles, &previous_config.roles);
     operational_config::validate_changes(
         &previous_config.operational_settings,
         &request.operational_changes,
     )?;
-    let mut operational_transaction = if request.operational_changes.is_empty() {
-        None
-    } else {
-        Some(OperationalTransaction::prepare(
-            &omp.executable,
-            &app_settings.provider_env,
-        )?)
-    };
+    let mut config_transaction =
+        OperationalTransaction::prepare(&omp.executable, &app_settings.provider_env)?;
     let custom_changes_requested =
         !request.custom_provider_upserts.is_empty() || !request.removed_custom_providers.is_empty();
     let mut provider_file_mutation = if custom_changes_requested {
@@ -713,26 +770,39 @@ pub fn save_config(
         false
     };
 
-    let roles_value = Value::Object(
-        expected_roles
-            .iter()
-            .map(|(role, selector)| (role.clone(), Value::String(selector.clone())))
-            .collect::<Map<String, Value>>(),
-    );
     let disabled_value = expected_disabled_providers.as_ref().map(|providers| {
         merge_disabled_provider_entries(&previous_config.disabled_provider_entries, providers)
     });
     let mut settings_save_attempted = false;
     let mut models_file_applied = false;
     let transaction_result = (|| {
-        if model_config_touched {
-            set_omp_config(
+        if !role_changes.is_empty() {
+            expected_roles = config_transaction.apply_roles(
                 &omp.executable,
-                "modelRoles",
-                &roles_value,
                 &app_settings.provider_env,
+                &role_changes,
+                &previous_config.roles,
             )?;
         }
+        config_transaction.apply_agents(
+            &omp.executable,
+            &app_settings.provider_env,
+            &request.agent_changes,
+        )?;
+        let mut write = |key: &str, value: Value, expected_value: Value| {
+            config_transaction
+                .apply_change(
+                    &omp.executable,
+                    &app_settings.provider_env,
+                    key,
+                    &OmpOperationalChange {
+                        value,
+                        expected_value,
+                        reset: false,
+                    },
+                )
+                .map(|_| ())
+        };
         if let Some(chains) = expected_fallback_chains.as_ref() {
             let value = Value::Object(
                 chains
@@ -745,51 +815,50 @@ pub fn save_config(
                     })
                     .collect(),
             );
-            set_omp_config(
-                &omp.executable,
+            write(
                 "retry.fallbackChains",
-                &value,
-                &app_settings.provider_env,
+                value,
+                serde_json::to_value(&previous_config.fallback_chains)
+                    .map_err(|error| error.to_string())?,
             )?;
         }
         if let Some(enabled) = expected_model_fallback {
-            set_omp_config(
-                &omp.executable,
+            write(
                 "retry.modelFallback",
-                &Value::Bool(enabled),
-                &app_settings.provider_env,
+                Value::Bool(enabled),
+                Value::Bool(previous_config.model_fallback_enabled),
             )?;
         }
         if let Some(enabled) = expected_advisor {
-            set_omp_config(
-                &omp.executable,
+            write(
                 "advisor.enabled",
-                &Value::Bool(enabled),
-                &app_settings.provider_env,
+                Value::Bool(enabled),
+                Value::Bool(previous_config.advisor_enabled),
             )?;
         }
         if let Some(enabled) = expected_auto_resume {
-            set_omp_config(
-                &omp.executable,
+            write(
                 "autoResume",
-                &Value::Bool(enabled),
-                &app_settings.provider_env,
+                Value::Bool(enabled),
+                Value::Bool(previous_config.auto_resume),
             )?;
         }
         if let Some(level) = expected_thinking.as_ref() {
-            set_omp_config(
-                &omp.executable,
+            write(
                 "defaultThinkingLevel",
-                &Value::String(level.clone()),
-                &app_settings.provider_env,
+                Value::String(level.clone()),
+                previous_config
+                    .default_thinking_level
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
             )?;
         }
         if let Some(value) = disabled_value.as_ref() {
-            set_omp_config(
-                &omp.executable,
+            write(
                 "disabledProviders",
-                value,
-                &app_settings.provider_env,
+                value.clone(),
+                Value::Array(previous_config.disabled_provider_entries.clone()),
             )?;
         }
         if let Some(mutation) = provider_file_mutation.as_ref() {
@@ -816,18 +885,15 @@ pub fn save_config(
                 },
             )?;
         }
-        if let Some(transaction) = operational_transaction.as_mut() {
-            transaction.apply(
-                &omp.executable,
-                &app_settings.provider_env,
-                &request.operational_changes,
-            )?;
-        }
+        config_transaction.apply(
+            &omp.executable,
+            &app_settings.provider_env,
+            &request.operational_changes,
+        )?;
         let mut snapshot = load_config_snapshot(app, &app_settings)?;
         snapshot.warnings.extend(proxy_provider_warnings);
-        if let Some(transaction) = operational_transaction.as_ref() {
-            transaction.verify(&snapshot.operational_settings)?;
-        }
+        config_transaction.verify(&snapshot.operational_settings)?;
+        verify_agent_changes(&snapshot, &request.agent_changes)?;
         verify_saved_config(
             &snapshot,
             SavedConfigExpectation {
@@ -852,22 +918,7 @@ pub fn save_config(
     })();
 
     let result = crate::settings::resolve_transaction(transaction_result, || {
-        let mut rollback_errors = operational_transaction
-            .as_ref()
-            .map(OperationalTransaction::rollback)
-            .unwrap_or_default();
-        rollback_errors.extend(rollback_omp_config(
-            &omp.executable,
-            &app_settings.provider_env,
-            &previous_config,
-            model_config_touched,
-            expected_advisor.is_some(),
-            expected_auto_resume.is_some(),
-            expected_thinking.is_some(),
-            expected_model_fallback.is_some(),
-            expected_fallback_chains.is_some(),
-            expected_disabled_providers.is_some(),
-        ));
+        let mut rollback_errors = config_transaction.rollback();
         if models_file_applied {
             app.state::<ModelCatalogState>().invalidate();
             if let Some(mutation) = provider_file_mutation.as_ref() {
@@ -909,73 +960,6 @@ pub fn save_config(
     })?;
     *transaction.candidate_mut() = app_settings;
     Ok(result)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn rollback_omp_config(
-    executable: &str,
-    provider_env: &HashMap<String, String>,
-    previous: &OmpConfigSnapshot,
-    model_roles_touched: bool,
-    advisor_touched: bool,
-    auto_resume_touched: bool,
-    thinking_touched: bool,
-    model_fallback_touched: bool,
-    fallback_chains_touched: bool,
-    disabled_providers_touched: bool,
-) -> Vec<String> {
-    let mut errors = Vec::new();
-    let roles = Value::Object(
-        previous
-            .roles
-            .iter()
-            .filter(|role| !role.selector.trim().is_empty())
-            .map(|role| (role.role.clone(), Value::String(role.selector.clone())))
-            .collect(),
-    );
-    let mut restore = |key: &str, value: Value| {
-        if let Err(error) = set_omp_config(executable, key, &value, provider_env) {
-            errors.push(format!("{key}: {error}"));
-        }
-    };
-    if model_roles_touched {
-        restore("modelRoles", roles);
-    }
-    if fallback_chains_touched {
-        restore(
-            "retry.fallbackChains",
-            serde_json::to_value(&previous.fallback_chains).unwrap_or(Value::Object(Map::new())),
-        );
-    }
-    if model_fallback_touched {
-        restore(
-            "retry.modelFallback",
-            Value::Bool(previous.model_fallback_enabled),
-        );
-    }
-    if advisor_touched {
-        restore("advisor.enabled", Value::Bool(previous.advisor_enabled));
-    }
-    if auto_resume_touched {
-        restore("autoResume", Value::Bool(previous.auto_resume));
-    }
-    if thinking_touched {
-        restore(
-            "defaultThinkingLevel",
-            previous
-                .default_thinking_level
-                .clone()
-                .map(Value::String)
-                .unwrap_or(Value::Null),
-        );
-    }
-    if disabled_providers_touched {
-        restore(
-            "disabledProviders",
-            Value::Array(previous.disabled_provider_entries.clone()),
-        );
-    }
-    errors
 }
 
 struct SavedConfigExpectation<'a> {
@@ -1099,7 +1083,7 @@ fn load_models(
     let refreshed = catalog.refresh(executable, env_map, force, Instant::now(), || {
         run_omp_json(
             executable,
-            &["models", "refresh", "--json"],
+            &["models", "refresh", "--json", "--kind", "all"],
             env_map,
             OmpOperation::Models,
         )
@@ -1109,7 +1093,7 @@ fn load_models(
         result => (
             run_omp_json(
                 executable,
-                &["models", "--json"],
+                &["models", "--json", "--kind", "all"],
                 env_map,
                 OmpOperation::Models,
             )?,
@@ -1153,6 +1137,11 @@ fn load_models(
                     id,
                     selector,
                     name,
+                    kind: model
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .unwrap_or("chat")
+                        .to_owned(),
                     available: true,
                     status: "ok".to_owned(),
                     detail: None,
@@ -2052,6 +2041,355 @@ fn apply_usage_to_models(models: &mut [OmpModelInfo], usage: &UsageMap) {
     }
 }
 
+fn validate_agent_changes(
+    snapshot: &OmpConfigSnapshot,
+    changes: &BTreeMap<String, crate::models::OmpAgentChange>,
+) -> Result<(), String> {
+    if !changes.is_empty() && !snapshot.agent_settings_supported {
+        return Err("Установленный OMP не поддерживает настройки агентов".to_owned());
+    }
+    for (name, change) in changes {
+        let agent = snapshot
+            .agents
+            .iter()
+            .find(|agent| &agent.name == name)
+            .ok_or_else(|| {
+                format!("Агент `{name}` отсутствует в доступном каталоге; обновите настройки")
+            })?;
+        if change.enabled.is_some() && change.expected_enabled != Some(agent.enabled) {
+            return Err(format!(
+                "Состояние агента `{name}` изменено; обновите настройки"
+            ));
+        }
+        if let SettingsPatch::Set(patterns) = &change.model_override {
+            if change.expected_model_override != SettingsPatch::Set(agent.model_override.clone()) {
+                return Err(format!(
+                    "Модели агента `{name}` изменены; обновите настройки"
+                ));
+            }
+            if patterns.as_ref().is_some_and(|patterns| {
+                patterns.is_empty()
+                    || patterns.iter().any(|pattern| {
+                        pattern.trim().is_empty() || pattern.chars().any(char::is_control)
+                    })
+            }) {
+                return Err(format!("Некорректный список моделей агента `{name}`"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_agent_changes(
+    snapshot: &OmpConfigSnapshot,
+    changes: &BTreeMap<String, crate::models::OmpAgentChange>,
+) -> Result<(), String> {
+    for (name, change) in changes {
+        // Clearing the last configured-only entry legitimately removes that agent
+        // from this non-exhaustive catalog. Its effective settings are then inherit/on.
+        let agent = snapshot.agents.iter().find(|agent| &agent.name == name);
+        let enabled = agent.map(|agent| agent.enabled).unwrap_or(true);
+        let model_override = agent.and_then(|agent| agent.model_override.as_ref());
+        if change.enabled.is_some_and(|expected| enabled != expected)
+            || matches!(&change.model_override, SettingsPatch::Set(patterns) if model_override != patterns.as_ref())
+        {
+            return Err(format!("OMP не применил настройки агента `{name}`"));
+        }
+    }
+    Ok(())
+}
+
+fn config_value<'a>(raw: &'a Value, key: &str) -> Option<&'a Value> {
+    raw.get(key)
+        .and_then(|entry| entry.get("value"))
+        .or_else(|| raw.get(key))
+}
+
+fn configured_role_names(raw: &Value) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    if let Some(order) = config_value(raw, "cycleOrder").and_then(Value::as_array) {
+        names.extend(order.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    if let Some(tags) = config_value(raw, "modelTags").and_then(Value::as_object) {
+        names.extend(tags.keys().cloned());
+    }
+    names
+}
+
+pub(crate) fn model_patterns(value: &Value) -> Option<Vec<String>> {
+    if let Some(pattern) = value.as_str() {
+        return Some(
+            pattern
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        );
+    }
+    value.as_array().map(|patterns| {
+        patterns
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    })
+}
+
+fn read_agent_definition(path: &Path, source: &str) -> Result<OmpAgentInfo, String> {
+    let file = fs::File::open(path).map_err(|_| "Не удалось прочитать определение агента")?;
+    let mut lines = BufReader::new(file).lines();
+    let first = lines
+        .next()
+        .transpose()
+        .map_err(|_| "Не удалось прочитать frontmatter агента")?;
+    if first
+        .as_deref()
+        .map(|line| line.trim_start_matches('\u{feff}').trim())
+        != Some("---")
+    {
+        return Err("Определение агента не содержит YAML frontmatter".to_owned());
+    }
+    let mut header = String::new();
+    let mut closed = false;
+    for line in lines {
+        let line = line.map_err(|_| "Не удалось прочитать frontmatter агента")?;
+        if line.trim() == "---" {
+            closed = true;
+            break;
+        }
+        header.push_str(&line);
+        header.push('\n');
+    }
+    if !closed {
+        return Err("Не завершён YAML frontmatter агента".to_owned());
+    }
+    let value: Value =
+        serde_saphyr::from_str(&header).map_err(|_| "Некорректный YAML frontmatter агента")?;
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .ok_or("В определении агента отсутствует name")?;
+    if matches!(name.trim().to_ascii_lowercase().as_str(), "main" | "sub") {
+        return Err("Зарезервированное имя агента".to_owned());
+    }
+    let description = value
+        .get("description")
+        .and_then(Value::as_str)
+        .filter(|description| !description.is_empty())
+        .ok_or("В определении агента отсутствует description")?;
+    Ok(OmpAgentInfo {
+        name: name.to_owned(),
+        description: description.to_owned(),
+        source: source.to_owned(),
+        enabled: true,
+        model_override: None,
+        default_model_selectors: value
+            .get("model")
+            .and_then(model_patterns)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pattern| pattern.trim().to_owned())
+            .filter(|pattern| !pattern.is_empty())
+            .collect(),
+    })
+}
+
+fn read_agent_directory(
+    directory: &Path,
+    source: &str,
+    warnings: &mut Vec<OmpConfigWarning>,
+) -> Result<Vec<OmpAgentInfo>, String> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err(format!("Не удалось прочитать каталог агентов ({source})")),
+    };
+    let mut files = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не удалось перечислить определения агентов")?;
+    files.retain(|path| {
+        path.extension().is_some_and(|extension| extension == "md") && path.is_file()
+    });
+    files.sort();
+    let mut agents = Vec::new();
+    for path in files {
+        match read_agent_definition(&path, source) {
+            Ok(agent) => agents.push(agent),
+            Err(error) => warnings.push(OmpConfigWarning {
+                source: "agents".to_owned(),
+                code: "agents_definition_failed".to_owned(),
+                message: format!("{source}: {error}"),
+            }),
+        }
+    }
+    Ok(agents)
+}
+
+struct AgentExportDirectory(PathBuf);
+
+impl Drop for AgentExportDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn load_bundled_agent_catalog(
+    executable: &str,
+    version: &str,
+    env: &HashMap<String, String>,
+) -> Result<Vec<OmpAgentInfo>, String> {
+    static CACHE: LazyLock<Mutex<BTreeMap<String, Vec<OmpAgentInfo>>>> =
+        LazyLock::new(|| Mutex::new(BTreeMap::new()));
+    let key = format!("{executable}\n{version}");
+    let mut cache = CACHE
+        .lock()
+        .map_err(|_| "Каталог встроенных агентов недоступен")?;
+    if let Some(agents) = cache.get(&key) {
+        return Ok(agents.clone());
+    }
+    let path = std::env::temp_dir().join(format!(
+        "omp-desktop-agents-{}-{}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    fs::create_dir(&path).map_err(|_| "Не удалось создать временный каталог экспорта агентов")?;
+    let directory = AgentExportDirectory(path);
+    let target = directory
+        .0
+        .to_str()
+        .ok_or("Некорректный путь экспорта агентов")?;
+    run_omp_json(
+        executable,
+        &["agents", "unpack", "--dir", target, "--json"],
+        env,
+        OmpOperation::Config,
+    )?;
+    let mut warnings = Vec::new();
+    let agents = read_agent_directory(&directory.0, "bundled", &mut warnings)?;
+    if !warnings.is_empty() {
+        return Err("Не удалось прочитать экспортированные определения агентов OMP".to_owned());
+    }
+    cache.insert(key, agents.clone());
+    Ok(agents)
+}
+
+fn load_agents(
+    executable: &str,
+    version: &str,
+    settings: &AppSettings,
+    raw: &Value,
+    warnings: &mut Vec<OmpConfigWarning>,
+) -> Vec<OmpAgentInfo> {
+    // The public CLI exports bundled definitions but does not expose the session's
+    // capability-aware discovery. Do not reproduce extension/marketplace precedence.
+    let mut directories = Vec::new();
+    if let Some(workspace) = settings.last_workspace.as_deref() {
+        if let Some(directory) = Path::new(workspace)
+            .ancestors()
+            .map(|path| path.join(".omp").join("agents"))
+            .find(|path| path.is_dir())
+        {
+            directories.push((directory, "project"));
+        }
+    }
+    match run_omp_text(
+        executable,
+        &["config", "path"],
+        &settings.provider_env,
+        OmpOperation::Config,
+    ) {
+        Ok(path) => directories.push((PathBuf::from(path.trim()).join("agents"), "user")),
+        Err(error) => warnings.push(OmpConfigWarning {
+            source: "agents".to_owned(),
+            code: "agents_user_failed".to_owned(),
+            message: error,
+        }),
+    }
+    let extensions_disabled = config_value(raw, "disabledProviders")
+        .and_then(Value::as_array)
+        .is_some_and(|providers| {
+            providers
+                .iter()
+                .any(|provider| provider.as_str() == Some("omp-plugins"))
+        });
+    if !extensions_disabled {
+        if let Some(extensions) = config_value(raw, "extensions").and_then(Value::as_array) {
+            for root in extensions
+                .iter()
+                .filter_map(Value::as_str)
+                .map(Path::new)
+                .filter(|path| path.is_absolute() && path.is_dir())
+            {
+                directories.push((root.join("agents"), "extension-configured"));
+            }
+        }
+    }
+    let mut agents = BTreeMap::new();
+    for (directory, source) in directories {
+        match read_agent_directory(&directory, source, warnings) {
+            Ok(definitions) => {
+                for definition in definitions {
+                    agents.entry(definition.name.clone()).or_insert(definition);
+                }
+            }
+            Err(error) => warnings.push(OmpConfigWarning {
+                source: "agents".to_owned(),
+                code: "agents_definition_failed".to_owned(),
+                message: error,
+            }),
+        }
+    }
+    match load_bundled_agent_catalog(executable, version, &settings.provider_env) {
+        Ok(definitions) => {
+            for definition in definitions {
+                agents.entry(definition.name.clone()).or_insert(definition);
+            }
+        }
+        Err(error) => warnings.push(OmpConfigWarning {
+            source: "agents".to_owned(),
+            code: "agents_bundled_failed".to_owned(),
+            message: error,
+        }),
+    }
+    let disabled = config_value(raw, "task.disabledAgents").and_then(Value::as_array);
+    let overrides = config_value(raw, "task.agentModelOverrides").and_then(Value::as_object);
+    let names = disabled
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .chain(
+            overrides
+                .into_iter()
+                .flat_map(|record| record.keys().cloned()),
+        )
+        .collect::<BTreeSet<_>>();
+    for name in names {
+        agents.entry(name.clone()).or_insert(OmpAgentInfo {
+            name,
+            description: "".to_owned(),
+            source: "configured".to_owned(),
+            enabled: true,
+            model_override: None,
+            default_model_selectors: Vec::new(),
+        });
+    }
+    for agent in agents.values_mut() {
+        agent.enabled = !disabled.is_some_and(|names| {
+            names
+                .iter()
+                .any(|name| name.as_str() == Some(agent.name.as_str()))
+        });
+        agent.model_override = overrides
+            .and_then(|record| record.get(&agent.name))
+            .and_then(model_patterns);
+    }
+    agents.into_values().collect()
+}
+
 fn build_roles(roles: &BTreeMap<String, String>, models: &[OmpModelInfo]) -> Vec<OmpRoleInfo> {
     let mut names = KNOWN_ROLES
         .iter()
@@ -2230,27 +2568,35 @@ fn fallback_target(
     })
 }
 
-fn fallback_graph_has_cycle(
-    node: &str,
-    graph: &BTreeMap<String, Vec<String>>,
-    visiting: &mut BTreeSet<String>,
-    visited: &mut BTreeSet<String>,
+fn fallback_graph_has_cycle<'a>(
+    node: &'a str,
+    graph: &'a BTreeMap<String, Vec<String>>,
+    visiting: &mut BTreeSet<&'a str>,
+    visited: &mut BTreeSet<&'a str>,
 ) -> bool {
-    if visiting.contains(node) {
-        return true;
-    }
     if visited.contains(node) {
         return false;
     }
-    visiting.insert(node.to_owned());
-    let cycle = graph
-        .get(node)
-        .into_iter()
-        .flatten()
-        .any(|target| fallback_graph_has_cycle(target, graph, visiting, visited));
-    visiting.remove(node);
-    visited.insert(node.to_owned());
-    cycle
+    visiting.insert(node);
+    let mut stack = vec![(node, 0)];
+    while let Some((node, next)) = stack.last_mut() {
+        let Some(target) = graph.get(*node).and_then(|targets| targets.get(*next)) else {
+            let (node, _) = stack.pop().expect("traversal has a current node");
+            visiting.remove(node);
+            visited.insert(node);
+            continue;
+        };
+        *next += 1;
+        let target = target.as_str();
+        if visiting.contains(target) {
+            return true;
+        }
+        if !visited.contains(target) {
+            visiting.insert(target);
+            stack.push((target, 0));
+        }
+    }
+    false
 }
 
 fn build_model_config_warnings(
@@ -2515,26 +2861,6 @@ pub(crate) fn valid_selector_segment(value: &str) -> bool {
         })
 }
 
-fn set_omp_config(
-    executable: &str,
-    key: &str,
-    value: &Value,
-    env_map: &HashMap<String, String>,
-) -> Result<(), String> {
-    let rendered = match value {
-        Value::String(text) => text.clone(),
-        other => other.to_string(),
-    };
-    run_omp_text(
-        executable,
-        &["config", "set", key, &rendered],
-        env_map,
-        OmpOperation::Config,
-    )
-    .map(|_| ())
-    .map_err(|error| format!("Не удалось сохранить `{key}`: {error}"))
-}
-
 pub(crate) fn run_omp_json(
     executable: &str,
     args: &[&str],
@@ -2543,10 +2869,12 @@ pub(crate) fn run_omp_json(
 ) -> Result<Value, String> {
     let text = run_omp_text(executable, args, env_map, operation)?;
     serde_json::from_str(&text).map_err(|error| {
-        format!(
-            "[omp_invalid_json] OMP вернул не-JSON для `{}`: {error}\n{}",
-            args.join(" "),
-            text.chars().take(400).collect::<String>()
+        sanitize_omp_error(
+            &format!(
+                "[omp_invalid_json] OMP вернул не-JSON для `{}`: {error}\n{text}",
+                args.join(" ")
+            ),
+            env_map,
         )
     })
 }
@@ -2565,6 +2893,19 @@ pub(crate) fn run_omp_text(
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
+    .map_err(|error| sanitize_omp_error(&error, env_map))
+}
+
+fn sanitize_omp_error(error: &str, env: &HashMap<String, String>) -> String {
+    let mut secrets: Vec<_> = env.values().filter(|value| !value.is_empty()).collect();
+    secrets.sort_unstable_by_key(|value| std::cmp::Reverse(value.len()));
+    let mut redacted = error.to_owned();
+    for value in secrets {
+        if redacted.contains(value.as_str()) {
+            redacted = redacted.replace(value.as_str(), "[REDACTED]");
+        }
+    }
+    sanitize_error_text(&redacted)
 }
 
 fn interpret_omp_output(
@@ -2736,11 +3077,41 @@ mod tests {
             id: id.to_owned(),
             selector: format!("{provider}/{id}"),
             name: id.to_owned(),
+            kind: "chat".to_owned(),
             available: true,
             status: "ok".to_owned(),
             detail: None,
             thinking: Vec::new(),
         }
+    }
+
+    #[test]
+    fn definition_catalog_uses_frontmatter_not_body_and_keeps_valid_neighbors() {
+        let directory = std::env::temp_dir().join(format!(
+            "omp-agent-definition-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("reviewer.md"), "---\nname: reviewer\ndescription: Synthetic reviewer\nmodel: ['@slow', 'synthetic/*:high']\n---\nprivate synthetic prompt body").unwrap();
+        fs::write(
+            directory.join("invalid.md"),
+            "---\nname: invalid\n---\nbody",
+        )
+        .unwrap();
+        let mut warnings = Vec::new();
+        let agents = read_agent_directory(&directory, "project", &mut warnings).unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(
+            agents[0].default_model_selectors,
+            vec!["@slow", "synthetic/*:high"]
+        );
+        assert_eq!(agents[0].source, "project");
+        assert_eq!(warnings.len(), 1);
+        assert!(!serde_json::to_string(&agents)
+            .unwrap()
+            .contains("private synthetic"));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -3033,6 +3404,35 @@ providers:
     }
 
     #[test]
+    fn deep_fallback_graph_detects_cycles_without_recursive_stack_growth() {
+        let mut graph = (0..12_000)
+            .map(|index| (format!("node-{index}"), vec![format!("node-{}", index + 1)]))
+            .collect::<BTreeMap<_, _>>();
+        graph.insert(
+            "shared".to_owned(),
+            vec!["node-0".to_owned(), "node-6000".to_owned()],
+        );
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        assert!(!fallback_graph_has_cycle(
+            "shared",
+            &graph,
+            &mut visiting,
+            &mut visited
+        ));
+        drop((visiting, visited));
+        graph.insert("node-12000".to_owned(), vec!["node-0".to_owned()]);
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        assert!(fallback_graph_has_cycle(
+            "node-0",
+            &graph,
+            &mut visiting,
+            &mut visited
+        ));
+    }
+
+    #[test]
     fn model_config_warnings_detect_weight_missing_duplicates_and_cycles() {
         let roles = BTreeMap::from([
             ("default".to_owned(), "codex-lb/gpt-5.6-sol:max".to_owned()),
@@ -3075,6 +3475,22 @@ providers:
         ] {
             assert!(codes.contains(expected), "missing warning {expected}");
         }
+    }
+
+    #[test]
+    fn opaque_and_overlapping_credential_echoes_are_removed_before_warning_transport() {
+        let env = HashMap::from([
+            ("FIRST".to_owned(), "opaque-xy".to_owned()),
+            ("SECOND".to_owned(), "opaque-xy-more".to_owned()),
+            ("EMPTY".to_owned(), String::new()),
+        ]);
+        let error = sanitize_omp_error(
+            "catalog unavailable; opaque-xy-more and opaque-xy rejected",
+            &env,
+        );
+        assert!(!error.contains("opaque-xy"));
+        assert!(!error.contains("-more"));
+        assert!(error.contains("catalog unavailable"));
     }
 
     #[test]

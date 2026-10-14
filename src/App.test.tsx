@@ -99,6 +99,8 @@ function config(id: string): OmpConfigSnapshot {
       },
     ],
     models: [model],
+    agents: [],
+    agentSettingsSupported: false,
     accounts: [],
     advisorEnabled: false,
     autoResume: false,

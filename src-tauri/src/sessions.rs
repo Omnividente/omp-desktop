@@ -5,6 +5,7 @@ use crate::{
         ImportMode, ImportSessionRequest, SessionScanWarning, SessionSummary, SessionTranscript,
         TranscriptEntry, TranscriptEntryCategory, WorkspaceSummary,
     },
+    session_lease::{SessionLease, SessionLeasePurpose},
     settings::runtime_info,
 };
 use serde_json::Value;
@@ -870,17 +871,22 @@ pub fn validated_session_file(path: &str, session_root: &Path) -> Result<PathBuf
     Ok(file)
 }
 
-pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
+pub fn delete_session(path: &str, session_root: &Path, lease: &SessionLease) -> Result<(), String> {
     let _import_guard = IMPORT_TRANSACTION_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let file = validated_session_file(path, session_root)?;
+    if !lease.owns_path(&file) {
+        return Err("[session_lease_failed] Lease не соответствует удаляемой сессии".to_owned());
+    }
     let mut warnings = Vec::new();
     let mut blocked = HashSet::new();
     recover_imports_in_directory(
         file.parent().unwrap_or(session_root),
         &mut warnings,
         &mut blocked,
+        &HashSet::new(),
+        Some(lease),
     );
     if blocked.contains(&file) {
         return Err(format!(
@@ -914,24 +920,36 @@ pub fn delete_session(path: &str, session_root: &Path) -> Result<(), String> {
 pub fn import_sessions(
     requests: &[ImportSessionRequest],
     session_root: &Path,
+    active_paths: &HashSet<String>,
 ) -> Vec<ImportItemResult> {
     requests
         .iter()
-        .map(|request| match import_session(request, session_root) {
-            Ok(result) => result,
-            Err(message) => ImportItemResult {
-                source_path: request.path.clone(),
-                destination_path: None,
-                status: ImportItemStatus::Failed,
-                message: Some(message),
+        .map(
+            |request| match import_session_inactive(request, session_root, active_paths) {
+                Ok(result) => result,
+                Err(message) => ImportItemResult {
+                    source_path: request.path.clone(),
+                    destination_path: None,
+                    status: ImportItemStatus::Failed,
+                    message: Some(message),
+                },
             },
-        })
+        )
         .collect()
 }
 
+#[cfg(test)]
 fn import_session(
     request: &ImportSessionRequest,
     session_root: &Path,
+) -> Result<ImportItemResult, String> {
+    import_session_inactive(request, session_root, &HashSet::new())
+}
+
+fn import_session_inactive(
+    request: &ImportSessionRequest,
+    session_root: &Path,
+    active_paths: &HashSet<String>,
 ) -> Result<ImportItemResult, String> {
     let source = validated_external_import_source(&request.path)?;
     let target = canonical_project_path(request.target_cwd.trim())?;
@@ -946,25 +964,33 @@ fn import_session(
         &session_root.join(encode_session_dir_name(&target_cwd)),
         &mut recovery_warnings,
         &mut blocked,
+        active_paths,
+        None,
     );
-    if let Some(warning) = recovery_warnings.first() {
-        return Err(format!(
-            "Не удалось восстановить прерванный импорт: {}",
-            warning.message
-        ));
+    for warning in recovery_warnings {
+        diagnostics::warn("session.import.recovery", &warning.message);
     }
     let text = String::from_utf8_lossy(&bytes);
     let imported = if looks_like_codex_session(&text) {
         import_codex_session(
             &source,
-            &text,
+            (&text, &bytes),
+            &target_cwd,
+            session_root,
+            request.mode,
+            active_paths,
+            &blocked,
+        )?
+    } else {
+        import_omp_session(
+            &source,
             &bytes,
             &target_cwd,
             session_root,
             request.mode,
+            active_paths,
+            &blocked,
         )?
-    } else {
-        import_omp_session(&source, &bytes, &target_cwd, session_root, request.mode)?
     };
     Ok(ImportItemResult {
         source_path: request.path.clone(),
@@ -1762,6 +1788,8 @@ fn import_destination(
     source_kind: &str,
     source_id: &str,
     mode: ImportMode,
+    active_paths: &HashSet<String>,
+    blocked: &HashSet<PathBuf>,
 ) -> Result<ImportDestination, String> {
     let destination_directory = session_root.join(encode_session_dir_name(target_cwd));
     fs::create_dir_all(&destination_directory).map_err(|error| {
@@ -1801,6 +1829,20 @@ fn import_destination(
         ));
     }
 
+    if blocked.contains(&primary)
+        && mode != ImportMode::Copy
+        && !(mode == ImportMode::Skip && primary_exists)
+    {
+        return Err(format!(
+            "[session_import_recovery_pending] Не восстановлен прерванный импорт {}",
+            primary.display()
+        ));
+    }
+
+    if mode == ImportMode::Update || (mode == ImportMode::Skip && !primary_exists) {
+        ensure_import_inactive(&primary, active_paths)?;
+    }
+
     match mode {
         ImportMode::Skip if primary_exists => Ok(ImportDestination {
             path: primary,
@@ -1823,7 +1865,10 @@ fn import_destination(
             loop {
                 let copy_stem = format!("{stem}-copy-{copy_index}");
                 let path = destination_directory.join(format!("{copy_stem}.jsonl"));
-                if !path.exists() {
+                if !path.exists()
+                    && !blocked.contains(&path)
+                    && !active_paths.contains(&path_key(&path.to_string_lossy()))
+                {
                     break Ok(ImportDestination {
                         path,
                         session_id: copy_stem,
@@ -1843,6 +1888,16 @@ fn import_destination(
             should_write: true,
         }),
     }
+}
+
+fn ensure_import_inactive(path: &Path, active_paths: &HashSet<String>) -> Result<(), String> {
+    if active_paths.contains(&path_key(&path.to_string_lossy())) {
+        return Err(format!(
+            "[session_lease_active] Сессия используется активным терминалом: {}",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 fn existing_import_matches_source(
@@ -2168,6 +2223,17 @@ where
     W: FnMut(&Path, &[u8]) -> Result<(), String>,
     R: FnMut(&Path, &Path) -> Result<(), String>,
 {
+    // Keep ownership through JSONL/artifact publication AND inline rollback/cleanup.
+    // The sidecar survives atomic inode replacement, unlike a lock on the JSONL itself.
+    let _lease = match acquire_import_lease(destination) {
+        Ok(lease) => lease,
+        Err(error) => {
+            if let Some(staging) = staged_artifacts.as_deref() {
+                let _ = remove_import_artifacts(staging);
+            }
+            return Err(error);
+        }
+    };
     // A JSONL-only update must not erase artifacts that are absent from the selected source.
     let Some(staging) = staged_artifacts else {
         return write_session(destination, body);
@@ -2225,7 +2291,7 @@ where
             ImportTransaction::new(destination, &session_stage, &staging, backup.as_deref())?;
         let serialized = serde_json::to_vec(&transaction).map_err(|error| error.to_string())?;
         if let Err(error) = atomic_write_file(&marker, &serialized) {
-            if let Err(recovery_error) = recover_import_transaction(&marker) {
+            if let Err(recovery_error) = recover_import_transaction_locked(&marker) {
                 return Err(import_transaction_error(error, vec![recovery_error]));
             }
             let _ = fs::remove_file(&session_stage);
@@ -2255,7 +2321,7 @@ where
             .map_err(|error| format!("Не удалось синхронизировать импорт: {error}"))
     })();
     let committed = !checked_import_entry(&session_stage, false)?;
-    let recovery = recover_import_transaction(&marker);
+    let recovery = recover_import_transaction_locked(&marker);
     if let Err(error) = result {
         if committed {
             if let Err(cleanup_error) = recovery {
@@ -2376,7 +2442,31 @@ fn checked_import_entry(path: &Path, directory: bool) -> Result<bool, String> {
     }
 }
 
-fn recover_import_transaction(marker: &Path) -> Result<(), String> {
+fn acquire_import_lease(destination: &Path) -> Result<Option<SessionLease>, String> {
+    if !checked_import_entry(destination, false)? {
+        // New Copy/Skip/Update destinations have no history writer to exclude.
+        return Ok(None);
+    }
+    SessionLease::acquire(destination, SessionLeasePurpose::Import, false).map(Some)
+}
+
+fn recover_import_transaction(
+    marker: &Path,
+    held_lease: Option<&SessionLease>,
+) -> Result<(), String> {
+    let Some(destination) = transaction_destination(marker) else {
+        return Err("Некорректное имя файла намерений импорта".to_owned());
+    };
+    if held_lease.is_some_and(|lease| lease.owns_path(&destination)) {
+        return recover_import_transaction_locked(marker);
+    }
+    // A live owner (even in this Desktop) leaves the marker and stages untouched.
+    let _lease = acquire_import_lease(&destination)?;
+    recover_import_transaction_locked(marker)
+}
+
+// Caller owns the destination lease, or the destination does not exist yet.
+fn recover_import_transaction_locked(marker: &Path) -> Result<(), String> {
     if !checked_import_entry(marker, false)? {
         return Ok(());
     }
@@ -2488,6 +2578,8 @@ fn recover_imports_in_directory(
     directory: &Path,
     warnings: &mut Vec<SessionScanWarning>,
     blocked: &mut HashSet<PathBuf>,
+    active_paths: &HashSet<String>,
+    held_lease: Option<&SessionLease>,
 ) {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -2515,7 +2607,9 @@ fn recover_imports_in_directory(
         let Some(destination) = transaction_destination(&marker) else {
             continue;
         };
-        if let Err(message) = recover_import_transaction(&marker) {
+        let recovery = ensure_import_inactive(&destination, active_paths)
+            .and_then(|()| recover_import_transaction(&marker, held_lease));
+        if let Err(message) = recovery {
             blocked.insert(destination);
             warnings.push(SessionScanWarning {
                 path: marker.to_string_lossy().into_owned(),
@@ -2530,7 +2624,8 @@ fn recover_interrupted_imports(
     warnings: &mut Vec<SessionScanWarning>,
     blocked: &mut HashSet<PathBuf>,
 ) {
-    recover_imports_in_directory(root, warnings, blocked);
+    let active_paths = HashSet::new();
+    recover_imports_in_directory(root, warnings, blocked, &active_paths, None);
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
@@ -2539,7 +2634,7 @@ fn recover_interrupted_imports(
             continue;
         };
         if kind.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
-            recover_imports_in_directory(&entry.path(), warnings, blocked);
+            recover_imports_in_directory(&entry.path(), warnings, blocked, &active_paths, None);
         }
     }
 }
@@ -2561,6 +2656,8 @@ fn import_omp_session(
     target_cwd: &str,
     session_root: &Path,
     mode: ImportMode,
+    active_paths: &HashSet<String>,
+    blocked: &HashSet<PathBuf>,
 ) -> Result<ImportedSession, String> {
     let text = String::from_utf8_lossy(bytes);
     if text.trim().is_empty() {
@@ -2589,7 +2686,15 @@ fn import_omp_session(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .unwrap_or_else(|| format!("content-{:016x}", stable_import_hash(bytes)));
-    let destination = import_destination(session_root, target_cwd, "omp", &source_id, mode)?;
+    let destination = import_destination(
+        session_root,
+        target_cwd,
+        "omp",
+        &source_id,
+        mode,
+        active_paths,
+        blocked,
+    )?;
     if !destination.should_write {
         return Ok(ImportedSession {
             path: destination.path,
@@ -2656,15 +2761,24 @@ fn import_omp_session(
 
 fn import_codex_session(
     source: &Path,
-    text: &str,
-    bytes: &[u8],
+    (text, bytes): (&str, &[u8]),
     target_cwd: &str,
     session_root: &Path,
     mode: ImportMode,
+    active_paths: &HashSet<String>,
+    blocked: &HashSet<PathBuf>,
 ) -> Result<ImportedSession, String> {
     let summary = parse_codex_session(source)?
         .ok_or_else(|| "Не удалось разобрать Codex session".to_owned())?;
-    let destination = import_destination(session_root, target_cwd, "codex", &summary.id, mode)?;
+    let destination = import_destination(
+        session_root,
+        target_cwd,
+        "codex",
+        &summary.id,
+        mode,
+        active_paths,
+        blocked,
+    )?;
     if !destination.should_write {
         return Ok(ImportedSession {
             path: destination.path,
@@ -3793,18 +3907,20 @@ mod tests {
         atomic_write_file, atomic_write_file_with, atomic_write_private_file, build_workspaces,
         collect_jsonl_files, commit_import_with, deduplicate_codex_sessions, delete_session,
         encode_relative_session_dir_name, encode_session_dir_name, handoff_session_titles,
-        import_destination, import_session, parse_codex_session_with_names, parse_session,
-        parse_session_with_names, path_key, read_codex_discovery_prefix, read_import_bytes,
-        read_session_answers, read_session_transcript, read_session_transcript_with_limits,
-        replace_file_atomically, restorable_session_model, scan_sessions, serialize_title_slot,
+        import_destination, import_session, import_sessions, parse_codex_session_with_names,
+        parse_session, parse_session_with_names, path_key, read_codex_discovery_prefix,
+        read_import_bytes, read_session_answers, read_session_transcript,
+        read_session_transcript_with_limits, recover_imports_in_directory, replace_file_atomically,
+        restorable_session_model, scan_sessions, serialize_title_slot,
         stage_import_artifacts_with_limits, transfer_session_primary_provider_pin,
         validated_external_import_source, AppSettings, ArtifactLimits, CodexSessionSummary,
         ImportItemStatus, ImportMode, ImportPhase, ImportSessionRequest, ImportTransaction,
-        SessionSummary, TranscriptEntryCategory, CODEX_DISCOVERY_MAX_BYTES,
-        CODEX_DISCOVERY_MAX_LINES, IMPORT_TRANSACTION_LOCK, MAX_IMPORT_BYTES,
+        SessionLease, SessionLeasePurpose, SessionSummary, TranscriptEntryCategory,
+        CODEX_DISCOVERY_MAX_BYTES, CODEX_DISCOVERY_MAX_LINES, IMPORT_TRANSACTION_LOCK,
+        MAX_IMPORT_BYTES,
     };
     use std::{
-        collections::{BTreeMap, BTreeSet, HashMap},
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
         fs, io,
         io::{Seek, SeekFrom, Write},
         path::Path,
@@ -4981,16 +5097,28 @@ mod tests {
         fs::write(&session, "{}\n").expect("session fixture should be writable");
         fs::write(artifacts.join("tool.log"), "artifact").expect("artifact should be writable");
 
-        delete_session(session.to_string_lossy().as_ref(), &root)
-            .expect("session should be deletable");
+        let stage_file = session.with_file_name(".session.jsonl-stage.test.1");
+        let stage_artifacts = session.with_file_name(".session.artifacts-stage.test.1");
+        let marker = session.with_file_name(".session.import-txn.test.1");
+        let backup = session.with_file_name(".session.artifacts-backup.test.1");
+        fs::write(&stage_file, b"new session").unwrap();
+        fs::create_dir(&stage_artifacts).unwrap();
+        let transaction =
+            ImportTransaction::new(&session, &stage_file, &stage_artifacts, Some(&backup)).unwrap();
+        fs::write(&marker, serde_json::to_vec(&transaction).unwrap()).unwrap();
+        let lease = SessionLease::acquire(&session, SessionLeasePurpose::Delete, false).unwrap();
+        delete_session(session.to_string_lossy().as_ref(), &root, &lease)
+            .expect("deletion should recover its marker without reacquiring its own lease");
+        assert!(!marker.exists() && !stage_file.exists() && !stage_artifacts.exists());
         assert!(!session.exists());
         assert!(!artifacts.exists());
 
         let external = root.with_extension("external.jsonl");
         fs::write(&external, "{}\n").expect("external fixture should be writable");
-        assert!(delete_session(external.to_string_lossy().as_ref(), &root).is_err());
+        assert!(delete_session(external.to_string_lossy().as_ref(), &root, &lease).is_err());
         assert!(external.exists());
         fs::remove_file(external).expect("external fixture should be removable");
+        drop(lease);
         fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 
@@ -5350,6 +5478,217 @@ mod tests {
     }
 
     #[test]
+    fn update_import_retains_live_history_and_artifacts_then_succeeds_after_close() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-ownership-{}-{nonce}",
+            std::process::id(),
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        for with_artifacts in [false, true] {
+            let source = root.join(format!("source-{with_artifacts}.jsonl"));
+            let header = format!(
+                "{{\"type\":\"session\",\"id\":\"source-{with_artifacts}\",\"cwd\":\"/tmp/source\"}}\n",
+            );
+            fs::write(&source, &header).unwrap();
+            if with_artifacts {
+                fs::create_dir(source.with_extension("")).unwrap();
+                fs::write(
+                    source.with_extension("").join("version"),
+                    b"original artifact",
+                )
+                .unwrap();
+            }
+            let mut request = ImportSessionRequest {
+                path: source.to_string_lossy().into_owned(),
+                target_cwd: project.to_string_lossy().into_owned(),
+                mode: ImportMode::Update,
+            };
+            let imported = import_session(&request, &session_root).unwrap();
+            assert_eq!(imported.status, ImportItemStatus::Imported);
+            let destination = imported.destination_path.unwrap();
+            let destination = Path::new(&destination);
+            fs::OpenOptions::new()
+                .append(true)
+                .open(destination)
+                .unwrap()
+                .write_all(b"{\"type\":\"custom\",\"id\":\"unique-live-row\"}\n")
+                .unwrap();
+            let original = fs::read(destination).unwrap();
+            fs::write(
+                &source,
+                format!("{header}{{\"type\":\"custom\",\"id\":\"replacement-row\"}}\n",),
+            )
+            .unwrap();
+            if with_artifacts {
+                fs::write(
+                    source.with_extension("").join("version"),
+                    b"replacement artifact",
+                )
+                .unwrap();
+            }
+
+            // Same-Desktop pending/breadcrumb paths are excluded even before lease publication.
+            let alias = destination
+                .parent()
+                .unwrap()
+                .join(".")
+                .join(destination.file_name().unwrap());
+            let active = HashSet::from([path_key(&alias.to_string_lossy())]);
+            let refused =
+                import_sessions(&[request.clone(), request.clone()], &session_root, &active);
+            assert!(refused
+                .iter()
+                .all(|item| item.status == ImportItemStatus::Failed
+                    && item
+                        .message
+                        .as_deref()
+                        .unwrap()
+                        .contains("[session_lease_active]")));
+            assert_eq!(fs::read(destination).unwrap(), original);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(destination.with_extension("").join("version")).unwrap(),
+                    b"original artifact"
+                );
+            }
+
+            // An independent handle models the OS-lock boundary, without an active-path snapshot.
+            let owner =
+                SessionLease::acquire(destination, SessionLeasePurpose::Resume, false).unwrap();
+            let error = import_session(&request, &session_root).unwrap_err();
+            assert!(error.contains("[session_lease_active]"));
+            assert_eq!(fs::read(destination).unwrap(), original);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(destination.with_extension("").join("version")).unwrap(),
+                    b"original artifact"
+                );
+            }
+            request.mode = ImportMode::Skip;
+            assert_eq!(
+                import_session(&request, &session_root).unwrap().status,
+                ImportItemStatus::Skipped
+            );
+            request.mode = ImportMode::Copy;
+            let copied = import_session(&request, &session_root).unwrap();
+            assert_eq!(copied.status, ImportItemStatus::Copied);
+            assert_ne!(
+                copied.destination_path.as_deref(),
+                Some(destination.to_str().unwrap())
+            );
+            assert_eq!(fs::read(destination).unwrap(), original);
+            drop(owner);
+
+            request.mode = ImportMode::Update;
+            assert_eq!(
+                import_session(&request, &session_root).unwrap().status,
+                ImportItemStatus::Updated
+            );
+            let updated = fs::read_to_string(destination).unwrap();
+            assert!(updated.contains("replacement-row") && !updated.contains("unique-live-row"));
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(destination.with_extension("").join("version")).unwrap(),
+                    b"replacement artifact"
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_recovery_defers_active_owner_without_mutating_history_artifacts_or_marker() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-active-import-recovery-{}-{nonce}",
+            std::process::id(),
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("session.jsonl");
+        let artifacts = destination.with_extension("");
+        let stage_file = root.join(".session.jsonl-stage.test.1");
+        let stage_artifacts = root.join(".session.artifacts-stage.test.1");
+        let backup = root.join(".session.artifacts-backup.test.1");
+        let marker = root.join(".session.import-txn.test.1");
+        let original = b"{\"type\":\"session\",\"id\":\"original\",\"cwd\":\"/tmp/project\"}\n{\"type\":\"custom\",\"id\":\"unique-live-row\"}\n";
+        fs::write(&destination, original).unwrap();
+        fs::create_dir(&artifacts).unwrap();
+        fs::write(artifacts.join("version"), b"original artifact").unwrap();
+        fs::write(&stage_file, b"replacement session").unwrap();
+        fs::create_dir(&stage_artifacts).unwrap();
+        fs::write(stage_artifacts.join("version"), b"replacement artifact").unwrap();
+        let transaction =
+            ImportTransaction::new(&destination, &stage_file, &stage_artifacts, Some(&backup))
+                .unwrap();
+        let intent = serde_json::to_vec(&transaction).unwrap();
+        fs::write(&marker, &intent).unwrap();
+
+        let active = HashSet::from([path_key(&destination.to_string_lossy())]);
+        let mut warnings = Vec::new();
+        let mut blocked = HashSet::new();
+        recover_imports_in_directory(&root, &mut warnings, &mut blocked, &active, None);
+        assert!(blocked.contains(&destination));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("[session_lease_active]"));
+        assert_eq!(fs::read(&destination).unwrap(), original);
+        assert_eq!(
+            fs::read(artifacts.join("version")).unwrap(),
+            b"original artifact"
+        );
+        assert_eq!(fs::read(&marker).unwrap(), intent);
+        assert_eq!(fs::read(&stage_file).unwrap(), b"replacement session");
+        assert_eq!(
+            fs::read(stage_artifacts.join("version")).unwrap(),
+            b"replacement artifact"
+        );
+
+        let owner =
+            SessionLease::acquire(&destination, SessionLeasePurpose::Resume, false).unwrap();
+        let scan = scan_sessions(&root).unwrap();
+        assert!(scan.sessions.is_empty());
+        assert_eq!(scan.warnings.len(), 1);
+        assert!(scan.warnings[0].message.contains("[session_lease_active]"));
+        assert_eq!(fs::read(&destination).unwrap(), original);
+        assert_eq!(
+            fs::read(artifacts.join("version")).unwrap(),
+            b"original artifact"
+        );
+        assert_eq!(fs::read(&marker).unwrap(), intent);
+        assert_eq!(fs::read(&stage_file).unwrap(), b"replacement session");
+        assert_eq!(
+            fs::read(stage_artifacts.join("version")).unwrap(),
+            b"replacement artifact"
+        );
+        assert!(!backup.exists());
+        drop(owner);
+
+        let scan = scan_sessions(&root).unwrap();
+        assert!(scan.warnings.is_empty());
+        assert_eq!(scan.sessions.len(), 1);
+        assert_eq!(fs::read(&destination).unwrap(), original);
+        assert_eq!(
+            fs::read(artifacts.join("version")).unwrap(),
+            b"original artifact"
+        );
+        assert!(
+            !marker.exists()
+                && !stage_file.exists()
+                && !stage_artifacts.exists()
+                && !backup.exists()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn import_destination_rejects_a_mismatched_existing_source_identity() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -5365,6 +5704,8 @@ mod tests {
             "omp",
             "expected-source",
             ImportMode::Update,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
         )
         .expect("empty destination should be selectable");
         fs::write(
@@ -5382,6 +5723,8 @@ mod tests {
             "omp",
             "expected-source",
             ImportMode::Update,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
         ) {
             Ok(_) => panic!("mismatched source identity must not be overwritten"),
             Err(error) => error,
@@ -5723,7 +6066,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_waits_for_import_commit_and_removes_the_matching_artifacts() {
+    fn artifact_publication_keeps_the_destination_exclusively_owned_until_commit() {
         use std::sync::mpsc;
         use std::time::Duration;
 
@@ -5773,39 +6116,24 @@ mod tests {
         swapped_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("writer should reach swapped artifacts before JSONL commit");
-        let (deleting_tx, deleting_rx) = mpsc::channel();
-        let (deleted_tx, deleted_rx) = mpsc::channel();
-        let delete_destination = destination.to_string_lossy().into_owned();
-        let delete_root = root.clone();
-        let deleter = std::thread::spawn(move || {
-            deleting_tx
-                .send(())
-                .expect("delete attempt should be observable");
-            deleted_tx
-                .send(delete_session(&delete_destination, &delete_root))
-                .expect("delete result should be observable");
-        });
-        deleting_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("delete attempt should start during import");
-        assert!(
-            matches!(
-                deleted_rx.recv_timeout(Duration::from_millis(150)),
-                Err(mpsc::RecvTimeoutError::Timeout)
-            ),
-            "deletion must not complete inside the import transaction"
-        );
+        let error = match SessionLease::acquire(&destination, SessionLeasePurpose::Resume, true) {
+            Ok(_) => panic!("artifact publication must exclude another owner even with force"),
+            Err(error) => error,
+        };
+        assert!(error.contains("[session_lease_active]"));
+        assert_eq!(fs::read(&destination).unwrap(), b"old session");
+        assert_eq!(fs::read(target_artifacts.join("new")).unwrap(), b"new");
         resume_tx.send(()).expect("import should resume");
         writer
             .join()
             .expect("writer thread should finish")
-            .expect("import should commit before deletion");
-        deleted_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("deletion should complete after commit")
-            .expect("session should be deleted");
-        deleter.join().expect("delete thread should finish");
-        assert!(!destination.exists() && !target_artifacts.exists());
+            .expect("import should commit and finish inline recovery under its existing lease");
+        let owner = SessionLease::acquire(&destination, SessionLeasePurpose::Resume, false)
+            .expect("publication must release its lease after completing inline cleanup");
+        assert_eq!(fs::read(&destination).unwrap(), b"new session");
+        assert_eq!(fs::read(target_artifacts.join("new")).unwrap(), b"new");
+        assert!(!target_artifacts.join("old").exists());
+        drop(owner);
         fs::remove_dir_all(root).expect("fixture should be removable");
     }
 

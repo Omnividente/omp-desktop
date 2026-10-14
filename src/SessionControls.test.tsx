@@ -56,6 +56,8 @@ function config(): OmpConfigSnapshot {
       },
     ],
     models: [model],
+    agents: [],
+    agentSettingsSupported: false,
     accounts: [],
     advisorEnabled: false,
     autoResume: false,
@@ -151,6 +153,42 @@ describe("SessionControls primary provider pin", () => {
       }
     },
   )
+
+  it("keeps non-chat models out of running-session switches", () => {
+    const snapshot = config()
+    const imageModel = {
+      ...snapshot.models[0],
+      id: "image-generator",
+      selector: "provider/image-generator",
+      kind: "image",
+    }
+    snapshot.models.push(imageModel)
+    const onSwitch = vi.fn()
+    act(() => {
+      root.render(
+        <SessionControls
+          installingDesktopUpdate={false}
+          lang="ru"
+          ompConfig={snapshot}
+          onSwitch={onSwitch}
+          onDiscardSwitchRecovery={vi.fn()}
+          onSendSwitchRecovery={vi.fn()}
+          onTogglePrimaryProviderPin={vi.fn()}
+          runtimeStatus="normal"
+          tab={tab}
+        />,
+      )
+    })
+    const select = container.querySelector<HTMLSelectElement>(".session-model-select")!
+    expect(Array.from(select.options, (option) => option.value)).toEqual(["provider/primary"])
+    act(() => {
+      const injected = new Option("Image", imageModel.selector)
+      select.add(injected)
+      select.value = imageModel.selector
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(onSwitch).not.toHaveBeenCalled()
+  })
 
   it("waits for session discovery before enabling restart", () => {
     const onToggle = vi.fn()

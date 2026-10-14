@@ -1260,13 +1260,18 @@ button:disabled {
   min-height: 0;
   flex: 1;
   grid-template-columns: 9rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
   gap: 14px;
   margin-top: 18px;
 }
 
 .settings-nav {
   display: flex;
-  align-self: start;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   flex-direction: column;
   gap: 5px;
 }
@@ -1275,6 +1280,8 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 9px;
+  flex: none;
+  min-width: 0;
   min-height: 36px;
   padding: 8px 10px;
   color: var(--text-soft);
@@ -1285,6 +1292,7 @@ button:disabled {
   font-size: 0.75rem;
   font-weight: 620;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .settings-nav button:hover {
@@ -1304,9 +1312,11 @@ button:disabled {
 
 .settings-scroll {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: 0 6px 0 0;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .settings-secret-warning {
@@ -1320,6 +1330,7 @@ button:disabled {
   border: 1px solid rgba(224, 177, 74, 0.3);
   border-radius: 10px;
   background: rgba(92, 66, 18, 0.18);
+  overflow-wrap: anywhere;
 }
 
 .settings-secret-warning svg {
@@ -1382,7 +1393,7 @@ button:disabled {
 
 .settings-save-error {
   flex: none;
-  max-height: 8rem;
+  max-height: min(8rem, 20vh);
   overflow: auto;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -2085,6 +2096,96 @@ button:disabled {
   gap: 6px;
 }
 
+.settings-models-controls,
+.agent-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-models-controls {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-models-controls .settings-section-heading,
+.settings-models-controls .role-head,
+.settings-models-controls .role-head > div {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-models-controls .settings-section-heading > div {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+
+.settings-task-agents {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.settings-task-agents h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.agent-definition {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.agent-definition dt {
+  font-weight: 600;
+}
+
+.agent-definition dd {
+  min-width: 0;
+  margin: 0 0 0.4rem;
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.agent-controls,
+.agent-model-mode,
+.model-picker-shortcuts {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.agent-model-mode,
+.model-picker-shortcuts {
+  color: var(--text-soft);
+  font-size: 0.7rem;
+}
+
+.agent-model-mode select,
+.model-picker-shortcuts select {
+  min-width: 0;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.4rem;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #151916;
+  font: inherit;
+}
+
+.agent-model-entry {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.agent-model-entry > button {
+  justify-self: start;
+}
+
 .role-row {
   padding: 14px;
   border: 1px solid #29302b;
@@ -2263,8 +2364,8 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 34px;
-  padding: 0 9px;
+  min-height: 2.125rem;
+  padding: 0.35rem 9px;
   color: #6f7972;
   border: 1px solid #303832;
   border-radius: 8px;
@@ -2371,8 +2472,8 @@ button:disabled {
 
 .model-picker-manual input {
   min-width: 0;
-  height: 32px;
-  padding: 0 8px;
+  min-height: 2rem;
+  padding: 0.35rem 8px;
   color: #ccd3ce;
   border: 1px solid #303832;
   border-radius: 7px;
@@ -2474,8 +2575,8 @@ button:disabled {
 
 .fallback-chain-key input {
   min-width: 0;
-  height: 34px;
-  padding: 0 10px;
+  min-height: 2.125rem;
+  padding: 0.35rem 10px;
   color: #d6ddd8;
   border: 1px solid #343d36;
   border-radius: 8px;
@@ -4225,6 +4326,15 @@ button:disabled {
   margin-bottom: 24px;
 }
 
+.settings-header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-header > .icon-button {
+  flex: none;
+}
+
 .settings-header h2 {
   margin: 5px 0 0;
   color: #eef2ef;
@@ -4241,6 +4351,16 @@ button:disabled {
   border: 1px solid #2e3630;
   border-radius: 10px;
   background: #111412;
+}
+
+.settings-body .runtime-card {
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.settings-body .runtime-card > div {
+  flex: 1;
+  min-width: min(12rem, 100%);
 }
 
 .runtime-card > .button {
@@ -4459,6 +4579,7 @@ button:disabled {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
   padding-top: 16px;
   border-top: 1px solid #252b27;
 }
@@ -5340,12 +5461,10 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 
 .resource-card-heading strong {
   min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: #d8ded9;
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 0.625rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .resource-card-heading span {
@@ -5369,7 +5488,15 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   accent-color: var(--danger);
 }
 
-.resource-card p,
+.resource-card p:not(.resource-error) {
+  margin: 3px 0 0;
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.resource-card .resource-error,
 .resource-scope-note {
   margin: 3px 0 0;
   color: #7f8982;
@@ -5388,24 +5515,25 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 
 .resource-process {
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 6px 10px;
   background: #101311;
   font-size: 0.5625rem;
 }
 
 .resource-process span {
   min-width: 0;
-  overflow: hidden;
   color: #89938d;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .resource-process strong {
   color: #c9d0cb;
   font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }
 
 .resource-panel-footer {
@@ -5474,12 +5602,14 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 
   .settings-body {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 10px;
   }
 
   .settings-nav {
     flex-direction: row;
     overflow-x: auto;
+    max-height: 5rem;
   }
 
   .settings-nav button {
