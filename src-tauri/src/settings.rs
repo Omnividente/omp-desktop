@@ -850,7 +850,10 @@ fn resolve_omp_uncached(_app: &AppHandle, settings: &AppSettings) -> OmpResoluti
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        candidates.push(configured.to_owned());
+        return OmpResolution {
+            executable: configured.to_owned(),
+            version: probe_omp(configured),
+        };
     }
 
     if let Some(from_env) = env::var_os("OMP_EXECUTABLE") {

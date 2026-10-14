@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
-import { resizeTerminal } from "./api"
+import { attachTerminal, resizeTerminal } from "./api"
 import { TerminalView } from "./TerminalView"
 import type { PtyOutputEvent, TerminalTab } from "./types"
 import { forgetTerminalContinuity } from "./terminalContinuity"
@@ -17,6 +17,7 @@ const terminalState = vi.hoisted(() => ({
   scrollChanged: null as (() => void) | null,
   outputListener: null as ((event: { payload: PtyOutputEvent }) => void) | null,
   writeCallbacks: [] as Array<() => void>,
+  written: [] as string[],
   scrollToBottom: vi.fn(),
   fitThrows: false,
   instance: null as {
@@ -105,7 +106,8 @@ vi.mock("@xterm/xterm", () => ({
       this.buffer.active.viewportY = this.buffer.active.baseY
       terminalState.scrollChanged?.()
     }
-    write(_data: string | Uint8Array, callback?: () => void) {
+    write(data: string | Uint8Array, callback?: () => void) {
+      terminalState.written.push(typeof data === "string" ? data : new TextDecoder().decode(data))
       if (callback) terminalState.writeCallbacks.push(callback)
     }
     dispose() {
@@ -168,6 +170,7 @@ beforeEach(async () => {
   terminalState.scrollChanged = null
   terminalState.outputListener = null
   terminalState.writeCallbacks = []
+  terminalState.written = []
   forgetTerminalContinuity(tab.id)
   vi.stubGlobal(
     "ResizeObserver",
@@ -445,4 +448,64 @@ it("does not override a user's scroll while PTY output is pending", () => {
   expect(buffer.viewportY).toBe(11)
   expect(terminalState.scrollToBottom).not.toHaveBeenCalled()
   expect(container.querySelector(".terminal-scroll-bottom")).not.toBeNull()
+})
+
+it("replays a new display and de-duplicates live events received while attachment is pending", async () => {
+  const attachment = vi.mocked(attachTerminal).mock.results[0].value
+  const baseline = await attachment
+  act(() =>
+    terminalState.outputListener?.({
+      payload: {
+        terminalId: tab.id,
+        generation: 1,
+        seq: 1,
+        data: btoa("old retained output\r\n"),
+      },
+    }),
+  )
+  act(() => root.render(null))
+  terminalState.written = []
+  let resolve!: (value: typeof baseline) => void
+  vi.mocked(attachTerminal).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={tab}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    ),
+  )
+  act(() => {
+    terminalState.outputListener?.({
+      payload: { terminalId: tab.id, generation: 1, seq: 2, data: btoa("during attach\r\n") },
+    })
+    terminalState.outputListener?.({
+      payload: { terminalId: tab.id, generation: 1, seq: 3, data: btoa("after snapshot\r\n") },
+    })
+  })
+  await act(async () =>
+    resolve({
+      ...baseline,
+      data: btoa("old retained output\r\nduring attach\r\n"),
+      firstSeq: 1,
+      lastSeq: 2,
+      nextSeq: 3,
+      baselineReset: true,
+    }),
+  )
+  expect(terminalState.written.join("")).toBe(
+    "old retained output\r\nduring attach\r\nafter snapshot\r\n",
+  )
 })

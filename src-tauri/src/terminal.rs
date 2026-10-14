@@ -24,7 +24,7 @@ use serde_json::Value;
 use std::sync::atomic::AtomicU32;
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -75,14 +75,14 @@ const THINKING_LEVELS: &[&str] = &[
 const MAX_SWITCH_INPUT_BUFFER: usize = 64 * 1024;
 
 #[cfg(windows)]
-struct WindowsJobObject(HANDLE);
+pub(crate) struct WindowsJobObject(HANDLE);
 
 #[cfg(windows)]
 unsafe impl Send for WindowsJobObject {}
 
 #[cfg(windows)]
 impl WindowsJobObject {
-    fn new() -> std::io::Result<Self> {
+    pub(crate) fn new() -> std::io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -104,7 +104,7 @@ impl WindowsJobObject {
         Ok(job)
     }
 
-    fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
+    pub(crate) fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
         if unsafe { AssignProcessToJobObject(self.0, process.cast()) } == 0 {
             Err(std::io::Error::last_os_error())
         } else {
@@ -490,6 +490,7 @@ struct TerminalProcess {
     cwd: String,
     resume_path: Option<String>,
     pending_resume_path: Option<String>,
+    discovery_pending: bool,
     session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
@@ -626,11 +627,58 @@ impl PreparedSessionDeletion<'_> {
     }
 
     pub(crate) fn commit(self) -> Result<(), String> {
-        crate::sessions::delete_session(&self.canonical, &self.root)
+        crate::sessions::delete_session(&self.canonical, &self.root, &self._lease)
     }
 }
 
 impl TerminalState {
+    pub(crate) fn import_sessions(
+        &self,
+        requests: &[crate::models::ImportSessionRequest],
+        root: &Path,
+    ) -> Vec<crate::models::ImportItemResult> {
+        // The caller releases its settings snapshot before entering. Keep session_files
+        // for the entire batch, but release processes before filesystem work/import locks.
+        let _session_file_guard = lock_session_files(self);
+        let active = {
+            let processes = lock_processes(self);
+            processes
+                .iter()
+                .filter(|(_, process)| !process.exited)
+                .map(|(terminal_id, process)| {
+                    (
+                        terminal_id.clone(),
+                        process.resume_path.clone(),
+                        process.pending_resume_path.clone(),
+                        process.cwd.clone(),
+                        process.terminal_sessions_dir.clone(),
+                        process.breadcrumb_snapshot.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut active_paths = HashSet::new();
+        for (terminal_id, resume_path, pending_path, cwd, directory, snapshot) in active {
+            for path in [resume_path.as_deref(), pending_path.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                active_paths.insert(path_key(path));
+            }
+            // A fresh writer can materialize its first JSONL before the discovery tick.
+            if let Some(path) = resolve_resume_path_for_current(
+                &terminal_id,
+                &cwd,
+                &directory,
+                &snapshot,
+                resume_path.as_deref(),
+            ) {
+                active_paths.insert(path_key(&path));
+            }
+        }
+        crate::sessions::import_sessions(requests, root, &active_paths)
+    }
+
     pub fn shutdown_all(&self) {
         let processes = std::mem::take(&mut *lock_processes(self));
         drop(processes);
@@ -649,12 +697,23 @@ impl TerminalState {
     }
     fn is_session_active(&self, path: &str) -> bool {
         let key = path_key(path);
-        lock_processes(self).values().any(|process| {
+        lock_processes(self).iter().any(|(terminal_id, process)| {
             !process.exited
-                && process
-                    .resume_path
-                    .as_deref()
-                    .is_some_and(|resume| path_key(resume) == key)
+                && ([
+                    process.resume_path.as_deref(),
+                    process.pending_resume_path.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|path| path_key(path) == key)
+                    || resolve_resume_path_for_current(
+                        terminal_id,
+                        &process.cwd,
+                        &process.terminal_sessions_dir,
+                        &process.breadcrumb_snapshot,
+                        process.resume_path.as_deref(),
+                    )
+                    .is_some_and(|path| path_key(&path) == key))
         })
     }
 
@@ -1324,59 +1383,7 @@ fn switch_terminal_blocking(
         ));
     }
 
-    let should_spawn_runtime_watcher = {
-        let mut processes = lock_processes(&terminals);
-        let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
-            TerminalSwitchError::new(
-                "terminal_switch_failed",
-                format!("Терминал не найден: {}", request.terminal_id),
-            )
-        })?;
-        if process.switch_pending {
-            return Err(TerminalSwitchError::new(
-                "terminal_switch_busy",
-                "Смена модели уже выполняется",
-            ));
-        }
-        if let Some(recovery) = process.switch_recovery.as_ref() {
-            return Err(TerminalSwitchError::with_recovery(
-                "terminal_switch_recovery_pending",
-                "Сначала отправьте или удалите сохранённый ввод",
-                recovery.metadata(&request.terminal_id),
-            ));
-        }
-        if process.exited || process.exit_pending {
-            return Err(TerminalSwitchError::new(
-                "terminal_switch_failed",
-                "Процесс OMP уже завершён",
-            ));
-        }
-        let next_generation = process.switch_generation.checked_add(1).ok_or_else(|| {
-            TerminalSwitchError::new(
-                "terminal_switch_failed",
-                "Исчерпан счётчик поколений смены модели",
-            )
-        })?;
-        let should_spawn = !pending_fresh && process.resume_path.is_none();
-        if pending_fresh {
-            process.pending_resume_path = Some(resume_path.clone());
-        } else {
-            process.pending_resume_path = None;
-            process.resume_path = Some(resume_path.clone());
-        }
-        process.switch_pending = true;
-        process.switch_generation = next_generation;
-        process.switch_input_buffer.clear();
-        process.switch_input_overflow_notified = false;
-        should_spawn
-    };
-    if should_spawn_runtime_watcher {
-        spawn_runtime_watcher(
-            app.clone(),
-            request.terminal_id.clone(),
-            resume_path.clone(),
-        );
-    }
+    begin_terminal_switch(&request, &resume_path, &terminals)?;
 
     let result = if pending_fresh {
         perform_pending_fresh_terminal_switch(&request, &terminals)
@@ -1384,6 +1391,60 @@ fn switch_terminal_blocking(
         perform_terminal_switch(&request, &resume_path, &terminals)
     };
     finalize_switch_result(&request.terminal_id, &terminals, result)
+}
+
+fn begin_terminal_switch(
+    request: &SwitchRequest,
+    resume_path: &str,
+    terminals: &TerminalState,
+) -> Result<(), TerminalSwitchError> {
+    let mut processes = lock_processes(terminals);
+    let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_failed",
+            format!("Терминал не найден: {}", request.terminal_id),
+        )
+    })?;
+    if process.switch_pending {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_busy",
+            "Смена модели уже выполняется",
+        ));
+    }
+    if let Some(recovery) = process.switch_recovery.as_ref() {
+        return Err(TerminalSwitchError::with_recovery(
+            "terminal_switch_recovery_pending",
+            "Сначала отправьте или удалите сохранённый ввод",
+            recovery.metadata(&request.terminal_id),
+        ));
+    }
+    if process.exited || process.exit_pending {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Процесс OMP уже завершён",
+        ));
+    }
+    let next_generation = process.switch_generation.checked_add(1).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Исчерпан счётчик поколений смены модели",
+        )
+    })?;
+    if process.resume_path.is_none() {
+        // A ready first JSONL is still pending until discovery acquires its lease
+        // and publishes identity. Switching may read it but must not complete discovery.
+        process.pending_resume_path = Some(resume_path.to_owned());
+    } else if process.resume_path.as_deref() != Some(resume_path) {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Сессия OMP изменилась во время подготовки переключения",
+        ));
+    }
+    process.switch_pending = true;
+    process.switch_generation = next_generation;
+    process.switch_input_buffer.clear();
+    process.switch_input_overflow_notified = false;
+    Ok(())
 }
 
 fn finalize_switch_result<T>(
@@ -2372,6 +2433,7 @@ fn spawn_terminal_process(
         cwd: cwd.clone(),
         resume_path,
         pending_resume_path: None,
+        discovery_pending: false,
         session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
@@ -2396,7 +2458,7 @@ fn spawn_terminal_process(
     let output_exit = match spawn_reader(
         app.clone(),
         terminal_id.clone(),
-        output,
+        output.clone(),
         reader,
         exit_sender,
     ) {
@@ -2414,7 +2476,7 @@ fn spawn_terminal_process(
     }
     if restartable {
         if let Some(session_path) = runtime_session_path {
-            spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path);
+            spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path, output);
         }
         spawn_session_watcher(app.clone(), terminal_id.clone());
     }
@@ -2630,7 +2692,8 @@ enum ResumePathPoll {
     Discovered {
         resume_path: String,
         previous_path: Option<String>,
-        previous_lease: Option<SessionLease>,
+        session_lease: SessionLease,
+        output: SharedTerminalOutput,
         session: Box<crate::models::SessionSummary>,
     },
 }
@@ -2653,11 +2716,15 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         if !process.restartable || process.exited || process.exit_pending {
             return ResumePathPoll::Stop;
         }
+        if process.discovery_pending {
+            return ResumePathPoll::Continue;
+        }
         (
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
             process.resume_path.clone(),
+            process.output.clone(),
         )
     };
     let Some(discovery) = discover_session(
@@ -2697,38 +2764,69 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         Err(error) => return ResumePathPoll::LeaseFailed(error),
     };
 
-    let (previous_path, previous_lease) = {
+    {
         let mut processes = lock_processes(state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return ResumePathPoll::Stop;
         };
-        if !process.restartable || process.exited || process.exit_pending {
+        if process.exited || process.exit_pending || !Arc::ptr_eq(&process.output, &context.4) {
             return ResumePathPoll::Stop;
         }
-        if process
-            .resume_path
-            .as_deref()
-            .is_some_and(|current| path_key(current) == path_key(&resume_path))
-        {
-            return ResumePathPoll::Continue;
-        }
-        process.pending_resume_path = None;
-        (
-            process.resume_path.replace(resume_path.clone()),
-            process.session_lease.replace(session_lease),
-        )
-    };
-
+        // Reserve this transition before releasing session_files. The watcher and exit
+        // waiter may both poll; the second must not mistake our lease for another owner.
+        process.discovery_pending = true;
+        process.pending_resume_path = Some(resume_path.clone());
+    }
     ResumePathPoll::Discovered {
         resume_path,
-        previous_path,
-        previous_lease,
+        previous_path: context.3,
+        session_lease,
+        output: context.4,
         session,
     }
 }
 
+fn publish_discovered_session<F>(
+    state: &TerminalState,
+    terminal_id: &str,
+    resume_path: &str,
+    previous_path: Option<&str>,
+    output: &SharedTerminalOutput,
+    session_lease: SessionLease,
+    publish: F,
+) -> bool
+where
+    F: FnOnce(),
+{
+    let previous_lease = {
+        let mut processes = lock_processes(state);
+        let Some(process) = processes.get_mut(terminal_id) else {
+            return false;
+        };
+        if !process.restartable
+            || process.exited
+            || process.exit_pending
+            || !Arc::ptr_eq(&process.output, output)
+            || !process.discovery_pending
+            || process.resume_path.as_deref() != previous_path
+        {
+            return false;
+        }
+        process.pending_resume_path = None;
+        process.discovery_pending = false;
+        process.resume_path = Some(resume_path.to_owned());
+        let previous_lease = process.session_lease.replace(session_lease);
+        // Event publication is serialized with close/exit and the path+lease transition.
+        // The callback must not reacquire processes/session_files/settings.
+        publish();
+        previous_lease
+    };
+    drop(previous_lease);
+    true
+}
+
 fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathPoll) -> bool {
-    let (resume_path, previous_path, previous_lease, mut session) = match poll {
+    let (resume_path, previous_path, session_lease, output, mut session) = match poll {
         ResumePathPoll::Stop => return true,
         ResumePathPoll::Continue => return false,
         ResumePathPoll::LeaseFailed(error) => {
@@ -2744,11 +2842,23 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
         ResumePathPoll::Discovered {
             resume_path,
             previous_path,
-            previous_lease,
+            session_lease,
+            output,
             session,
-        } => (resume_path, previous_path, previous_lease, *session),
+        } => (resume_path, previous_path, session_lease, output, *session),
     };
 
+    let state = app.state::<TerminalState>();
+    {
+        let processes = lock_processes(&state);
+        let Some(process) = processes.get(terminal_id) else {
+            return true;
+        };
+        if process.exited || process.exit_pending || !Arc::ptr_eq(&process.output, &output) {
+            return true;
+        }
+    }
+    // No session_files/processes guard while settings are acquired for handoff titles.
     if let Some(previous_path) = previous_path.as_deref() {
         if let Err(error) =
             apply_handoff_session_titles(app, previous_path, &resume_path, &mut session)
@@ -2763,16 +2873,25 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
     } else {
         apply_known_session_title_pin(app, &mut session);
     }
-    drop(previous_lease);
-
-    let _ = app.emit(
-        "pty-session",
-        PtySessionEvent {
-            terminal_id: terminal_id.to_owned(),
-            session,
+    if publish_discovered_session(
+        &state,
+        terminal_id,
+        &resume_path,
+        previous_path.as_deref(),
+        &output,
+        session_lease,
+        || {
+            let _ = app.emit(
+                "pty-session",
+                PtySessionEvent {
+                    terminal_id: terminal_id.to_owned(),
+                    session,
+                },
+            );
         },
-    );
-    spawn_runtime_watcher(app.clone(), terminal_id.to_owned(), resume_path);
+    ) {
+        spawn_runtime_watcher(app.clone(), terminal_id.to_owned(), resume_path, output);
+    }
     false
 }
 
@@ -3637,12 +3756,30 @@ fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
     );
 }
 
-fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: String) {
+fn spawn_runtime_watcher(
+    app: AppHandle,
+    terminal_id: String,
+    session_path: String,
+    output: SharedTerminalOutput,
+) {
     let error_app = app.clone();
     let error_terminal_id = terminal_id.clone();
     if let Err(error) = thread::Builder::new()
         .name(format!("runtime-watcher-{terminal_id}"))
         .spawn(move || {
+            // Close/exit/handoff may have occurred between publication and thread startup.
+            {
+                let state = app.state::<TerminalState>();
+                let processes = lock_processes(&state);
+                if !processes.get(&terminal_id).is_some_and(|process| {
+                    !process.exited
+                        && !process.exit_pending
+                        && Arc::ptr_eq(&process.output, &output)
+                        && process.resume_path.as_deref() == Some(session_path.as_str())
+                }) {
+                    return;
+                }
+            }
             let path = PathBuf::from(&session_path);
             let mut cursor = RuntimeWatchCursor::at_end(&path);
             let (initial_title, mut generated_title_seen) = cursor.take_baseline_session_title();
@@ -3665,7 +3802,9 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     let Some(process) = processes.get(&terminal_id) else {
                         return;
                     };
-                    if process.resume_path.as_deref() != Some(session_path.as_str()) {
+                    if !Arc::ptr_eq(&process.output, &output)
+                        || process.resume_path.as_deref() != Some(session_path.as_str())
+                    {
                         return;
                     }
                     !process.exited && !process.exit_pending
@@ -4798,19 +4937,457 @@ fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn import_update_refuses_live_local_and_independent_owners_then_succeeds_after_close() {
+        use crate::models::{ImportItemStatus, ImportMode, ImportSessionRequest};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-import-ownership-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        let state = TerminalState::default();
+        for with_artifacts in [false, true] {
+            let source = root.join(format!("source-{with_artifacts}.jsonl"));
+            let original = format!("{{\"type\":\"session\",\"id\":\"source-{with_artifacts}\",\"cwd\":\"/tmp/source\"}}\n");
+            fs::write(&source, &original).unwrap();
+            if with_artifacts {
+                fs::create_dir(source.with_extension("")).unwrap();
+                fs::write(source.with_extension("").join("version"), b"old").unwrap();
+            }
+            let mut request = ImportSessionRequest {
+                path: source.to_string_lossy().into_owned(),
+                target_cwd: project.to_string_lossy().into_owned(),
+                mode: ImportMode::Update,
+            };
+            let first = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(first.status, ImportItemStatus::Imported);
+            let path = first.destination_path.unwrap();
+            fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap()
+                .write_all(b"{\"type\":\"custom\",\"id\":\"unique-live-row\"}\n")
+                .unwrap();
+            let before = fs::read(&path).unwrap();
+            fs::write(
+                &source,
+                format!("{original}{{\"type\":\"custom\",\"id\":\"new-source-row\"}}\n"),
+            )
+            .unwrap();
+            if with_artifacts {
+                fs::write(source.with_extension("").join("version"), b"new").unwrap();
+            }
+            let mut process = terminal_process(Some(path.clone()), None);
+            process.session_lease = Some(
+                SessionLease::acquire(
+                    std::path::Path::new(&path),
+                    SessionLeasePurpose::Resume,
+                    false,
+                )
+                .unwrap(),
+            );
+            lock_processes(&state).insert("terminal-1".to_owned(), process);
+            let refused = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(refused.status, ImportItemStatus::Failed);
+            assert!(refused.message.unwrap().contains("[session_lease_active]"));
+            assert_eq!(fs::read(&path).unwrap(), before);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"old"
+                );
+            }
+            for mode in [ImportMode::Skip, ImportMode::Copy] {
+                request.mode = mode;
+                assert_ne!(
+                    state.import_sessions(&[request.clone()], &session_root)[0].status,
+                    ImportItemStatus::Failed
+                );
+            }
+            request.mode = ImportMode::Update;
+            drop(lock_processes(&state).remove("terminal-1"));
+            // Neither an unpublished first file nor a handoff breadcrumb has a lease yet.
+            // All three active path sources must still exclude Update, including aliases.
+            let alias = std::path::Path::new(&path)
+                .parent()
+                .unwrap()
+                .join(".")
+                .join(std::path::Path::new(&path).file_name().unwrap())
+                .to_string_lossy()
+                .into_owned();
+            for active_kind in ["resume", "pending", "breadcrumb"] {
+                let mut process = terminal_process(None, None);
+                match active_kind {
+                    "resume" => process.resume_path = Some(alias.clone()),
+                    "pending" => process.pending_resume_path = Some(alias.clone()),
+                    _ => {
+                        process.terminal_sessions_dir = root.clone();
+                        fs::write(
+                            root.join("apple-terminal-1"),
+                            format!("/tmp/project\n{alias}\nfresh\n"),
+                        )
+                        .unwrap();
+                    }
+                }
+                lock_processes(&state).insert("terminal-1".to_owned(), process);
+                let refused = state
+                    .import_sessions(&[request.clone()], &session_root)
+                    .remove(0);
+                assert_eq!(refused.status, ImportItemStatus::Failed, "{active_kind}");
+                assert!(refused.message.unwrap().contains("[session_lease_active]"));
+                assert_eq!(fs::read(&path).unwrap(), before);
+                if with_artifacts {
+                    assert_eq!(
+                        fs::read(
+                            std::path::Path::new(&path)
+                                .with_extension("")
+                                .join("version")
+                        )
+                        .unwrap(),
+                        b"old"
+                    );
+                }
+                drop(lock_processes(&state).remove("terminal-1"));
+            }
+            // Independent lock handle exercises the second Desktop exclusion boundary.
+            let owner = SessionLease::acquire(
+                std::path::Path::new(&path),
+                SessionLeasePurpose::Resume,
+                false,
+            )
+            .unwrap();
+            let refused = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(refused.status, ImportItemStatus::Failed);
+            assert!(refused.message.unwrap().contains("[session_lease_active]"));
+            assert_eq!(fs::read(&path).unwrap(), before);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"old"
+                );
+            }
+            drop(owner);
+            let updated = state.import_sessions(&[request], &session_root).remove(0);
+            assert_eq!(updated.status, ImportItemStatus::Updated);
+            let updated_body = fs::read_to_string(&path).unwrap();
+            assert!(updated_body.contains("new-source-row"));
+            assert!(!updated_body.contains("unique-live-row"));
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"new"
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn early_ready_jsonl_switch_publishes_identity_and_lease_once() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-early-discovery-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("fresh.jsonl");
+        let path_string = path.to_string_lossy().into_owned();
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{path_string}\nfresh\n"),
+        )
+        .unwrap();
+        let state = TerminalState::default();
+        let mut process = terminal_process(None, None);
+        process.terminal_sessions_dir = root.clone();
+        lock_processes(&state).insert("terminal-1".to_owned(), process);
+        // Supported switching before the lazy JSONL exists only records a pending path.
+        begin_terminal_switch(&switch_request(), &path_string, &state).unwrap();
+        assert!(lock_processes(&state)["terminal-1"].resume_path.is_none());
+        finalize_switch_result("terminal-1", &state, Ok(())).unwrap();
+        assert_eq!(
+            lock_processes(&state)["terminal-1"]
+                .pending_resume_path
+                .as_deref(),
+            Some(path_string.as_str())
+        );
+        fs::write(
+            &path,
+            "{\"type\":\"session\",\"id\":\"fresh-id\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        begin_terminal_switch(&switch_request(), &path_string, &state).unwrap();
+        let poll = {
+            let _guard = lock_session_files(&state);
+            poll_resume_path_locked("terminal-1", &state)
+        };
+        let ResumePathPoll::Discovered {
+            resume_path,
+            previous_path,
+            session_lease,
+            output,
+            session,
+        } = poll
+        else {
+            panic!("first ready JSONL must remain discoverable after the switch");
+        };
+        assert!(lock_processes(&state)["terminal-1"].resume_path.is_none());
+        // A concurrent exit-waiter poll must not produce a duplicate event or lease failure.
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        let mut events = Vec::new();
+        assert!(publish_discovered_session(
+            &state,
+            "terminal-1",
+            &resume_path,
+            previous_path.as_deref(),
+            &output,
+            session_lease,
+            || {
+                events.push(PtySessionEvent {
+                    terminal_id: "terminal-1".to_owned(),
+                    session: *session,
+                });
+            }
+        ));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].terminal_id, "terminal-1");
+        assert_eq!(events[0].session.id, "fresh-id");
+        assert_eq!(events[0].session.file_path, path_string);
+        let processes = lock_processes(&state);
+        assert_eq!(
+            processes["terminal-1"].resume_path.as_deref(),
+            Some(path_string.as_str())
+        );
+        assert!(processes["terminal-1"].session_lease.is_some());
+        assert!(processes["terminal-1"].pending_resume_path.is_none());
+        drop(processes);
+        finalize_switch_result("terminal-1", &state, Ok(())).unwrap();
+        for force in [false, true] {
+            let error = SessionLease::acquire(&path, SessionLeasePurpose::Resume, force)
+                .err()
+                .unwrap();
+            assert!(error.starts_with("[session_lease_active]"));
+        }
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        drop(lock_processes(&state).remove("terminal-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn first_discovery_does_not_publish_after_close_or_exit() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-discovery-close-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("fresh.jsonl");
+        fs::write(
+            &path,
+            "{\"type\":\"session\",\"id\":\"fresh-id\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{}\nfresh\n", path.display()),
+        )
+        .unwrap();
+        for interruption in ["close", "exit_pending", "exited", "replacement"] {
+            let state = TerminalState::default();
+            let mut process = terminal_process(None, None);
+            process.terminal_sessions_dir = root.clone();
+            lock_processes(&state).insert("terminal-1".to_owned(), process);
+            let poll = {
+                let _guard = lock_session_files(&state);
+                poll_resume_path_locked("terminal-1", &state)
+            };
+            let ResumePathPoll::Discovered {
+                resume_path,
+                previous_path,
+                session_lease,
+                output,
+                ..
+            } = poll
+            else {
+                panic!("discovery should acquire ownership");
+            };
+            match interruption {
+                "close" => drop(lock_processes(&state).remove("terminal-1")),
+                "exit_pending" => {
+                    lock_processes(&state)
+                        .get_mut("terminal-1")
+                        .unwrap()
+                        .exit_pending = true
+                }
+                "exited" => lock_processes(&state).get_mut("terminal-1").unwrap().exited = true,
+                _ => {
+                    drop(
+                        lock_processes(&state)
+                            .insert("terminal-1".to_owned(), terminal_process(None, None)),
+                    );
+                }
+            }
+            let mut publications = 0;
+            assert!(!publish_discovered_session(
+                &state,
+                "terminal-1",
+                &resume_path,
+                previous_path.as_deref(),
+                &output,
+                session_lease,
+                || publications += 1
+            ));
+            assert_eq!(publications, 0);
+            let owner = SessionLease::acquire(&path, SessionLeasePurpose::Resume, false).unwrap();
+            drop(owner);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn handoff_keeps_both_leases_until_identity_publication() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-discovery-handoff-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let previous = root.join("previous.jsonl");
+        let next = root.join("next.jsonl");
+        for (path, id) in [(&previous, "previous-id"), (&next, "next-id")] {
+            fs::write(
+                path,
+                format!("{{\"type\":\"session\",\"id\":\"{id}\",\"cwd\":\"/tmp/project\"}}\n"),
+            )
+            .unwrap();
+        }
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{}\n", next.display()),
+        )
+        .unwrap();
+        let state = TerminalState::default();
+        let mut process = terminal_process(Some(previous.to_string_lossy().into_owned()), None);
+        process.session_lease =
+            Some(SessionLease::acquire(&previous, SessionLeasePurpose::Resume, false).unwrap());
+        process.terminal_sessions_dir = root.clone();
+        lock_processes(&state).insert("terminal-1".to_owned(), process);
+        let poll = {
+            let _guard = lock_session_files(&state);
+            poll_resume_path_locked("terminal-1", &state)
+        };
+        let ResumePathPoll::Discovered {
+            resume_path,
+            previous_path,
+            session_lease,
+            output,
+            session,
+        } = poll
+        else {
+            panic!("handoff must reserve the next session");
+        };
+        let mut events = Vec::new();
+        assert!(publish_discovered_session(
+            &state,
+            "terminal-1",
+            &resume_path,
+            previous_path.as_deref(),
+            &output,
+            session_lease,
+            || {
+                for path in [&previous, &next] {
+                    let error = SessionLease::acquire(path, SessionLeasePurpose::Resume, false)
+                        .err()
+                        .unwrap();
+                    assert!(error.starts_with("[session_lease_active]"));
+                }
+                events.push(PtySessionEvent {
+                    terminal_id: "terminal-1".to_owned(),
+                    session: *session,
+                });
+            }
+        ));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].session.id, "next-id");
+        let owner = SessionLease::acquire(&previous, SessionLeasePurpose::Resume, false).unwrap();
+        drop(owner);
+        let error = SessionLease::acquire(&next, SessionLeasePurpose::Resume, false)
+            .err()
+            .unwrap();
+        assert!(error.starts_with("[session_lease_active]"));
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        drop(lock_processes(&state).remove("terminal-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     use super::{
-        append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
-        decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
-        drain_output_batches, encode_session_dir_name, feed_runtime_lines, finalize_switch_result,
-        initial_agent_args_with_config, initial_terminal_args_with_config,
-        is_pending_fresh_breadcrumb, lock_processes, lock_terminal_output, model_switch_input,
-        normalize_thinking_level, output_event_name, pending_fresh_switch_plan, poll_runtime_file,
-        read_runtime_tail, receive_ready_output_batch, receive_timed_output_batch,
-        recover_runtime_cursor, resolve_resume_path_for_current, run_output_pipeline,
-        runtime_event_for_emit, runtime_event_from_line, send_switch_input_recovery_blocking,
-        session_title_for_emit, session_title_from_line, spawn_terminal_writer, thinking_cycle,
-        validate_switch_request, validated_resume_path, write_bytes, PtyExitEvent,
-        PtyRuntimeEventKind, RuntimeRecovery, RuntimeWatchCursor, SessionDiscovery, SessionLease,
+        append_switch_input, begin_terminal_switch, breadcrumb_modified, build_omp_command,
+        cli_path_arg, decode_terminal_binary, discard_switch_input_recovery_from_state,
+        discover_session, drain_output_batches, encode_session_dir_name, feed_runtime_lines,
+        finalize_switch_result, initial_agent_args_with_config, initial_terminal_args_with_config,
+        is_pending_fresh_breadcrumb, lock_processes, lock_session_files, lock_terminal_output,
+        model_switch_input, normalize_thinking_level, output_event_name, pending_fresh_switch_plan,
+        poll_resume_path_locked, poll_runtime_file, publish_discovered_session, read_runtime_tail,
+        receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
+        resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
+        runtime_event_from_line, send_switch_input_recovery_blocking, session_title_for_emit,
+        session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
+        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, PtySessionEvent,
+        ResumePathPoll, RuntimeRecovery, RuntimeWatchCursor, SessionDiscovery, SessionLease,
         SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
         TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
         BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
@@ -4984,6 +5561,7 @@ mod tests {
             cwd: "/tmp/project".to_owned(),
             resume_path,
             pending_resume_path: None,
+            discovery_pending: false,
             session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),

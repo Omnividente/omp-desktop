@@ -623,7 +623,11 @@ function App() {
     (result: SettingsSavePayload) => {
       if (result.ompConfig) {
         acceptOmpConfig(result.ompConfig, result.bootstrap.runtime)
-      } else {
+      } else if (
+        ompAvailable !== result.bootstrap.runtime.ompAvailable ||
+        ompExecutable !== result.bootstrap.runtime.ompExecutable ||
+        ompVersion !== result.bootstrap.runtime.ompVersion
+      ) {
         ++ompConfigRequestRef.current
         setOmpConfig(null)
         ompConfigBaselineRef.current = null
@@ -633,7 +637,7 @@ function App() {
       }
       applyPayload(result.bootstrap)
     },
-    [acceptOmpConfig, applyPayload],
+    [acceptOmpConfig, applyPayload, ompAvailable, ompExecutable, ompVersion],
   )
 
   const changeRailMode = useCallback(

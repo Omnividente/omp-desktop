@@ -583,12 +583,17 @@ async fn save_settings_bundle(
                 let next = transaction.candidate().clone();
                 let mut settings_save_attempted = false;
                 let persistence = (|| {
+                    let omp_config = if credentials_changed {
+                        Some(omp_bridge::load_config_snapshot(&app, &next)?)
+                    } else {
+                        None
+                    };
                     let bootstrap = build_bootstrap(&app, &next)?;
                     settings_save_attempted = true;
                     save_settings(&app, &next)?;
-                    Ok(bootstrap)
+                    Ok((bootstrap, omp_config))
                 })();
-                let bootstrap = settings::resolve_transaction(persistence, || {
+                let (bootstrap, omp_config) = settings::resolve_transaction(persistence, || {
                     let mut rollback_errors = Vec::new();
                     if credentials_changed {
                         if let Err(rollback_error) =
@@ -606,7 +611,7 @@ async fn save_settings_bundle(
                 })?;
                 Ok(SettingsSavePayload {
                     bootstrap,
-                    omp_config: None,
+                    omp_config,
                 })
             })
         },
@@ -770,7 +775,8 @@ async fn import_sessions(
             let settings = app.state::<SettingsState>();
             let snapshot = settings_snapshot(&app, &settings)?;
             let root = settings::session_root(&app, &snapshot)?;
-            let items = sessions::import_sessions(&requests, &root);
+            let terminals = app.state::<TerminalState>();
+            let items = terminals.import_sessions(&requests, &root);
             let bootstrap = build_bootstrap(&app, &snapshot)?;
             Ok(ImportBatchPayload { bootstrap, items })
         },

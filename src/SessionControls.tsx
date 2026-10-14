@@ -60,8 +60,9 @@ export function SessionControls({
   if (!ompConfig || tab.status !== "running" || tab.kind !== "agent") return null
 
   const defaultSelector = ompConfig.roles.find((role) => role.role === "default")?.selector ?? ""
+  const chatModels = ompConfig.models.filter((model) => (model.kind ?? "chat") === "chat")
   const configured = splitSelector(tab.currentModel ?? defaultSelector)
-  const selectedModel = ompConfig.models.find((model) => matchesSelector(model, configured.base))
+  const selectedModel = chatModels.find((model) => matchesSelector(model, configured.base))
   const baseModel = selectedModel ? splitSelector(selectedModel.selector).base : configured.base
   const thinkingOptions = thinkingOptionsForModel(selectedModel)
   const preferredThinking =
@@ -75,7 +76,7 @@ export function SessionControls({
     ompConfig.defaultThinkingLevel,
   )
 
-  const modelsByProvider = ompConfig.models.reduce<Record<string, typeof ompConfig.models>>(
+  const modelsByProvider = chatModels.reduce<Record<string, typeof chatModels>>(
     (providers, model) => {
       const provider = model.provider || "unknown"
       ;(providers[provider] ??= []).push(model)
@@ -93,7 +94,7 @@ export function SessionControls({
   const handleModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextBase = event.target.value
     if (nextBase === baseModel) return
-    const nextModel = ompConfig.models.find((model) => matchesSelector(model, nextBase))
+    const nextModel = chatModels.find((model) => matchesSelector(model, nextBase))
     if (!nextModel?.available) return
     const nextOptions = thinkingOptionsForModel(nextModel)
     const nextThinking = normalizeThinkingLevel(

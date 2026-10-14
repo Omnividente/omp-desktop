@@ -37,6 +37,7 @@ pub enum SessionLeasePurpose {
     #[serde(alias = "discovered")]
     RuntimeDiscovered,
     Delete,
+    Import,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -190,6 +191,12 @@ impl SessionLease {
             owner,
             clear_on_drop: true,
         })
+    }
+
+    pub(crate) fn owns_path(&self, session_path: &Path) -> bool {
+        session_path
+            .canonicalize()
+            .is_ok_and(|path| path == Path::new(&self.owner.session_path))
     }
 
     #[cfg(test)]

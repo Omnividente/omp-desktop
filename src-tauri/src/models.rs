@@ -489,6 +489,7 @@ pub struct OmpModelInfo {
     pub id: String,
     pub selector: String,
     pub name: String,
+    pub kind: String,
     pub available: bool,
     pub status: String,
     pub detail: Option<String>,
@@ -504,6 +505,28 @@ pub struct OmpRoleInfo {
     pub available: bool,
     pub status: String,
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpAgentInfo {
+    pub name: String,
+    pub description: String,
+    pub source: String,
+    pub enabled: bool,
+    pub model_override: Option<Vec<String>>,
+    pub default_model_selectors: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OmpAgentChange {
+    pub enabled: Option<bool>,
+    pub expected_enabled: Option<bool>,
+    #[serde(default)]
+    pub model_override: SettingsPatch<Vec<String>>,
+    #[serde(default)]
+    pub expected_model_override: SettingsPatch<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -589,6 +612,8 @@ pub struct OmpOperationalChange {
 #[serde(rename_all = "camelCase")]
 pub struct OmpConfigSnapshot {
     pub roles: Vec<OmpRoleInfo>,
+    pub agents: Vec<OmpAgentInfo>,
+    pub agent_settings_supported: bool,
     pub models: Vec<OmpModelInfo>,
     pub accounts: Vec<OmpAccountUsageInfo>,
     pub usage_observed_at: Option<u64>,
@@ -634,6 +659,8 @@ pub struct OmpConfigSaveRequest {
     pub provider_env: Option<HashMap<String, String>>,
     #[serde(default)]
     pub operational_changes: BTreeMap<String, OmpOperationalChange>,
+    #[serde(default)]
+    pub agent_changes: BTreeMap<String, OmpAgentChange>,
 }
 
 #[derive(Clone, Deserialize)]

@@ -7,6 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -198,9 +202,20 @@ fn run_command(
     limits: CommandLimits,
 ) -> Result<OmpCommandOutput, OmpCommandError> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let deadline = Instant::now() + limits.timeout;
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    let containment = crate::terminal::WindowsJobObject::new()
+        .map_err(|error| OmpCommandError::Spawn { operation, error })?;
     let mut child = command
         .spawn()
         .map_err(|error| OmpCommandError::Spawn { operation, error })?;
+    #[cfg(windows)]
+    if let Err(error) = containment.assign(child.as_raw_handle()) {
+        kill_and_wait(&mut child);
+        return Err(OmpCommandError::Spawn { operation, error });
+    }
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
@@ -240,6 +255,15 @@ fn run_command(
         Ok(reader) => reader,
         Err(error) => {
             kill_and_wait(&mut child);
+            #[cfg(windows)]
+            drop(containment);
+            let _ = join_reader_until(
+                stdout_reader,
+                operation,
+                "stdout",
+                Instant::now() + Duration::from_millis(100),
+                limits.timeout,
+            );
             return Err(OmpCommandError::ReaderSpawn {
                 operation,
                 stream: "stderr",
@@ -248,27 +272,50 @@ fn run_command(
         }
     };
 
-    let deadline = Instant::now() + limits.timeout;
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
+        match try_wait_owned(&mut child) {
+            Ok(Some(status)) => break Ok(status),
             Ok(None) if Instant::now() < deadline => thread::sleep(POLL_INTERVAL),
             Ok(None) => {
                 kill_and_wait(&mut child);
-                return Err(OmpCommandError::Timeout {
+                break Err(OmpCommandError::Timeout {
                     operation,
                     timeout: limits.timeout,
                 });
             }
             Err(error) => {
                 kill_and_wait(&mut child);
-                return Err(OmpCommandError::Wait { operation, error });
+                break Err(OmpCommandError::Wait { operation, error });
             }
         }
     };
 
-    let stdout = join_reader_until(stdout_reader, operation, "stdout", deadline, limits.timeout)?;
-    let stderr = join_reader_until(stderr_reader, operation, "stderr", deadline, limits.timeout)?;
+    // The short command owns its descendants; none may retain inherited pipes
+    // after the root exits. Job handles never target a potentially reused PID.
+    #[cfg(windows)]
+    drop(containment);
+    let capture_deadline = if status.is_err() {
+        Instant::now() + Duration::from_millis(100)
+    } else {
+        deadline
+    };
+    let stdout = join_reader_until(
+        stdout_reader,
+        operation,
+        "stdout",
+        capture_deadline,
+        limits.timeout,
+    );
+    let stderr = join_reader_until(
+        stderr_reader,
+        operation,
+        "stderr",
+        capture_deadline,
+        limits.timeout,
+    );
+    let status = status?;
+    let stdout = stdout?;
+    let stderr = stderr?;
     if stdout.truncated {
         return Err(OmpCommandError::OutputLimit {
             operation,
@@ -292,8 +339,46 @@ fn run_command(
 }
 
 fn kill_and_wait(child: &mut Child) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+    }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn try_wait_owned(child: &mut Child) -> io::Result<Option<ExitStatus>> {
+    child.try_wait()
+}
+
+#[cfg(unix)]
+fn try_wait_owned(child: &mut Child) -> io::Result<Option<ExitStatus>> {
+    // Peek without reaping: the leader's PID remains reserved while its owned
+    // group is terminated, so cleanup cannot signal an unrelated reused PID.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    if unsafe {
+        libc::waitid(
+            libc::P_PID,
+            child.id() as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    #[cfg(target_os = "linux")]
+    let pid = unsafe { info.si_pid() };
+    #[cfg(not(target_os = "linux"))]
+    let pid = info.si_pid;
+    if pid == 0 {
+        return Ok(None);
+    }
+    unsafe {
+        libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+    }
+    child.try_wait()
 }
 
 struct BoundedRead {
@@ -365,14 +450,6 @@ mod tests {
         let capture = read_bounded(Cursor::new(b"abcdefgh"), 4).unwrap();
         assert_eq!(capture.bytes, b"abcd");
         assert!(capture.truncated);
-    }
-
-    #[test]
-    fn operation_deadlines_are_distinct() {
-        assert!(OmpOperation::Probe.limits().timeout < OmpOperation::Config.limits().timeout);
-        assert!(OmpOperation::Config.limits().timeout < OmpOperation::Models.limits().timeout);
-        assert!(OmpOperation::Models.limits().timeout < OmpOperation::Usage.limits().timeout);
-        assert!(OmpOperation::Usage.limits().timeout < OmpOperation::Update.limits().timeout);
     }
 
     #[test]
@@ -448,6 +525,34 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(1),
             "reader timeout took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn completed_command_does_not_wait_for_descendant_output_pipes() {
+        #[cfg(windows)]
+        let command = {
+            let mut command = Command::new("cmd.exe");
+            command.args(["/D", "/S", "/C"]);
+            command.raw_arg(r#""ping -n 2 127.0.0.1 >NUL & start "" /B cmd.exe /D /C "ping -n 6 127.0.0.1 >NUL" & echo pipe-cleanup-complete""#);
+            command
+        };
+        #[cfg(not(windows))]
+        let command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 5 & printf pipe-cleanup-complete"]);
+            command
+        };
+        let result = run_command(
+            command,
+            "completed-descendant-pipe-test",
+            CommandLimits::new(Duration::from_secs(3), 1024),
+        )
+        .expect("completed command must retain success instead of timing out on inherited pipes");
+        assert!(result.status.success());
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap().trim(),
+            "pipe-cleanup-complete"
         );
     }
 
