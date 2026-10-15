@@ -478233,6 +478233,35 @@
         "before_state_sha": "0df25c7ba584ffa928fbb1642f0cdd88f3c11df0",
         "before_digest": "f9855f8819507443ade378bfac64ca788f7f7d618577ebd7dd872261ed701f97",
         "event_id": "413bff60aba3d222f65db53559e8c839df9788c044cd217150a909f72cd766b9"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-15T20:51:20.509205Z",
+        "decision_id": "e1472c56678a23f0fd8bbef52f09af69767d5bd2770227a45c3863d362931bf4",
+        "executor_claim_id": "2534e60b944d24d4f1743434096e7217e3627009e4d40ee65af7f6cd4b98ecf6",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "1688b9526450f6cac57b10c10f467f430f081184",
+          "after_state_sha": "5063d0ed27c93f1a187d65aa8bd708d648e25082",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-ux-20",
+              "session_id": "3641188227090480708",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-15T20:46:09Z"
+            },
+            {
+              "task_id": "research-sessions-persistence-performance-21",
+              "session_id": "12608675356537081758",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-15T20:46:09Z"
+            }
+          ],
+          "before_digest": "f9855f8819507443ade378bfac64ca788f7f7d618577ebd7dd872261ed701f97",
+          "after_digest": "3bc3b9a2f95eb75bbf4541bb59ee082aa393ffb70f3b9df7a1e35361927eb8a8"
+        },
+        "receipt_id": "61e6fb531b319f9767946a1731e235d1f71ea48227e8fad04387ea1650ed205e",
+        "event_id": "621d663d4659887881911486322557eeae5bf18419db86b403396ca4fe1d0f40"
       }
     ]
   }
