@@ -103,7 +103,7 @@ jobs:
           jq -r 'to_entries[] | select(.key == "status" or .key == "candidate_sha") | "\(.key)=\(.value)"' sync-preparation.json >> "${GITHUB_OUTPUT}"
       - name: Preserve preparation reference (not an execution capability)
         if: ${{ always() && hashFiles('sync-preparation.json') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: autonomous-sync-preparation-${{ github.run_attempt }}
           path: sync-preparation.json
@@ -129,7 +129,7 @@ jobs:
       GATES: ${{ needs.checks.result }}
     steps:
       - name: Recover preparation reference
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: autonomous-sync-preparation-${{ github.run_attempt }}
       - name: Check out the same pinned trusted controller
@@ -160,7 +160,7 @@ jobs:
             --preparation sync-preparation.json --gates "${GATES}" --out sync-result.json
       - name: Preserve final outcome
         if: ${{ always() && hashFiles('sync-result.json') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: autonomous-sync-result-${{ github.run_attempt }}
           path: sync-result.json
@@ -192,7 +192,7 @@ jobs:
           --handoff --source-workflow autonomous_sync.yml --out continuation-result.json
       - name: Retain observed handoff
         if: ${{ always() && hashFiles('continuation-result.json') != '' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sync-handoff-${{ github.run_id }}-${{ github.run_attempt }}
           path: continuation-result.json
