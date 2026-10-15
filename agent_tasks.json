@@ -473138,6 +473138,61 @@
         },
         "receipt_id": "9f0c7deb60610ddd461487a1309fdbb6d94ae388192a0ca4ec3801d37b5ceab5",
         "event_id": "6733bd92cb9d1ec1695c358d4c0d19769a89022f844e8ae94ca2dd8620c214f8"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-15T17:30:07.728259Z",
+        "decision_id": "3d6d44b9e66954fdb08e6b37c5fffa41b83f3bf0ef41961af937af66af2e0283",
+        "executor_claim_id": "20136bb1fe87d3069b8a1ae26f2fc29d5f251ebf317ceafe8ffc4a58eb2c475b",
+        "receipt_id": "9f0c7deb60610ddd461487a1309fdbb6d94ae388192a0ca4ec3801d37b5ceab5",
+        "frontier_seq": 610,
+        "event_id": "aafb619332dcf712c2c4d92c795cc0aa866958a78da7ef92bd54df2e6f198e55"
+      },
+      {
+        "type": "Intent",
+        "at": "2026-10-15T17:30:07.815713Z",
+        "decision_id": "efb93497c81b6f2e033455159cd41db0872997abbcffc1788e2d914cb8a77c14",
+        "frontier_seq": 610,
+        "predecessor_decision_id": "3d6d44b9e66954fdb08e6b37c5fffa41b83f3bf0ef41961af937af66af2e0283",
+        "workflow": "autonomous_continue.yml",
+        "normalized_inputs": {},
+        "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "basis": {
+          "kind": "external_ingress",
+          "state_sha": "fa56f6664627a6671ee3c4e28e1e459d18d87291",
+          "receipt_id": "9f0c7deb60610ddd461487a1309fdbb6d94ae388192a0ca4ec3801d37b5ceab5"
+        },
+        "first_source_trigger": {
+          "run_id": "38776891244",
+          "run_attempt": "1",
+          "event_name": "push",
+          "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "source_identity": "53444afb6dac2d610b415869f88b8562dfc878d4cb77001af8f157b4c9472d63",
+        "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+        "correlation_key": "107370d0e6ed1c5dae54f8446ba8eab6",
+        "source_kind": "external",
+        "event_id": "217a16d5eb42f584694a91d93f77d8bea94476b38c3367e4e71dc27fa13032c5"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-15T17:30:08.041775Z",
+        "decision_id": "efb93497c81b6f2e033455159cd41db0872997abbcffc1788e2d914cb8a77c14",
+        "claim_id": "b3881ffc711fb9a1fe8c96bbdc9cabd44cc965691c8483ed0341a8e9d112a5e3",
+        "trigger": {
+          "run_id": "38776891244",
+          "run_attempt": "1",
+          "event_name": "push",
+          "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "",
+        "before_state_sha": "fa56f6664627a6671ee3c4e28e1e459d18d87291",
+        "before_digest": "1202b985ab250302486eb6f21e78f8b51bfdbca1827cd72e092c6823c1ac2458",
+        "event_id": "2bdccebba7c94ad718a5a22a04b76fe9d30f99bbf14269ffd0d35a1eb3477053"
       }
     ]
   }
