@@ -476398,6 +476398,29 @@
         "before_state_sha": "21d31c769f816bb415625d15362d8c9938873daa",
         "before_digest": "1202b985ab250302486eb6f21e78f8b51bfdbca1827cd72e092c6823c1ac2458",
         "event_id": "495fddd6e4fd4d1435924c9cc21eb6da33d50bfb22971015e811a34b6a18961b"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-15T20:23:45.058339Z",
+        "decision_id": "3f8a3687dfd6822901ea5d6ef4999ed3ae1e35aef1a083af2703f44baaa5fa3b",
+        "executor_claim_id": "bdba5de50504fcdae814f5505d1ed80f24e7ad269ddc8b2f4206cc7ab3b72ec3",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "6aebfd2ebec5c6a20ff492b39c29379d3f094379",
+          "after_state_sha": "f084dc8c8e397e8d19df9abf8929840343d8a36c",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-ux-20",
+              "session_id": "3641188227090480708",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-15T20:18:53Z"
+            }
+          ],
+          "before_digest": "1202b985ab250302486eb6f21e78f8b51bfdbca1827cd72e092c6823c1ac2458",
+          "after_digest": "f9855f8819507443ade378bfac64ca788f7f7d618577ebd7dd872261ed701f97"
+        },
+        "receipt_id": "e3f88616fd0d6a4645c0e6e4a9f3df91fab4aee32c7b8b63e27af5d5bac5d23d",
+        "event_id": "0f59fe6ac004beb509d639b80ef7f178df30f36582f32713176d743f4865eb44"
       }
     ]
   }
