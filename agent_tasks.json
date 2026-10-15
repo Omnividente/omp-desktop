@@ -202198,7 +202198,7 @@
       "id": "research-diagnostics-resources-performance-20",
       "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -202450,16 +202450,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15959816988520839051",
         "dispatch_key": "7402b1a000537ba759b38853",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-7402b1a000537ba759b38853",
         "started_at": "2026-10-15T22:44:29.705823Z",
-        "finished_at": "",
+        "finished_at": "2026-10-15T23:11:39.303639Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -202631,13 +202631,441 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-15T22:44:29.705823Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-15T23:11:39.303639Z"
+      },
+      "research_result": {
+        "summary": "Verified and developed solutions for two deferred findings: (1) focus trap bound calculation misidentifying elements inside collapsed details tags in IncidentCenter and ResourceHealthPanel, and (2) enforceIncidentBound dropping sole unresolved error incidents under fallback saturation.",
+        "observations": [
+          {
+            "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+            "evidence": "Reviewed the handleKeyDown function in IncidentCenter.tsx and ResourceHealthPanel.tsx. It queries elements with DIALOG_FOCUSABLE_SELECTOR and filters using !element.hidden. Unlike the controlAvailable helper from useModalFocus.ts, this simple check does not identify when elements are nested within a collapsed <details> HTML element, causing the focus loop to incorrectly traverse visually hidden children. Ran a test_focus.cjs JSDOM script which simulated a collapsed details element, showing that nested elements like buttons are included in the focus trap. Replaced the inline !element.hidden check with controlAvailable from useModalFocus.ts, resolving the issue.",
+            "result": "The inline focus traps lacked the capability to exclude elements inside closed <details> tags. They now use a more robust visibility check by importing and leveraging the controlAvailable function from useModalFocus.ts."
+          },
+          {
+            "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+            "evidence": "Tested the function locally using test_enforce_incident.js. When one modelError and 100 fallbacks for the same terminal are present, the saturation check `candidates = incidents.filter(incident => (activePerTerminal.get(incident.terminalId) ?? 0) > 1)` selected *all* active incidents as drop candidates (including the error). As the oldest incident, the single primary error was dropped instead of one of the fallbacks. The fix modified the fallback candidate selection so it only selects fallback incidents as candidates (`incident.kind === 'fallback'`), rather than all active incidents on the terminal.",
+            "result": "enforceIncidentBound erroneously dropped the sole unresolved error incident under fallback saturation. Modifying the fallback candidate filter to `incident.kind === 'fallback'` correctly preserved the primary error."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-15T23:11:39.303639Z",
+        "source": {
+          "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+          "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+          "activity_created_at": "2026-10-15T22:57:03.742050Z",
+          "session_id": "15959816988520839051",
+          "dispatch_key": "7402b1a000537ba759b38853"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable behavior.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden links or buttons because the trap does not exclude closed details contents.\", \"expected\": \"Focus correctly boundaries and skips the content hidden inside the closed <details> tag.\", \"steps\": [\"Open the IncidentCenter or ResourceHealthPanel modal.\", \"Ensure an incident/error contains a long string that creates a collapsed <details> wrapper.\", \"Press the Tab key to walk focus through the modal elements.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus trap logic error was verified. Unlike other modals using useModalFocus, these components use custom inline event listeners that merely check !element.hidden, missing the structural HTMLDetailsElement state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection noted that useModalFocus excludes closed HTMLDetailsElement. However, these specific panels (IncidentCenter and ResourceHealthPanel) do not use useModalFocus. They use custom inline event listeners that lack this specific exclusion.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer assumed the modal focus walk on main uses proper exclusions. The bug is that these specific modals don't use the modal focus walk helper, meaning they remain broken.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx",
+              "src/useModalFocus.ts"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+            ],
+            "deferred_id": "ff1737f439728fb5da7eee713a681f2a7262ef3dc311e9acd9fa6ec8e5434df0",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "risk": "low",
+              "priority": 60,
+              "focus": [
+                "quality",
+                "a11y"
+              ],
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx",
+                "src/useModalFocus.ts"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable behavior.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Open the IncidentCenter or ResourceHealthPanel modal.",
+                    "Ensure an incident/error contains a long string that creates a collapsed <details> wrapper.",
+                    "Press the Tab key to walk focus through the modal elements."
+                  ],
+                  "expected": "Focus correctly boundaries and skips the content hidden inside the closed <details> tag.",
+                  "actual": "Focus attempts to target the hidden links or buttons because the trap does not exclude closed details contents."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "new_evidence",
+                  "difference": "The focus trap logic error was verified. Unlike other modals using useModalFocus, these components use custom inline event listeners that merely check !element.hidden, missing the structural HTMLDetailsElement state.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                  "observation_refs": [
+                    0
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                      "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                      "why_previous_reason_no_longer_explains": "The rejection noted that useModalFocus excludes closed HTMLDetailsElement. However, these specific panels (IncidentCenter and ResourceHealthPanel) do not use useModalFocus. They use custom inline event listeners that lack this specific exclusion."
+                    },
+                    {
+                      "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                      "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                      "why_previous_reason_no_longer_explains": "The reviewer assumed the modal focus walk on main uses proper exclusions. The bug is that these specific modals don't use the modal focus walk helper, meaning they remain broken."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                  "action": "reject",
+                  "decision_at": "2026-09-27T21:04:39Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-b82daad4c8b8b9f9",
+                  "action": "reject",
+                  "decision_at": "2026-09-24T07:11:05Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-performance-20",
+              "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+              "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+              "activity_created_at": "2026-10-15T22:57:03.742050Z",
+              "session_id": "15959816988520839051",
+              "dispatch_key": "7402b1a000537ba759b38853"
+            }
+          },
+          {
+            "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 101 fallback incidents and losing the original error.\", \"expected\": \"The modelError incident is preserved.\", \"steps\": [\"Create a state array with one modelError runtime incident.\", \"Apply 101 consecutive distinct fallback incidents for the same terminal.\", \"Check the state for the original modelError incident.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed exactly how a primary active error is dropped: the filter selects all active incidents without restricting to kind === 'fallback', thus dropping the oldest (the original error).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": [{\"decision_context_id\": \"4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936\", \"decision_task_id\": \"discovery-940b5f71f3979b02\", \"why_previous_reason_no_longer_explains\": \"PR 95 resolved how unresolved fallbacks were dropped under high error volume. This new issue is the reverse: an active primary error is dropped when overwhelmed by fallbacks on the same terminal, because the filter pools all active incidents.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+            ],
+            "deferred_id": "62a2bd86abb8b28437a3aec62fead02b2769452bafb64fc9b378d43b7b9625b7",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "risk": "low",
+              "priority": 60,
+              "focus": [
+                "quality",
+                "perf"
+              ],
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a state array with one modelError runtime incident.",
+                    "Apply 101 consecutive distinct fallback incidents for the same terminal.",
+                    "Check the state for the original modelError incident."
+                  ],
+                  "expected": "The modelError incident is preserved.",
+                  "actual": "The modelError incident is dropped, leaving 101 fallback incidents and losing the original error."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "new_evidence",
+                  "difference": "Confirmed exactly how a primary active error is dropped: the filter selects all active incidents without restricting to kind === 'fallback', thus dropping the oldest (the original error).",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-940b5f71f3979b02",
+                  "observation_refs": [
+                    1
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-940b5f71f3979b02",
+                      "decision_context_id": "4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936",
+                      "why_previous_reason_no_longer_explains": "PR 95 resolved how unresolved fallbacks were dropped under high error volume. This new issue is the reverse: an active primary error is dropped when overwhelmed by fallbacks on the same terminal, because the filter pools all active incidents."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-c3c404bd71dbb2bb",
+                  "action": "resolve",
+                  "decision_at": "2026-10-13T17:16:28Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-940b5f71f3979b02",
+                  "action": "resolve",
+                  "decision_at": "2026-09-27T22:13:58Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-performance-20",
+              "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+              "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+              "activity_created_at": "2026-10-15T22:57:03.742050Z",
+              "session_id": "15959816988520839051",
+              "dispatch_key": "7402b1a000537ba759b38853"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+          "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+          "activity_created_at": "2026-10-15T22:57:03.742050Z",
+          "session_id": "15959816988520839051",
+          "dispatch_key": "7402b1a000537ba759b38853"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe"
+            },
+            {
+              "id": "discovery-c3c404bd71dbb2bb",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-c3c404bd71dbb2bb"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable behavior.\", \"reproduction\": {\"actual\": \"Focus attempts to target the hidden links or buttons because the trap does not exclude closed details contents.\", \"expected\": \"Focus correctly boundaries and skips the content hidden inside the closed <details> tag.\", \"steps\": [\"Open the IncidentCenter or ResourceHealthPanel modal.\", \"Ensure an incident/error contains a long string that creates a collapsed <details> wrapper.\", \"Press the Tab key to walk focus through the modal elements.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus trap logic error was verified. Unlike other modals using useModalFocus, these components use custom inline event listeners that merely check !element.hidden, missing the structural HTMLDetailsElement state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The rejection noted that useModalFocus excludes closed HTMLDetailsElement. However, these specific panels (IncidentCenter and ResourceHealthPanel) do not use useModalFocus. They use custom inline event listeners that lack this specific exclusion.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reviewer assumed the modal focus walk on main uses proper exclusions. The bug is that these specific modals don't use the modal focus walk helper, meaning they remain broken.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx",
+                "src/useModalFocus.ts"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+              ],
+              "deferred_id": "ff1737f439728fb5da7eee713a681f2a7262ef3dc311e9acd9fa6ec8e5434df0",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "risk": "low",
+                "priority": 60,
+                "focus": [
+                  "quality",
+                  "a11y"
+                ],
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx",
+                  "src/useModalFocus.ts"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable behavior.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Open the IncidentCenter or ResourceHealthPanel modal.",
+                      "Ensure an incident/error contains a long string that creates a collapsed <details> wrapper.",
+                      "Press the Tab key to walk focus through the modal elements."
+                    ],
+                    "expected": "Focus correctly boundaries and skips the content hidden inside the closed <details> tag.",
+                    "actual": "Focus attempts to target the hidden links or buttons because the trap does not exclude closed details contents."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "new_evidence",
+                    "difference": "The focus trap logic error was verified. Unlike other modals using useModalFocus, these components use custom inline event listeners that merely check !element.hidden, missing the structural HTMLDetailsElement state.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-b82daad4c8b8b9f9",
+                    "observation_refs": [
+                      0
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-b82daad4c8b8b9f9",
+                        "decision_context_id": "4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28",
+                        "why_previous_reason_no_longer_explains": "The rejection noted that useModalFocus excludes closed HTMLDetailsElement. However, these specific panels (IncidentCenter and ResourceHealthPanel) do not use useModalFocus. They use custom inline event listeners that lack this specific exclusion."
+                      },
+                      {
+                        "decision_task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                        "decision_context_id": "4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c",
+                        "why_previous_reason_no_longer_explains": "The reviewer assumed the modal focus walk on main uses proper exclusions. The bug is that these specific modals don't use the modal focus walk helper, meaning they remain broken."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe",
+                    "action": "reject",
+                    "decision_at": "2026-09-27T21:04:39Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-b82daad4c8b8b9f9",
+                    "action": "reject",
+                    "decision_at": "2026-09-24T07:11:05Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-performance-20",
+                "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+                "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+                "activity_created_at": "2026-10-15T22:57:03.742050Z",
+                "session_id": "15959816988520839051",
+                "dispatch_key": "7402b1a000537ba759b38853"
+              }
+            },
+            {
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 101 fallback incidents and losing the original error.\", \"expected\": \"The modelError incident is preserved.\", \"steps\": [\"Create a state array with one modelError runtime incident.\", \"Apply 101 consecutive distinct fallback incidents for the same terminal.\", \"Check the state for the original modelError incident.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed exactly how a primary active error is dropped: the filter selects all active incidents without restricting to kind === 'fallback', thus dropping the oldest (the original error).\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-940b5f71f3979b02\", \"responses\": [{\"decision_context_id\": \"4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936\", \"decision_task_id\": \"discovery-940b5f71f3979b02\", \"why_previous_reason_no_longer_explains\": \"PR 95 resolved how unresolved fallbacks were dropped under high error volume. This new issue is the reverse: an active primary error is dropped when overwhelmed by fallbacks on the same terminal, because the filter pools all active incidents.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "deferred_id": "62a2bd86abb8b28437a3aec62fead02b2769452bafb64fc9b378d43b7b9625b7",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "risk": "low",
+                "priority": 60,
+                "focus": [
+                  "quality",
+                  "perf"
+                ],
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a state array with one modelError runtime incident.",
+                      "Apply 101 consecutive distinct fallback incidents for the same terminal.",
+                      "Check the state for the original modelError incident."
+                    ],
+                    "expected": "The modelError incident is preserved.",
+                    "actual": "The modelError incident is dropped, leaving 101 fallback incidents and losing the original error."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "new_evidence",
+                    "difference": "Confirmed exactly how a primary active error is dropped: the filter selects all active incidents without restricting to kind === 'fallback', thus dropping the oldest (the original error).",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-940b5f71f3979b02",
+                    "observation_refs": [
+                      1
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-940b5f71f3979b02",
+                        "decision_context_id": "4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936",
+                        "why_previous_reason_no_longer_explains": "PR 95 resolved how unresolved fallbacks were dropped under high error volume. This new issue is the reverse: an active primary error is dropped when overwhelmed by fallbacks on the same terminal, because the filter pools all active incidents."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-c3c404bd71dbb2bb",
+                    "action": "resolve",
+                    "decision_at": "2026-10-13T17:16:28Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-940b5f71f3979b02",
+                    "action": "resolve",
+                    "decision_at": "2026-09-27T22:13:58Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-performance-20",
+                "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+                "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+                "activity_created_at": "2026-10-15T22:57:03.742050Z",
+                "session_id": "15959816988520839051",
+                "dispatch_key": "7402b1a000537ba759b38853"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-15T22:49:02.871953Z",
+    "last_poll_at": "2026-10-15T23:12:09.973597Z",
     "last_tick_at": "2026-10-15T22:49:14.938404Z",
     "run_id": "38818602805",
     "owner_recovery_requests": [
