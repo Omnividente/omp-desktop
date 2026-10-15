@@ -136,6 +136,47 @@ class ProductionObserverTest(unittest.TestCase):
             self.assertEqual(len(endpoint.sessions), 1)
             self.assertEqual(state_snapshot(remote)["tasks"], checkpoint["tasks"])
 
+    def test_fresh_ingress_advances_saved_continue_effect_without_reexecuting_it(self):
+        with self.fixture("continue-after-effect") as (endpoint, run, remote, fixture):
+            crashed = run("sender", run="101", fault="continue-after-effect")
+            self.assertEqual(crashed["exit"], 86, crashed)
+            baseline = state_snapshot(remote)
+            events = baseline["dispatch_journal"]["events"]
+            receipt = events[-1]
+            self.assertEqual((receipt["type"], receipt["kind"]), ("EffectObservation", "continue_handoff"))
+            self.assertEqual(endpoint.posts, [])
+            self.assertEqual(endpoint.sessions, [])
+            # The original execution, including a new run attempt, stays spent.
+            for attempt in ("1", "2"):
+                replay = run("sender", run="101", attempt=attempt)
+                self.assertEqual(replay["output"]["reason"], "execution_outcome_already_recorded", replay)
+                self.assertEqual(state_snapshot(remote), baseline)
+            fresh = run("sender", run="102")
+            self.assertEqual(fresh["output"]["outcome"], "handed_off", fresh)
+            self.assertEqual([post["workflow"] for post in endpoint.posts], [NEXT])
+            continued = state_snapshot(remote)
+            self.assertEqual(continued["tasks"], baseline["tasks"])
+            self.assertEqual(continued["dispatch_journal"]["events"][:len(events)], events)
+            advances = [event for event in continued["dispatch_journal"]["events"]
+                        if event["type"] == "Advance" and event["receipt_id"] == receipt["receipt_id"]]
+            self.assertEqual(len(advances), 1)
+            # Another ingress only observes the successor; it cannot resend it.
+            for options in ({"run": "102"}, {"run": "102", "attempt": "2"}, {"run": "103"}):
+                run("sender", **options)
+                self.assertEqual(state_snapshot(remote), continued)
+                self.assertEqual(len(endpoint.posts), 1)
+            key = endpoint.posts[0]["inputs"]["continuation_key"]
+            endpoint.runs[0].update(status="in_progress")
+            worker = run("receiver", run="1001", event="workflow_dispatch", key=key)
+            self.assertEqual(worker["output"]["action"], "dispatched", worker)
+            self.assertEqual(len(endpoint.sessions), 1)
+            checkpoint = state_snapshot(remote)
+            for options in ({"run": "1001"}, {"run": "1001", "attempt": "2"}, {"run": "1099"}):
+                run("receiver", event="workflow_dispatch", key=key, **options)
+                self.assertEqual(state_snapshot(remote), checkpoint)
+                self.assertEqual(len(endpoint.sessions), 1)
+            self.assert_snapshot_children(endpoint)
+
     def test_scheduled_continue_coalesces_replay_but_rejects_foreign_key(self):
         with self.fixture("scheduled-real-observer") as (endpoint, run, remote, fixture):
             self.start_next(endpoint, run)

@@ -107,6 +107,14 @@ delivery remains blocked. Reporting benign ingress grants no execution/send righ
 NEXT/SYNC source jobs and their handoff use that same observation-only disposition
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
+A fresh trusted keyless CONTINUE may catch up an interrupted CONTINUE only when
+its validated `continue_handoff` effect is already durable. Admission atomically
+appends the receipt's `Advance`, a distinct external intent with that receipt in
+its basis, and a new executor claim on checked current control. The original
+executor, frozen revision and effect remain unchanged; original-source reruns,
+keyed deliveries and repeated callbacks do not get a new right. Unknown delivery,
+claim-only execution, NEXT/SYNC outcomes and owner recovery receipts do not qualify.
+A CAS conflict reloads the frontier; an unknown acknowledgement issues no capability.
 An admitted automatic NEXT that returns `action=none`, `reason=active_polling` and
 `skipped=true` before its existing worker poll deadline records a normal no-effect
 completion only when its full task/controller body is unchanged and it has no
@@ -895,9 +903,12 @@ direct `sendMessage` API; do not assume it prevents either channel.
 - **Autonomous Continue** owns a bounded timer, not just a scheduled wakeup.
   It waits for `due_at`, checking the live switch at most every 30 seconds, then
   rereads state and heads before dispatching. It also waits while NextTask/Sync
-  is busy rather than relying on a completion webhook. Each timer waits at most
-  30 minutes; a longer cooldown is handed to another Continue before exit. The
-  workflow has a 40-minute timeout to allow bounded reads and handoff overhead.
+  is busy rather than relying on a completion webhook. Each hosted timer waits at
+  most 20 minutes; a longer cooldown is handed to another Continue before exit.
+  The CLI ceiling remains 30 minutes. The workflow's 40-minute timeout also covers
+  checkout, state reads and handoff: a measured nine-minute full-checkout overhead
+  previously left too little room after a 30-minute wait. This shorter timer chunk
+  changes neither the research deadline nor cooldown, quota or dispatch retry policy.
   After its own durable SendClaim it rereads health with the consumed claim's
   exact descriptor, rechecks main/lab refs and normalized target inputs plus the
   live switch/context, and permits at most one POST. A failed check leaves the

@@ -108,6 +108,7 @@ jobs:
         run: >-
           python3 control/scripts/autonomous/continue_loop.py
           --repo lab --config control/autonomous-project.json
+          --max-wait-seconds 1200
           --out continuation-result.json
 
       - name: Retain continuation decision and handoff proof
