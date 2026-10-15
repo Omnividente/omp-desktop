@@ -216,6 +216,15 @@ def main():
                     http(options.endpoint, "/fixture/fault", "POST", {"fault": options.fault})
             return value
         dispatch_journal.JournalStore.reserve_send = reserve
+        if options.fault == "continue-before-effect":
+            original_admit = dispatch_journal.JournalStore.admit
+            def admit(store, workflow, *args, **kwargs):
+                value = original_admit(store, workflow, *args, **kwargs)
+                if workflow == "autonomous_continue.yml" and value[1] is not None:
+                    value[1].consume()
+                    os._exit(86)
+                return value
+            dispatch_journal.JournalStore.admit = admit
         if options.fault == "continue-after-effect":
             original_effect = dispatch_journal.JournalStore.record_effect
             def effect(store, capability, kind, evidence):

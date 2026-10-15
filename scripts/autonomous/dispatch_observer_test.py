@@ -177,6 +177,30 @@ class ProductionObserverTest(unittest.TestCase):
                 self.assertEqual(len(endpoint.sessions), 1)
             self.assert_snapshot_children(endpoint)
 
+    def test_sync_coalesces_a_live_external_continue_without_poisoning_sync(self):
+        with self.fixture("external-continue-busy") as (endpoint, run, remote, fixture):
+            claimed = run("sender", run="101", event="push", fault="continue-before-effect")
+            self.assertEqual(claimed["exit"], 86, claimed)
+            baseline = state_snapshot(remote)
+            endpoint.runs.append({
+                "id": 101, "run_attempt": 1, "event": "push", "status": "in_progress",
+                "head_branch": "main", "head_sha": endpoint.health["control_sha"],
+                "repository": {"full_name": "synthetic/c-send"},
+                "head_repository": {"full_name": "synthetic/c-send"},
+                "workflow": CONTINUE, "path": ".github/workflows/" + CONTINUE,
+                "display_title": "Autonomous Continue",
+            })
+            synced = run("sync", run="201", event="workflow_dispatch")
+            self.assertEqual(synced["exit"], 0, synced)
+            self.assertEqual((synced["output"]["status"], synced["output"]["outcome"],
+                              synced["output"]["reason"]),
+                             ("skipped", "coalesced", "existing_receiver_active"), synced)
+            self.assertEqual(state_snapshot(remote), baseline)
+            self.assertEqual((endpoint.posts, endpoint.sessions), ([], []))
+            original = run("sender", run="101", event="push")
+            self.assertEqual(original["output"]["reason"], "executor_without_outcome", original)
+            self.assertEqual(state_snapshot(remote), baseline)
+
     def test_scheduled_continue_coalesces_replay_but_rejects_foreign_key(self):
         with self.fixture("scheduled-real-observer") as (endpoint, run, remote, fixture):
             self.start_next(endpoint, run)
