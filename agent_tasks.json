@@ -200518,6 +200518,140 @@
         "session_id": "3641188227090480708",
         "dispatch_key": "280285f465f769fc29b0fe38"
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-21",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-15T20:46:09Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 21,
+        "previous_reports": [
+          {
+            "summary": "Investigated interaction clarity and accessibility concerning keyboard focus and modal behavior during session persistence and lifecycle (import modal interactions). Tested modal tab boundary focus preservation, escape key logic, and focus restoration to trigger elements. Discovered that the modal components (`ImportSessionModal` and `CodexImportModal`) successfully trap focus and restore focus on unmount.",
+            "observations": [
+              {
+                "scenario": "Modal focus restoration (ImportSessionModal & CodexImportModal)",
+                "evidence": "Ran isolated unit tests where a trigger button is focused, then the modal renders. `document.activeElement` becomes the dialog. On modal unmount, `document.activeElement` restores correctly to the initial trigger. Tests `ImportModalFocus.test.tsx` and `CodexImportModalFocus.test.tsx` passed, proving `useModalFocus` properly captures and restores focus.",
+                "result": "Focus restoration works correctly without getting lost when the modal closes."
+              },
+              {
+                "scenario": "Tab navigation wrapping inside modal (ImportSessionModal)",
+                "evidence": "Ran a unit test `ImportModalKeyboard.test.tsx` that triggers user Tab interactions. As the user tabs through close button, select, cancel button, and import button, the focus correctly loops back to the first focusable element (close button).",
+                "result": "Modal traps focus effectively and maintains accessibility for keyboard users traversing controls within it."
+              },
+              {
+                "scenario": "Escape key behavior inside modal (ImportSessionModal)",
+                "evidence": "Ran `ImportModalEscape.test.tsx` showing the modal is closed upon pressing Escape when focus is on the dialog. In addition, ran `ImportModalEscapeSelect.test.tsx` to verify that when the `<select>` dropdown inside the modal is focused, pressing Escape does not inappropriately close the modal (handled by the specific `event.target instanceof HTMLSelectElement` check in `useModalFocus`).",
+                "result": "Escape key interactions correctly close the modal except when escaping out of a native select dropdown, preventing accidental data loss or confusing UX."
+              },
+              {
+                "scenario": "Action buttons state in empty CodexImportModal",
+                "evidence": "Tested `CodexImportModal` with an empty sessions list. The 'Select all' and 'Import selected' buttons remain disabled (verified via `disabled` attribute checking), meaning a user cannot accidentally trigger a malformed import.",
+                "result": "Action buttons disable logic handles empty inputs securely, presenting a clear state to users."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `actionFocusRef` in `SessionList.tsx` is sufficient to handle focus restoration when a session is moved between search results and the standard list rapidly.",
+              "Investigate the accessibility of `SessionControls.tsx` switch recovery component for screen reader polite/assertive live regions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-10T22:54:53.280388Z",
+            "source": {
+              "activity_id": "sessions/161860976657477555/activities/2659408bae6e435fab2e5c916f69cca6",
+              "report_sha256": "1d158ca9517b3a2d95ab400c82808236010b8d9f0cab8e056a96519a7da7b4ee",
+              "activity_created_at": "2026-10-10T22:31:51.130396Z",
+              "session_id": "161860976657477555",
+              "dispatch_key": "801102170675f9138982df00"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated session import boundaries and UI constraints across ImportSessionModal and CodexImportModal. Verified frontend behavior with synthetic isolated jsdom tests. Observed that ImportSessionModal allows a user to click import on an empty path, relying entirely on caller validation, whereas CodexImportModal defensively disables its action buttons when the session list is empty. Reviewed backend cache and lease recovery mechanisms, confirming they rely on atomic file swaps and explicitly designed tests for write failures.",
+            "observations": [
+              {
+                "scenario": "ImportSessionModal boundary checks with an empty path",
+                "evidence": "Ran a synthetic Vitest jsdom test (ImportSessionBoundary.test.tsx) setting the `path` prop to an empty string with `importing=false`. Queried the primary 'Import' button using testing-library and checked its 'disabled' attribute.",
+                "result": "The 'Import' button remains enabled (disabled=false) when the path is empty. The modal component lacks defensive boundary checking for empty inputs and relies solely on the caller state."
+              },
+              {
+                "scenario": "CodexImportModal boundary checks with an empty session list",
+                "evidence": "Ran a synthetic Vitest jsdom test (CodexImportBoundary.test.tsx) passing an empty `sessions` array with `importing=false` and `loading=false`. Queried the 'Import selected' button.",
+                "result": "The 'Import selected' button is correctly disabled when the session list is empty, demonstrating secure state handling within the modal itself."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the session summary cache can serve stale metadata if a session directory is deleted outside the application and recreated rapidly with the same path and modified timestamp.",
+              "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback."
+            ],
+            "proposed_task_ids": [
+              "discovery-5d2c2a7141e1fb4a"
+            ],
+            "completed_at": "2026-10-11T00:24:33.879190Z",
+            "source": {
+              "activity_id": "sessions/7750126581380499046/activities/49a988eb4bf84b4bb68fc5750cdb28b0",
+              "report_sha256": "beadb43d29294f8f721f351cdc0ffbd7919d7ddbaa991891fb9857937bc32d50",
+              "activity_created_at": "2026-10-11T00:06:00.632517Z",
+              "session_id": "7750126581380499046",
+              "dispatch_key": "e69fed47b67d10e4e65883b1"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated `recover_import_transaction` failure scenarios where backup artifact directories might be read-only or locked, causing cleanup/rollback to fail. When artifacts are locked by another process or read-only, `remove_import_artifacts` fails with permission errors, leaving interrupted files in a blocking state.",
+            "observations": [
+              {
+                "scenario": "Recovering a rolled-back import transaction where the staged artifact directory is read-only",
+                "evidence": "Ran a manual synthetic test in a new workspace modeling `recover_import_transaction`. When the `target_artifacts` directory is read-only, `remove_import_artifacts(&target_artifacts)` fails with a permission denied error, aborting the recovery. The process correctly propagates the error without mistakenly exposing corrupt files.",
+                "result": "The recovery propagates errors natively on permission failures during artifact cleanup/rename."
+              },
+              {
+                "scenario": "Recovering an interrupted import where the JSONL was already published successfully (cleanup phase), and the backup directory is read-only",
+                "evidence": "Simulated successful JSONL publication with `session_stage` absent, leaving `backup` and `artifact_stage` directories. When `backup` is read-only, `remove_import_artifacts(backup)` raises an error (e.g., `os error 13` permission denied).",
+                "result": "The cleanup correctly halts on error but retains the durable intent marker (`.import-txn.json`), meaning subsequent scans will continue to report the warning and attempt cleanup until the lock/permissions are resolved. This is safe and prevents orphaned artifacts from silently wasting space."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if retrying cleanup on next startup with an explicit delay might resolve transient file locking issues on Windows without user intervention.",
+              "Investigate whether we can add a fallback logic to ignore the error and proceed with marker deletion if the read-only error is strictly on an obsolete backup directory during the final phase."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-11T01:11:25.086746Z",
+            "source": {
+              "activity_id": "sessions/13414294455904095760/activities/5646cedc77a54d7e9488c944cd07a645",
+              "report_sha256": "99c7355f3007180e40b06b104a755c0a4b24b19dbb2286ea6f4051b413b42597",
+              "activity_created_at": "2026-10-11T01:04:09.070689Z",
+              "session_id": "13414294455904095760",
+              "dispatch_key": "790679dbc024f2e1758bd081"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
