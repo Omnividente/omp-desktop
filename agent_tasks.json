@@ -203063,6 +203063,190 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-20",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-10-15T23:11:39Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 20,
+        "previous_reports": [
+          {
+            "summary": "Verified and developed solutions for two deferred findings: (1) focus trap bound calculation misidentifying elements inside collapsed details tags in IncidentCenter and ResourceHealthPanel, and (2) enforceIncidentBound dropping sole unresolved error incidents under fallback saturation.",
+            "observations": [
+              {
+                "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Reviewed the handleKeyDown function in IncidentCenter.tsx and ResourceHealthPanel.tsx. It queries elements with DIALOG_FOCUSABLE_SELECTOR and filters using !element.hidden. Unlike the controlAvailable helper from useModalFocus.ts, this simple check does not identify when elements are nested within a collapsed <details> HTML element, causing the focus loop to incorrectly traverse visually hidden children. Ran a test_focus.cjs JSDOM script which simulated a collapsed details element, showing that nested elements like buttons are included in the focus trap. Replaced the inline !element.hidden check with controlAvailable from useModalFocus.ts, resolving the issue.",
+                "result": "The inline focus traps lacked the capability to exclude elements inside closed <details> tags. They now use a more robust visibility check by importing and leveraging the controlAvailable function from useModalFocus.ts."
+              },
+              {
+                "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+                "evidence": "Tested the function locally using test_enforce_incident.cjs. When one modelError and 100 fallbacks for the same terminal are present, the saturation check `candidates = incidents.filter(incident => (activePerTerminal.get(incident.terminalId) ?? 0) > 1)` selected *all* active incidents as drop candidates (including the error). As the oldest incident, the single primary error was dropped instead of one of the fallbacks. The fix modified the fallback candidate selection so it only selects fallback incidents as candidates (`incident.kind === 'fallback'`), rather than all active incidents on the terminal.",
+                "result": "enforceIncidentBound erroneously dropped the sole unresolved error incident under fallback saturation. Modifying the fallback candidate filter to `incident.kind === 'fallback'` correctly preserved the primary error."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-15T22:02:35.785744Z",
+            "source": {
+              "activity_id": "sessions/12133969808684624518/activities/a84cb615b33942878d96c8f9ff85de1d",
+              "report_sha256": "9c9a508b4d6ae8df817d97fe90374a93546349712e1f525f140c0825ab25977b",
+              "activity_created_at": "2026-10-15T21:52:08.892472Z",
+              "session_id": "12133969808684624518",
+              "dispatch_key": "dab78c7e95a46d7d05bef753"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, and enforceIncidentBound dropping unresolved primary errors under fallback saturation. Confirmed via local scripts that inline focus traps misidentify elements nested in a collapsed <details> wrapper as focusable, whereas the controlAvailable helper excludes them. Also confirmed via local script that enforceIncidentBound incorrectly drops the active primary error incident when overwhelmed by active fallbacks on the same terminal.",
+            "observations": [
+              {
+                "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx using a jsdom script.",
+                "evidence": "Ran test_focus.cjs which simulated a collapsed details element with a hidden button. Evaluated the inline !element.hidden check from IncidentCenter.tsx and ResourceHealthPanel.tsx. It included the hidden button. Then evaluated the same DOM with controlAvailable from useModalFocus.ts, which correctly [excerpt]",
+                "result": "The inline focus traps lack the capability to exclude elements inside closed <details> tags. They should use a more robust visibility check, by leveraging controlAvailable from useModalFocus.ts."
+              },
+              {
+                "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+                "evidence": "Tested the function locally using test_enforce.cjs. When one modelError and 100 fallbacks for the same terminal are present, the saturation check candidates = incidents.filter(incident => (activePerTerminal.get(incident.terminalId) ?? 0) > 1) selects all active incidents as drop candidates (includin [excerpt]",
+                "result": "enforceIncidentBound erroneously drops the sole unresolved error incident under fallback saturation. Modifying the fallback candidate filter to incident.kind === 'fallback' preserves the primary error."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-15T22:44:29.705823Z",
+            "source": {
+              "activity_id": "sessions/14972541678990215193/activities/a6cb67608836413a86de519ac32188a8",
+              "report_sha256": "a285210cdaa568e0018015c8f9136f683537ea62feed12f023ef3945f39eb9fd",
+              "activity_created_at": "2026-10-15T22:25:02.844227Z",
+              "session_id": "14972541678990215193",
+              "dispatch_key": "e9120ef80e56f6990349bfb7"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable beh [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx",
+                  "src/useModalFocus.ts"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 101 fallback inciden [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-behavior-20",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 2,
+                "next_hypotheses": 0,
+                "proposed_task_ids": 0,
+                "deferred_findings": 2
+              }
+            }
+          },
+          {
+            "summary": "Verified and developed solutions for two deferred findings: (1) focus trap bound calculation misidentifying elements inside collapsed details tags in IncidentCenter and ResourceHealthPanel, and (2) enforceIncidentBound dropping sole unresolved error incidents under fallback saturation.",
+            "observations": [
+              {
+                "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Reviewed the handleKeyDown function in IncidentCenter.tsx and ResourceHealthPanel.tsx. It queries elements with DIALOG_FOCUSABLE_SELECTOR and filters using !element.hidden. Unlike the controlAvailable helper from useModalFocus.ts, this simple check does not identify when elements are nested within a [excerpt]",
+                "result": "The inline focus traps lacked the capability to exclude elements inside closed <details> tags. They now use a more robust visibility check by importing and leveraging the controlAvailable function from useModalFocus.ts."
+              },
+              {
+                "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+                "evidence": "Tested the function locally using test_enforce_incident.js. When one modelError and 100 fallbacks for the same terminal are present, the saturation check `candidates = incidents.filter(incident => (activePerTerminal.get(incident.terminalId) ?? 0) > 1)` selected *all* active incidents as drop candida [excerpt]",
+                "result": "enforceIncidentBound erroneously dropped the sole unresolved error incident under fallback saturation. Modifying the fallback candidate filter to `incident.kind === 'fallback'` correctly preserved the primary error."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-15T23:11:39.303639Z",
+            "source": {
+              "activity_id": "sessions/15959816988520839051/activities/39700447c8d14e0bb5993d537cbe33ba",
+              "report_sha256": "5675bb6cbdbe4bd880243e04c2ce0ad644ce30646c49ae0d79ddbd872e045162",
+              "activity_created_at": "2026-10-15T22:57:03.742050Z",
+              "session_id": "15959816988520839051",
+              "dispatch_key": "7402b1a000537ba759b38853"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that inline focus traps using !element.hidden fail to exclude children of collapsed <details> elements. Both IncidentCenter and ResourceHealthPanel need their inline query to accurately filter out elements within closed details tags, matching useModalFocus's controlAvailable beh [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx",
+                  "src/useModalFocus.ts"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped, leaving 101 fallback inciden [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-performance-20",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 2,
+                "next_hypotheses": 0,
+                "proposed_task_ids": 0,
+                "deferred_findings": 2
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "controller": {
