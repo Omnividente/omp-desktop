@@ -200873,7 +200873,7 @@
       "id": "research-diagnostics-resources-reliability-20",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -201172,16 +201172,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12133969808684624518",
         "dispatch_key": "dab78c7e95a46d7d05bef753",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-dab78c7e95a46d7d05bef753",
         "started_at": "2026-10-15T21:36:07.609164Z",
-        "finished_at": "",
+        "finished_at": "2026-10-15T22:02:35.785744Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -201353,13 +201353,39 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-15T21:36:07.609164Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-15T22:02:35.785744Z"
+      },
+      "research_result": {
+        "summary": "Verified and developed solutions for two deferred findings: (1) focus trap bound calculation misidentifying elements inside collapsed details tags in IncidentCenter and ResourceHealthPanel, and (2) enforceIncidentBound dropping sole unresolved error incidents under fallback saturation.",
+        "observations": [
+          {
+            "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+            "evidence": "Reviewed the handleKeyDown function in IncidentCenter.tsx and ResourceHealthPanel.tsx. It queries elements with DIALOG_FOCUSABLE_SELECTOR and filters using !element.hidden. Unlike the controlAvailable helper from useModalFocus.ts, this simple check does not identify when elements are nested within a collapsed <details> HTML element, causing the focus loop to incorrectly traverse visually hidden children. Ran a test_focus.cjs JSDOM script which simulated a collapsed details element, showing that nested elements like buttons are included in the focus trap. Replaced the inline !element.hidden check with controlAvailable from useModalFocus.ts, resolving the issue.",
+            "result": "The inline focus traps lacked the capability to exclude elements inside closed <details> tags. They now use a more robust visibility check by importing and leveraging the controlAvailable function from useModalFocus.ts."
+          },
+          {
+            "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+            "evidence": "Tested the function locally using test_enforce_incident.cjs. When one modelError and 100 fallbacks for the same terminal are present, the saturation check `candidates = incidents.filter(incident => (activePerTerminal.get(incident.terminalId) ?? 0) > 1)` selected *all* active incidents as drop candidates (including the error). As the oldest incident, the single primary error was dropped instead of one of the fallbacks. The fix modified the fallback candidate selection so it only selects fallback incidents as candidates (`incident.kind === 'fallback'`), rather than all active incidents on the terminal.",
+            "result": "enforceIncidentBound erroneously dropped the sole unresolved error incident under fallback saturation. Modifying the fallback candidate filter to `incident.kind === 'fallback'` correctly preserved the primary error."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-15T22:02:35.785744Z",
+        "source": {
+          "activity_id": "sessions/12133969808684624518/activities/a84cb615b33942878d96c8f9ff85de1d",
+          "report_sha256": "9c9a508b4d6ae8df817d97fe90374a93546349712e1f525f140c0825ab25977b",
+          "activity_created_at": "2026-10-15T21:52:08.892472Z",
+          "session_id": "12133969808684624518",
+          "dispatch_key": "dab78c7e95a46d7d05bef753"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-15T21:40:55.013916Z",
+    "last_poll_at": "2026-10-15T22:03:10.265867Z",
     "last_tick_at": "2026-10-15T21:41:09.299283Z",
     "run_id": "38810046146",
     "owner_recovery_requests": [
