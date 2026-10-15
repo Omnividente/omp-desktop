@@ -445,6 +445,32 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(outcome["reason"], "executor_without_outcome")
         self.assertEqual(self.store.current(), before)
 
+    def test_external_executor_requires_its_exact_live_run_context_to_coalesce(self):
+        original = {**self.trigger("20"), "event_name": "push"}
+        intent, execution = self.store.admit(CONTINUE, {}, key="", trigger=original, control_sha=CONTROL)
+        execution.consume()
+        before = self.store.current()
+        observer = self.trigger("99")
+        live = {"id": 20, "run_attempt": 1, "event": "push", "head_branch": "main",
+                "head_sha": CONTROL, "path": ".github/workflows/" + CONTINUE,
+                "repository": {"full_name": "synthetic/c-send"},
+                "head_repository": {"full_name": "synthetic/c-send"}, "status": "in_progress"}
+        outcome = self.store.nonexecution_outcome(intent, key="", trigger=observer,
+                                                  control_sha=CONTROL, runs=[live])
+        self.assertEqual((outcome["outcome"], outcome["reason"]), ("coalesced", "existing_receiver_active"))
+        for wrong in (dict(live, event="schedule"), dict(live, event="workflow_run"),
+                      dict(live, head_sha="b" * 40), dict(live, path=".github/workflows/" + NEXT),
+                      dict(live, repository={"full_name": "foreign/repo"}),
+                      dict(live, run_attempt=2), dict(live, status="completed")):
+            with self.subTest(run=wrong):
+                outcome = self.store.nonexecution_outcome(intent, key="", trigger=observer,
+                                                          control_sha=CONTROL, runs=[wrong])
+                self.assertEqual(outcome["outcome"], "blocked")
+        replay = self.store.nonexecution_outcome(intent, key="", trigger=original,
+                                                 control_sha=CONTROL, runs=[live])
+        self.assertEqual(replay["reason"], "executor_without_outcome")
+        self.assertEqual(self.store.current(), before)
+
     def test_new_checked_external_ingress_observes_old_pin_without_changing_it(self):
         intent, _ = self.execute(NEXT)
         trigger = {**self.trigger("99"), "event_name": "schedule", "control_sha": "b" * 40}
