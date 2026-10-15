@@ -474743,6 +474743,29 @@
           "actor": "Omnividente"
         },
         "event_id": "2069dc199f52faec4ebbcbae2ef6fd829b2f2bb6668b824c909decfbe7bd3759"
+      },
+      {
+        "type": "OwnerFence",
+        "at": "2026-10-15T19:28:25.371864Z",
+        "decision_id": "8ca9dd3d2b286dab2103f3a887751a163d7d5e844de99307839b9e8089b8ab63",
+        "kind": "owner_revoked_unclaimed",
+        "owner_trigger": {
+          "run_id": "38793878726",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "workflow": "autonomous_recover_delivery.yml",
+          "ref": "refs/heads/main",
+          "expected_state_sha": "3e9bf8d78a76de63c0abfb846210dc8e572420d1",
+          "decision_id": "8ca9dd3d2b286dab2103f3a887751a163d7d5e844de99307839b9e8089b8ab63"
+        },
+        "before_state_sha": "3e9bf8d78a76de63c0abfb846210dc8e572420d1",
+        "before_digest": "1202b985ab250302486eb6f21e78f8b51bfdbca1827cd72e092c6823c1ac2458",
+        "receipt_id": "f8803ad2104515dd79a5ae6fd1d9e2465917d6f2439d000d6202fba0aba52db3",
+        "frontier_seq": 617,
+        "event_id": "6b6b4b5f0ccb9b22f802043240d54f412dfd43952527e546353a4d18a8973fb1"
       }
     ]
   }
