@@ -202450,8 +202450,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "15959816988520839051",
         "dispatch_key": "7402b1a000537ba759b38853",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-7402b1a000537ba759b38853",
