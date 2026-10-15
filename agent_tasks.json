@@ -203431,7 +203431,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-15T23:39:15.928452Z"
+        "observed_at": "2026-10-15T23:39:15.928452Z",
+        "released_attempt_ref": "autonomous/attempt-c2c598ec4f6c0bd9bfe4367b"
       },
       "research_result": {
         "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, and enforceIncidentBound dropping unresolved primary errors under fallback saturation. Confirmed via local scripts that inline focus traps misidentify elements nested in a collapsed <details> wrapper as focusable, whereas the controlAvailable helper excludes them. Also confirmed via local script that enforceIncidentBound incorrectly drops the active primary error incident when overwhelmed by active fallbacks on the same terminal.",
