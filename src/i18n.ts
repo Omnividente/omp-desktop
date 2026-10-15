@@ -561,7 +561,7 @@ export const UI_TEXT = {
       "Заполните идентификатор провайдера, базовый адрес API и API key.",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
-      "Удерживает fallback внутри пула выбранного провайдера. Пока режим включён хотя бы для одного провайдера, OMP глобально отключает OpenAI Codex WebSocket во всех новых терминалах Desktop.",
+      "Удерживает fallback внутри пула выбранного провайдера. Транспорт OpenAI Codex наследуется из настроек OMP: proxy-режим не меняет выбор WebSocket или SSE.",
     providerKeys: "Ключи, сохранённые в Desktop",
     providerKeysHelp:
       "Значения хранятся в системном хранилище credentials и передаются только в окружение новых процессов OMP. Во frontend и settings.json попадают только имена переменных.",
@@ -1152,7 +1152,7 @@ export const UI_TEXT = {
     providerProxyMode: "Proxy / account load balancer",
     customProviderFieldsRequired: "Enter the Provider ID, API address, and API key.",
     providerProxyModeHelp:
-      "Keeps fallback inside the selected provider's account pool. While any provider uses this mode, OMP globally disables OpenAI Codex WebSockets for every new Desktop terminal.",
+      "Keeps fallback inside the selected provider's account pool. OpenAI Codex transport follows OMP settings: proxy mode does not change the choice of WebSocket or SSE.",
     providerKeys: "Keys saved by Desktop",
     providerKeysHelp:
       "Values are kept in the operating system credential store and only injected into new OMP process environments. The frontend and settings.json receive variable names only.",
