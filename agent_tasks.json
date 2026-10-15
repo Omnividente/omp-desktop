@@ -202632,7 +202632,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-15T23:11:39.303639Z"
+        "observed_at": "2026-10-15T23:11:39.303639Z",
+        "released_attempt_ref": "autonomous/attempt-7402b1a000537ba759b38853"
       },
       "research_result": {
         "summary": "Verified and developed solutions for two deferred findings: (1) focus trap bound calculation misidentifying elements inside collapsed details tags in IncidentCenter and ResourceHealthPanel, and (2) enforceIncidentBound dropping sole unresolved error incidents under fallback saturation.",
