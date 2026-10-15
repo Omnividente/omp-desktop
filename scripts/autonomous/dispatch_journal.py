@@ -1620,8 +1620,9 @@ class JournalStore:
         # handling this decision. A historical POST ACK/title alone cannot.
         title = (("Sync main " + intent["normalized_inputs"]["main_sha"] + " " if intent["workflow"] == SYNC
                   else "Next " if intent["workflow"] == NEXT else "Continue ") + intent["correlation_key"])
+        event = executor["trigger"]["event_name"] if executor else "workflow_dispatch"
         for run in runs:
-            if (not isinstance(run, dict) or run.get("event") != "workflow_dispatch"
+            if (not isinstance(run, dict) or run.get("event") != event
                     or run.get("head_branch") != "main"
                     or (run.get("head_repository") or {}).get("full_name") != trigger.get("repository")
                     or run.get("status") not in {"queued", "in_progress", "waiting", "pending", "requested"}
@@ -1631,6 +1632,11 @@ class JournalStore:
             if executor:
                 if (str(run["id"]) != executor["trigger"]["run_id"]
                         or str(run.get("run_attempt", "")) != executor["trigger"]["run_attempt"]):
+                    continue
+                if (intent["source_kind"] == "external"
+                        and (run.get("head_sha") != intent["control_sha"]
+                             or run.get("path") != ".github/workflows/" + intent["workflow"]
+                             or (run.get("repository") or {}).get("full_name") != trigger.get("repository"))):
                     continue
             elif (intent["source_kind"] != "sender" or decision_id not in state["send_claims"]
                   or run.get("display_title") != title):

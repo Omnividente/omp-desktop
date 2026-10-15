@@ -104,6 +104,12 @@ Duplicate/coalescible ingress reports `coalesced / existing_receiver_active` onl
 after a fresh trusted Actions read binds a live original receiver/executor. A known
 recorded outcome is observation-only; a spent executor without outcome or unresolved
 delivery remains blocked. Reporting benign ingress grants no execution/send right.
+A claimed external receiver keeps its original main event (`push`, `schedule`,
+`workflow_run` or manual `workflow_dispatch`). Its busy proof must match the saved
+run/attempt and event, checked controller head SHA, exact workflow path and both
+repository identities in a fresh live Actions record. It never substitutes the
+original claimant's replay or a terminal/unknown run. An unclaimed sender delivery
+still requires its original keyed `workflow_dispatch` and correlation title.
 NEXT/SYNC source jobs and their handoff use that same observation-only disposition
 when execution was refused. They neither fabricate an effect receipt nor advance
 the original frontier or reserve another send.
