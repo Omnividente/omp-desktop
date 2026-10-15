@@ -473424,6 +473424,57 @@
         "receipt_id": "3d43350809b024720f3c505a7098ef6a4a6bb3300673ca74c0f96066f7ff3bed",
         "frontier_seq": 613,
         "event_id": "a5722a6e899a0bac245e22dffd76aa26c5d2961d2e935c7216a8f9f8ef7d87ab"
+      },
+      {
+        "type": "Intent",
+        "at": "2026-10-15T18:03:40.138381Z",
+        "decision_id": "6cd2f0a52a0bbc6d97c1dd5201c663826dffea424ed18f867b3cedb13092f272",
+        "frontier_seq": 613,
+        "predecessor_decision_id": "bd4658fa5fc9634bec9feee581ea18a7f103c96d26bdab77965b750fbb609b5a",
+        "workflow": "autonomous_continue.yml",
+        "normalized_inputs": {},
+        "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "basis": {
+          "kind": "external_ingress",
+          "state_sha": "c7e3f147a6ca6035b10aa106a553b6c53a3e0656"
+        },
+        "first_source_trigger": {
+          "run_id": "38781114090",
+          "run_attempt": "1",
+          "event_name": "workflow_run",
+          "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "source_run_id": "38780257168",
+          "source_run_attempt": "1",
+          "source_workflow": "Autonomous Proposal Review"
+        },
+        "source_identity": "a7d2c14147f6d9b8e011948ca5e4546bc7dff13cdba9b892e4f19f77f13186c6",
+        "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+        "correlation_key": "699792e1fc31bcbceadee232ac139374",
+        "source_kind": "external",
+        "event_id": "1329a0477a7c4b113353166665a6a84400d4726125a4e56f1293c54927335d8f"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-15T18:03:40.521152Z",
+        "decision_id": "6cd2f0a52a0bbc6d97c1dd5201c663826dffea424ed18f867b3cedb13092f272",
+        "claim_id": "b4b60a38282e87d8b6a1c11a7fe1b8dc2675b6c68397d3a67eef905c2d68029a",
+        "trigger": {
+          "run_id": "38781114090",
+          "run_attempt": "1",
+          "event_name": "workflow_run",
+          "control_sha": "7a1ffe79d332cfb4f2f7dfe0ad77281bee9e7e11",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "source_run_id": "38780257168",
+          "source_run_attempt": "1",
+          "source_workflow": "Autonomous Proposal Review"
+        },
+        "correlation_key": "",
+        "before_state_sha": "c7e3f147a6ca6035b10aa106a553b6c53a3e0656",
+        "before_digest": "1202b985ab250302486eb6f21e78f8b51bfdbca1827cd72e092c6823c1ac2458",
+        "event_id": "ef6016e84ae09eb2de9a1887b0771407ea9929b3273c8d0c260565c09bcfcd8c"
       }
     ]
   }
