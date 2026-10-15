@@ -200837,7 +200837,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-15T21:36:07.609164Z"
+        "observed_at": "2026-10-15T21:36:07.609164Z",
+        "released_attempt_ref": "autonomous/attempt-e03f6d54a1ad76d7187bcfb0"
       },
       "research_result": {
         "summary": "Investigated performance of session list rendering and session discovery with a large number of sessions (10,000). On the frontend, rendering 10,000 mock sessions initially took ~240ms, and search filtering took ~100ms in jsdom, demonstrating O(N) linear work bounded within reasonable desktop interaction limits without catastrophic UI blocking. On the backend, rust benchmark tests showed 10k session scan taking ~310ms cold and ~157ms warm on release mode, remaining well within the 3-second hard limit.",
