@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
-import { errorMessage, loadOmpConfig, refreshOmpConfig, saveSettingsBundle } from "./api"
+import {
+  errorMessage,
+  loadOmpConfig,
+  OMP_CONFIG_STALE_MS,
+  refreshOmpConfig,
+  saveSettingsBundle,
+  settingsUnavailableDetails,
+} from "./api"
 import { Icon } from "./Icon"
 import {
   roleDescription,
@@ -18,6 +25,10 @@ import type {
   SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
+  OmpAgentInfo,
+  OmpAgentChange,
+  OmpRoleInfo,
+  OmpModelInfo,
   OmpCredentialInfo,
   OmpCustomProviderRequest,
   OmpOperationalChange,
@@ -28,16 +39,43 @@ import type {
 interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
+  initialOmpConfig: OmpConfigSnapshot | null
   onClose: () => void
   onSaved: (payload: SettingsSavePayload) => void
   onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
 }
 
-const USAGE_STALE_MS = 10 * 60_000
 const CONFIG_REFRESH_COOLDOWN_MS = 30_000
 const MANAGED_PROVIDER_KEY_PREFIX = "OMP_DESKTOP_PROVIDER_"
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]
+const PRIMARY_MODEL_ROLES = ["default", "smol", "slow", "plan"]
+
+function modelsForRole(models: OmpModelInfo[], role: string): OmpModelInfo[] {
+  const kinds =
+    role === "image"
+      ? ["image"]
+      : role === "web"
+        ? ["search", "chat"]
+        : role === "speech"
+          ? ["tts"]
+          : role === "dictation"
+            ? ["stt"]
+            : role === "judge"
+              ? ["judge", "tiny", "chat"]
+              : role === "tiny" || role === "memory"
+                ? ["tiny", "chat"]
+                : ["chat"]
+  return models.filter((model) => kinds.includes(model.kind ?? "chat"))
+}
+
+type AgentDraft = Pick<OmpAgentInfo, "enabled" | "modelOverride">
+
+function agentOverridesEqual(left: string[] | null, right: string[] | null): boolean {
+  if (left === right) return true
+  if (left === null || right === null) return false
+  return left.length === right.length && left.every((selector, index) => selector === right[index])
+}
 function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
   return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
 }
@@ -215,6 +253,7 @@ function accountReasonLabel(language: Lang, reason: string): string {
 export function SettingsPanel({
   settings,
   runtime,
+  initialOmpConfig,
   onClose,
   onSaved,
   onConfigLoaded,
@@ -232,30 +271,47 @@ export function SettingsPanel({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
-  const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(null)
+  const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(initialOmpConfig)
   const configGenerationRef = useRef(0)
   const disposedRef = useRef(false)
-  const configRuntimeRef = useRef<RuntimeInfo | null>(null)
+  const configRuntimeRef = useRef<RuntimeInfo | null>(initialOmpConfig ? runtime : null)
   const invalidateConfig = useCallback(() => ++configGenerationRef.current, [])
   const [configError, setConfigError] = useState<string | null>(null)
   const [clockNow, setClockNow] = useState(() => Date.now())
   const [refreshCooldownUntil, setRefreshCooldownUntil] = useState(0)
   const [openRole, setOpenRole] = useState<string | null>(null)
-  const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>({})
-  const [advisorEnabled, setAdvisorEnabled] = useState(false)
-  const [autoResume, setAutoResume] = useState(false)
-  const [thinkingLevel, setThinkingLevel] = useState("medium")
-  const [modelFallbackEnabled, setModelFallbackEnabled] = useState(true)
-  const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>([])
-  const [proxyProviders, setProxyProviders] = useState<string[]>([])
-  const [disabledProviders, setDisabledProviders] = useState<string[]>([])
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(initialOmpConfig?.roles.map((role) => [role.role, role.selector]) ?? []),
+  )
+  const [agentDrafts, setAgentDrafts] = useState<Record<string, AgentDraft>>({})
+  const [advisorEnabled, setAdvisorEnabled] = useState(initialOmpConfig?.advisorEnabled ?? false)
+  const [autoResume, setAutoResume] = useState(initialOmpConfig?.autoResume ?? false)
+  const [thinkingLevel, setThinkingLevel] = useState(
+    initialOmpConfig?.defaultThinkingLevel ?? "medium",
+  )
+  const [modelFallbackEnabled, setModelFallbackEnabled] = useState(
+    initialOmpConfig?.modelFallbackEnabled ?? true,
+  )
+  const fallbackDraftSequence = useRef(0)
+  const [fallbackChains, setFallbackChains] = useState<FallbackChainDraft[]>(() =>
+    Object.entries(initialOmpConfig?.fallbackChains ?? {}).map(([key, selectors]) => ({
+      id: `fallback-chain-${fallbackDraftSequence.current++}`,
+      key,
+      selectors,
+    })),
+  )
+  const [proxyProviders, setProxyProviders] = useState<string[]>(
+    initialOmpConfig?.proxyProviders ?? [],
+  )
+  const [disabledProviders, setDisabledProviders] = useState<string[]>(
+    initialOmpConfig?.disabledProviders ?? [],
+  )
   const [removedCustomProviders, setRemovedCustomProviders] = useState<string[]>([])
   const [customProviderId, setCustomProviderId] = useState("")
   const [customProviderUrl, setCustomProviderUrl] = useState("")
   const [customProviderApi, setCustomProviderApi] =
     useState<OmpCustomProviderRequest["api"]>("openai-completions")
   const [customProviderKey, setCustomProviderKey] = useState("")
-  const fallbackDraftSequence = useRef(0)
   const [appFontFamily, setAppFontFamily] = useState(settings.appFontFamily)
   const [appFontSize, setAppFontSize] = useState(settings.appFontSize)
   const [terminalFontFamily, setTerminalFontFamily] = useState(
@@ -265,6 +321,7 @@ export function SettingsPanel({
   const [providerEnv, setProviderEnv] = useState<Record<string, string>>(() =>
     providerEnvDraft(settings.providerEnvKeys ?? []),
   )
+  const providerEnvKeysRef = useRef(settings.providerEnvKeys)
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY")
   const [newKeyValue, setNewKeyValue] = useState("")
   const [activeSection, setActiveSection] = useState<SettingsSection>("general")
@@ -287,6 +344,8 @@ export function SettingsPanel({
     const drafts: Record<string, string> = {}
     for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
     setRoleDrafts(drafts)
+    setAgentDrafts({})
+    setOpenRole(null)
     setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
     setAutoResume(snapshot?.autoResume ?? false)
     setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
@@ -296,6 +355,44 @@ export function SettingsPanel({
     setDisabledProviders(snapshot?.disabledProviders ?? [])
     setRemovedCustomProviders([])
     setClockNow(Date.now())
+  }
+
+  const acceptCatalog = (snapshot: OmpConfigSnapshot) => {
+    setOmpConfig((current) =>
+      current
+        ? {
+            ...current,
+            models: snapshot.models,
+            roles: [
+              ...current.roles.map(
+                (role) =>
+                  snapshot.roles.find(
+                    (fresh) => fresh.role === role.role && fresh.selector === role.selector,
+                  ) ?? role,
+              ),
+              ...snapshot.roles.filter(
+                (role) => !current.roles.some((old) => old.role === role.role),
+              ),
+            ],
+            agents: [
+              ...(current.agents ?? []).map((agent) => {
+                const fresh = snapshot.agents?.find((candidate) => candidate.name === agent.name)
+                return fresh
+                  ? { ...fresh, enabled: agent.enabled, modelOverride: agent.modelOverride }
+                  : agent
+              }),
+              ...(snapshot.agents ?? []).filter(
+                (agent) => !(current.agents ?? []).some((old) => old.name === agent.name),
+              ),
+            ],
+            agentSettingsSupported: snapshot.agentSettingsSupported,
+            accounts: snapshot.accounts,
+            usageObservedAt: snapshot.usageObservedAt,
+            credentials: snapshot.credentials,
+            warnings: snapshot.warnings,
+          }
+        : snapshot,
+    )
   }
 
   const refreshConfig = async (
@@ -316,35 +413,17 @@ export function SettingsPanel({
       setRefreshCooldownUntil(requestedAt + CONFIG_REFRESH_COOLDOWN_MS)
     }
     try {
-      const snapshot = forceCatalog ? await refreshOmpConfig() : await loadOmpConfig()
+      const snapshot = forceCatalog ? await refreshOmpConfig() : await loadOmpConfig(requestRuntime)
       if (isCurrent()) {
-        if (ompConfig && !resetDrafts) {
-          setOmpConfig((current) =>
-            current
-              ? {
-                  ...current,
-                  models: snapshot.models,
-                  roles: current.roles.map(
-                    (role) =>
-                      snapshot.roles.find(
-                        (fresh) => fresh.role === role.role && fresh.selector === role.selector,
-                      ) ?? role,
-                  ),
-                  accounts: snapshot.accounts,
-                  usageObservedAt: snapshot.usageObservedAt,
-                  credentials: snapshot.credentials,
-                  warnings: snapshot.warnings,
-                }
-              : snapshot,
-          )
-        } else acceptConfig(snapshot)
+        if (ompConfig && !resetDrafts) acceptCatalog(snapshot)
+        else acceptConfig(snapshot)
         onConfigLoaded?.(snapshot)
       }
     } catch (error) {
       if (!isCurrent()) return
       const message = errorMessage(error, language)
       setConfigError(message)
-      onError(message)
+      if (!settingsUnavailableDetails(error)) onError(message)
     } finally {
       if (isCurrent()) setLoadingConfig(false)
     }
@@ -367,13 +446,30 @@ export function SettingsPanel({
       previous.ompVersion === runtime.ompVersion
     )
       return
+    if (previous === null && initialOmpConfig) {
+      configRuntimeRef.current = runtime
+      acceptConfig(initialOmpConfig)
+      return
+    }
     acceptConfig(null)
     void refreshConfig(false, runtime, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion])
+  }, [runtime.ompAvailable, runtime.ompExecutable, runtime.ompVersion, initialOmpConfig])
 
   useEffect(() => {
-    setProviderEnv((current) => providerEnvDraft(settings.providerEnvKeys ?? [], current))
+    const previousKeys = providerEnvKeysRef.current
+    const nextKeys = settings.providerEnvKeys
+    providerEnvKeysRef.current = nextKeys
+    setProviderEnv((current) => {
+      const next = { ...current }
+      for (const key of previousKeys) {
+        if (!nextKeys.includes(key) && next[key] === "") delete next[key]
+      }
+      for (const key of nextKeys) {
+        if (!previousKeys.includes(key) && !(key in next)) next[key] = ""
+      }
+      return next
+    })
   }, [settings.providerEnvKeys])
 
   useEffect(() => {
@@ -391,6 +487,41 @@ export function SettingsPanel({
   }, [])
 
   const orderedRoles = ompConfig?.roles ?? []
+  const primaryRoles = PRIMARY_MODEL_ROLES.flatMap((name) =>
+    orderedRoles.filter((role) => role.role === name),
+  )
+  const auxiliaryRoles = orderedRoles.filter((role) => !PRIMARY_MODEL_ROLES.includes(role.role))
+  const agents = ompConfig?.agents ?? []
+  const agentChanges = useMemo(() => {
+    const changes: Record<string, OmpAgentChange> = {}
+    if (!ompConfig?.agentSettingsSupported) return changes
+    for (const agent of ompConfig.agents ?? []) {
+      const draft = agentDrafts[agent.name]
+      if (!draft) continue
+      const change: OmpAgentChange = {}
+      if (draft.enabled !== agent.enabled) {
+        change.enabled = draft.enabled
+        change.expectedEnabled = agent.enabled
+      }
+      if (!agentOverridesEqual(draft.modelOverride, agent.modelOverride)) {
+        change.modelOverride = draft.modelOverride
+        change.expectedModelOverride = agent.modelOverride
+      }
+      if (Object.keys(change).length > 0) changes[agent.name] = change
+    }
+    return changes
+  }, [agentDrafts, ompConfig])
+  const updateAgent = (agent: OmpAgentInfo, change: Partial<AgentDraft>) =>
+    setAgentDrafts((current) => ({
+      ...current,
+      [agent.name]: {
+        ...(current[agent.name] ?? {
+          enabled: agent.enabled,
+          modelOverride: agent.modelOverride,
+        }),
+        ...change,
+      },
+    }))
   const credentials = useMemo(() => ompConfig?.credentials ?? [], [ompConfig?.credentials])
   const visibleCredentials = useMemo(
     () => credentials.filter((credential) => !removedCustomProviders.includes(credential.provider)),
@@ -413,7 +544,7 @@ export function SettingsPanel({
     ompConfig?.usageObservedAt === null || ompConfig?.usageObservedAt === undefined
       ? null
       : Math.max(0, clockNow - ompConfig.usageObservedAt)
-  const usageIsStale = usageAgeMs !== null && usageAgeMs > USAGE_STALE_MS
+  const usageIsStale = usageAgeMs !== null && usageAgeMs > OMP_CONFIG_STALE_MS
   const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
 
   const operationGroups = useMemo(() => {
@@ -561,7 +692,7 @@ export function SettingsPanel({
     customProviderId.trim() !== "" &&
     customProviderUrl.trim() !== "" &&
     customProviderKey.trim() !== ""
-  const hasChanges = useMemo(() => {
+  const { hasChanges, providerEnvChanged, ompConfigChanged } = useMemo(() => {
     const generalChanged =
       (executable.trim() || null) !== settings.ompExecutable ||
       (sessionRoot.trim() || null) !== settings.sessionRoot ||
@@ -578,43 +709,49 @@ export function SettingsPanel({
       currentProviderEnvKeys.some((key) => !initialProviderEnvKeys.includes(key)) ||
       Object.values(providerEnv).some((value) => value.trim() !== "")
 
-    if (
-      generalChanged ||
-      providerEnvChanged ||
-      removedCustomProviders.length > 0 ||
-      customProviderStarted
-    )
-      return true
-    if (!runtime.ompAvailable || !ompConfig) return false
-
-    const rolesChanged = ompConfig.roles.some(
-      (role) => (roleDrafts[role.role] ?? "") !== role.selector,
-    )
-    let fallbackChainsChanged = false
-    try {
-      fallbackChainsChanged = !fallbackChainsEqual(
-        serializeFallbackChains(fallbackChains, language),
-        ompConfig.fallbackChains,
+    let ompConfigChanged = false
+    if (runtime.ompAvailable && ompConfig) {
+      const rolesChanged = ompConfig.roles.some(
+        (role) => (roleDrafts[role.role] ?? role.selector) !== role.selector,
       )
-    } catch {
-      fallbackChainsChanged = true
+      let fallbackChainsChanged = false
+      try {
+        fallbackChainsChanged = !fallbackChainsEqual(
+          serializeFallbackChains(fallbackChains, language),
+          ompConfig.fallbackChains,
+        )
+      } catch {
+        fallbackChainsChanged = true
+      }
+
+      ompConfigChanged =
+        rolesChanged ||
+        Object.keys(agentChanges).length > 0 ||
+        Object.keys(operationDrafts).length > 0 ||
+        advisorEnabled !== ompConfig.advisorEnabled ||
+        autoResume !== ompConfig.autoResume ||
+        thinkingLevel !== (ompConfig.defaultThinkingLevel ?? "medium") ||
+        modelFallbackEnabled !== ompConfig.modelFallbackEnabled ||
+        [...proxyProviders].sort().join("\u0000") !==
+          [...ompConfig.proxyProviders].sort().join("\u0000") ||
+        [...disabledProviders].sort().join("\u0000") !==
+          [...ompConfig.disabledProviders].sort().join("\u0000") ||
+        fallbackChainsChanged
     }
 
-    return (
-      rolesChanged ||
-      Object.keys(operationDrafts).length > 0 ||
-      advisorEnabled !== ompConfig.advisorEnabled ||
-      autoResume !== ompConfig.autoResume ||
-      thinkingLevel !== (ompConfig.defaultThinkingLevel ?? "medium") ||
-      modelFallbackEnabled !== ompConfig.modelFallbackEnabled ||
-      [...proxyProviders].sort().join("\u0000") !==
-        [...ompConfig.proxyProviders].sort().join("\u0000") ||
-      [...disabledProviders].sort().join("\u0000") !==
-        [...ompConfig.disabledProviders].sort().join("\u0000") ||
-      fallbackChainsChanged
-    )
+    return {
+      hasChanges:
+        generalChanged ||
+        providerEnvChanged ||
+        ompConfigChanged ||
+        removedCustomProviders.length > 0 ||
+        customProviderStarted,
+      providerEnvChanged,
+      ompConfigChanged,
+    }
   }, [
     advisorEnabled,
+    agentChanges,
     customProviderStarted,
     disabledProviders,
     appFontFamily,
@@ -648,7 +785,10 @@ export function SettingsPanel({
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
       }
-      const includeOmpConfig = runtime.ompAvailable && ompConfig !== null
+      const includeOmpConfig =
+        runtime.ompAvailable &&
+        ompConfig !== null &&
+        (ompConfigChanged || customProviderReady || removedCustomProviders.length > 0)
       const fallbackConfig = includeOmpConfig
         ? serializeFallbackChains(fallbackChains, language)
         : null
@@ -684,11 +824,18 @@ export function SettingsPanel({
           appFontSize,
           terminalFontFamily,
           terminalFontSize: Number(terminalFontSize),
-          providerEnv,
+          ...(providerEnvChanged ? { providerEnv } : {}),
         },
         ompConfig: includeOmpConfig
           ? {
-              roles: roleDrafts,
+              roles: Object.fromEntries(
+                Object.entries(roleDrafts).filter(
+                  ([role, selector]) =>
+                    ompConfig.roles.find((baseline) => baseline.role === role)?.selector !==
+                    selector,
+                ),
+              ),
+              agentChanges: Object.keys(agentChanges).length > 0 ? agentChanges : undefined,
               advisorEnabled:
                 advisorEnabled !== ompConfig?.advisorEnabled ? advisorEnabled : undefined,
               autoResume: autoResume !== ompConfig?.autoResume ? autoResume : undefined,
@@ -734,27 +881,45 @@ export function SettingsPanel({
           : null,
       })
       invalidateConfig()
-      configRuntimeRef.current = result.bootstrap.runtime
+      const nextRuntime = result.bootstrap.runtime
+      const sameRuntime =
+        runtime.ompAvailable === nextRuntime.ompAvailable &&
+        runtime.ompExecutable === nextRuntime.ompExecutable &&
+        runtime.ompVersion === nextRuntime.ompVersion
+      configRuntimeRef.current = nextRuntime
       onSaved(result)
       if (disposedRef.current) return
       setConfigError(null)
       setLoadingConfig(false)
-      acceptConfig(result.ompConfig)
       if (result.ompConfig) {
-        setCustomProviderId("")
-        setCustomProviderUrl("")
-        setCustomProviderKey("")
-      } else {
-        void refreshConfig(false, result.bootstrap.runtime, true)
+        if (includeOmpConfig || !sameRuntime || !ompConfig) acceptConfig(result.ompConfig)
+        else acceptCatalog(result.ompConfig)
+        if (customProviderReady) {
+          setCustomProviderId((current) => (current === customProviderId ? "" : current))
+          setCustomProviderUrl((current) => (current === customProviderUrl ? "" : current))
+          setCustomProviderKey((current) => (current === customProviderKey ? "" : current))
+        }
+      } else if (!sameRuntime || !ompConfig) {
+        acceptConfig(null)
+        void refreshConfig(false, nextRuntime, true)
       }
-      setProviderEnv((current) =>
-        providerEnvDraft(result.bootstrap.settings.providerEnvKeys, current),
-      )
+      if (providerEnvChanged) {
+        setProviderEnv((current) => {
+          const next = providerEnvDraft(result.bootstrap.settings.providerEnvKeys)
+          for (const [key, value] of Object.entries(current)) {
+            if (providerEnv[key] !== value) next[key] = value
+          }
+          for (const key of Object.keys(providerEnv)) {
+            if (!(key in current)) delete next[key]
+          }
+          return next
+        })
+      }
     } catch (error) {
-      if (disposedRef.current) return
       const message = errorMessage(error, language, { includeDetails: true })
+      if (!settingsUnavailableDetails(error)) onError(message)
+      if (disposedRef.current) return
       setSaveError(message)
-      onError(message)
       if (reloadConfigOnFailure && generation === configGenerationRef.current) {
         void refreshConfig(false, configRuntimeRef.current ?? runtime)
       }
@@ -763,8 +928,37 @@ export function SettingsPanel({
     }
   }
 
+  const renderRole = (role: OmpRoleInfo) => (
+    <article className="role-row" data-role={role.role} key={role.role}>
+      <div className="role-head">
+        <div>
+          <strong>{roleLabel(language, role.role)}</strong>
+          <code title={t(language, "roleCode")}>{role.role}</code>
+        </div>
+        <span className={`role-status is-${role.status}`}>
+          {statusLabel(language, role.status)}
+        </span>
+      </div>
+      <p className="role-description">{roleDescription(language, role.role)}</p>
+      <ModelPicker
+        language={language}
+        models={modelsForRole(ompConfig?.models ?? [], role.role)}
+        onChange={(selector) => setRoleDrafts((current) => ({ ...current, [role.role]: selector }))}
+        onOpenChange={(open) => setOpenRole(open ? role.role : null)}
+        open={openRole === role.role}
+        role={role.role}
+        value={roleDrafts[role.role] ?? role.selector}
+      />
+      <p className={`role-health is-${role.status}`}>{statusDescription(language, role.status)}</p>
+    </article>
+  )
+
   return (
-    <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
+    <div
+      className={`settings-backdrop${runtime.platform === "linux" ? " is-linux" : ""}`}
+      onMouseDown={onClose}
+      role="presentation"
+    >
       <section
         aria-labelledby="settings-title"
         aria-modal="true"
@@ -789,81 +983,6 @@ export function SettingsPanel({
             <Icon name="close" />
           </button>
         </header>
-
-        <div className={`runtime-card ${runtime.ompAvailable ? "is-ready" : "is-error"}`}>
-          <span className="runtime-card-icon">
-            <Icon name={runtime.ompAvailable ? "check" : "alert"} />
-          </span>
-          <div>
-            <strong>
-              {runtime.ompAvailable ? t(language, "ompConnected") : t(language, "ompMissing")}
-            </strong>
-            <span>{runtime.ompVersion ?? t(language, "ompPathHelp")}</span>
-          </div>
-          {runtime.ompAvailable && (
-            <button
-              className="button secondary"
-              onClick={() => void refreshConfig(true)}
-              disabled={saving || loadingConfig || refreshCooldownSeconds > 0}
-              type="button"
-            >
-              {loadingConfig ? (
-                <>
-                  <span aria-hidden="true" className="mini-loader" />
-                  {t(language, "refreshingModels")}
-                </>
-              ) : refreshCooldownSeconds > 0 ? (
-                `${t(language, "refreshModels")} · ${refreshCooldownSeconds}s`
-              ) : (
-                t(language, "refreshModels")
-              )}
-            </button>
-          )}
-        </div>
-
-        {configError && ompConfig && !loadingConfig && (
-          <div className="settings-secret-warning" role="alert">
-            <Icon name="alert" size={16} />
-            <span>{configError}</span>
-          </div>
-        )}
-
-        {ompConfig && ompConfig.warnings.length > 0 && (
-          <div className="settings-secret-warning" role="status">
-            <Icon name="alert" size={16} />
-            <span>
-              <strong>{t(language, "configWarningsTitle")}</strong>
-              {ompConfig.warnings.map((warning) => (
-                <small key={`${warning.source}:${warning.code}`}>
-                  {warning.source}: {warning.message}
-                </small>
-              ))}
-            </span>
-          </div>
-        )}
-
-        {loadingConfig && (
-          <div
-            aria-atomic="true"
-            aria-live="polite"
-            className={`settings-loading-banner${loadingSlow ? " is-slow" : ""}`}
-            data-testid="omp-settings-loading"
-            role="status"
-          >
-            <span aria-hidden="true" className="settings-loading-orbit">
-              <Icon name={loadingSlow ? "clock" : "spark"} size={16} />
-            </span>
-            <span className="settings-loading-copy">
-              <strong>
-                {t(language, loadingSlow ? "loadingSlowTitle" : "loadingBannerTitle")}
-              </strong>
-              <small>{t(language, loadingSlow ? "loadingSlowBody" : "loadingBannerBody")}</small>
-            </span>
-            <span aria-hidden="true" className="settings-loading-progress">
-              <span />
-            </span>
-          </div>
-        )}
 
         <div className="settings-body">
           <nav
@@ -956,6 +1075,83 @@ export function SettingsPanel({
             role="tabpanel"
             tabIndex={0}
           >
+            <div className={`runtime-card ${runtime.ompAvailable ? "is-ready" : "is-error"}`}>
+              <span className="runtime-card-icon">
+                <Icon name={runtime.ompAvailable ? "check" : "alert"} />
+              </span>
+              <div>
+                <strong>
+                  {runtime.ompAvailable ? t(language, "ompConnected") : t(language, "ompMissing")}
+                </strong>
+                <span>{runtime.ompVersion ?? t(language, "ompPathHelp")}</span>
+              </div>
+              {runtime.ompAvailable && (
+                <button
+                  className="button secondary"
+                  onClick={() => void refreshConfig(true)}
+                  disabled={saving || loadingConfig || refreshCooldownSeconds > 0}
+                  type="button"
+                >
+                  {loadingConfig ? (
+                    <>
+                      <span aria-hidden="true" className="mini-loader" />
+                      {t(language, "refreshingModels")}
+                    </>
+                  ) : refreshCooldownSeconds > 0 ? (
+                    `${t(language, "refreshModels")} · ${refreshCooldownSeconds}s`
+                  ) : (
+                    t(language, "refreshModels")
+                  )}
+                </button>
+              )}
+            </div>
+
+            {configError && ompConfig && !loadingConfig && (
+              <div className="settings-secret-warning" role="alert">
+                <Icon name="alert" size={16} />
+                <span>{configError}</span>
+              </div>
+            )}
+
+            {ompConfig && ompConfig.warnings.length > 0 && (
+              <div className="settings-secret-warning" role="status">
+                <Icon name="alert" size={16} />
+                <span>
+                  <strong>{t(language, "configWarningsTitle")}</strong>
+                  {ompConfig.warnings.map((warning) => (
+                    <small key={`${warning.source}:${warning.code}`}>
+                      {warning.source}: {warning.message}
+                    </small>
+                  ))}
+                </span>
+              </div>
+            )}
+
+            {loadingConfig && (
+              <div
+                aria-atomic="true"
+                aria-live="polite"
+                className={`settings-loading-banner${loadingSlow ? " is-slow" : ""}`}
+                data-testid="omp-settings-loading"
+                role="status"
+              >
+                <span aria-hidden="true" className="settings-loading-orbit">
+                  <Icon name={loadingSlow ? "clock" : "spark"} size={16} />
+                </span>
+                <span className="settings-loading-copy">
+                  <strong>
+                    {t(language, loadingSlow ? "loadingSlowTitle" : "loadingBannerTitle")}
+                  </strong>
+                  <small>
+                    {t(language, loadingSlow ? "loadingSlowBody" : "loadingBannerBody")}
+                  </small>
+                </span>
+                <span aria-hidden="true" className="settings-loading-progress">
+                  <span />
+                </span>
+              </div>
+            )}
+
             <div className="settings-fields">
               {activeSection === "general" && (
                 <>
@@ -1121,12 +1317,14 @@ export function SettingsPanel({
                   <label className="field-label" htmlFor="terminal-font-family">
                     {t(language, "terminalFontFamily")}
                   </label>
-                  <input
-                    id="terminal-font-family"
-                    onChange={(event) => setTerminalFontFamily(event.target.value)}
-                    spellCheck={false}
-                    value={terminalFontFamily}
-                  />
+                  <div className="path-field">
+                    <input
+                      id="terminal-font-family"
+                      onChange={(event) => setTerminalFontFamily(event.target.value)}
+                      spellCheck={false}
+                      value={terminalFontFamily}
+                    />
+                  </div>
                   <p className="field-help">{t(language, "terminalFontFamilyHelp")}</p>
 
                   <label className="field-label" htmlFor="terminal-font-size">
@@ -1312,11 +1510,14 @@ export function SettingsPanel({
               )}
 
               {activeSection === "models" && (
-                <>
+                <fieldset
+                  className="settings-models-controls"
+                  disabled={saving || !runtime.ompAvailable}
+                >
                   <section className="settings-section settings-models-section">
                     <div className="settings-section-heading">
                       <div>
-                        <span className="eyebrow">{t(language, "modelRoles")}</span>
+                        <span className="eyebrow">{t(language, "primaryModelRoles")}</span>
                         <p>{t(language, "modelRolesHelp")}</p>
                       </div>
                       {ompConfig && (
@@ -1351,43 +1552,7 @@ export function SettingsPanel({
                       </div>
                     )}
 
-                    {ompConfig &&
-                      orderedRoles.map((role) => {
-                        const draft = roleDrafts[role.role] ?? role.selector
-                        return (
-                          <article className="role-row" key={role.role}>
-                            <div className="role-head">
-                              <div>
-                                <strong>{roleLabel(language, role.role)}</strong>
-                                <code title={t(language, "roleCode")}>{role.role}</code>
-                              </div>
-                              <span className={`role-status is-${role.status}`}>
-                                {statusLabel(language, role.status)}
-                              </span>
-                            </div>
-                            <p className="role-description">
-                              {roleDescription(language, role.role)}
-                            </p>
-                            <ModelPicker
-                              language={language}
-                              models={ompConfig.models}
-                              onChange={(selector) =>
-                                setRoleDrafts((current) => ({
-                                  ...current,
-                                  [role.role]: selector,
-                                }))
-                              }
-                              onOpenChange={(open) => setOpenRole(open ? role.role : null)}
-                              open={openRole === role.role}
-                              role={role.role}
-                              value={draft}
-                            />
-                            <p className={`role-health is-${role.status}`}>
-                              {statusDescription(language, role.status)}
-                            </p>
-                          </article>
-                        )
-                      })}
+                    {ompConfig && primaryRoles.map(renderRole)}
                   </section>
 
                   {ompConfig && (
@@ -1558,7 +1723,159 @@ export function SettingsPanel({
                       </div>
                     </section>
                   )}
-                </>
+                  {ompConfig && (
+                    <section className="settings-section settings-auxiliary-section">
+                      <div className="settings-section-heading">
+                        <div>
+                          <span className="eyebrow">{t(language, "auxiliaryModelRoles")}</span>
+                          <p>{t(language, "auxiliaryModelRolesHelp")}</p>
+                        </div>
+                      </div>
+                      {auxiliaryRoles.map(renderRole)}
+                      <section
+                        className="settings-task-agents"
+                        aria-labelledby="settings-task-agents-title"
+                      >
+                        <h3 id="settings-task-agents-title">{t(language, "taskAgents")}</h3>
+                        <p className="field-help">{t(language, "taskAgentsHelp")}</p>
+                        <p className="field-help">{t(language, "taskAgentsCatalogHelp")}</p>
+                        {!ompConfig.agentSettingsSupported && (
+                          <p className="field-help" role="status">
+                            {t(language, "taskAgentsUnsupported")}
+                          </p>
+                        )}
+                        {agents.length === 0 && (
+                          <p className="field-help">{t(language, "taskAgentsEmpty")}</p>
+                        )}
+                        {agents.map((agent) => {
+                          const draft = agentDrafts[agent.name] ?? agent
+                          return (
+                            <article
+                              className="role-row agent-row"
+                              data-agent={agent.name}
+                              key={agent.name}
+                            >
+                              <div className="role-head">
+                                <strong>{agent.name}</strong>
+                              </div>
+                              <p className="role-description">{agent.description}</p>
+                              <dl className="agent-definition">
+                                <dt>{t(language, "agentSource")}</dt>
+                                <dd>{agent.source}</dd>
+                                <dt>{t(language, "agentDefinitionModels")}</dt>
+                                <dd>
+                                  {agent.defaultModelSelectors.length > 0
+                                    ? agent.defaultModelSelectors.join(" → ")
+                                    : t(language, "agentRuntimeDefault")}
+                                </dd>
+                              </dl>
+                              <fieldset
+                                className="agent-controls"
+                                disabled={!ompConfig.agentSettingsSupported}
+                              >
+                                <label className="toggle-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.enabled}
+                                    onChange={(event) =>
+                                      updateAgent(agent, { enabled: event.target.checked })
+                                    }
+                                  />
+                                  <span>{t(language, "agentEnabled")}</span>
+                                </label>
+                                <label className="agent-model-mode">
+                                  <span>{t(language, "agentModelMode")}</span>
+                                  <select
+                                    value={draft.modelOverride === null ? "inherit" : "override"}
+                                    onChange={(event) => {
+                                      updateAgent(agent, {
+                                        modelOverride:
+                                          event.target.value === "inherit" ? null : ["@default"],
+                                      })
+                                      setOpenRole(null)
+                                    }}
+                                  >
+                                    <option value="inherit">{t(language, "agentInherit")}</option>
+                                    <option value="override">
+                                      {t(language, "agentConfigure")}
+                                    </option>
+                                  </select>
+                                </label>
+                                {draft.modelOverride?.map((selector, index) => {
+                                  const pickerId = `agent-${agent.name}-${index}`
+                                  return (
+                                    <div className="agent-model-entry" key={pickerId}>
+                                      <ModelPicker
+                                        language={language}
+                                        models={modelsForRole(ompConfig.models, "task")}
+                                        selectorSuggestions={orderedRoles
+                                          .filter(
+                                            (role) =>
+                                              ![
+                                                "image",
+                                                "speech",
+                                                "dictation",
+                                                "web",
+                                                "tiny",
+                                                "memory",
+                                                "judge",
+                                              ].includes(role.role),
+                                          )
+                                          .map((role) => `@${role.role}`)}
+                                        onChange={(nextSelector) => {
+                                          const selectors = [...(draft.modelOverride ?? [])]
+                                          selectors[index] = nextSelector
+                                          updateAgent(agent, { modelOverride: selectors })
+                                        }}
+                                        onOpenChange={(open) => setOpenRole(open ? pickerId : null)}
+                                        open={openRole === pickerId}
+                                        role={pickerId}
+                                        value={selector}
+                                      />
+                                      <button
+                                        className="button secondary"
+                                        type="button"
+                                        aria-label={t(language, "agentRemoveModel")}
+                                        onClick={() => {
+                                          const selectors =
+                                            draft.modelOverride?.filter(
+                                              (_, position) => position !== index,
+                                            ) ?? []
+                                          updateAgent(agent, {
+                                            modelOverride: selectors.length > 0 ? selectors : null,
+                                          })
+                                          setOpenRole(null)
+                                        }}
+                                      >
+                                        {t(language, "remove")}
+                                      </button>
+                                    </div>
+                                  )
+                                })}
+                                {draft.modelOverride !== null && (
+                                  <button
+                                    className="button secondary"
+                                    type="button"
+                                    onClick={() =>
+                                      updateAgent(agent, {
+                                        modelOverride: [...(draft.modelOverride ?? []), "@default"],
+                                      })
+                                    }
+                                  >
+                                    {t(language, "agentAddModel")}
+                                  </button>
+                                )}
+                                <p className="field-help">
+                                  {t(language, "agentModelSelectorsHelp")}
+                                </p>
+                              </fieldset>
+                            </article>
+                          )
+                        })}
+                      </section>
+                    </section>
+                  )}
+                </fieldset>
               )}
 
               {activeSection === "providers" && (
@@ -1567,13 +1884,22 @@ export function SettingsPanel({
                     <div className="settings-secret-warning" role="status">
                       <Icon name="alert" size={16} />
                       <span>
-                        <strong>{t(language, "secretStorageWarningTitle")}</strong>
+                        <strong>
+                          {t(
+                            language,
+                            settings.secretStorageWarning === "pending_deletion"
+                              ? "secretStoragePendingDeletionTitle"
+                              : "secretStorageWarningTitle",
+                          )}
+                        </strong>
                         <small>
                           {t(
                             language,
-                            settings.secretStorageWarning === "fallback_file"
-                              ? "secretStorageFallbackBody"
-                              : "secretStorageUnavailableBody",
+                            settings.secretStorageWarning === "pending_deletion"
+                              ? "secretStoragePendingDeletionBody"
+                              : settings.secretStorageWarning === "fallback_file"
+                                ? "secretStorageFallbackBody"
+                                : "secretStorageUnavailableBody",
                           )}
                         </small>
                       </span>

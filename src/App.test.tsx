@@ -8,12 +8,14 @@ import * as api from "./api"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { listen, type EventCallback } from "@tauri-apps/api/event"
 import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
+import { t } from "./i18n"
 import type {
   BootstrapPayload,
   ImportBatchPayload,
   ImportSessionRequest,
   OmpConfigSnapshot,
   SingleInstanceEvent,
+  PtySessionEvent,
   TerminalStarted,
 } from "./types"
 
@@ -97,6 +99,8 @@ function config(id: string): OmpConfigSnapshot {
       },
     ],
     models: [model],
+    agents: [],
+    agentSettingsSupported: false,
     accounts: [],
     advisorEnabled: false,
     autoResume: false,
@@ -339,7 +343,7 @@ describe("App lifecycle serialization", () => {
     receive({
       event: "single-instance",
       id: 1,
-      payload: { args: ["omp-desktop", "--workspace", `C:/fixture/${name}`] },
+      payload: { workspace: `C:/fixture/${name}`, error: null },
     })
   }
 
@@ -504,6 +508,44 @@ describe("App lifecycle serialization", () => {
     expect(container.textContent).toContain("C session")
   })
 
+  it("retains a failed session rename for retry and submits an unchanged pending draft only once", async () => {
+    const pending = deferred<BootstrapPayload>()
+    invokeMock.mockReturnValue(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      element(`[title="${t(bootstrap.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        "Retry title",
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    })
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    await act(async () => pending.reject(new Error("Session rename could not be saved")))
+    expect(element<HTMLInputElement>(".session-rename").value).toBe("Retry title")
+    expect(container.textContent).toContain("Session rename could not be saved")
+    invokeMock.mockResolvedValue({
+      ...bootstrap,
+      sessions: bootstrap.sessions.map((session) => ({
+        ...session,
+        title: "Retry title",
+        pinnedTitle: "Retry title",
+      })),
+    })
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(container.querySelector(".session-select strong")?.textContent).toBe("Retry title")
+  })
+
   it("preserves a successful workspace write when an overlapping rename later fails", async () => {
     const backend = await workspaceBackend(workspacePayload("A", "B"))
     const deliverSuccess = backend.hold("rename_workspace", "C:/fixture/A")
@@ -517,8 +559,13 @@ describe("App lifecycle serialization", () => {
     await renameProject("B", "Unsaved B")
     await act(async () => deliverSuccess())
     await act(async () => deliverFailure())
-    expect(projectNames()).toEqual(["Saved A", "B"])
     expect(container.textContent).toContain("Workspace rename could not be saved")
+    const draft = element<HTMLInputElement>(".project-rename")
+    expect(draft.value).toBe("Unsaved B")
+    await act(async () =>
+      draft.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    )
+    expect(projectNames()).toEqual(["Saved A", "B"])
     await act(async () => element('.project-item[aria-label^="Saved A,"]').click())
     expect(container.textContent).toContain("A session")
   })
@@ -644,7 +691,7 @@ describe("App lifecycle serialization", () => {
     expect(subscription).toBeDefined()
     const receive = subscription![1] as EventCallback<SingleInstanceEvent>
     await act(async () => {
-      receive({ event: "single-instance", id: 2, payload: { args: ["omp-desktop"] } })
+      receive({ event: "single-instance", id: 2, payload: { workspace: null, error: null } })
     })
     expect(container.querySelector(".transcript-panel")).toBeNull()
   })
@@ -868,6 +915,36 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each([false, true])(
+    "retains provider-pin focus across a replacement terminal without reclaiming external focus (%s)",
+    async (externalFocus) => {
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValue(restart.promise)
+      await mountAndResume()
+      const outside = document.createElement("button")
+      document.body.appendChild(outside)
+      try {
+        const pin = element<HTMLButtonElement>(".primary-provider-pin")
+        act(() => {
+          pin.focus()
+          pin.click()
+        })
+        expect(pin.disabled).toBe(true)
+        expect(document.activeElement).toBe(element(".session-controls"))
+        if (externalFocus) act(() => outside.focus())
+        await act(async () =>
+          restart.resolve({ ...started, terminalId: "terminal-restarted", processId: 102 }),
+        )
+        const currentPin = element<HTMLButtonElement>(".primary-provider-pin")
+        expect(currentPin.disabled).toBe(false)
+        expect(currentPin.getAttribute("aria-checked")).toBe("true")
+        expect(document.activeElement).toBe(externalFocus ? outside : currentPin)
+      } finally {
+        outside.remove()
+      }
+    },
+  )
+
   it("does not start a Desktop installer while provider-pin restart is pending, even before a render", async () => {
     const restart = deferred<TerminalStarted>()
     vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValue(restart.promise)
@@ -970,6 +1047,267 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".switch-input-recovery")).toBeNull()
   })
 
+  it("keeps the current project and reports a repeat-launch path resolution failure", async () => {
+    await act(async () => root.render(<App />))
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({
+        event: "single-instance",
+        id: 1,
+        payload: { workspace: null, error: "Audit launch path needs an absolute directory" },
+      }),
+    )
+    expect(element(".project-item.is-active").textContent).toContain("Fixture")
+    expect(container.querySelector(".error-toast")?.textContent).toContain(
+      "Audit launch path needs an absolute directory",
+    )
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+  })
+
+  it.each(["newer", "unchanged"] as const)(
+    "reconciles a late pty-session bootstrap with %s user selection",
+    async (choice) => {
+      const projects = {
+        ...bootstrap,
+        sessions: [
+          bootstrap.sessions[0],
+          {
+            ...bootstrap.sessions[0],
+            id: "second-session",
+            title: "Second session",
+            filePath: "C:/fixture/sessions/second.jsonl",
+            updatedAt: 0,
+          },
+        ],
+      }
+      const pending = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockResolvedValueOnce(projects).mockReturnValueOnce(pending.promise)
+      await mountAndResume()
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      if (choice === "newer") {
+        act(() => element('.session-select[aria-label="Second session"]').click())
+      }
+      await act(async () => pending.resolve(projects))
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        choice === "newer" ? "Second session" : projects.sessions[0].title,
+      )
+    },
+  )
+
+  it.each(["resolve", "reject"] as const)(
+    "keeps the latest terminal's session selected when its bootstrap %ss after an older terminal refresh",
+    async (settlement) => {
+      const projects = {
+        ...bootstrap,
+        sessions: [
+          bootstrap.sessions[0],
+          {
+            ...bootstrap.sessions[0],
+            id: "second-session",
+            title: "Second session",
+            filePath: "C:/fixture/sessions/second.jsonl",
+            updatedAt: 0,
+          },
+        ],
+      }
+      const first = deferred<BootstrapPayload>()
+      const second = deferred<BootstrapPayload>()
+      const secondTerminal = { ...started, terminalId: "terminal-2", processId: 102 }
+      vi.mocked(api.bootstrap)
+        .mockResolvedValueOnce(projects)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce(started)
+        .mockResolvedValueOnce(secondTerminal)
+      await mountAndResume()
+      await act(async () => element(".new-tab-button").click())
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 2,
+          payload: { terminalId: secondTerminal.terminalId, session: projects.sessions[1] },
+        }),
+      )
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      await act(async () => first.resolve(projects))
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      expect(element('.session-select[aria-label="Fixture session"]')).toBeTruthy()
+      await act(async () => {
+        if (settlement === "resolve") second.resolve(projects)
+        else second.reject(new Error("Second terminal refresh failed"))
+      })
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Second session",
+      )
+      expect(element('.session-select[aria-label="Fixture session"]')).toBeTruthy()
+      if (settlement === "reject") {
+        expect(container.querySelector(".error-toast")?.textContent).toContain(
+          "Second terminal refresh failed",
+        )
+      }
+    },
+  )
+
+  it.each(["close", "escape", "backdrop", "cancel", "incidents", "resources"] as const)(
+    "shows a late Save failure after Settings leaves through %s",
+    async (route) => {
+      const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() => element(".settings-actions .primary").click())
+      await act(async () => {
+        if (route === "escape") {
+          element(".settings-panel").dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          )
+        } else if (route === "backdrop") {
+          element(".settings-backdrop").dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true }),
+          )
+        } else {
+          const selectors = {
+            close: ".settings-header button",
+            cancel: ".settings-actions .secondary",
+            incidents: ".incident-center-trigger",
+            resources: ".resource-health-trigger",
+          }
+          element(selectors[route]).click()
+        }
+      })
+      expect(container.querySelector('[aria-labelledby="settings-title"]')).toBeNull()
+      await act(async () => pending.reject(new Error("Audit Save failure after unmount")))
+      expect(container.querySelector(".error-toast")?.textContent).toContain(
+        "Audit Save failure after unmount",
+      )
+      expect(document.documentElement.style.fontSize).toBe("16px")
+    },
+  )
+
+  it("applies a successful Save after closing Settings without reopening it", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    await openAndChangeSettings()
+    act(() => element(".settings-actions .primary").click())
+    act(() => element(".settings-header button").click())
+    await act(async () =>
+      pending.resolve({
+        bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } },
+        ompConfig: config("Saved"),
+      }),
+    )
+    expect(container.querySelector(".settings-panel")).toBeNull()
+    expect(document.documentElement.style.fontSize).toBe("18px")
+    await act(async () => element(".runtime-pill").click())
+    expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
+  })
+
+  it.each(["save", "refresh"] as const)(
+    "recovers from a Settings %s failure through Retry without showing a duplicate toast",
+    async (operation) => {
+      const actual = await vi.importActual<typeof api>("./api")
+      vi.mocked(api.bootstrap).mockImplementation(actual.bootstrap)
+      vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
+      const pending = deferred<unknown>()
+      const restored = {
+        ...bootstrap,
+        sessions: [{ ...bootstrap.sessions[0], title: "Recovered session" }],
+      }
+      let bootstrapRequests = 0
+      invokeMock.mockImplementation((command) => {
+        if (command === "bootstrap") {
+          return Promise.resolve(++bootstrapRequests === 1 ? bootstrap : restored)
+        }
+        if (command === (operation === "save" ? "save_settings_bundle" : "refresh_omp_config")) {
+          return pending.promise
+        }
+        return Promise.resolve()
+      })
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() =>
+        element(
+          operation === "save" ? ".settings-actions .primary" : ".runtime-card button",
+        ).click(),
+      )
+      await act(async () =>
+        pending.reject({
+          code: "settings_unavailable",
+          message: "Audit settings storage unavailable",
+          details: "Audit disk unavailable",
+          settingsPath: "C:/fixture/settings.json",
+          backupPath: null,
+          failureStage: "read",
+        }),
+      )
+      expect(container.querySelector(".settings-panel")).toBeNull()
+      expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+        "Audit disk unavailable",
+      )
+      expect(container.querySelector(".error-toast")).toBeNull()
+      await act(async () => element(".settings-recovery-actions button:nth-child(2)").click())
+      expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+      expect(element(".project-item.is-active").textContent).toContain("Fixture")
+      expect(element('.session-select[aria-label="Recovered session"]')).toBeTruthy()
+      expect(document.documentElement.style.fontSize).toBe("16px")
+      expect(container.querySelector(".error-toast")).toBeNull()
+    },
+  )
+
+  it("reuses a fresh role baseline but waits for current assignments after expiry", async () => {
+    let clock = 1_700_000_000_000
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock)
+    const refreshed = deferred<OmpConfigSnapshot>()
+    vi.mocked(api.loadOmpConfig)
+      .mockResolvedValueOnce(config("Cached"))
+      .mockReturnValue(refreshed.promise)
+    try {
+      await act(async () => root.render(<App />))
+      await act(async () => element(".runtime-pill").click())
+      act(() => element("#settings-tab-models").click())
+      expect(element(".role-row .model-picker-trigger").textContent).toContain("Cached")
+      expect(container.querySelector(".settings-loading-banner")).toBeNull()
+      await act(async () => element(".settings-header button").click())
+      clock += api.OMP_CONFIG_STALE_MS + 1
+      await act(async () => element(".runtime-pill").click())
+      expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+      act(() => element("#settings-tab-models").click())
+      expect(container.querySelector(".role-row")).toBeNull()
+      await act(async () => refreshed.resolve(config("Current")))
+      expect(element(".role-row .model-picker-trigger").textContent).toContain("Current")
+      expect(container.querySelector(".settings-loading-banner")).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
+  })
   it("keeps post-save models when initial App and Settings requests resolve late after a save without config", async () => {
     const initial = deferred<OmpConfigSnapshot>()
     const panelInitial = deferred<OmpConfigSnapshot>()

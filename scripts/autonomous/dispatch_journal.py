@@ -1532,6 +1532,20 @@ class JournalStore:
 
         def admit(data, state_sha, state):
             intent, additions = state["active_intent"], []
+            # A fresh watchdog may finish a committed CONTINUE stage, never
+            # rerun its executor or reconcile an unknown external effect.
+            if (not key and workflow == CONTINUE and intent is not None
+                    and intent["workflow"] == CONTINUE
+                    and _source_identity(trigger) not in state["source_ids"]
+                    and trigger.get("repository") == intent["first_source_trigger"].get("repository")):
+                effect = state["effects"].get(intent["decision_id"])
+                if effect is not None and effect["kind"] == "continue_handoff":
+                    additions.append(_event(
+                        "Advance", decision_id=intent["decision_id"],
+                        executor_claim_id=effect["executor_claim_id"], receipt_id=effect["receipt_id"],
+                        frontier_seq=state["frontier_seq"] + 1))
+                    state = materialize({"version": 1, "events": [*data["dispatch_journal"]["events"], *additions]})
+                    intent = state["active_intent"]
             if key:
                 bound = next((value for value in state["intents"].values()
                               if value["correlation_key"] == key), None)
@@ -1551,6 +1565,8 @@ class JournalStore:
                     return (None, None), []
                 predecessor = state["continue_cutovers"].get(state["predecessor_decision_id"])
                 basis = {"kind": "external_ingress", "state_sha": state_sha}
+                if additions:
+                    basis["receipt_id"] = additions[0]["receipt_id"]
                 if predecessor is not None:
                     if (workflow != SYNC or trigger["event_name"] not in {"workflow_dispatch", "push"}
                             or trigger.get("repository") != predecessor["owner_trigger"]["repository"]):

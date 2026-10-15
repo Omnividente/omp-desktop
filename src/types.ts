@@ -8,7 +8,8 @@ export interface SettingsUnavailableDetails {
 }
 
 export interface SingleInstanceEvent {
-  args: string[]
+  workspace: string | null
+  error: string | null
 }
 
 export interface SettingsWarning {
@@ -196,6 +197,7 @@ export interface OmpModelInfo {
   status: string
   detail: string | null
   thinking: string[]
+  kind?: string
 }
 
 export interface OmpRoleInfo {
@@ -205,6 +207,22 @@ export interface OmpRoleInfo {
   available: boolean
   status: string
   detail: string | null
+}
+
+export interface OmpAgentInfo {
+  name: string
+  description: string
+  source: string
+  enabled: boolean
+  modelOverride: string[] | null
+  defaultModelSelectors: string[]
+}
+
+export interface OmpAgentChange {
+  enabled?: boolean
+  expectedEnabled?: boolean
+  modelOverride?: string[] | null
+  expectedModelOverride?: string[] | null
 }
 
 export interface OmpAccountLimitInfo {
@@ -277,6 +295,8 @@ export interface OmpOperationalChange {
 
 export interface OmpConfigSnapshot {
   roles: OmpRoleInfo[]
+  agents: OmpAgentInfo[]
+  agentSettingsSupported: boolean
   models: OmpModelInfo[]
   accounts: OmpAccountUsageInfo[]
   advisorEnabled: boolean
@@ -301,6 +321,7 @@ export interface OmpCustomProviderRequest {
 }
 
 export interface OmpConfigSaveRequest {
+  /** Partial updates; omitted roles keep their current on-disk assignments. */
   roles: Record<string, string>
   advisorEnabled?: boolean | null
   autoResume?: boolean | null
@@ -313,6 +334,7 @@ export interface OmpConfigSaveRequest {
   removedCustomProviders?: string[]
   providerEnv?: Record<string, string> | null
   operationalChanges?: Record<string, OmpOperationalChange>
+  agentChanges?: Record<string, OmpAgentChange>
 }
 
 export interface SettingsSaveRequest {
@@ -458,4 +480,5 @@ export interface TerminalTab {
   completedResponseVersion?: number
   primaryProviderPinned: boolean
   primaryProviderPinPending: boolean
+  preserveFocusOnAttach?: boolean
 }

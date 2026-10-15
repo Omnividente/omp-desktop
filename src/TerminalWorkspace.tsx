@@ -215,7 +215,6 @@ export function TerminalWorkspace({
           <div className="terminal-meta">
             {activeTab && (
               <SessionControls
-                key={activeTab.id}
                 lang={language}
                 installingDesktopUpdate={installingDesktopUpdate}
                 ompConfig={ompConfig}

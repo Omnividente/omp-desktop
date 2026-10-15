@@ -11,6 +11,7 @@ interface ModelPickerProps {
   open: boolean
   role: string
   value: string
+  selectorSuggestions?: string[]
 }
 
 const THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max|auto)$/i
@@ -114,6 +115,7 @@ export function ModelPicker({
   open,
   role,
   value,
+  selectorSuggestions,
 }: ModelPickerProps) {
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -136,7 +138,8 @@ export function ModelPicker({
   const configured = splitSelector(value)
   const selectedBase = configured.base.toLowerCase()
   const selectedModel = modelEntries.find((entry) => matchesBase(entry, selectedBase))?.model
-  const selectedStatus = selectedModel?.status ?? (value ? "missing" : "unset")
+  const selectedStatus =
+    selectedModel?.status ?? (value ? (selectorSuggestions ? "runtime" : "missing") : "unset")
   const configuredThinking = configured.thinking
   const thinkingLevels = thinkingOptionsForModel(selectedModel)
 
@@ -259,7 +262,9 @@ export function ModelPicker({
           <small>{value || t(language, "statusUnset")}</small>
         </span>
         <span className={`model-picker-status is-${selectedStatus}`}>
-          {statusLabel(language, selectedStatus)}
+          {selectedStatus === "runtime"
+            ? t(language, "modelSelectorRuntime")
+            : statusLabel(language, selectedStatus)}
         </span>
         <Icon className="model-picker-chevron" name="chevron" size={15} />
       </button>
@@ -364,6 +369,27 @@ export function ModelPicker({
             )}
           </div>
 
+          {selectorSuggestions && (
+            <label className="model-picker-shortcuts">
+              <span>{t(language, "selectorShortcuts")}</span>
+              <select
+                value=""
+                onChange={(event) => {
+                  onChange(event.target.value)
+                  closePicker()
+                }}
+              >
+                <option value="" disabled>
+                  {t(language, "chooseModel")}
+                </option>
+                {selectorSuggestions.map((selector) => (
+                  <option key={selector} value={selector}>
+                    {selector}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="model-picker-manual">
             <label htmlFor={`${panelId}-manual`}>{t(language, "manualSelector")}</label>
             <div>
@@ -371,9 +397,15 @@ export function ModelPicker({
                 id={`${panelId}-manual`}
                 onChange={(event) => onChange(event.target.value)}
                 placeholder="provider/model-id[:thinking]"
+                list={selectorSuggestions ? `${panelId}-selectors` : undefined}
                 spellCheck={false}
                 value={value}
               />
+              <datalist id={`${panelId}-selectors`}>
+                {selectorSuggestions?.map((selector) => (
+                  <option key={selector} value={selector} />
+                ))}
+              </datalist>
               <button className="button secondary" onClick={closePicker} type="button">
                 {t(language, "done")}
               </button>

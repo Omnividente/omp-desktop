@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { BootstrapPayload, SessionSummary, TerminalTab } from "./types"
 import {
   buildSessionTree,
-  extractSingleInstanceWorkspace,
   filterSessionTree,
   formatTerminalExitLine,
   flattenSessionTree,
@@ -82,48 +81,6 @@ describe("formatTerminalExitLine", () => {
         "ru",
       ),
     ).toBe("\r\n\x1b[38;2;129;201;149mПроцесс OMP завершён · код 0\x1b[0m\r\n")
-  })
-})
-describe("extractSingleInstanceWorkspace", () => {
-  it("extracts path from --project flag", () => {
-    expect(
-      extractSingleInstanceWorkspace(["omp-desktop.exe", "--project", "D:\\Projects\\Test"]),
-    ).toBe("D:\\Projects\\Test")
-  })
-
-  it("extracts path from --project= argument", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "--project=D:\\Projects\\Test"])).toBe(
-      "D:\\Projects\\Test",
-    )
-  })
-
-  it("extracts path from short -p flag", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "-p", "/home/user/code"])).toBe(
-      "/home/user/code",
-    )
-  })
-
-  it("extracts positional directory argument when flags are omitted", () => {
-    expect(
-      extractSingleInstanceWorkspace(["omp-desktop", "C:\\Users\\Omniv\\Projects\\MyApp"]),
-    ).toBe("C:\\Users\\Omniv\\Projects\\MyApp")
-  })
-
-  it("supports the -- separator and ignores command flags", () => {
-    expect(
-      extractSingleInstanceWorkspace(["omp-desktop", "--verbose", "--", "/home/user/code"]),
-    ).toBe("/home/user/code")
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "--verbose"])).toBeNull()
-  })
-
-  it("does not consume a missing flag value", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop", "--project", "--verbose"])).toBeNull()
-  })
-
-  it("returns null when no workspace argument is provided", () => {
-    expect(extractSingleInstanceWorkspace(["omp-desktop.exe"])).toBeNull()
-    expect(extractSingleInstanceWorkspace([])).toBeNull()
-    expect(extractSingleInstanceWorkspace(undefined)).toBeNull()
   })
 })
 
@@ -325,6 +282,103 @@ describe("session lineage tree", () => {
     ])
   })
 
+  it("breaks continuation and group activity ties without changing traversal order", () => {
+    const archive = lineageSession("archive", "C:\\Sessions\\archive.jsonl", null, 300)
+    const first = lineageSession("a-active", "C:\\Sessions\\a.jsonl", archive.id, 200)
+    const second = lineageSession("z-active", "C:\\Sessions\\z.jsonl", archive.id, 200)
+    const unrelated = lineageSession("unrelated", "C:\\Sessions\\unrelated.jsonl", null, 300)
+    const other = lineageSession("other", "C:\\Sessions\\other.jsonl", null, 300)
+    const tree = buildSessionTree([second, unrelated, archive, first, other], "windows")
+
+    expect(tree.map((node) => node.session.id)).toEqual([
+      "other",
+      "unrelated",
+      "a-active",
+      "z-active",
+    ])
+    expect(tree[2].children.map((node) => node.session.id)).toEqual(["archive"])
+    expect(tree[3].children).toEqual([])
+    expect(latestSessionInTree(tree[2]).id).toBe("archive")
+
+    const tiedTree = {
+      session: first,
+      children: [
+        { session: archive, children: [{ session: unrelated, children: [] }] },
+        { session: other, children: [] },
+      ],
+    }
+    expect(latestSessionInTree(tiedTree).id).toBe("archive")
+    expect(latestSessionInTree({ ...tiedTree, session: unrelated }).id).toBe("unrelated")
+    expect(flattenSessionTree([tiedTree], new Set(), true).map((item) => item.session.id)).toEqual([
+      "a-active",
+      "archive",
+      "unrelated",
+      "other",
+    ])
+    expect(sessionAncestorIds([tiedTree], "other")).toEqual(["a-active"])
+    expect(sessionGroupExpansionIds([tiedTree], "archive")).toEqual(["a-active", "archive"])
+    const filtered = filterSessionTree([tiedTree], new Set(["unrelated", "other"]))
+    expect(flattenSessionTree(filtered, new Set(), true).map((item) => item.session.id)).toEqual([
+      "a-active",
+      "archive",
+      "unrelated",
+      "other",
+    ])
+  })
+
+  it("handles deep immutable lineage across every tree operation", () => {
+    const depth = 12_000
+    const sessions = Array.from({ length: depth }, (_, index) =>
+      lineageSession(
+        `session-${index}`,
+        `C:\\Sessions\\${index}.jsonl`,
+        index === 0 ? null : `session-${index - 1}`,
+        index === 0 ? depth + 10 : index,
+      ),
+    )
+    sessions.push(lineageSession("unrelated", "C:\\Sessions\\unrelated.jsonl", null, depth + 5))
+    for (const item of sessions) Object.freeze(item)
+    Object.freeze(sessions)
+    const tree = buildSessionTree(sessions, "windows")
+
+    expect(tree.map((node) => node.session.id)).toEqual([`session-${depth - 1}`, "unrelated"])
+    expect(latestSessionInTree(tree[0]).id).toBe("session-0")
+    const pending = [...tree]
+    while (pending.length > 0) {
+      const node = pending.pop()!
+      for (const child of node.children) pending.push(child)
+      Object.freeze(node.children)
+      Object.freeze(node)
+    }
+    Object.freeze(tree)
+
+    const filtered = filterSessionTree(tree, new Set(["session-0"]))
+    expect(filtered.length).toBe(1)
+    const flattened = flattenSessionTree(filtered, new Set(), true)
+    const ancestors = sessionAncestorIds(tree, "session-0")
+    const expansion = sessionGroupExpansionIds(tree, "session-1")
+    expect(flattened.length).toBe(depth)
+    expect(ancestors.length).toBe(depth - 1)
+    expect(expansion.length).toBe(depth - 1)
+    for (let index = 0; index < depth; index++) {
+      expect(flattened[index].session).toBe(sessions[depth - 1 - index])
+      expect(flattened[index].depth).toBe(index)
+      expect(flattened[index].expanded).toBe(index < depth - 1)
+      if (index < depth - 1) {
+        expect(ancestors[index]).toBe(`session-${depth - 1 - index}`)
+        expect(expansion[index]).toBe(ancestors[index])
+      }
+    }
+    expect(sessionGroupExpansionIds(tree, "session-0")).toEqual(ancestors)
+    expect(sessionAncestorIds(tree, "missing")).toEqual([])
+    expect(sessionGroupExpansionIds(tree, "missing")).toEqual([])
+    expect(filterSessionTree(tree, new Set())).toEqual([])
+    expect(flattenSessionTree(tree, new Set()).map((item) => item.session.id)).toEqual([
+      `session-${depth - 1}`,
+      "unrelated",
+    ])
+  })
+
   it("flattens only expanded groups and auto-expands filtered ancestry", () => {
     const parent = lineageSession("parent", "C:\\Sessions\\parent.jsonl", null, 100)
     const child = lineageSession("child", "C:\\Sessions\\child.jsonl", parent.filePath, 200)
@@ -371,8 +425,29 @@ describe("session lineage tree", () => {
       100,
     )
 
-    const tree = buildSessionTree([orphan, first, second], "windows")
-    expect(tree.map((node) => node.session.id)).toEqual(["orphan", "first", "second"])
-    expect(tree.every((node) => node.children.length === 0)).toBe(true)
+    const leading = lineageSession("leading", "C:\\Sessions\\leading.jsonl", first.id, 400)
+    const outer = lineageSession("outer", "C:\\Sessions\\outer.jsonl", leading.id, 500)
+    const self = lineageSession("self", "C:\\Sessions\\self.jsonl", "self", 50)
+    const continuation = lineageSession(
+      "continuation",
+      "C:\\Sessions\\continuation.jsonl",
+      self.id,
+      60,
+    )
+
+    const tree = buildSessionTree(
+      [orphan, first, second, leading, outer, self, continuation],
+      "windows",
+    )
+    expect(tree.map((node) => node.session.id)).toEqual([
+      "outer",
+      "leading",
+      "orphan",
+      "first",
+      "second",
+      "continuation",
+    ])
+    expect(tree.slice(0, 5).every((node) => node.children.length === 0)).toBe(true)
+    expect(tree[5].children.map((node) => node.session.id)).toEqual(["self"])
   })
 })

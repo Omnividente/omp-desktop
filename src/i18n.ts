@@ -362,6 +362,31 @@ export const UI_TEXT = {
     modelRoles: "Роли моделей",
     modelRolesHelp:
       "Роль определяет, для каких задач OMP использует модель. Список приходит из установленного OMP и models.yml; роли и резервы хранятся в общей локальной конфигурации OMP, поэтому версии Desktop видят одинаковые значения. Это не облачная синхронизация.",
+    primaryModelRoles: "Основные роли",
+    auxiliaryModelRoles: "Вспомогательные роли",
+    auxiliaryModelRolesHelp:
+      "Специализированные и пользовательские назначения моделей. Выбор модели не включает функцию: OMP использует роль, когда вызывается соответствующий инструмент. Advisor включается отдельно в разделе поведения.",
+    taskAgents: "Агенты делегированных задач",
+    taskAgentsHelp:
+      "Тип агента — не роль модели. Включение делает агента доступным для делегирования, но не запускает reviewer или security-reviewer после каждого ответа. Модель наследуется из определения агента либо задаётся отдельно ниже.",
+    taskAgentsCatalogHelp:
+      "Каталог включает встроенные агенты OMP, пользовательские определения, ближайший .omp/agents последнего рабочего каталога Desktop и доступные абсолютные пути extensions. Относительные extensions, installed/marketplace plugins и временные определения сессии могут быть представлены не полностью. Источник configured означает сохранённые настройки без найденного определения. Наследуемую модель окончательно выбирает OMP в рабочем каталоге сессии. Это ограничение отображаемого каталога, а не ошибка конфигурации.",
+    taskAgentsUnsupported:
+      "Этот runtime не поддерживает настройки агентов. Просмотр доступен, изменение выключено.",
+    taskAgentsEmpty: "В этом снимке OMP нет доступных определений агентов.",
+    agentSource: "Источник определения",
+    agentDefinitionModels: "Модели из определения",
+    agentRuntimeDefault: "Не указан в доступном определении; наследование определяет OMP",
+    agentEnabled: "Доступен для делегирования",
+    agentModelMode: "Назначение модели агента",
+    agentInherit: "Наследовать определение",
+    agentConfigure: "Задать отдельно",
+    agentAddModel: "Добавить selector",
+    agentRemoveModel: "Удалить selector агента",
+    agentModelSelectorsHelp:
+      "Selectors сохраняются списком в исходном порядке. Для роли используйте @default, @slow или @task, а не имя без @; можно указать alias модели или шаблон provider/*. Очистка назначения возвращает наследование. Допустимость selector и возможности модели проверяет OMP.",
+    selectorShortcuts: "Shortcuts ролей",
+    modelSelectorRuntime: "Проверит OMP",
     modelThinkingLevel: "Уровень рассуждений модели",
     modelThinkingDefault: "По умолчанию",
     fallbackChains: "Резервные модели",
@@ -430,6 +455,18 @@ export const UI_TEXT = {
     roleDescCommit: "Готовит сообщения коммитов и связанные короткие тексты.",
     roleDescTiny: "Самые лёгкие внутренние операции с минимальной задержкой и стоимостью.",
     roleDescConsult: "Даёт отдельное экспертное мнение по сложным решениям.",
+    roleMemory: "Память",
+    roleImage: "Изображения",
+    roleWeb: "Веб-поиск",
+    roleSpeech: "Синтез речи",
+    roleDictation: "Распознавание речи",
+    roleJudge: "Оценка",
+    roleDescMemory: "Обрабатывает и консолидирует память агента.",
+    roleDescImage: "Создаёт изображения через соответствующий инструмент OMP.",
+    roleDescWeb: "Выполняет веб-поиск; OMP проверяет поддержку поиска у выбранной модели.",
+    roleDescSpeech: "Преобразует текст в речь.",
+    roleDescDictation: "Преобразует аудио в текст.",
+    roleDescJudge: "Оценивает результаты и выполняет классификацию.",
     roleDescCustom: "Дополнительная роль, заданная в конфигурации OMP.",
     statusOk: "доступна",
     statusLimited: "близко к лимиту",
@@ -524,7 +561,7 @@ export const UI_TEXT = {
       "Заполните идентификатор провайдера, базовый адрес API и API key.",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
-      "Удерживает fallback внутри пула выбранного провайдера. Пока режим включён хотя бы для одного провайдера, OMP глобально отключает OpenAI Codex WebSocket во всех новых терминалах Desktop.",
+      "Удерживает fallback внутри пула выбранного провайдера. Транспорт OpenAI Codex наследуется из настроек OMP: proxy-режим не меняет выбор WebSocket или SSE.",
     providerKeys: "Ключи, сохранённые в Desktop",
     providerKeysHelp:
       "Значения хранятся в системном хранилище credentials и передаются только в окружение новых процессов OMP. Во frontend и settings.json попадают только имена переменных.",
@@ -533,6 +570,9 @@ export const UI_TEXT = {
       "Ключи сохранены в отдельном локальном fallback-файле с ограниченными правами. Запустите системный Secret Service, чтобы автоматически перенести их.",
     secretStorageUnavailableBody:
       "Ключи из системного хранилища временно недоступны. Разблокируйте хранилище credentials и перезапустите приложение.",
+    secretStoragePendingDeletionTitle: "Удаление ключей ещё не завершено",
+    secretStoragePendingDeletionBody:
+      "Ключи уже исключены из Desktop. Системное хранилище ещё не подтвердило удаление; локальный журнал не даст восстановить их после перезапуска. Разблокируйте системное хранилище и перезапустите Desktop, чтобы завершить удаление.",
     commonKeys: "Часто используемые переменные",
     addProviderKey: "Добавить ключ",
     keyName: "Имя переменной",
@@ -914,6 +954,31 @@ export const UI_TEXT = {
     modelRoles: "Model roles",
     modelRolesHelp:
       "A role determines which tasks use a model. The catalog comes from the installed OMP and models.yml; roles and fallbacks live in shared local OMP configuration, so Desktop versions see the same values. This is not cloud synchronization.",
+    primaryModelRoles: "Primary roles",
+    auxiliaryModelRoles: "Auxiliary roles",
+    auxiliaryModelRolesHelp:
+      "Specialized and custom model assignments. Choosing a model does not enable a feature: OMP uses a role when its tool is invoked. Advisor is enabled separately in Behavior.",
+    taskAgents: "Delegated task agents",
+    taskAgentsHelp:
+      "An agent type is not a model role. Enabling makes an agent available for delegation; it does not run reviewer or security-reviewer after every reply. Its model inherits the definition unless overridden below.",
+    taskAgentsCatalogHelp:
+      "The catalog includes bundled OMP agents, user definitions, the nearest .omp/agents for Desktop's last workspace, and accessible absolute extension paths. Relative extensions, installed/marketplace plugins, and transient session definitions may not be fully listed. The configured source denotes saved settings without a known definition. OMP ultimately resolves the inherited model in the session's working directory. This is a catalog display limitation, not a configuration error.",
+    taskAgentsUnsupported:
+      "This runtime does not support agent settings. Definitions are read-only.",
+    taskAgentsEmpty: "No available agent definitions were returned in this OMP snapshot.",
+    agentSource: "Definition source",
+    agentDefinitionModels: "Definition model selectors",
+    agentRuntimeDefault: "Not specified in the available definition; OMP determines inheritance",
+    agentEnabled: "Available for delegation",
+    agentModelMode: "Agent model assignment",
+    agentInherit: "Inherit definition",
+    agentConfigure: "Configure override",
+    agentAddModel: "Add selector",
+    agentRemoveModel: "Remove agent selector",
+    agentModelSelectorsHelp:
+      "Selectors retain their original list order. Use @default, @slow, or @task for role aliases, not bare role names; model aliases and provider/* patterns are also accepted. Clearing the override restores inheritance. OMP validates selectors and model capabilities.",
+    selectorShortcuts: "Role shortcuts",
+    modelSelectorRuntime: "Resolved by OMP",
     modelThinkingLevel: "Model reasoning level",
     modelThinkingDefault: "Default",
     fallbackChains: "Fallback models",
@@ -982,6 +1047,18 @@ export const UI_TEXT = {
     roleDescCommit: "Creates commit messages and related short-form text.",
     roleDescTiny: "Handles the lightest internal operations with minimal latency and cost.",
     roleDescConsult: "Provides an independent expert opinion for difficult decisions.",
+    roleMemory: "Memory",
+    roleImage: "Images",
+    roleWeb: "Web search",
+    roleSpeech: "Speech synthesis",
+    roleDictation: "Speech recognition",
+    roleJudge: "Evaluation",
+    roleDescMemory: "Processes and consolidates agent memory.",
+    roleDescImage: "Generates images through the corresponding OMP tool.",
+    roleDescWeb: "Performs web search; OMP validates search capability for the selected model.",
+    roleDescSpeech: "Converts text to speech.",
+    roleDescDictation: "Converts audio to text.",
+    roleDescJudge: "Evaluates results and performs classification.",
     roleDescCustom: "An additional role defined in OMP configuration.",
     statusOk: "available",
     statusLimited: "near limit",
@@ -1075,7 +1152,7 @@ export const UI_TEXT = {
     providerProxyMode: "Proxy / account load balancer",
     customProviderFieldsRequired: "Enter the Provider ID, API address, and API key.",
     providerProxyModeHelp:
-      "Keeps fallback inside the selected provider's account pool. While any provider uses this mode, OMP globally disables OpenAI Codex WebSockets for every new Desktop terminal.",
+      "Keeps fallback inside the selected provider's account pool. OpenAI Codex transport follows OMP settings: proxy mode does not change the choice of WebSocket or SSE.",
     providerKeys: "Keys saved by Desktop",
     providerKeysHelp:
       "Values are kept in the operating system credential store and only injected into new OMP process environments. The frontend and settings.json receive variable names only.",
@@ -1084,6 +1161,9 @@ export const UI_TEXT = {
       "Keys are stored in a separate local fallback file with restricted permissions. Start the system Secret Service to migrate them automatically.",
     secretStorageUnavailableBody:
       "Keys in the system credential store are temporarily unavailable. Unlock the credential store and restart the application.",
+    secretStoragePendingDeletionTitle: "Credential deletion is still pending",
+    secretStoragePendingDeletionBody:
+      "The keys are already excluded from Desktop. Operating-system deletion is not yet confirmed; the local journal prevents them from returning after restart. Unlock the credential store and restart Desktop to finish deletion.",
     commonKeys: "Common environment variables",
     addProviderKey: "Add key",
     keyName: "Environment variable",
@@ -1126,10 +1206,16 @@ const ROLE_TEXT: Record<string, { label: UiKey; description: UiKey }> = {
   commit: { label: "roleCommit", description: "roleDescCommit" },
   tiny: { label: "roleTiny", description: "roleDescTiny" },
   consult: { label: "roleConsult", description: "roleDescConsult" },
+  memory: { label: "roleMemory", description: "roleDescMemory" },
+  image: { label: "roleImage", description: "roleDescImage" },
+  web: { label: "roleWeb", description: "roleDescWeb" },
+  speech: { label: "roleSpeech", description: "roleDescSpeech" },
+  dictation: { label: "roleDictation", description: "roleDescDictation" },
+  judge: { label: "roleJudge", description: "roleDescJudge" },
 }
 
 export function roleLabel(lang: Lang | string | null | undefined, role: string): string {
-  return t(lang, ROLE_TEXT[role]?.label ?? "roleCustom")
+  return ROLE_TEXT[role] ? t(lang, ROLE_TEXT[role].label) : role
 }
 
 export function roleDescription(lang: Lang | string | null | undefined, role: string): string {

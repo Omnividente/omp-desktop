@@ -24,7 +24,7 @@ use serde_json::Value;
 use std::sync::atomic::AtomicU32;
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -67,6 +67,7 @@ const SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 const RUNTIME_FILE_ANCHOR: usize = 64;
 const MAX_RUNTIME_EVENT_LINE: usize = 64 * 1024;
 const MAX_RUNTIME_WATERMARK_KEYS: usize = 256;
+const RUNTIME_BASELINE_REGION_BYTES: u64 = 2 * 1024 * 1024;
 const RUNTIME_TITLE_BASELINE_LINES: usize = 64;
 const THINKING_LEVELS: &[&str] = &[
     "off", "minimal", "low", "medium", "high", "xhigh", "max", "auto",
@@ -74,14 +75,14 @@ const THINKING_LEVELS: &[&str] = &[
 const MAX_SWITCH_INPUT_BUFFER: usize = 64 * 1024;
 
 #[cfg(windows)]
-struct WindowsJobObject(HANDLE);
+pub(crate) struct WindowsJobObject(HANDLE);
 
 #[cfg(windows)]
 unsafe impl Send for WindowsJobObject {}
 
 #[cfg(windows)]
 impl WindowsJobObject {
-    fn new() -> std::io::Result<Self> {
+    pub(crate) fn new() -> std::io::Result<Self> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -103,7 +104,7 @@ impl WindowsJobObject {
         Ok(job)
     }
 
-    fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
+    pub(crate) fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
         if unsafe { AssignProcessToJobObject(self.0, process.cast()) } == 0 {
             Err(std::io::Error::last_os_error())
         } else {
@@ -489,6 +490,7 @@ struct TerminalProcess {
     cwd: String,
     resume_path: Option<String>,
     pending_resume_path: Option<String>,
+    discovery_pending: bool,
     session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
@@ -625,11 +627,58 @@ impl PreparedSessionDeletion<'_> {
     }
 
     pub(crate) fn commit(self) -> Result<(), String> {
-        crate::sessions::delete_session(&self.canonical, &self.root)
+        crate::sessions::delete_session(&self.canonical, &self.root, &self._lease)
     }
 }
 
 impl TerminalState {
+    pub(crate) fn import_sessions(
+        &self,
+        requests: &[crate::models::ImportSessionRequest],
+        root: &Path,
+    ) -> Vec<crate::models::ImportItemResult> {
+        // The caller releases its settings snapshot before entering. Keep session_files
+        // for the entire batch, but release processes before filesystem work/import locks.
+        let _session_file_guard = lock_session_files(self);
+        let active = {
+            let processes = lock_processes(self);
+            processes
+                .iter()
+                .filter(|(_, process)| !process.exited)
+                .map(|(terminal_id, process)| {
+                    (
+                        terminal_id.clone(),
+                        process.resume_path.clone(),
+                        process.pending_resume_path.clone(),
+                        process.cwd.clone(),
+                        process.terminal_sessions_dir.clone(),
+                        process.breadcrumb_snapshot.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut active_paths = HashSet::new();
+        for (terminal_id, resume_path, pending_path, cwd, directory, snapshot) in active {
+            for path in [resume_path.as_deref(), pending_path.as_deref()]
+                .into_iter()
+                .flatten()
+            {
+                active_paths.insert(path_key(path));
+            }
+            // A fresh writer can materialize its first JSONL before the discovery tick.
+            if let Some(path) = resolve_resume_path_for_current(
+                &terminal_id,
+                &cwd,
+                &directory,
+                &snapshot,
+                resume_path.as_deref(),
+            ) {
+                active_paths.insert(path_key(&path));
+            }
+        }
+        crate::sessions::import_sessions(requests, root, &active_paths)
+    }
+
     pub fn shutdown_all(&self) {
         let processes = std::mem::take(&mut *lock_processes(self));
         drop(processes);
@@ -648,12 +697,23 @@ impl TerminalState {
     }
     fn is_session_active(&self, path: &str) -> bool {
         let key = path_key(path);
-        lock_processes(self).values().any(|process| {
+        lock_processes(self).iter().any(|(terminal_id, process)| {
             !process.exited
-                && process
-                    .resume_path
-                    .as_deref()
-                    .is_some_and(|resume| path_key(resume) == key)
+                && ([
+                    process.resume_path.as_deref(),
+                    process.pending_resume_path.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|path| path_key(path) == key)
+                    || resolve_resume_path_for_current(
+                        terminal_id,
+                        &process.cwd,
+                        &process.terminal_sessions_dir,
+                        &process.breadcrumb_snapshot,
+                        process.resume_path.as_deref(),
+                    )
+                    .is_some_and(|path| path_key(&path) == key))
         })
     }
 
@@ -1071,30 +1131,12 @@ fn start_terminal_blocking(
         .flatten()
         .collect::<Vec<_>>();
     let args = if restartable {
-        let mut args = initial_agent_args_with_config(&cwd, resume_path.as_deref(), &config_paths);
-        if resume_path.is_none() {
-            // OMP otherwise keeps model/thinking changes only in memory until the first
-            // response. An explicit new path lets OMP write its own session header and
-            // acknowledge changes immediately, without submitting input or restarting.
-            let directory = session_root.join(encode_session_dir_name(&cwd));
-            fs::create_dir_all(&directory).map_err(|error| {
-                format!(
-                    "Не удалось создать папку сессии {}: {error}",
-                    directory.display()
-                )
-            })?;
-            let path = loop {
-                let path = directory.join(format!("desktop-{:032x}.jsonl", rand::random::<u128>()));
-                match path.try_exists() {
-                    Ok(false) => break path,
-                    Ok(true) => continue,
-                    Err(error) => return Err(format!("Не удалось проверить путь сессии: {error}")),
-                }
-            };
-            args.push("--session".to_owned());
-            args.push(cli_path_arg(&path.to_string_lossy()));
-        }
-        args
+        initial_terminal_args_with_config(
+            &cwd,
+            resume_path.as_deref(),
+            &config_paths,
+            &session_root,
+        )?
     } else {
         request.args.unwrap_or_default()
     };
@@ -1265,7 +1307,7 @@ fn switch_terminal_blocking(
 ) -> Result<TerminalRuntime, TerminalSwitchError> {
     validate_switch_request(&request).map_err(TerminalSwitchError::from)?;
     let terminals = app.state::<TerminalState>();
-    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (known_resume_path, pending_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
         let processes = lock_processes(&terminals);
         let process = processes.get(&request.terminal_id).ok_or_else(|| {
             TerminalSwitchError::new(
@@ -1300,12 +1342,15 @@ fn switch_terminal_blocking(
         }
         (
             process.resume_path.clone(),
+            process.pending_resume_path.clone(),
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
         )
     };
     let resume_path = known_resume_path
+        .clone()
+        .or_else(|| pending_resume_path.clone())
         .or_else(|| {
             resolve_resume_path(
                 &request.terminal_id,
@@ -1320,67 +1365,86 @@ fn switch_terminal_blocking(
                 "Сессия OMP ещё не готова к переключению",
             )
         })?;
-    if !Path::new(&resume_path).is_file() {
+    let session_file_exists = Path::new(&resume_path).is_file();
+    let pending_fresh = !session_file_exists
+        && (pending_resume_path
+            .as_deref()
+            .is_some_and(|pending| path_key(pending) == path_key(&resume_path))
+            || is_pending_fresh_breadcrumb(
+                &request.terminal_id,
+                &cwd,
+                &terminal_sessions_dir,
+                &resume_path,
+            ));
+    if !session_file_exists && !pending_fresh {
         return Err(TerminalSwitchError::new(
             "terminal_switch_failed",
             format!("Файл сессии не найден: {resume_path}"),
         ));
     }
 
-    let should_spawn_runtime_watcher = {
-        let mut processes = lock_processes(&terminals);
-        let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
-            TerminalSwitchError::new(
-                "terminal_switch_failed",
-                format!("Терминал не найден: {}", request.terminal_id),
-            )
-        })?;
-        if process.switch_pending {
-            return Err(TerminalSwitchError::new(
-                "terminal_switch_busy",
-                "Смена модели уже выполняется",
-            ));
-        }
-        if let Some(recovery) = process.switch_recovery.as_ref() {
-            return Err(TerminalSwitchError::with_recovery(
-                "terminal_switch_recovery_pending",
-                "Сначала отправьте или удалите сохранённый ввод",
-                recovery.metadata(&request.terminal_id),
-            ));
-        }
-        if process.exited || process.exit_pending {
-            return Err(TerminalSwitchError::new(
-                "terminal_switch_failed",
-                "Процесс OMP уже завершён",
-            ));
-        }
-        let next_generation = process.switch_generation.checked_add(1).ok_or_else(|| {
-            TerminalSwitchError::new(
-                "terminal_switch_failed",
-                "Исчерпан счётчик поколений смены модели",
-            )
-        })?;
-        let should_spawn = process.resume_path.is_none();
-        process.resume_path = Some(resume_path.clone());
-        process.switch_pending = true;
-        process.switch_generation = next_generation;
-        process.switch_input_buffer.clear();
-        process.switch_input_overflow_notified = false;
-        should_spawn
-    };
-    if should_spawn_runtime_watcher {
-        spawn_runtime_watcher(
-            app.clone(),
-            request.terminal_id.clone(),
-            resume_path.clone(),
-        );
-    }
+    begin_terminal_switch(&request, &resume_path, &terminals)?;
 
-    finalize_switch_result(
-        &request.terminal_id,
-        &terminals,
-        perform_terminal_switch(&request, &resume_path, &terminals),
-    )
+    let result = if pending_fresh {
+        perform_pending_fresh_terminal_switch(&request, &terminals)
+    } else {
+        perform_terminal_switch(&request, &resume_path, &terminals)
+    };
+    finalize_switch_result(&request.terminal_id, &terminals, result)
+}
+
+fn begin_terminal_switch(
+    request: &SwitchRequest,
+    resume_path: &str,
+    terminals: &TerminalState,
+) -> Result<(), TerminalSwitchError> {
+    let mut processes = lock_processes(terminals);
+    let process = processes.get_mut(&request.terminal_id).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_failed",
+            format!("Терминал не найден: {}", request.terminal_id),
+        )
+    })?;
+    if process.switch_pending {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_busy",
+            "Смена модели уже выполняется",
+        ));
+    }
+    if let Some(recovery) = process.switch_recovery.as_ref() {
+        return Err(TerminalSwitchError::with_recovery(
+            "terminal_switch_recovery_pending",
+            "Сначала отправьте или удалите сохранённый ввод",
+            recovery.metadata(&request.terminal_id),
+        ));
+    }
+    if process.exited || process.exit_pending {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Процесс OMP уже завершён",
+        ));
+    }
+    let next_generation = process.switch_generation.checked_add(1).ok_or_else(|| {
+        TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Исчерпан счётчик поколений смены модели",
+        )
+    })?;
+    if process.resume_path.is_none() {
+        // A ready first JSONL is still pending until discovery acquires its lease
+        // and publishes identity. Switching may read it but must not complete discovery.
+        process.pending_resume_path = Some(resume_path.to_owned());
+    } else if process.resume_path.as_deref() != Some(resume_path) {
+        return Err(TerminalSwitchError::new(
+            "terminal_switch_failed",
+            "Сессия OMP изменилась во время подготовки переключения",
+        ));
+    }
+    process.switch_pending = true;
+    process.switch_generation = next_generation;
+    process.switch_input_buffer.clear();
+    process.switch_input_overflow_notified = false;
+    Ok(())
 }
 
 fn finalize_switch_result<T>(
@@ -1789,6 +1853,74 @@ fn perform_terminal_switch(
     })
 }
 
+fn pending_fresh_switch_plan(
+    request: &SwitchRequest,
+) -> Result<(Vec<u8>, TerminalRuntime), String> {
+    let runtime = SessionRuntimeState::from_request(request);
+    let model_changed = runtime
+        .model
+        .as_deref()
+        .is_none_or(|model| !model.eq_ignore_ascii_case(&request.model_selector));
+    let mut input = Vec::new();
+    if model_changed {
+        input.extend_from_slice(&model_switch_input(&request.model_selector));
+    }
+
+    let mut thinking_level = runtime.thinking_level.clone();
+    let mut configured_thinking_level = runtime.configured_thinking_level.clone();
+    if let Some(target) = request.thinking_level.as_deref() {
+        let levels = thinking_cycle(&request.supported_thinking);
+        let target_index = levels
+            .iter()
+            .position(|level| level == target)
+            .ok_or_else(|| format!("Модель не поддерживает уровень рассуждений: {target}"))?;
+        let current = configured_thinking_level
+            .as_deref()
+            .or(thinking_level.as_deref())
+            .unwrap_or("off");
+        let current = normalize_thinking_level(current, &levels);
+        let current_index = levels
+            .iter()
+            .position(|level| level == current)
+            .ok_or_else(|| format!("Неизвестный текущий уровень рассуждений: {current}"))?;
+        let steps = (target_index + levels.len() - current_index) % levels.len();
+        for _ in 0..steps {
+            input.extend_from_slice(OMP_THINKING_CYCLE_ESC);
+        }
+        thinking_level = Some(target.to_owned());
+        configured_thinking_level = Some(target.to_owned());
+    }
+
+    Ok((
+        input,
+        TerminalRuntime {
+            terminal_id: request.terminal_id.clone(),
+            model: if model_changed {
+                request.model_selector.clone()
+            } else {
+                runtime
+                    .model
+                    .unwrap_or_else(|| request.model_selector.clone())
+            },
+            model_role: runtime.model_role,
+            thinking_level: thinking_level.or_else(|| request.thinking_level.clone()),
+            configured_thinking_level: configured_thinking_level
+                .or_else(|| request.thinking_level.clone()),
+        },
+    ))
+}
+
+fn perform_pending_fresh_terminal_switch(
+    request: &SwitchRequest,
+    terminals: &TerminalState,
+) -> Result<TerminalRuntime, String> {
+    let (input, runtime) = pending_fresh_switch_plan(request)?;
+    if !input.is_empty() {
+        write_switch_input(&request.terminal_id, input, terminals)?;
+    }
+    Ok(runtime)
+}
+
 fn apply_thinking_level(
     terminal_id: &str,
     target: &str,
@@ -2079,6 +2211,27 @@ fn initial_agent_args_with_config(
     args
 }
 
+fn initial_terminal_args_with_config(
+    cwd: &str,
+    resume_path: Option<&str>,
+    config_paths: &[PathBuf],
+    session_root: &Path,
+) -> Result<Vec<String>, String> {
+    let mut args = initial_agent_args_with_config(cwd, resume_path, config_paths);
+    if resume_path.is_some() {
+        return Ok(args);
+    }
+    let directory = session_root.join(encode_session_dir_name(cwd));
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Не удалось создать папку сессии {}: {error}",
+            directory.display()
+        )
+    })?;
+    args.push("--session-dir".to_owned());
+    args.push(cli_path_arg(&directory.to_string_lossy()));
+    Ok(args)
+}
 fn build_omp_command(
     executable: &str,
     cwd: &str,
@@ -2280,6 +2433,7 @@ fn spawn_terminal_process(
         cwd: cwd.clone(),
         resume_path,
         pending_resume_path: None,
+        discovery_pending: false,
         session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
@@ -2304,7 +2458,7 @@ fn spawn_terminal_process(
     let output_exit = match spawn_reader(
         app.clone(),
         terminal_id.clone(),
-        output,
+        output.clone(),
         reader,
         exit_sender,
     ) {
@@ -2322,7 +2476,7 @@ fn spawn_terminal_process(
     }
     if restartable {
         if let Some(session_path) = runtime_session_path {
-            spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path);
+            spawn_runtime_watcher(app.clone(), terminal_id.clone(), session_path, output);
         }
         spawn_session_watcher(app.clone(), terminal_id.clone());
     }
@@ -2403,7 +2557,7 @@ fn breadcrumb_changed(path: &Path, snapshot: &HashMap<PathBuf, u128>) -> bool {
         .is_none_or(|previous| current > *previous)
 }
 
-fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
+fn read_breadcrumb_state(path: &Path, cwd: &str) -> Option<(String, bool)> {
     let contents = fs::read_to_string(path).ok()?;
     let mut lines = contents.lines();
     let breadcrumb_cwd = lines.next()?.trim();
@@ -2412,7 +2566,25 @@ fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
     if path_key(breadcrumb_cwd) != path_key(cwd) || (!fresh && !Path::new(session_path).is_file()) {
         return None;
     }
-    Some(session_path.to_owned())
+    Some((session_path.to_owned(), fresh))
+}
+
+fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
+    read_breadcrumb_state(path, cwd).map(|(session_path, _)| session_path)
+}
+
+fn is_pending_fresh_breadcrumb(
+    terminal_id: &str,
+    cwd: &str,
+    directory: &Path,
+    expected_path: &str,
+) -> bool {
+    let breadcrumb = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    read_breadcrumb_state(&breadcrumb, cwd).is_some_and(|(session_path, fresh)| {
+        fresh
+            && path_key(&session_path) == path_key(expected_path)
+            && !Path::new(&session_path).is_file()
+    })
 }
 
 enum SessionDiscovery {
@@ -2520,7 +2692,8 @@ enum ResumePathPoll {
     Discovered {
         resume_path: String,
         previous_path: Option<String>,
-        previous_lease: Option<SessionLease>,
+        session_lease: SessionLease,
+        output: SharedTerminalOutput,
         session: Box<crate::models::SessionSummary>,
     },
 }
@@ -2543,11 +2716,15 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         if !process.restartable || process.exited || process.exit_pending {
             return ResumePathPoll::Stop;
         }
+        if process.discovery_pending {
+            return ResumePathPoll::Continue;
+        }
         (
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
             process.resume_path.clone(),
+            process.output.clone(),
         )
     };
     let Some(discovery) = discover_session(
@@ -2587,38 +2764,69 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
         Err(error) => return ResumePathPoll::LeaseFailed(error),
     };
 
-    let (previous_path, previous_lease) = {
+    {
         let mut processes = lock_processes(state);
         let Some(process) = processes.get_mut(terminal_id) else {
             return ResumePathPoll::Stop;
         };
-        if !process.restartable || process.exited || process.exit_pending {
+        if process.exited || process.exit_pending || !Arc::ptr_eq(&process.output, &context.4) {
             return ResumePathPoll::Stop;
         }
-        if process
-            .resume_path
-            .as_deref()
-            .is_some_and(|current| path_key(current) == path_key(&resume_path))
-        {
-            return ResumePathPoll::Continue;
-        }
-        process.pending_resume_path = None;
-        (
-            process.resume_path.replace(resume_path.clone()),
-            process.session_lease.replace(session_lease),
-        )
-    };
-
+        // Reserve this transition before releasing session_files. The watcher and exit
+        // waiter may both poll; the second must not mistake our lease for another owner.
+        process.discovery_pending = true;
+        process.pending_resume_path = Some(resume_path.clone());
+    }
     ResumePathPoll::Discovered {
         resume_path,
-        previous_path,
-        previous_lease,
+        previous_path: context.3,
+        session_lease,
+        output: context.4,
         session,
     }
 }
 
+fn publish_discovered_session<F>(
+    state: &TerminalState,
+    terminal_id: &str,
+    resume_path: &str,
+    previous_path: Option<&str>,
+    output: &SharedTerminalOutput,
+    session_lease: SessionLease,
+    publish: F,
+) -> bool
+where
+    F: FnOnce(),
+{
+    let previous_lease = {
+        let mut processes = lock_processes(state);
+        let Some(process) = processes.get_mut(terminal_id) else {
+            return false;
+        };
+        if !process.restartable
+            || process.exited
+            || process.exit_pending
+            || !Arc::ptr_eq(&process.output, output)
+            || !process.discovery_pending
+            || process.resume_path.as_deref() != previous_path
+        {
+            return false;
+        }
+        process.pending_resume_path = None;
+        process.discovery_pending = false;
+        process.resume_path = Some(resume_path.to_owned());
+        let previous_lease = process.session_lease.replace(session_lease);
+        // Event publication is serialized with close/exit and the path+lease transition.
+        // The callback must not reacquire processes/session_files/settings.
+        publish();
+        previous_lease
+    };
+    drop(previous_lease);
+    true
+}
+
 fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathPoll) -> bool {
-    let (resume_path, previous_path, previous_lease, mut session) = match poll {
+    let (resume_path, previous_path, session_lease, output, mut session) = match poll {
         ResumePathPoll::Stop => return true,
         ResumePathPoll::Continue => return false,
         ResumePathPoll::LeaseFailed(error) => {
@@ -2634,11 +2842,23 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
         ResumePathPoll::Discovered {
             resume_path,
             previous_path,
-            previous_lease,
+            session_lease,
+            output,
             session,
-        } => (resume_path, previous_path, previous_lease, *session),
+        } => (resume_path, previous_path, session_lease, output, *session),
     };
 
+    let state = app.state::<TerminalState>();
+    {
+        let processes = lock_processes(&state);
+        let Some(process) = processes.get(terminal_id) else {
+            return true;
+        };
+        if process.exited || process.exit_pending || !Arc::ptr_eq(&process.output, &output) {
+            return true;
+        }
+    }
+    // No session_files/processes guard while settings are acquired for handoff titles.
     if let Some(previous_path) = previous_path.as_deref() {
         if let Err(error) =
             apply_handoff_session_titles(app, previous_path, &resume_path, &mut session)
@@ -2653,16 +2873,25 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
     } else {
         apply_known_session_title_pin(app, &mut session);
     }
-    drop(previous_lease);
-
-    let _ = app.emit(
-        "pty-session",
-        PtySessionEvent {
-            terminal_id: terminal_id.to_owned(),
-            session,
+    if publish_discovered_session(
+        &state,
+        terminal_id,
+        &resume_path,
+        previous_path.as_deref(),
+        &output,
+        session_lease,
+        || {
+            let _ = app.emit(
+                "pty-session",
+                PtySessionEvent {
+                    terminal_id: terminal_id.to_owned(),
+                    session,
+                },
+            );
         },
-    );
-    spawn_runtime_watcher(app.clone(), terminal_id.to_owned(), resume_path);
+    ) {
+        spawn_runtime_watcher(app.clone(), terminal_id.to_owned(), resume_path, output);
+    }
     false
 }
 
@@ -2853,6 +3082,25 @@ impl RuntimeEventWatermark {
     }
 }
 
+struct RuntimeBaselineSnapshot {
+    file: fs::File,
+    length: u64,
+    anchor: [u8; RUNTIME_FILE_ANCHOR],
+}
+
+impl RuntimeBaselineSnapshot {
+    fn anchor_matches(&mut self) -> bool {
+        let mut actual = [0_u8; RUNTIME_FILE_ANCHOR];
+        self.file
+            .seek(SeekFrom::Start(
+                self.length.saturating_sub(RUNTIME_FILE_ANCHOR as u64),
+            ))
+            .is_ok()
+            && self.file.read_exact(&mut actual).is_ok()
+            && actual == self.anchor
+    }
+}
+
 #[derive(Default)]
 struct RuntimeWatchCursor {
     initialized: bool,
@@ -2863,6 +3111,9 @@ struct RuntimeWatchCursor {
     line_overflow: bool,
     checkpoint: Option<RuntimeLineCheckpoint>,
     watermark: RuntimeEventWatermark,
+    baseline_snapshot: Option<RuntimeBaselineSnapshot>,
+    initial_history_complete: bool,
+    checkpoint_from_tail: bool,
     baseline_session_title: Option<String>,
     baseline_fallback_title: Option<String>,
 }
@@ -2916,31 +3167,139 @@ impl RuntimeWatchCursor {
         (generated.or(fallback), generated_seen)
     }
 
-    fn baseline(file: fs::File) -> Option<Self> {
-        let mut checkpoint = None;
-        let mut watermark = RuntimeEventWatermark::default();
+    fn baseline(mut file: fs::File) -> Option<Self> {
+        let metadata = file.metadata().ok()?;
+        let identity = RuntimeFileIdentity::from_file(&file, &metadata);
+        let length = metadata.len();
+        // Capture the old EOF before reading. Appends during initialization remain live input.
+        let mut cursor = Self::at_offset(&mut file, length)?;
+        let prefix_end = length.min(RUNTIME_BASELINE_REGION_BYTES);
+        let tail_start = length
+            .saturating_sub(RUNTIME_BASELINE_REGION_BYTES)
+            .max(prefix_end);
         let mut baseline_lines_remaining = RUNTIME_TITLE_BASELINE_LINES;
         let mut baseline_session_title = None;
         let mut baseline_fallback_title = None;
-        let mut scanned = scan_runtime_file(file, |_, _, line| {
-            observe_runtime_line(&mut checkpoint, &mut watermark, line);
-            if baseline_lines_remaining == 0 {
-                return;
+        let mut checkpoint_from_tail = tail_start == prefix_end;
+        let RuntimeWatchCursor {
+            line,
+            line_overflow,
+            checkpoint,
+            watermark,
+            ..
+        } = &mut cursor;
+        let mut buffer = [0_u8; 8192];
+        // Like session summaries, read only a bounded prefix and tail. The skipped middle
+        // is needed only if the file is replaced, not while watching ordinary appends.
+        for (start, end) in [(0, prefix_end), (tail_start, length)] {
+            if start == end {
+                continue;
             }
-            baseline_lines_remaining -= 1;
-            if let Some(title) = session_title_from_line(line) {
-                baseline_session_title = Some(title);
+            let separated_tail = start > prefix_end;
+            let accept_generated_title = !separated_tail || baseline_session_title.is_none();
+            if separated_tail {
+                file.seek(SeekFrom::Start(start - 1)).ok()?;
+                let mut preceding = [0_u8; 1];
+                file.read_exact(&mut preceding).ok()?;
+                line.clear();
+                // A suffix of an oversized historical row must never become a runtime event.
+                *line_overflow = preceding[0] != b'\n';
+                // A dense prefix must not consume the tail's title lookup budget. A current
+                // title slot in the prefix remains authoritative over legacy tail records.
+                baseline_lines_remaining = RUNTIME_TITLE_BASELINE_LINES;
             }
-            if baseline_fallback_title.is_none() {
-                baseline_fallback_title = session_title_fallback_from_line(line);
+            let mut observe = |bytes: &[u8]| {
+                let valid = observe_runtime_line(checkpoint, watermark, bytes);
+                if valid && separated_tail {
+                    checkpoint_from_tail = true;
+                }
+                if baseline_lines_remaining > 0 {
+                    baseline_lines_remaining -= 1;
+                    if valid {
+                        if accept_generated_title {
+                            if let Some(title) = session_title_from_line(bytes) {
+                                baseline_session_title = Some(title);
+                            }
+                        }
+                        if baseline_fallback_title.is_none() {
+                            baseline_fallback_title = session_title_fallback_from_line(bytes);
+                        }
+                    }
+                }
+                valid
+            };
+            file.seek(SeekFrom::Start(start)).ok()?;
+            let mut remaining = end - start;
+            while remaining > 0 {
+                let chunk = usize::try_from(remaining.min(buffer.len() as u64)).ok()?;
+                let read = file.read(&mut buffer[..chunk]).ok()?;
+                if read == 0 {
+                    return None;
+                }
+                remaining -= read as u64;
+                feed_runtime_lines(&buffer[..read], line, line_overflow, |bytes| {
+                    observe(bytes);
+                });
             }
-        })?;
-        let mut cursor = Self::at_offset(&mut scanned.file, scanned.scanned_length)?;
-        cursor.checkpoint = checkpoint;
-        cursor.watermark = watermark;
+            // Valid JSON at EOF is historical even without a newline. An incomplete row
+            // stays buffered so the next append can complete it exactly once.
+            if end == length && !*line_overflow && !line.is_empty() && observe(line) {
+                line.clear();
+            }
+        }
+        let current_metadata = file.metadata().ok()?;
+        if RuntimeFileIdentity::from_file(&file, &current_metadata) != identity
+            || current_metadata.len() < length
+            || !cursor.anchor_matches(&mut file)
+        {
+            return None;
+        }
+        cursor.initial_history_complete = tail_start == prefix_end;
+        cursor.checkpoint_from_tail = checkpoint_from_tail;
+        if !cursor.initial_history_complete {
+            // Keep the original inode available across an atomic replacement. Do not scan
+            // it now: recovery alone needs its full timestamp watermark, including the gap.
+            cursor.baseline_snapshot = Some(RuntimeBaselineSnapshot {
+                file,
+                length,
+                anchor: cursor.anchor.as_slice().try_into().ok()?,
+            });
+        }
         cursor.baseline_session_title = baseline_session_title;
         cursor.baseline_fallback_title = baseline_fallback_title;
         Some(cursor)
+    }
+
+    fn complete_baseline_watermark(
+        &mut self,
+        replacement_identity: RuntimeFileIdentity,
+    ) -> Option<bool> {
+        if self.initial_history_complete {
+            return Some(true);
+        }
+        let Some(snapshot) = self.baseline_snapshot.as_mut() else {
+            return Some(false);
+        };
+        // An in-place destructive rewrite has no immutable old inode to consult. Do not
+        // misclassify its new prefix as historical, or trust an incomplete timestamp maximum.
+        if self.identity == Some(replacement_identity) || !snapshot.anchor_matches() {
+            self.baseline_snapshot = None;
+            return Some(false);
+        }
+        let mut historical = RuntimeEventWatermark::default();
+        scan_runtime_prefix(&mut snapshot.file, snapshot.length, |_, _, bytes| {
+            if let Some(checkpoint) = runtime_line_checkpoint(bytes) {
+                historical.observe(&checkpoint);
+            }
+        })?;
+        if !snapshot.anchor_matches() {
+            self.baseline_snapshot = None;
+            return Some(false);
+        }
+        self.watermark.merge(&historical);
+        self.initial_history_complete = true;
+        self.baseline_snapshot = None;
+        Some(true)
     }
 
     fn at_offset(file: &mut fs::File, offset: u64) -> Option<Self> {
@@ -2957,6 +3316,9 @@ impl RuntimeWatchCursor {
             line_overflow: false,
             checkpoint: None,
             watermark: RuntimeEventWatermark::default(),
+            baseline_snapshot: None,
+            initial_history_complete: true,
+            checkpoint_from_tail: true,
             baseline_session_title: None,
             baseline_fallback_title: None,
         })
@@ -3030,21 +3392,37 @@ fn observe_runtime_line(
     checkpoint: &mut Option<RuntimeLineCheckpoint>,
     watermark: &mut RuntimeEventWatermark,
     line: &[u8],
-) {
+) -> bool {
     let Some(next) = runtime_line_checkpoint(line) else {
-        return;
+        return false;
     };
     watermark.observe(&next);
     *checkpoint = Some(next);
+    true
 }
 
-fn scan_runtime_file<F>(mut file: fs::File, mut on_line: F) -> Option<RuntimeFileScan>
+fn scan_runtime_file<F>(mut file: fs::File, on_line: F) -> Option<RuntimeFileScan>
+where
+    F: FnMut(u64, u64, &[u8]),
+{
+    let length = file.metadata().ok()?.len();
+    let current_length = scan_runtime_prefix(&mut file, length, on_line)?;
+    Some(RuntimeFileScan {
+        file,
+        scanned_length: length,
+        current_length,
+    })
+}
+
+fn scan_runtime_prefix<F>(file: &mut fs::File, length: u64, mut on_line: F) -> Option<u64>
 where
     F: FnMut(u64, u64, &[u8]),
 {
     let metadata = file.metadata().ok()?;
-    let identity = RuntimeFileIdentity::from_file(&file, &metadata);
-    let length = metadata.len();
+    let identity = RuntimeFileIdentity::from_file(file, &metadata);
+    if metadata.len() < length {
+        return None;
+    }
     file.seek(SeekFrom::Start(0)).ok()?;
 
     let mut remaining = length;
@@ -3087,45 +3465,51 @@ where
     }
 
     let current_metadata = file.metadata().ok()?;
-    if RuntimeFileIdentity::from_file(&file, &current_metadata) != identity
+    if RuntimeFileIdentity::from_file(file, &current_metadata) != identity
         || current_metadata.len() < length
-        || read_runtime_anchor(&mut file, length)? != end_anchor
+        || read_runtime_anchor(file, length)? != end_anchor
     {
         return None;
     }
-    Some(RuntimeFileScan {
-        file,
-        scanned_length: length,
-        current_length: current_metadata.len(),
-    })
+    Some(current_metadata.len())
 }
 
-fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option<RuntimeRecovery> {
+fn recover_runtime_cursor(
+    file: fs::File,
+    cursor: &mut RuntimeWatchCursor,
+) -> Option<RuntimeRecovery> {
+    let metadata = file.metadata().ok()?;
+    let history_complete =
+        cursor.complete_baseline_watermark(RuntimeFileIdentity::from_file(&file, &metadata))?;
     let previous_checkpoint = cursor.checkpoint.clone();
-    let previous_watermark = cursor.watermark.clone();
-    // An exact, unique prior checkpoint is the strongest boundary. If it disappeared, is
-    // ambiguous, or appears after a timestamped unseen event, filter every candidate against the
-    // previous high-water mark. Unordered legacy rows cannot be classified and stay baseline-only.
+    let mut previous_watermark = cursor.watermark.clone();
+    // A replaced inode can consult the pinned initial snapshot. After a destructive in-place
+    // rewrite, only a unique known tail checkpoint supplies a safe physical boundary; unknown
+    // history must not be emitted using the sampled, understated timestamp watermark.
     let mut matching_checkpoint_end = None;
     let mut checkpoint_matches = 0_usize;
     let mut first_unseen_start = None;
     let mut baseline_checkpoint = None;
     let mut baseline_watermark = RuntimeEventWatermark::default();
+    let mut checkpoint_watermark = RuntimeEventWatermark::default();
     let mut scanned = scan_runtime_file(file, |start, end, line| {
         let Some(candidate) = runtime_line_checkpoint(line) else {
             return;
         };
+        baseline_watermark.observe(&candidate);
         if previous_checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.matches(&candidate))
         {
             checkpoint_matches = checkpoint_matches.saturating_add(1);
             matching_checkpoint_end = Some(end);
+            if !history_complete && checkpoint_matches == 1 {
+                checkpoint_watermark = baseline_watermark.clone();
+            }
         }
         if first_unseen_start.is_none() && previous_watermark.is_unseen_after(&candidate) {
             first_unseen_start = Some(start);
         }
-        baseline_watermark.observe(&candidate);
         baseline_checkpoint = Some(candidate);
     })?;
 
@@ -3137,7 +3521,19 @@ fn recover_runtime_cursor(file: fs::File, cursor: &RuntimeWatchCursor) -> Option
         (Some(_), None) => true,
         _ => false,
     };
-    let (resume_offset, filter) = if use_watermark {
+    let (resume_offset, filter) = if !history_complete {
+        if let Some(checkpoint_end) = exact_checkpoint_end.filter(|_| cursor.checkpoint_from_tail) {
+            previous_watermark.merge(&checkpoint_watermark);
+            (
+                checkpoint_end,
+                Some(RuntimeRecoveryFilter::Checkpoint(
+                    previous_watermark.clone(),
+                )),
+            )
+        } else {
+            (scanned.scanned_length, None)
+        }
+    } else if use_watermark {
         (
             first_unseen_start.unwrap_or(scanned.scanned_length),
             Some(RuntimeRecoveryFilter::Watermark(previous_watermark.clone())),
@@ -3181,13 +3577,15 @@ fn process_runtime_line<F>(
     recovery_filter: Option<&RuntimeRecoveryFilter>,
     line: &[u8],
     on_line: &mut F,
-) where
+) -> bool
+where
     F: FnMut(&[u8]),
 {
     let candidate = runtime_line_checkpoint(line);
     let should_emit = recovery_filter
         .map(|filter| filter.should_emit(candidate.as_ref()))
         .unwrap_or(true);
+    let valid = candidate.is_some();
     if let Some(next) = candidate {
         watermark.observe(&next);
         *checkpoint = Some(next);
@@ -3195,6 +3593,7 @@ fn process_runtime_line<F>(
     if should_emit {
         on_line(line);
     }
+    valid
 }
 
 fn read_runtime_tail<F>(
@@ -3228,16 +3627,19 @@ fn read_runtime_tail<F>(
             line_overflow,
             checkpoint,
             watermark,
+            checkpoint_from_tail,
             ..
         } = cursor;
         feed_runtime_lines(data, line, line_overflow, |runtime_line| {
-            process_runtime_line(
+            if process_runtime_line(
                 checkpoint,
                 watermark,
                 recovery_filter,
                 runtime_line,
                 on_line,
-            );
+            ) {
+                *checkpoint_from_tail = true;
+            }
         });
     }
 
@@ -3247,13 +3649,15 @@ fn read_runtime_tail<F>(
     {
         let mut completed = Vec::with_capacity(cursor.line.capacity());
         std::mem::swap(&mut completed, &mut cursor.line);
-        process_runtime_line(
+        if process_runtime_line(
             &mut cursor.checkpoint,
             &mut cursor.watermark,
             recovery_filter,
             &completed,
             on_line,
-        );
+        ) {
+            cursor.checkpoint_from_tail = true;
+        }
         completed.clear();
         cursor.line = completed;
     }
@@ -3352,12 +3756,30 @@ fn emit_runtime_error(app: &AppHandle, terminal_id: &str, message: String) {
     );
 }
 
-fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: String) {
+fn spawn_runtime_watcher(
+    app: AppHandle,
+    terminal_id: String,
+    session_path: String,
+    output: SharedTerminalOutput,
+) {
     let error_app = app.clone();
     let error_terminal_id = terminal_id.clone();
     if let Err(error) = thread::Builder::new()
         .name(format!("runtime-watcher-{terminal_id}"))
         .spawn(move || {
+            // Close/exit/handoff may have occurred between publication and thread startup.
+            {
+                let state = app.state::<TerminalState>();
+                let processes = lock_processes(&state);
+                if !processes.get(&terminal_id).is_some_and(|process| {
+                    !process.exited
+                        && !process.exit_pending
+                        && Arc::ptr_eq(&process.output, &output)
+                        && process.resume_path.as_deref() == Some(session_path.as_str())
+                }) {
+                    return;
+                }
+            }
             let path = PathBuf::from(&session_path);
             let mut cursor = RuntimeWatchCursor::at_end(&path);
             let (initial_title, mut generated_title_seen) = cursor.take_baseline_session_title();
@@ -3380,7 +3802,9 @@ fn spawn_runtime_watcher(app: AppHandle, terminal_id: String, session_path: Stri
                     let Some(process) = processes.get(&terminal_id) else {
                         return;
                     };
-                    if process.resume_path.as_deref() != Some(session_path.as_str()) {
+                    if !Arc::ptr_eq(&process.output, &output)
+                        || process.resume_path.as_deref() != Some(session_path.as_str())
+                    {
                         return;
                     }
                     !process.exited && !process.exit_pending
@@ -4513,22 +4937,462 @@ fn strip_ansi_bytes(input: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn import_update_refuses_live_local_and_independent_owners_then_succeeds_after_close() {
+        use crate::models::{ImportItemStatus, ImportMode, ImportSessionRequest};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-import-ownership-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        let state = TerminalState::default();
+        for with_artifacts in [false, true] {
+            let source = root.join(format!("source-{with_artifacts}.jsonl"));
+            let original = format!("{{\"type\":\"session\",\"id\":\"source-{with_artifacts}\",\"cwd\":\"/tmp/source\"}}\n");
+            fs::write(&source, &original).unwrap();
+            if with_artifacts {
+                fs::create_dir(source.with_extension("")).unwrap();
+                fs::write(source.with_extension("").join("version"), b"old").unwrap();
+            }
+            let mut request = ImportSessionRequest {
+                path: source.to_string_lossy().into_owned(),
+                target_cwd: project.to_string_lossy().into_owned(),
+                mode: ImportMode::Update,
+            };
+            let first = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(first.status, ImportItemStatus::Imported);
+            let path = first.destination_path.unwrap();
+            fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap()
+                .write_all(b"{\"type\":\"custom\",\"id\":\"unique-live-row\"}\n")
+                .unwrap();
+            let before = fs::read(&path).unwrap();
+            fs::write(
+                &source,
+                format!("{original}{{\"type\":\"custom\",\"id\":\"new-source-row\"}}\n"),
+            )
+            .unwrap();
+            if with_artifacts {
+                fs::write(source.with_extension("").join("version"), b"new").unwrap();
+            }
+            let mut process = terminal_process(Some(path.clone()), None);
+            process.session_lease = Some(
+                SessionLease::acquire(
+                    std::path::Path::new(&path),
+                    SessionLeasePurpose::Resume,
+                    false,
+                )
+                .unwrap(),
+            );
+            lock_processes(&state).insert("terminal-1".to_owned(), process);
+            let refused = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(refused.status, ImportItemStatus::Failed);
+            assert!(refused.message.unwrap().contains("[session_lease_active]"));
+            assert_eq!(fs::read(&path).unwrap(), before);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"old"
+                );
+            }
+            for mode in [ImportMode::Skip, ImportMode::Copy] {
+                request.mode = mode;
+                assert_ne!(
+                    state.import_sessions(&[request.clone()], &session_root)[0].status,
+                    ImportItemStatus::Failed
+                );
+            }
+            request.mode = ImportMode::Update;
+            drop(lock_processes(&state).remove("terminal-1"));
+            // Neither an unpublished first file nor a handoff breadcrumb has a lease yet.
+            // All three active path sources must still exclude Update, including aliases.
+            let alias = std::path::Path::new(&path)
+                .parent()
+                .unwrap()
+                .join(".")
+                .join(std::path::Path::new(&path).file_name().unwrap())
+                .to_string_lossy()
+                .into_owned();
+            for active_kind in ["resume", "pending", "breadcrumb"] {
+                let mut process = terminal_process(None, None);
+                match active_kind {
+                    "resume" => process.resume_path = Some(alias.clone()),
+                    "pending" => process.pending_resume_path = Some(alias.clone()),
+                    _ => {
+                        process.terminal_sessions_dir = root.clone();
+                        fs::write(
+                            root.join("apple-terminal-1"),
+                            format!("/tmp/project\n{alias}\nfresh\n"),
+                        )
+                        .unwrap();
+                    }
+                }
+                lock_processes(&state).insert("terminal-1".to_owned(), process);
+                let refused = state
+                    .import_sessions(&[request.clone()], &session_root)
+                    .remove(0);
+                assert_eq!(refused.status, ImportItemStatus::Failed, "{active_kind}");
+                assert!(refused.message.unwrap().contains("[session_lease_active]"));
+                assert_eq!(fs::read(&path).unwrap(), before);
+                if with_artifacts {
+                    assert_eq!(
+                        fs::read(
+                            std::path::Path::new(&path)
+                                .with_extension("")
+                                .join("version")
+                        )
+                        .unwrap(),
+                        b"old"
+                    );
+                }
+                drop(lock_processes(&state).remove("terminal-1"));
+            }
+            // Independent lock handle exercises the second Desktop exclusion boundary.
+            let owner = SessionLease::acquire(
+                std::path::Path::new(&path),
+                SessionLeasePurpose::Resume,
+                false,
+            )
+            .unwrap();
+            let refused = state
+                .import_sessions(&[request.clone()], &session_root)
+                .remove(0);
+            assert_eq!(refused.status, ImportItemStatus::Failed);
+            assert!(refused.message.unwrap().contains("[session_lease_active]"));
+            assert_eq!(fs::read(&path).unwrap(), before);
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"old"
+                );
+            }
+            drop(owner);
+            let updated = state.import_sessions(&[request], &session_root).remove(0);
+            assert_eq!(updated.status, ImportItemStatus::Updated);
+            let updated_body = fs::read_to_string(&path).unwrap();
+            assert!(updated_body.contains("new-source-row"));
+            assert!(!updated_body.contains("unique-live-row"));
+            if with_artifacts {
+                assert_eq!(
+                    fs::read(
+                        std::path::Path::new(&path)
+                            .with_extension("")
+                            .join("version")
+                    )
+                    .unwrap(),
+                    b"new"
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn early_ready_jsonl_switch_publishes_identity_and_lease_once() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-early-discovery-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("fresh.jsonl");
+        let path_string = path.to_string_lossy().into_owned();
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{path_string}\nfresh\n"),
+        )
+        .unwrap();
+        let state = TerminalState::default();
+        let mut process = terminal_process(None, None);
+        process.terminal_sessions_dir = root.clone();
+        lock_processes(&state).insert("terminal-1".to_owned(), process);
+        // Supported switching before the lazy JSONL exists only records a pending path.
+        begin_terminal_switch(&switch_request(), &path_string, &state).unwrap();
+        assert!(lock_processes(&state)["terminal-1"].resume_path.is_none());
+        finalize_switch_result("terminal-1", &state, Ok(())).unwrap();
+        assert_eq!(
+            lock_processes(&state)["terminal-1"]
+                .pending_resume_path
+                .as_deref(),
+            Some(path_string.as_str())
+        );
+        fs::write(
+            &path,
+            "{\"type\":\"session\",\"id\":\"fresh-id\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        begin_terminal_switch(&switch_request(), &path_string, &state).unwrap();
+        let poll = {
+            let _guard = lock_session_files(&state);
+            poll_resume_path_locked("terminal-1", &state)
+        };
+        let ResumePathPoll::Discovered {
+            resume_path,
+            previous_path,
+            session_lease,
+            output,
+            session,
+        } = poll
+        else {
+            panic!("first ready JSONL must remain discoverable after the switch");
+        };
+        assert!(lock_processes(&state)["terminal-1"].resume_path.is_none());
+        // A concurrent exit-waiter poll must not produce a duplicate event or lease failure.
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        let mut events = Vec::new();
+        assert!(publish_discovered_session(
+            &state,
+            "terminal-1",
+            &resume_path,
+            previous_path.as_deref(),
+            &output,
+            session_lease,
+            || {
+                events.push(PtySessionEvent {
+                    terminal_id: "terminal-1".to_owned(),
+                    session: *session,
+                });
+            }
+        ));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].terminal_id, "terminal-1");
+        assert_eq!(events[0].session.id, "fresh-id");
+        assert_eq!(events[0].session.file_path, path_string);
+        let processes = lock_processes(&state);
+        assert_eq!(
+            processes["terminal-1"].resume_path.as_deref(),
+            Some(path_string.as_str())
+        );
+        assert!(processes["terminal-1"].session_lease.is_some());
+        assert!(processes["terminal-1"].pending_resume_path.is_none());
+        drop(processes);
+        finalize_switch_result("terminal-1", &state, Ok(())).unwrap();
+        for force in [false, true] {
+            let error = SessionLease::acquire(&path, SessionLeasePurpose::Resume, force)
+                .err()
+                .unwrap();
+            assert!(error.starts_with("[session_lease_active]"));
+        }
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        drop(lock_processes(&state).remove("terminal-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn first_discovery_does_not_publish_after_close_or_exit() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-discovery-close-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("fresh.jsonl");
+        fs::write(
+            &path,
+            "{\"type\":\"session\",\"id\":\"fresh-id\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{}\nfresh\n", path.display()),
+        )
+        .unwrap();
+        for interruption in ["close", "exit_pending", "exited", "replacement"] {
+            let state = TerminalState::default();
+            let mut process = terminal_process(None, None);
+            process.terminal_sessions_dir = root.clone();
+            lock_processes(&state).insert("terminal-1".to_owned(), process);
+            let poll = {
+                let _guard = lock_session_files(&state);
+                poll_resume_path_locked("terminal-1", &state)
+            };
+            let ResumePathPoll::Discovered {
+                resume_path,
+                previous_path,
+                session_lease,
+                output,
+                ..
+            } = poll
+            else {
+                panic!("discovery should acquire ownership");
+            };
+            match interruption {
+                "close" => drop(lock_processes(&state).remove("terminal-1")),
+                "exit_pending" => {
+                    lock_processes(&state)
+                        .get_mut("terminal-1")
+                        .unwrap()
+                        .exit_pending = true
+                }
+                "exited" => lock_processes(&state).get_mut("terminal-1").unwrap().exited = true,
+                _ => {
+                    drop(
+                        lock_processes(&state)
+                            .insert("terminal-1".to_owned(), terminal_process(None, None)),
+                    );
+                }
+            }
+            let mut publications = 0;
+            assert!(!publish_discovered_session(
+                &state,
+                "terminal-1",
+                &resume_path,
+                previous_path.as_deref(),
+                &output,
+                session_lease,
+                || publications += 1
+            ));
+            assert_eq!(publications, 0);
+            let owner = SessionLease::acquire(&path, SessionLeasePurpose::Resume, false).unwrap();
+            drop(owner);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn handoff_keeps_both_leases_until_identity_publication() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-discovery-handoff-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let previous = root.join("previous.jsonl");
+        let next = root.join("next.jsonl");
+        for (path, id) in [(&previous, "previous-id"), (&next, "next-id")] {
+            fs::write(
+                path,
+                format!("{{\"type\":\"session\",\"id\":\"{id}\",\"cwd\":\"/tmp/project\"}}\n"),
+            )
+            .unwrap();
+        }
+        fs::write(
+            root.join("apple-terminal-1"),
+            format!("/tmp/project\n{}\n", next.display()),
+        )
+        .unwrap();
+        let state = TerminalState::default();
+        let mut process = terminal_process(Some(previous.to_string_lossy().into_owned()), None);
+        process.session_lease =
+            Some(SessionLease::acquire(&previous, SessionLeasePurpose::Resume, false).unwrap());
+        process.terminal_sessions_dir = root.clone();
+        lock_processes(&state).insert("terminal-1".to_owned(), process);
+        let poll = {
+            let _guard = lock_session_files(&state);
+            poll_resume_path_locked("terminal-1", &state)
+        };
+        let ResumePathPoll::Discovered {
+            resume_path,
+            previous_path,
+            session_lease,
+            output,
+            session,
+        } = poll
+        else {
+            panic!("handoff must reserve the next session");
+        };
+        let mut events = Vec::new();
+        assert!(publish_discovered_session(
+            &state,
+            "terminal-1",
+            &resume_path,
+            previous_path.as_deref(),
+            &output,
+            session_lease,
+            || {
+                for path in [&previous, &next] {
+                    let error = SessionLease::acquire(path, SessionLeasePurpose::Resume, false)
+                        .err()
+                        .unwrap();
+                    assert!(error.starts_with("[session_lease_active]"));
+                }
+                events.push(PtySessionEvent {
+                    terminal_id: "terminal-1".to_owned(),
+                    session: *session,
+                });
+            }
+        ));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].session.id, "next-id");
+        let owner = SessionLease::acquire(&previous, SessionLeasePurpose::Resume, false).unwrap();
+        drop(owner);
+        let error = SessionLease::acquire(&next, SessionLeasePurpose::Resume, false)
+            .err()
+            .unwrap();
+        assert!(error.starts_with("[session_lease_active]"));
+        {
+            let _guard = lock_session_files(&state);
+            assert!(matches!(
+                poll_resume_path_locked("terminal-1", &state),
+                ResumePathPoll::Continue
+            ));
+        }
+        drop(lock_processes(&state).remove("terminal-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     use super::{
-        append_switch_input, breadcrumb_modified, build_omp_command, cli_path_arg,
-        decode_terminal_binary, discard_switch_input_recovery_from_state, discover_session,
-        drain_output_batches, feed_runtime_lines, finalize_switch_result,
-        initial_agent_args_with_config, lock_processes, lock_terminal_output, model_switch_input,
-        normalize_thinking_level, output_event_name, poll_runtime_file, read_runtime_tail,
+        append_switch_input, begin_terminal_switch, breadcrumb_modified, build_omp_command,
+        cli_path_arg, decode_terminal_binary, discard_switch_input_recovery_from_state,
+        discover_session, drain_output_batches, encode_session_dir_name, feed_runtime_lines,
+        finalize_switch_result, initial_agent_args_with_config, initial_terminal_args_with_config,
+        is_pending_fresh_breadcrumb, lock_processes, lock_session_files, lock_terminal_output,
+        model_switch_input, normalize_thinking_level, output_event_name, pending_fresh_switch_plan,
+        poll_resume_path_locked, poll_runtime_file, publish_discovered_session, read_runtime_tail,
         receive_ready_output_batch, receive_timed_output_batch, recover_runtime_cursor,
         resolve_resume_path_for_current, run_output_pipeline, runtime_event_for_emit,
         runtime_event_from_line, send_switch_input_recovery_blocking, session_title_for_emit,
         session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
-        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, RuntimeRecovery,
-        RuntimeWatchCursor, SessionDiscovery, SessionLease, SessionLeasePurpose,
-        SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
+        validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, PtySessionEvent,
+        ResumePathPoll, RuntimeRecovery, RuntimeWatchCursor, SessionDiscovery, SessionLease,
+        SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
         TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
-        MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
-        PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
+        BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
+        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL,
+        PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -4542,7 +5406,7 @@ mod tests {
         collections::HashMap,
         ffi::OsStr,
         fs,
-        io::{self, Write},
+        io::{self, Seek, SeekFrom, Write},
         path::PathBuf,
         sync::{mpsc, Arc, Mutex},
         thread,
@@ -4697,6 +5561,7 @@ mod tests {
             cwd: "/tmp/project".to_owned(),
             resume_path,
             pending_resume_path: None,
+            discovery_pending: false,
             session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),
@@ -4912,6 +5777,17 @@ mod tests {
             b"\x1bpprovider/model\r"
         );
         assert_eq!(OMP_THINKING_CYCLE_ESC, b"\x1b[Z");
+    }
+
+    #[test]
+    fn pending_fresh_switch_uses_live_controls_without_a_session_file() {
+        let (input, runtime) =
+            pending_fresh_switch_plan(&switch_request()).expect("fresh switch should be planned");
+
+        assert_eq!(input, b"\x1bpprovider/model\r\x1b[Z");
+        assert_eq!(runtime.model, "provider/model");
+        assert_eq!(runtime.thinking_level.as_deref(), Some("max"));
+        assert_eq!(runtime.configured_thinking_level.as_deref(), Some("max"));
     }
 
     #[test]
@@ -5529,6 +6405,75 @@ mod tests {
             initial_agent_args_with_config("/tmp/project", Some("/tmp/session.jsonl"), &[]),
             vec!["--cwd", "/tmp/project", "--resume", "/tmp/session.jsonl",]
         );
+    }
+
+    #[test]
+    fn fresh_terminal_args_use_session_directory_without_a_resume_target() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-fresh-args-{}-{nonce}",
+            std::process::id()
+        ));
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&session_root).expect("session root should be writable");
+
+        let args = initial_terminal_args_with_config("/tmp/project", None, &[], &session_root)
+            .expect("fresh terminal args should be built");
+        let session_dir = session_root.join(encode_session_dir_name("/tmp/project"));
+
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[0], "--cwd");
+        assert_eq!(args[1], "/tmp/project");
+        assert_eq!(args[2], "--session-dir");
+        assert_eq!(args[3], cli_path_arg(&session_dir.to_string_lossy()));
+        assert!(
+            session_dir.is_dir(),
+            "OMP's session directory must exist before launch"
+        );
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "--resume" || arg == "--session"));
+
+        fs::remove_dir_all(&root).expect("session fixture should be removable");
+    }
+
+    #[test]
+    fn fresh_breadcrumb_allows_model_switch_before_the_session_file_exists() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-pending-fresh-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("breadcrumb directory should be writable");
+        let session_file = root.join("session.jsonl");
+        let breadcrumb = root.join(format!("{BREADCRUMB_FILE_PREFIX}terminal-1"));
+        fs::write(
+            &breadcrumb,
+            format!("/tmp/project\n{}\nfresh\n", session_file.display()),
+        )
+        .expect("fresh breadcrumb should be writable");
+
+        assert!(is_pending_fresh_breadcrumb(
+            "terminal-1",
+            "/tmp/project",
+            &root,
+            &session_file.to_string_lossy(),
+        ));
+
+        fs::write(&session_file, "session data").expect("session file should materialize");
+        assert!(!is_pending_fresh_breadcrumb(
+            "terminal-1",
+            "/tmp/project",
+            &root,
+            &session_file.to_string_lossy(),
+        ));
+        fs::remove_dir_all(&root).expect("breadcrumb fixture should be removable");
     }
 
     #[test]
@@ -6469,7 +7414,7 @@ mod tests {
             length,
             cursor: next,
             filter,
-        } = recover_runtime_cursor(held_file, &cursor)
+        } = recover_runtime_cursor(held_file, &mut cursor)
             .expect("held replacement should recover as one snapshot");
         cursor = next;
         let mut ids = Vec::new();
@@ -6654,6 +7599,431 @@ mod tests {
         fs::remove_dir_all(&directory).expect("fixture directory should be removable");
 
         assert_eq!(activities, ["thinking", "idle"]);
+    }
+
+    #[test]
+    fn runtime_cursor_recovers_middle_maximum_without_replaying_history() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-middle-watermark-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("runtime fixture root should be creatable");
+        let historical = b"{\"type\":\"message\",\"id\":\"middle-max\",\"timestamp\":\"2026-08-09T10:00:07Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"Historical error must not replay\"}}\n";
+        let checkpoint = b"{\"type\":\"model_change\",\"id\":\"old-tail\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"model\":\"provider/old\"}\n";
+        let fresh = b"{\"type\":\"model_change\",\"id\":\"fresh\",\"timestamp\":\"2026-08-09T10:00:08Z\",\"model\":\"provider/new\"}\n";
+        for (name, atomic, original_truncated) in [
+            ("atomic", true, false),
+            ("in-place", false, false),
+            ("truncated-original", true, true),
+        ] {
+            let path = root.join(format!("{name}.jsonl"));
+            let mut original = fs::File::create(&path).expect("large history should be creatable");
+            original
+                .write_all(b"{\"type\":\"session\",\"id\":\"header\",\"timestamp\":\"2026-08-09T10:00:00Z\"}\n")
+                .expect("session header should be writable");
+            original
+                .seek(SeekFrom::Start(
+                    super::RUNTIME_BASELINE_REGION_BYTES + 1024 * 1024,
+                ))
+                .expect("middle gap should be seekable");
+            original
+                .write_all(b"\n")
+                .expect("middle boundary should be writable");
+            original
+                .write_all(historical)
+                .expect("middle maximum should be writable");
+            original
+                .seek(SeekFrom::Start(super::RUNTIME_BASELINE_REGION_BYTES * 4))
+                .expect("tail should be seekable");
+            original
+                .write_all(b"\n")
+                .expect("tail boundary should be writable");
+            original
+                .write_all(checkpoint)
+                .expect("historical checkpoint should be writable");
+            drop(original);
+            let mut cursor = RuntimeWatchCursor::default();
+            let mut events = Vec::new();
+            poll_runtime_file(
+                &path,
+                &mut cursor,
+                || {},
+                |line| {
+                    if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                        events.push(event);
+                    }
+                },
+            );
+            assert!(events.is_empty(), "initial history must stay silent");
+
+            if atomic {
+                // A post-baseline append is still fresh even if it exists on the pinned inode.
+                fs::OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .expect("old snapshot should still be appendable")
+                    .write_all(fresh)
+                    .expect("fresh old-inode append should be writable");
+                let pinned = root.join(format!("pinned-{name}.jsonl"));
+                fs::rename(&path, &pinned).expect("old inode should be replaceable");
+                if original_truncated {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(pinned)
+                        .expect("detached original should be writable")
+                        .set_len(0)
+                        .expect("detached original should be truncatable");
+                }
+            }
+            let mut replacement = fs::File::create(&path).expect("replacement should be writable");
+            replacement
+                .write_all(historical)
+                .expect("historical maximum should be retained");
+            if atomic && !original_truncated {
+                // Timestamp recovery must work even when a fresh event precedes the checkpoint.
+                replacement
+                    .write_all(fresh)
+                    .expect("reordered fresh event should be writable");
+            }
+            replacement
+                .write_all(checkpoint)
+                .expect("tail checkpoint should be retained");
+            if !atomic || original_truncated {
+                replacement
+                    .write_all(fresh)
+                    .expect("fresh tail should be writable");
+            }
+            drop(replacement);
+            for _ in 0..2 {
+                poll_runtime_file(
+                    &path,
+                    &mut cursor,
+                    || {},
+                    |line| {
+                        if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                            events.push(event);
+                        }
+                    },
+                );
+            }
+            assert_eq!(
+                events.len(),
+                1,
+                "historical middle error must not replay ({name})"
+            );
+            assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelChange);
+            assert_eq!(events[0].model.as_deref(), Some("provider/new"));
+            assert!(events[0].error_message.is_none());
+
+            // A recovered cursor observes every appended byte, including a new middle
+            // maximum after this second file grows beyond the startup window budget.
+            let middle = b"{\"type\":\"model_change\",\"id\":\"second-middle\",\"timestamp\":\"2026-08-09T10:00:10Z\",\"model\":\"provider/middle\"}\n";
+            let tail = b"{\"type\":\"model_change\",\"id\":\"second-tail\",\"timestamp\":\"2026-08-09T10:00:09Z\",\"model\":\"provider/tail\"}\n";
+            let newest = b"{\"type\":\"model_change\",\"id\":\"newest\",\"timestamp\":\"2026-08-09T10:00:11Z\",\"model\":\"provider/latest\"}\n";
+            let mut growing = fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .expect("recovered file should be extendable");
+            growing
+                .seek(SeekFrom::Start(
+                    super::RUNTIME_BASELINE_REGION_BYTES + 1024 * 1024,
+                ))
+                .expect("new middle should be seekable");
+            growing
+                .write_all(b"\n")
+                .expect("new middle boundary should be writable");
+            growing
+                .write_all(middle)
+                .expect("new middle maximum should be writable");
+            growing
+                .seek(SeekFrom::Start(super::RUNTIME_BASELINE_REGION_BYTES * 4))
+                .expect("new tail should be seekable");
+            growing
+                .write_all(b"\n")
+                .expect("new tail boundary should be writable");
+            growing
+                .write_all(tail)
+                .expect("new tail checkpoint should be writable");
+            drop(growing);
+            poll_runtime_file(
+                &path,
+                &mut cursor,
+                || {},
+                |line| {
+                    if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                        events.push(event);
+                    }
+                },
+            );
+            fs::rename(&path, root.join(format!("second-{name}.old.jsonl")))
+                .expect("second large file should be rotatable");
+            let mut replacement =
+                fs::File::create(&path).expect("second replacement should be writable");
+            replacement
+                .write_all(middle)
+                .expect("second middle maximum should be retained");
+            replacement
+                .write_all(newest)
+                .expect("newest event should be writable");
+            replacement
+                .write_all(tail)
+                .expect("second checkpoint should be retained");
+            drop(replacement);
+            for _ in 0..2 {
+                poll_runtime_file(
+                    &path,
+                    &mut cursor,
+                    || {},
+                    |line| {
+                        if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                            events.push(event);
+                        }
+                    },
+                );
+            }
+            assert_eq!(
+                events
+                    .iter()
+                    .map(|event| event.model.as_deref())
+                    .collect::<Vec<_>>(),
+                [
+                    Some("provider/new"),
+                    Some("provider/middle"),
+                    Some("provider/tail"),
+                    Some("provider/latest")
+                ],
+                "second rotation must neither replay old middle nor drop the reordered fresh event"
+            );
+        }
+        fs::remove_dir_all(&root).expect("middle watermark fixture should be removable");
+    }
+
+    #[test]
+    fn runtime_cursor_tail_title_has_a_budget_without_overriding_the_title_slot() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-tail-title-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("title fixture root should be creatable");
+        for title_slot in [None, Some("Current title")] {
+            let path = root.join(format!("{}.jsonl", title_slot.is_some()));
+            let mut file =
+                fs::File::create(&path).expect("large title history should be creatable");
+            if let Some(title) = title_slot {
+                writeln!(file, "{{\"type\":\"title\",\"title\":\"{title}\"}}")
+                    .expect("title slot should be writable");
+            }
+            for index in 0..80 {
+                writeln!(file, "{{\"type\":\"custom\",\"id\":\"prefix-{index}\"}}")
+                    .expect("dense valid prefix should be writable");
+            }
+            file.seek(SeekFrom::Start(super::RUNTIME_BASELINE_REGION_BYTES * 3))
+                .expect("tail title should be seekable");
+            file.write_all(b"\n{\"type\":\"title_change\",\"title\":\"Tail title\"}\n")
+                .expect("tail title should be writable");
+            drop(file);
+            let mut cursor = RuntimeWatchCursor::at_end(&path);
+            assert_eq!(
+                cursor.take_baseline_session_title(),
+                (Some(title_slot.unwrap_or("Tail title").to_owned()), true)
+            );
+            let mut historical_titles = Vec::new();
+            for _ in 0..2 {
+                poll_runtime_file(
+                    &path,
+                    &mut cursor,
+                    || {},
+                    |line| {
+                        if let Some(title) = session_title_from_line(line) {
+                            historical_titles.push(title);
+                        }
+                    },
+                );
+            }
+            assert!(
+                historical_titles.is_empty(),
+                "baseline title must not replay as live"
+            );
+        }
+        fs::remove_dir_all(&root).expect("title fixture should be removable");
+    }
+
+    #[test]
+    fn runtime_cursor_seeds_rewrite_recovery_across_a_large_history_gap() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-gap-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("large history directory should be writable");
+        let checkpoint = "{\"type\":\"message\",\"id\":\"checkpoint\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}\n";
+        let live = "{\"type\":\"model_change\",\"id\":\"live\",\"timestamp\":\"2026-08-09T10:00:03Z\",\"model\":\"provider/current\"}\n";
+        for starts_at_record in [false, true] {
+            let path = directory.join(format!("{starts_at_record}.jsonl"));
+            let mut file = fs::File::create(&path).expect("large history should be writable");
+            file.write_all(
+                b"{\"type\":\"title\",\"title\":\"Large session\"}\n{\"type\":\"session\",\"id\":\"session\",\"timestamp\":\"2026-08-09T10:00:00Z\"}\n",
+            )
+            .expect("baseline title and header should be writable");
+            let region = super::RUNTIME_BASELINE_REGION_BYTES;
+            if starts_at_record {
+                file.seek(SeekFrom::Start(2 * region - 1))
+                    .expect("tail boundary should be seekable");
+                file.write_all(b"\n")
+                    .expect("record boundary should be writable");
+                file.write_all(checkpoint.as_bytes())
+                    .expect("first tail record should be writable");
+                file.seek(SeekFrom::Start(3 * region - 1))
+                    .expect("oversized trailing record should be seekable");
+                file.write_all(b"\n")
+                    .expect("oversized trailing record should terminate");
+            } else {
+                file.seek(SeekFrom::Start(3 * region))
+                    .expect("large history gap should be seekable");
+                file.write_all(
+                    b"{\"type\":\"model_change\",\"id\":\"clipped\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"model\":\"provider/historical\"}\n",
+                )
+                .expect("JSON-looking suffix of an oversized row should be writable");
+                file.write_all(checkpoint.as_bytes())
+                    .expect("final historical record should be writable");
+            }
+            drop(file);
+            let mut cursor = RuntimeWatchCursor::at_end(&path);
+            assert_eq!(
+                cursor.take_baseline_session_title(),
+                (Some("Large session".to_owned()), true)
+            );
+            let mut events = Vec::new();
+            poll_runtime_file(
+                &path,
+                &mut cursor,
+                || {},
+                |line| {
+                    if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                        events.push(event);
+                    }
+                },
+            );
+            assert!(events.is_empty(), "historical controls must not replay");
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .expect("large history should be appendable");
+            file.write_all(live.as_bytes())
+                .expect("live model should be appendable");
+            drop(file);
+            poll_runtime_file(
+                &path,
+                &mut cursor,
+                || {},
+                |line| {
+                    if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                        events.push(event);
+                    }
+                },
+            );
+            fs::rename(
+                &path,
+                directory.join(format!("{starts_at_record}.old.jsonl")),
+            )
+            .expect("large history should be rotatable");
+            fs::write(
+                &path,
+                format!(
+                    "{checkpoint}{live}{{\"type\":\"retry_fallback_applied\",\"id\":\"new-fallback\",\"timestamp\":\"2026-08-09T10:00:04Z\",\"from\":\"provider/current\",\"to\":\"provider/fallback\",\"role\":\"default\"}}\n"
+                ),
+            )
+            .expect("replacement segment should be writable");
+            poll_runtime_file(
+                &path,
+                &mut cursor,
+                || {},
+                |line| {
+                    if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                        events.push(event);
+                    }
+                },
+            );
+            assert_eq!(
+                events.len(),
+                2,
+                "history and the observed model must not replay"
+            );
+            assert_eq!(events[0].kind, PtyRuntimeEventKind::ModelChange);
+            assert_eq!(events[0].model.as_deref(), Some("provider/current"));
+            assert_eq!(events[1].kind, PtyRuntimeEventKind::RetryFallbackApplied);
+            assert_eq!(events[1].fallback_to.as_deref(), Some("provider/fallback"));
+        }
+        fs::remove_dir_all(&directory).expect("large history directory should be removable");
+    }
+
+    #[test]
+    fn runtime_cursor_completes_an_event_pending_at_initial_eof_once() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "omp-desktop-runtime-pending-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"message\",\"id\":\"old\",\"timestamp\":\"2026-08-09T10:00:00Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"historical\"}}\n",
+                "{\"type\":\"model_change\",\"id\":\"pending\",\"timestamp\":\"2026-08-09T10:00:01Z\",\"model\":\"provider/",
+            ),
+        )
+        .expect("pending event fixture should be writable");
+        let mut cursor = RuntimeWatchCursor::at_end(&path);
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("pending event should be appendable");
+        file.write_all(b"new\"}")
+            .expect("pending JSON should be completable without a newline");
+        let mut models = Vec::new();
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    assert_eq!(event.kind, PtyRuntimeEventKind::ModelChange);
+                    models.extend(event.model);
+                }
+            },
+        );
+        file.write_all(
+            b"\n{\"type\":\"model_change\",\"id\":\"next\",\"timestamp\":\"2026-08-09T10:00:02Z\",\"model\":\"provider/next\"}\n",
+        )
+        .expect("the next event should be appendable");
+        poll_runtime_file(
+            &path,
+            &mut cursor,
+            || {},
+            |line| {
+                if let Some(event) = runtime_event_from_line("terminal-1", line) {
+                    assert_eq!(event.kind, PtyRuntimeEventKind::ModelChange);
+                    models.extend(event.model);
+                }
+            },
+        );
+        drop(file);
+        fs::remove_file(&path).expect("pending event fixture should be removable");
+
+        assert_eq!(models, ["provider/new", "provider/next"]);
     }
 
     #[test]

@@ -53,17 +53,20 @@ export function CodexImportModal({
     input.focus({ preventScroll: true })
   })
   const focusAdjacent = (index: number, key: string) => {
+    const currentIndex = pendingFocusRef.current ?? index
     const next =
       key === "Home"
         ? 0
         : key === "End"
           ? sessions.length - 1
-          : index + (key === "ArrowDown" ? 1 : -1)
+          : currentIndex + (key === "ArrowDown" ? 1 : -1)
     if (next < 0 || next >= sessions.length) return
     const input = listRef.current?.querySelector<HTMLInputElement>(
       `[data-virtual-index="${next}"] input`,
     )
     if (input) {
+      if (pendingFocusRef.current !== null) scrollToIndex(next)
+      pendingFocusRef.current = null
       input.focus()
     } else {
       pendingFocusRef.current = next
@@ -114,12 +117,17 @@ export function CodexImportModal({
           </button>
         </header>
         <div className="settings-scroll">
-          {loading ? (
-            <p className="field-help">{t(language, "loading")}</p>
-          ) : sessions.length === 0 ? (
-            <p className="field-help">{t(language, "noCodexSessions")}</p>
-          ) : (
-            <div className="codex-list" ref={listRef}>
+          {loading && sessions.length > 0 && (
+            <p className="field-help" role="status">
+              {t(language, "loading")}
+            </p>
+          )}
+          <div className="codex-list" ref={listRef} aria-busy={loading}>
+            {sessions.length === 0 ? (
+              <p className="field-help" role="status">
+                {t(language, loading ? "loading" : "noCodexSessions")}
+              </p>
+            ) : (
               <div
                 className="codex-list-contents"
                 style={{ height: totalHeight, position: "relative" }}
@@ -165,8 +173,8 @@ export function CodexImportModal({
                   </label>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           <ImportModeSelect
             disabled={importing}
             language={language}

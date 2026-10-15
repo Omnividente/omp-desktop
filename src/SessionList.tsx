@@ -90,8 +90,8 @@ export function SessionList({
   const actionFocusRef = useRef<{
     id: string
     workspace: string | null
-    kind: "remove" | "rename" | "renamed"
-    origin: HTMLElement
+    kind: "remove" | "pin" | "rename" | "renamed"
+    origin: Element
     target: HTMLElement | null
   } | null>(null)
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
@@ -152,12 +152,16 @@ export function SessionList({
       pending.kind === "remove"
         ? allSessions.some((session) => session.id === pending.id)
         : pending.origin.isConnected &&
-          (pending.kind === "renamed" || renamingSessionId === pending.id)
+          (pending.kind === "pin" || pending.kind === "renamed" || renamingSessionId === pending.id)
     )
       return
     actionFocusRef.current = null
     if (document.activeElement === document.body || document.activeElement === pending.origin) {
-      const target = pending.target?.isConnected ? pending.target : listRef.current
+      const target = pending.target?.isConnected
+        ? pending.target
+        : pending.kind === "pin" && searchInputRef.current?.isConnected
+          ? searchInputRef.current
+          : listRef.current
       if (pending.kind === "rename" && target && target !== listRef.current) {
         // A saved title can leave the current search after the backend responds.
         // Keep guarding this focused row until it disappears or the user moves on.
@@ -361,6 +365,16 @@ export function SessionList({
                     onSubmitRename={submit}
                     onToggleTitlePin={(event) => {
                       event.stopPropagation()
+                      actionFocusRef.current =
+                        document.activeElement === event.currentTarget
+                          ? {
+                              id: session.id,
+                              workspace: selectedWorkspacePath,
+                              kind: "pin",
+                              origin: event.currentTarget,
+                              target: null,
+                            }
+                          : null
                       onToggleTitlePin(session)
                     }}
                     onTranscript={(event) => {

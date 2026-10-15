@@ -170,7 +170,10 @@ export function SessionRow({
                 onBlur={() => {
                   if (!renameFinishedByKeyboardRef.current) onSubmitRename()
                 }}
-                onChange={(e) => onRenameChange(e.target.value)}
+                onChange={(e) => {
+                  renameFinishedByKeyboardRef.current = false
+                  onRenameChange(e.target.value)
+                }}
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation()

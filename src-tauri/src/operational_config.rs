@@ -1,6 +1,6 @@
 use crate::{
-    models::{OmpOperationalChange, OmpOperationalSetting},
-    omp_bridge::{run_omp_json, run_omp_text},
+    models::{OmpAgentChange, OmpOperationalChange, OmpOperationalSetting, SettingsPatch},
+    omp_bridge::{model_patterns, run_omp_json, run_omp_text},
     omp_command::OmpOperation,
     sessions::atomic_write_private_file,
 };
@@ -217,6 +217,7 @@ pub(crate) fn validate_changes(
 
 struct ConfigWrite {
     key: String,
+    owned_roles: Option<Vec<String>>,
     before: Option<Vec<u8>>,
     after: Option<Vec<u8>>,
 }
@@ -269,45 +270,171 @@ impl OperationalTransaction {
         changes: &BTreeMap<String, OmpOperationalChange>,
     ) -> Result<(), String> {
         for (key, change) in changes {
-            let current = run_omp_json(
+            let value = self.apply_change(executable, env, key, change)?;
+            self.expected.insert(key.clone(), value);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply_change(
+        &mut self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        key: &str,
+        change: &OmpOperationalChange,
+    ) -> Result<Value, String> {
+        self.apply_checked(executable, env, key, change, None)
+    }
+
+    pub(crate) fn apply_roles(
+        &mut self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        changes: &BTreeMap<String, String>,
+        previous: &[crate::models::OmpRoleInfo],
+    ) -> Result<BTreeMap<String, String>, String> {
+        let result = run_omp_json(
+            executable,
+            &["config", "get", "modelRoles", "--json"],
+            env,
+            OmpOperation::Config,
+        )?;
+        let current = result.get("value").cloned().unwrap_or(Value::Null);
+        let mut roles = current
+            .as_object()
+            .cloned()
+            .ok_or("OMP вернул некорректные роли моделей")?;
+        for (role, selector) in changes {
+            let baseline = previous
+                .iter()
+                .find(|value| &value.role == role)
+                .map(|value| value.selector.trim())
+                .unwrap_or_default();
+            if roles
+                .get(role)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                != baseline
+            {
+                return Err(format!(
+                    "Роль `{role}` изменена во время сохранения; обновите настройки"
+                ));
+            }
+            if selector.is_empty() {
+                roles.remove(role);
+            } else {
+                roles.insert(role.clone(), Value::String(selector.clone()));
+            }
+        }
+        let value = self.apply_checked(
+            executable,
+            env,
+            "modelRoles",
+            &OmpOperationalChange {
+                expected_value: current,
+                value: Value::Object(roles),
+                reset: false,
+            },
+            Some(changes.keys().cloned().collect()),
+        )?;
+        serde_json::from_value(value)
+            .map_err(|_| "OMP вернул некорректные роли после сохранения".to_owned())
+    }
+
+    pub(crate) fn apply_agents(
+        &mut self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        changes: &BTreeMap<String, OmpAgentChange>,
+    ) -> Result<(), String> {
+        for key in ["task.agentModelOverrides", "task.disabledAgents"] {
+            let relevant = changes
+                .iter()
+                .filter(|(_, change)| {
+                    if key == "task.disabledAgents" {
+                        change.enabled.is_some()
+                    } else {
+                        !matches!(&change.model_override, SettingsPatch::Missing)
+                    }
+                })
+                .map(|(name, _)| name.clone())
+                .collect::<Vec<_>>();
+            if relevant.is_empty() {
+                continue;
+            }
+            let result = run_omp_json(
                 executable,
                 &["config", "get", key, "--json"],
                 env,
                 OmpOperation::Config,
             )?;
-            if current.get("value").unwrap_or(&Value::Null) != &change.expected_value {
-                return Err(format!(
-                    "Параметр `{key}` изменён во время сохранения; обновите настройки"
-                ));
-            }
-            let before = read_optional(&self.path)?;
-            let rendered = change
-                .value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| change.value.to_string());
-            let args = if change.reset {
-                vec!["config", "reset", key.as_str(), "--json"]
-            } else {
-                vec!["config", "set", key.as_str(), rendered.as_str(), "--json"]
-            };
-            let result = run_omp_json(executable, &args, env, OmpOperation::Config);
-            let after = read_optional(&self.path)?;
-            if before != after {
-                self.writes.push(ConfigWrite {
-                    key: key.clone(),
-                    before,
-                    after,
-                });
-            }
-            let result = result?;
-            let value = result.get("value").cloned().unwrap_or(Value::Null);
-            if !change.reset && value != change.value {
-                return Err(format!("OMP не применил значение параметра `{key}`"));
-            }
-            self.expected.insert(key.clone(), value);
+            let current = result.get("value").cloned().unwrap_or(Value::Null);
+            let value = merge_agent_changes(key, &current, changes)?;
+            self.apply_checked(
+                executable,
+                env,
+                key,
+                &OmpOperationalChange {
+                    expected_value: current,
+                    value,
+                    reset: false,
+                },
+                Some(relevant),
+            )?;
         }
         Ok(())
+    }
+
+    fn apply_checked(
+        &mut self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        key: &str,
+        change: &OmpOperationalChange,
+        owned_roles: Option<Vec<String>>,
+    ) -> Result<Value, String> {
+        let current = run_omp_json(
+            executable,
+            &["config", "get", key, "--json"],
+            env,
+            OmpOperation::Config,
+        )?;
+        let current = current.get("value").unwrap_or(&Value::Null);
+        if current != &change.expected_value {
+            return Err(format!(
+                "Параметр `{key}` изменён во время сохранения; обновите настройки"
+            ));
+        }
+        if !change.reset && current == &change.value {
+            return Ok(current.clone());
+        }
+        let before = read_optional(&self.path)?;
+        let rendered = change
+            .value
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| change.value.to_string());
+        let args = if change.reset {
+            vec!["config", "reset", key, "--json"]
+        } else {
+            vec!["config", "set", key, rendered.as_str(), "--json"]
+        };
+        let result = run_omp_json(executable, &args, env, OmpOperation::Config);
+        let after = read_optional(&self.path)?;
+        if before != after {
+            self.writes.push(ConfigWrite {
+                key: key.to_owned(),
+                owned_roles,
+                before,
+                after,
+            });
+        }
+        let value = result?.get("value").cloned().unwrap_or(Value::Null);
+        if !change.reset && value != change.value {
+            return Err(format!("OMP не применил значение параметра `{key}`"));
+        }
+        Ok(value)
     }
 
     pub(crate) fn verify(&self, catalog: &[OmpOperationalSetting]) -> Result<(), String> {
@@ -333,6 +460,64 @@ impl OperationalTransaction {
         }
         errors
     }
+}
+
+fn merge_agent_changes(
+    key: &str,
+    current: &Value,
+    changes: &BTreeMap<String, OmpAgentChange>,
+) -> Result<Value, String> {
+    let conflict = |name: &str| {
+        format!("Настройки агента `{name}` изменены во время сохранения; обновите настройки")
+    };
+    if key == "task.disabledAgents" {
+        let mut disabled = current
+            .as_array()
+            .cloned()
+            .ok_or("OMP вернул некорректный task.disabledAgents")?;
+        for (name, change) in changes {
+            let Some(enabled) = change.enabled else {
+                continue;
+            };
+            let actual = !disabled
+                .iter()
+                .any(|value| value.as_str() == Some(name.as_str()));
+            if change.expected_enabled != Some(actual) {
+                return Err(conflict(name));
+            }
+            if enabled {
+                disabled.retain(|value| value.as_str() != Some(name.as_str()));
+            } else if actual {
+                disabled.push(Value::String(name.clone()));
+            }
+        }
+        return Ok(Value::Array(disabled));
+    }
+    let mut overrides = current
+        .as_object()
+        .cloned()
+        .ok_or("OMP вернул некорректный task.agentModelOverrides")?;
+    for (name, change) in changes {
+        let SettingsPatch::Set(requested) = &change.model_override else {
+            continue;
+        };
+        let SettingsPatch::Set(expected) = &change.expected_model_override else {
+            return Err(conflict(name));
+        };
+        let actual = overrides.get(name).and_then(model_patterns);
+        if &actual != expected {
+            return Err(conflict(name));
+        }
+        if let Some(patterns) = requested {
+            overrides.insert(
+                name.clone(),
+                serde_json::to_value(patterns).map_err(|_| "Некорректные модели агента")?,
+            );
+        } else {
+            overrides.remove(name);
+        }
+    }
+    Ok(Value::Object(overrides))
 }
 
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -376,6 +561,31 @@ fn remove_path(value: &mut Value, segments: &[&str]) {
     }
 }
 
+fn mask_owned_entries(config: &mut Value, key: &str, names: &[String]) {
+    let pointer = format!("/{}", key.replace('.', "/"));
+    if let Some(value) = config.pointer_mut(&pointer) {
+        if key == "task.disabledAgents" {
+            if let Some(entries) = value.as_array_mut() {
+                entries.retain(|entry| {
+                    !entry
+                        .as_str()
+                        .is_some_and(|name| names.iter().any(|owned| owned == name))
+                });
+                if entries.is_empty() {
+                    remove_path(config, &key.split('.').collect::<Vec<_>>());
+                }
+            }
+        } else if let Some(record) = value.as_object_mut() {
+            for name in names {
+                record.remove(name);
+            }
+            if record.is_empty() {
+                remove_path(config, &key.split('.').collect::<Vec<_>>());
+            }
+        }
+    }
+}
+
 fn rollback_write(path: &Path, write: &ConfigWrite) -> Result<(), String> {
     let conflict = || {
         format!("Конфигурация OMP изменилась извне; откат `{}` не перезаписал чужие изменения. Обновите настройки", write.key)
@@ -385,9 +595,15 @@ fn rollback_write(path: &Path, write: &ConfigWrite) -> Result<(), String> {
     }
     let mut before = parse_config(write.before.as_deref())?;
     let mut after = parse_config(write.after.as_deref())?;
-    let segments: Vec<_> = write.key.split('.').collect();
-    remove_path(&mut before, &segments);
-    remove_path(&mut after, &segments);
+    if let Some(names) = &write.owned_roles {
+        for config in [&mut before, &mut after] {
+            mask_owned_entries(config, &write.key, names);
+        }
+    } else {
+        let segments: Vec<_> = write.key.split('.').collect();
+        remove_path(&mut before, &segments);
+        remove_path(&mut after, &segments);
+    }
     if before != after {
         return Err(conflict());
     }
@@ -409,6 +625,80 @@ fn rollback_write(path: &Path, write: &ConfigWrite) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn agent_updates_preserve_other_agents_arrays_and_check_only_requested_fields() {
+        let changes: BTreeMap<String, OmpAgentChange> = serde_json::from_value(json!({
+            "reviewer": {"modelOverride":["@slow","synthetic/*:high"], "expectedModelOverride":["synthetic/old"]}
+        })).unwrap();
+        let current = json!({"reviewer":"synthetic/old", "security-reviewer":["synthetic/external", "@task"], "plugin-agent":"synthetic/plugin"});
+        let merged = merge_agent_changes("task.agentModelOverrides", &current, &changes).unwrap();
+        assert_eq!(merged["reviewer"], json!(["@slow", "synthetic/*:high"]));
+        assert_eq!(merged["security-reviewer"], current["security-reviewer"]);
+        assert_eq!(merged["plugin-agent"], current["plugin-agent"]);
+        let changed_same_agent = json!({"reviewer":"synthetic/newer"});
+        assert!(
+            merge_agent_changes("task.agentModelOverrides", &changed_same_agent, &changes).is_err()
+        );
+        // An override-only save does not replace disabled names or require an enabled baseline.
+        let disabled = json!(["reviewer", "external-agent", {"unknown":"keep"}]);
+        assert_eq!(
+            merge_agent_changes("task.disabledAgents", &disabled, &changes).unwrap(),
+            disabled
+        );
+    }
+
+    #[test]
+    fn clearing_agent_override_removes_entry_and_distinguishes_missing_baseline() {
+        let changes: BTreeMap<String, OmpAgentChange> = serde_json::from_value(json!({
+            "reviewer": {"modelOverride":null,"expectedModelOverride":["@slow"]}
+        }))
+        .unwrap();
+        let merged = merge_agent_changes(
+            "task.agentModelOverrides",
+            &json!({"reviewer":["@slow"], "other":["first", "second"]}),
+            &changes,
+        )
+        .unwrap();
+        assert!(merged.get("reviewer").is_none());
+        assert_eq!(merged["other"], json!(["first", "second"]));
+        let missing_baseline =
+            serde_json::from_value(json!({"reviewer":{"modelOverride":null}})).unwrap();
+        assert!(
+            merge_agent_changes("task.agentModelOverrides", &json!({}), &missing_baseline).is_err()
+        );
+        let enabled_only =
+            serde_json::from_value(json!({"reviewer":{"enabled":true,"expectedEnabled":false}}))
+                .unwrap();
+        assert_eq!(
+            merge_agent_changes(
+                "task.disabledAgents",
+                &json!(["reviewer", "other", "reviewer"]),
+                &enabled_only
+            )
+            .unwrap(),
+            json!(["other"])
+        );
+        assert!(
+            merge_agent_changes("task.disabledAgents", &json!(["other"]), &enabled_only).is_err()
+        );
+    }
+
+    #[test]
+    fn agent_rollback_does_not_own_unrequested_names_or_task_fields() {
+        let mut before =
+            json!({"task":{"agentModelOverrides":{"reviewer":"old","other":"keep"},"batch":true}});
+        let mut after = json!({"task":{"agentModelOverrides":{"reviewer":["new"],"other":"external"},"batch":true}});
+        let owned = vec!["reviewer".to_owned()];
+        mask_owned_entries(&mut before, "task.agentModelOverrides", &owned);
+        mask_owned_entries(&mut after, "task.agentModelOverrides", &owned);
+        assert_ne!(before, after);
+        let mut before = json!({"task":{"batch":true}});
+        let mut after = json!({"task":{"disabledAgents":["reviewer"],"batch":true}});
+        mask_owned_entries(&mut before, "task.disabledAgents", &owned);
+        mask_owned_entries(&mut after, "task.disabledAgents", &owned);
+        assert_eq!(before, after);
+    }
 
     #[test]
     fn catalog_never_exposes_generic_secrets_or_unrecognized_enum_values() {
@@ -458,6 +748,7 @@ mod tests {
         fs::write(&path, &after).unwrap();
         let write = ConfigWrite {
             key: "retry.maxRetries".to_owned(),
+            owned_roles: None,
             before: Some(before.clone()),
             after: Some(after.clone()),
         };
@@ -475,6 +766,41 @@ mod tests {
         };
         assert!(rollback_write(&path, &concurrent_write).is_err());
         assert_eq!(fs::read(&path).unwrap(), concurrent);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn role_rollback_owns_only_changed_roles_and_retains_foreign_mutations() {
+        let directory = std::env::temp_dir().join(format!(
+            "omp-role-rollback-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("config.yml");
+        let before = b"unknown: keep\nmodelRoles:\n  default: synthetic/old\n  advisor: synthetic/external\n".to_vec();
+        let after = b"unknown: keep\nmodelRoles:\n  default: synthetic/new\n  advisor: synthetic/external\n".to_vec();
+        let write = ConfigWrite {
+            key: "modelRoles".to_owned(),
+            owned_roles: Some(vec!["default".to_owned()]),
+            before: Some(before.clone()),
+            after: Some(after.clone()),
+        };
+        fs::write(&path, &after).unwrap();
+        rollback_write(&path, &write).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let foreign =
+            b"unknown: keep\nmodelRoles:\n  default: synthetic/new\n  advisor: synthetic/later\n"
+                .to_vec();
+        fs::write(&path, &foreign).unwrap();
+        // Refuse rollback even when the CLI post-write snapshot itself observed
+        // a concurrent, unowned role change. Never restore stale whole records.
+        let write = ConfigWrite {
+            after: Some(foreign.clone()),
+            ..write
+        };
+        assert!(rollback_write(&path, &write).is_err());
+        assert_eq!(fs::read(&path).unwrap(), foreign);
         fs::remove_dir_all(directory).unwrap();
     }
 }

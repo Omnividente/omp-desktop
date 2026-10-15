@@ -755,7 +755,6 @@ fn proxy_provider_overlay(providers: &BTreeSet<String>) -> Result<Option<Vec<u8>
         .collect::<BTreeMap<_, _>>();
     let mut contents = serde_json::to_vec_pretty(&serde_json::json!({
         "retry": { "fallbackChains": fallback_chains },
-        "providers": { "openaiWebsockets": "off" },
     }))
     .map_err(|error| format!("Не удалось сериализовать proxy overlay: {error}"))?;
     contents.push(b'\n');
@@ -850,7 +849,10 @@ fn resolve_omp_uncached(_app: &AppHandle, settings: &AppSettings) -> OmpResoluti
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        candidates.push(configured.to_owned());
+        return OmpResolution {
+            executable: configured.to_owned(),
+            version: probe_omp(configured),
+        };
     }
 
     if let Some(from_env) = env::var_os("OMP_EXECUTABLE") {
@@ -1160,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_provider_overlay_keeps_fallback_inside_proxy_and_disables_websockets() {
+    fn proxy_provider_overlay_keeps_fallback_inside_proxy() {
         let providers = BTreeSet::from(["codex-lb".to_owned(), "gateway".to_owned()]);
         let contents = proxy_provider_overlay_for_test(&providers);
         let overlay = serde_saphyr::from_str::<serde_json::Value>(
@@ -1182,16 +1184,10 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("gateway/*")
         );
-        assert_eq!(
-            overlay
-                .pointer("/providers/openaiWebsockets")
-                .and_then(serde_json::Value::as_str),
-            Some("off")
-        );
     }
 
     #[test]
-    fn proxy_and_primary_pin_overlays_compose_without_losing_settings() {
+    fn proxy_and_primary_pin_overlays_preserve_explicit_websocket_policy() {
         fn merge(target: &mut serde_json::Value, overlay: serde_json::Value) {
             match (target, overlay) {
                 (serde_json::Value::Object(target), serde_json::Value::Object(overlay)) => {
@@ -1211,7 +1207,9 @@ mod tests {
         .expect("proxy overlay should be valid YAML");
         let pin = serde_saphyr::from_str::<serde_json::Value>(primary_provider_pin_overlay())
             .expect("pin overlay should be valid YAML");
-        let mut combined = serde_json::json!({});
+        let mut combined = serde_json::json!({
+            "providers": { "openaiWebsockets": "on" },
+        });
         merge(&mut combined, proxy);
         merge(&mut combined, pin);
 
@@ -1226,7 +1224,7 @@ mod tests {
             combined
                 .pointer("/providers/openaiWebsockets")
                 .and_then(serde_json::Value::as_str),
-            Some("off")
+            Some("on")
         );
         assert_eq!(
             combined

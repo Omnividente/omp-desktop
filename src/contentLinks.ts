@@ -38,7 +38,7 @@ export function isFileContentLink(uri: string): boolean {
 export const CONTENT_URL_PATTERN =
   /(?:https?|file|local|artifact):\/\/[^\s"'!*(){}|\\^<>`]*[^\s"':;,.!?{}|\\^~\[\]`()<>]/gi
 const MARKDOWN_LINK =
-  /\[([^\]\n]+)\]\((<[^>\n]+>|(?:\\.|[^()\s\\]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\)/g
+  /\[((?:\\.|[^\[\]\n\\])+)]\((<[^>\n]+>|(?:\\.|[^()\s\\]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\)/g
 const MAIL_LINK = /mailto:[^\s<>"'`]+/gi
 
 function trimMailLink(value: string): string {
@@ -63,14 +63,21 @@ export function contentLinks(text: string): ContentLink[] {
   for (const pattern of [CONTENT_URL_PATTERN, MAIL_LINK]) {
     let markdownIndex = 0
     for (const match of text.matchAll(pattern)) {
-      const uri = pattern === MAIL_LINK ? trimMailLink(match[0]) : match[0]
+      let uri = pattern === MAIL_LINK ? trimMailLink(match[0]) : match[0]
       while (
         markdownIndex < markdownSpans.length &&
         markdownSpans[markdownIndex].end <= match.index
       ) {
         markdownIndex++
       }
-      if (markdownSpans[markdownIndex]?.start <= match.index) continue
+      const markdown = markdownSpans[markdownIndex]
+      if (markdown && markdown.start < match.index + uri.length) {
+        if (markdown.start <= match.index) continue
+        // Clip at Markdown's boundary without excluding valid bracketed IPv6 URLs.
+        const prefix = text.slice(match.index, markdown.start).match(pattern)?.[0]
+        if (!prefix) continue
+        uri = pattern === MAIL_LINK ? trimMailLink(prefix) : prefix
+      }
       links.push({ start: match.index, end: match.index + uri.length, label: uri, uri })
     }
   }

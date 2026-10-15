@@ -1,7 +1,7 @@
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeInfo, SessionSummary, WorkspaceSummary } from "./types"
-import { formatRelative } from "./uiUtils"
+import { formatRelative, formatShortcut } from "./uiUtils"
 
 interface WorkspaceHomeProps {
   workspace: WorkspaceSummary | null
@@ -40,7 +40,9 @@ export function WorkspaceHome({
           <Icon name="folderOpen" />
           {t(lang, "btnOpenFolder")}
         </button>
-        <span className="shortcut-hint">Ctrl + Shift + O</span>
+        <span className="shortcut-hint">
+          {formatShortcut("Ctrl + Shift + O", runtime.platform)}
+        </span>
       </section>
     )
   }

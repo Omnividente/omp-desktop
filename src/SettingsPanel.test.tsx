@@ -62,6 +62,8 @@ const runtime: RuntimeInfo = {
 
 const ompConfig: OmpConfigSnapshot = {
   roles: [],
+  agents: [],
+  agentSettingsSupported: false,
   models: [],
   accounts: [
     {
@@ -158,6 +160,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -208,6 +211,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -256,6 +260,7 @@ describe("SettingsPanel Save state", () => {
     await act(async () => {
       root.render(
         <SettingsPanel
+          initialOmpConfig={null}
           onClose={vi.fn()}
           onError={vi.fn()}
           onSaved={vi.fn()}
@@ -332,10 +337,16 @@ describe("SettingsPanel configuration generations", () => {
     }
   }
 
-  async function renderPanel(nextRuntime = runtime, nextSettings = settings, strict = false) {
+  async function renderPanel(
+    nextRuntime = runtime,
+    nextSettings = settings,
+    strict = false,
+    initialSnapshot: OmpConfigSnapshot | null = null,
+  ) {
     await act(async () => {
       const panel = (
         <SettingsPanel
+          initialOmpConfig={initialSnapshot}
           onClose={() => root.render(null)}
           onError={onError}
           onSaved={onSaved}
@@ -356,6 +367,26 @@ describe("SettingsPanel configuration generations", () => {
       )
       input.dispatchEvent(new Event("input", { bubbles: true }))
     })
+  }
+
+  function changeField(selector: string, value: string) {
+    act(() => {
+      const field = container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!
+      const prototype =
+        field.tagName === "SELECT"
+          ? window.HTMLSelectElement.prototype
+          : window.HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(field, value)
+      field.dispatchEvent(
+        new Event(field.tagName === "SELECT" ? "change" : "input", { bubbles: true }),
+      )
+    })
+  }
+
+  function addKey(name: string, value: string) {
+    changeField(".provider-add-row input:first-child", name)
+    changeField(".provider-add-row input[type=password]", value)
+    act(() => container.querySelector<HTMLButtonElement>(".provider-add-row button")!.click())
   }
 
   function expectAdvisorDraft(enabled: boolean) {
@@ -379,6 +410,56 @@ describe("SettingsPanel configuration generations", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it("opens a cached role baseline as clean and editable in Strict Mode", async () => {
+    const model = {
+      provider: "catalog",
+      id: "cached",
+      selector: "catalog/cached",
+      name: "Cached model",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+    }
+    const snapshot = {
+      ...ompConfig,
+      models: [model],
+      roles: [
+        {
+          role: "default",
+          selector: model.selector,
+          model,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+      advisorEnabled: true,
+      autoResume: true,
+      defaultThinkingLevel: "high",
+      modelFallbackEnabled: false,
+      fallbackChains: { default: [model.selector] },
+      proxyProviders: ["catalog"],
+      disabledProviders: ["unused"],
+    }
+    loadOmpConfigMock.mockReturnValue(deferred<OmpConfigSnapshot>().promise)
+    await renderPanel(runtime, settings, true, snapshot)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+    expectAdvisorDraft(true)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    const picker = container.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+    expect(picker.textContent).toContain("Cached model")
+    act(() => picker.click())
+    expect(container.querySelector(".model-picker-option")?.textContent).toContain("Cached model")
+    expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 
   it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
@@ -438,6 +519,429 @@ describe("SettingsPanel configuration generations", () => {
     )
   })
 
+  it("saves only changed agent fields without collapsing inherited or ordered overrides", async () => {
+    const reviewer = {
+      name: "reviewer",
+      description: "Reviews code",
+      source: "builtin",
+      enabled: false,
+      modelOverride: ["slow", "catalog/*"],
+      defaultModelSelectors: ["slow"],
+    }
+    const security = {
+      name: "security-reviewer",
+      description: "Reviews security",
+      source: "project",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    }
+    const snapshot = { ...ompConfig, agents: [reviewer, security], agentSettingsSupported: true }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    expect(container.querySelectorAll(".agent-row")).toHaveLength(2)
+    const reviewerRow = container.querySelector<HTMLElement>('[data-agent="reviewer"]')!
+    expect(reviewerRow.querySelectorAll(".model-picker-trigger")).toHaveLength(2)
+    act(() => reviewerRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click())
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig.agentChanges).toEqual({
+      reviewer: { enabled: true, expectedEnabled: false },
+    })
+  })
+
+  it("configures agent models through the picker and clears overrides to inherit", async () => {
+    const agent = {
+      name: "security-reviewer",
+      description: "Reviews security",
+      source: "project",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    }
+    const snapshot = {
+      ...ompConfig,
+      agents: [agent],
+      agentSettingsSupported: true,
+      roles: [
+        {
+          role: "default",
+          selector: "catalog/main",
+          model: null,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+    }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    changeField('[data-agent="security-reviewer"] .agent-model-mode select', "override")
+    expect(
+      container.querySelector('[data-agent="security-reviewer"] .model-picker-copy small')!
+        .textContent,
+    ).toBe("@default")
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-agent="security-reviewer"] .model-picker-trigger')!
+        .click(),
+    )
+    changeField('[data-agent="security-reviewer"] .model-picker-shortcuts select', "@default")
+    expect(
+      container.querySelector('[data-agent="security-reviewer"] .model-picker-panel'),
+    ).toBeNull()
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-agent="security-reviewer"] .model-picker-trigger')!
+        .click(),
+    )
+    changeField(
+      '[data-agent="security-reviewer"] .model-picker-manual input',
+      "catalog/custom:high",
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig.agentChanges).toEqual({
+      "security-reviewer": { modelOverride: ["catalog/custom:high"], expectedModelOverride: null },
+    })
+    const overridden = { ...snapshot, agents: [{ ...agent, modelOverride: ["slow", "catalog/*"] }] }
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await renderPanel(runtime, settings, false, overridden)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    changeField('[data-agent="security-reviewer"] .agent-model-mode select', "inherit")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[1][0].ompConfig.agentChanges).toEqual({
+      "security-reviewer": { modelOverride: null, expectedModelOverride: ["slow", "catalog/*"] },
+    })
+  })
+
+  it("does not send model configuration for a preference-only save with agents", async () => {
+    const snapshot = {
+      ...ompConfig,
+      agentSettingsSupported: true,
+      agents: [
+        {
+          name: "reviewer",
+          description: "Reviews code",
+          source: "builtin",
+          enabled: true,
+          modelOverride: ["slow", "catalog/*"],
+          defaultModelSelectors: ["slow"],
+        },
+      ],
+    }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    changeField("#app-font-size", "20")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig).toBeNull()
+  })
+
+  it("keeps unsupported agent configuration read-only", async () => {
+    const snapshot = {
+      ...ompConfig,
+      agents: [
+        {
+          name: "reviewer",
+          description: "Reviews code",
+          source: "builtin",
+          enabled: true,
+          modelOverride: ["slow"],
+          defaultModelSelectors: ["slow"],
+        },
+      ],
+    }
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    expect(container.querySelector('[data-agent="reviewer"] input')!.matches(":disabled")).toBe(
+      true,
+    )
+    expect(container.querySelector('[data-agent="reviewer"] select')!.matches(":disabled")).toBe(
+      true,
+    )
+    expect(
+      container
+        .querySelector('[data-agent="reviewer"] .model-picker-trigger')!
+        .matches(":disabled"),
+    ).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+  })
+
+  it("merges discovered roles and agents while retaining model, agent and fallback drafts", async () => {
+    const reviewer = {
+      name: "reviewer",
+      description: "Reviews code",
+      source: "builtin",
+      enabled: false,
+      modelOverride: ["slow", "catalog/*"],
+      defaultModelSelectors: ["slow"],
+    }
+    const role = {
+      role: "default",
+      selector: "catalog/main",
+      model: null,
+      available: true,
+      status: "ok",
+      detail: null,
+    }
+    const snapshot = {
+      ...ompConfig,
+      agents: [reviewer],
+      agentSettingsSupported: true,
+      roles: [role],
+      fallbackChains: { default: ["catalog/first", "catalog/second"] },
+    }
+    const refresh = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refresh.promise)
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-role="default"] .model-picker-trigger')!
+        .click(),
+    )
+    changeField('[data-role="default"] .model-picker-manual input', "catalog/draft")
+    act(() =>
+      container
+        .querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .click(),
+    )
+    act(() =>
+      container
+        .querySelectorAll<HTMLButtonElement>('[data-agent="reviewer"] .model-picker-trigger')[1]
+        .click(),
+    )
+    changeField('[data-agent="reviewer"] .model-picker-manual input', "catalog/agent-draft")
+    const moveDown = container.querySelector<HTMLButtonElement>(
+      ".fallback-entry-actions button:nth-child(2)",
+    )!
+    act(() => moveDown.click())
+    changeField(".fallback-chain-key input", "custom-chain")
+    await act(async () =>
+      refresh.resolve({
+        ...snapshot,
+        roles: [role, { ...role, role: "extra-role", selector: "catalog/extra" }],
+        agents: [
+          { ...reviewer, enabled: true, modelOverride: ["other"] },
+          { ...reviewer, name: "security-reviewer", modelOverride: null },
+        ],
+        fallbackChains: { default: ["catalog/external"] },
+      }),
+    )
+    expect(container.querySelectorAll('[data-role="default"]')).toHaveLength(1)
+    expect(container.querySelector('[data-role="extra-role"]')).not.toBeNull()
+    expect(container.querySelector('[data-role="extra-role"] strong')!.textContent).toBe(
+      "extra-role",
+    )
+    expect(container.querySelector('[data-agent="security-reviewer"]')).not.toBeNull()
+    expect(
+      container.querySelectorAll(".settings-models-controls > .settings-section"),
+    ).toHaveLength(3)
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-role="default"] .model-picker-trigger')!
+        .textContent,
+    ).toContain("catalog/draft")
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .checked,
+    ).toBe(true)
+    expect(
+      container.querySelectorAll('[data-agent="reviewer"] .model-picker-trigger'),
+    ).toHaveLength(2)
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig).toEqual(
+      expect.objectContaining({
+        roles: { default: "catalog/draft" },
+        agentChanges: {
+          reviewer: {
+            enabled: true,
+            expectedEnabled: false,
+            modelOverride: ["slow", "catalog/agent-draft"],
+            expectedModelOverride: ["slow", "catalog/*"],
+          },
+        },
+        fallbackChains: { "custom-chain": ["catalog/second", "catalog/first"] },
+      }),
+    )
+  })
+
+  it("adds and removes fallback chains and entries without saving discarded selectors", async () => {
+    const snapshot = { ...ompConfig, fallbackChains: { default: ["catalog/one", "catalog/two"] } }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() => container.querySelector<HTMLButtonElement>(".fallback-add-model")!.click())
+    expect(container.querySelectorAll(".fallback-entry")).toHaveLength(3)
+    act(() =>
+      container
+        .querySelectorAll<HTMLButtonElement>(".fallback-entry-actions button:nth-child(3)")[2]
+        .click(),
+    )
+    expect(container.querySelectorAll(".fallback-entry")).toHaveLength(2)
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          ".settings-fallbacks-section .settings-section-heading button",
+        )!
+        .click(),
+    )
+    expect(container.querySelectorAll(".fallback-chain")).toHaveLength(2)
+    act(() => container.querySelectorAll<HTMLButtonElement>(".fallback-chain-remove")[1].click())
+    expect(container.querySelectorAll(".fallback-chain")).toHaveLength(1)
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(".fallback-entry-actions button:nth-child(3)")!
+        .click(),
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig.fallbackChains).toEqual({
+      default: ["catalog/two"],
+    })
+  })
+
+  it("offers catalog models matching each auxiliary role kind", async () => {
+    const model = {
+      provider: "catalog",
+      id: "chat",
+      selector: "catalog/chat",
+      name: "Chat",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+      kind: "chat",
+    }
+    const image = { ...model, id: "image", selector: "catalog/image", name: "Image", kind: "image" }
+    const speech = {
+      ...model,
+      id: "speech",
+      selector: "catalog/speech",
+      name: "Speech",
+      kind: "tts",
+    }
+    const role = {
+      role: "image",
+      selector: image.selector,
+      model: image,
+      available: true,
+      status: "ok",
+      detail: null,
+    }
+    const snapshot = {
+      ...ompConfig,
+      models: [model, image, speech],
+      roles: [
+        { ...role, role: "default", selector: model.selector, model },
+        role,
+        { ...role, role: "speech", selector: speech.selector, model: speech },
+      ],
+    }
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    for (const [name, selector] of [
+      ["default", model.selector],
+      ["image", image.selector],
+      ["speech", speech.selector],
+    ]) {
+      act(() =>
+        container
+          .querySelector<HTMLButtonElement>(`[data-role="${name}"] .model-picker-trigger`)!
+          .click(),
+      )
+      expect(
+        [...container.querySelectorAll(".model-picker-option small")].map(
+          (entry) => entry.textContent,
+        ),
+      ).toEqual([selector])
+    }
+  })
+
+  it("preserves ordered agent selector arrays when editing a single entry", async () => {
+    const snapshot = {
+      ...ompConfig,
+      agentSettingsSupported: true,
+      agents: [
+        {
+          name: "reviewer",
+          description: "Reviews code",
+          source: "builtin",
+          enabled: true,
+          modelOverride: ["slow", "catalog/*"],
+          defaultModelSelectors: ["slow"],
+        },
+      ],
+    }
+    saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() =>
+      container
+        .querySelectorAll<HTMLButtonElement>('[data-agent="reviewer"] .model-picker-trigger')[1]
+        .click(),
+    )
+    changeField('[data-agent="reviewer"] .model-picker-manual input', "catalog/updated")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.calls[0][0].ompConfig.agentChanges).toEqual({
+      reviewer: {
+        modelOverride: ["slow", "catalog/updated"],
+        expectedModelOverride: ["slow", "catalog/*"],
+      },
+    })
+  })
+
+  it("drops old-runtime agent drafts and ignores the cancelled refresh", async () => {
+    const agent = {
+      name: "reviewer",
+      description: "Reviews code",
+      source: "builtin",
+      enabled: false,
+      modelOverride: null,
+      defaultModelSelectors: ["slow"],
+    }
+    const snapshot = { ...ompConfig, agents: [agent], agentSettingsSupported: true }
+    const refresh = deferred<OmpConfigSnapshot>()
+    const fresh = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refresh.promise)
+    loadOmpConfigMock.mockReturnValueOnce(fresh.promise)
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() =>
+      container
+        .querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .click(),
+    )
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    await renderPanel({ ...runtime, ompExecutable: "other-omp.exe" }, settings)
+    await act(async () => fresh.resolve(snapshot))
+    await act(async () => refresh.resolve({ ...snapshot, agents: [{ ...agent, enabled: true }] }))
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .checked,
+    ).toBe(false)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      true,
+    )
+  })
+
   it("keeps the usable catalog and a dirty draft visible when refresh rejects", async () => {
     refreshOmpConfigMock.mockRejectedValueOnce(new Error("Catalog refresh failed"))
     await renderPanel()
@@ -456,6 +960,41 @@ describe("SettingsPanel configuration generations", () => {
     act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
     expect(container.textContent).toContain("codex-lb")
   })
+
+  it.each(["save", "refresh"] as const)(
+    "keeps a structured %s failure visible locally without forwarding a duplicate generic error",
+    async (operation) => {
+      const failure = {
+        code: "settings_unavailable",
+        message: "Settings storage unavailable",
+        details: "Fixture disk unavailable",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      }
+      if (operation === "save") saveSettingsBundleMock.mockRejectedValueOnce(failure)
+      else refreshOmpConfigMock.mockRejectedValueOnce(failure)
+      await renderPanel()
+      changeExecutable("draft-omp.exe")
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            operation === "save" ? ".settings-actions .primary" : ".runtime-card button",
+          )!
+          .click(),
+      )
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+      expect(container.querySelector('[role="alert"]')).not.toBeNull()
+      expect(container.querySelector<HTMLInputElement>("#omp-executable")!.value).toBe(
+        "draft-omp.exe",
+      )
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(false)
+      expect(onError).not.toHaveBeenCalled()
+      expect(onSaved).not.toHaveBeenCalled()
+    },
+  )
 
   it.each(["resolve", "reject"] as const)(
     "keeps the post-save draft when the pre-save initial load later %ss",
@@ -587,28 +1126,6 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
-  it.each(["resolve", "reject"] as const)(
-    "notifies the parent only of a successful save after closing (%s)",
-    async (settlement) => {
-      const pending = deferred<SettingsSavePayload>()
-      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
-      await renderPanel()
-      changeExecutable("saved-omp.exe")
-      act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
-      act(() => container.querySelector<HTMLButtonElement>(".settings-header button")!.click())
-      const result = saveResult(null)
-      await act(async () => {
-        if (settlement === "resolve") pending.resolve(result)
-        else pending.reject(new Error("save failed after close"))
-      })
-      expect(container.querySelector('[role="dialog"]')).toBeNull()
-      if (settlement === "resolve") expect(onSaved).toHaveBeenCalledWith(result)
-      else expect(onSaved).not.toHaveBeenCalled()
-      expect(onError).not.toHaveBeenCalled()
-      expect(loadOmpConfigMock).toHaveBeenCalledTimes(1)
-    },
-  )
-
   it("loads the returned runtime when Save makes OMP available", async () => {
     const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
     const fresh = deferred<OmpConfigSnapshot>()
@@ -680,6 +1197,239 @@ describe("SettingsPanel configuration generations", () => {
     expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 
+  it("keeps live catalog and newer drafts after preferences-only Save", async () => {
+    const oldModel = {
+      provider: "catalog",
+      id: "old",
+      selector: "catalog/old",
+      name: "Old model",
+      available: true,
+      status: "ok",
+      detail: null,
+      thinking: [],
+    }
+    const newModel = { ...oldModel, id: "new", selector: "catalog/new", name: "New model" }
+    const initial = {
+      ...ompConfig,
+      models: [oldModel],
+      roles: [
+        {
+          role: "default",
+          selector: oldModel.selector,
+          model: oldModel,
+          available: true,
+          status: "ok",
+          detail: null,
+        },
+      ],
+    }
+    const configured = { ...settings, providerEnvKeys: ["OPENAI_API_KEY"] }
+    const fontStack = '"Cascadia Code", "Noto Sans Mono", Consolas, monospace'
+    const savedSettings = { ...configured, appFontSize: 32, terminalFontFamily: fontStack }
+    const pendingSave = deferred<SettingsSavePayload>()
+    saveSettingsBundleMock.mockReturnValueOnce(pendingSave.promise)
+    refreshOmpConfigMock.mockResolvedValueOnce({ ...initial, models: [oldModel, newModel] })
+    await renderPanel(runtime, configured, false, initial)
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+    )
+    changeField("#app-font-size", "32")
+    expectAdvisorDraft(false)
+    changeField("#terminal-font-family", fontStack)
+    act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
+    const request = saveSettingsBundleMock.mock.lastCall![0]
+    expect(request.update).not.toHaveProperty("providerEnv")
+    expect(request.ompConfig).toBeNull()
+    expect(request.update.terminalFontFamily).toBe(fontStack)
+    expect(request.update.appFontSize).toBe(32)
+
+    // A no-config result must not clear edits started after this preferences save.
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    addKey("ANTHROPIC_API_KEY", "synthetic-new-key")
+    await act(async () => pendingSave.resolve(saveResult(null, runtime, savedSettings)))
+    await renderPanel(runtime, savedSettings, false, initial)
+    expect(container.querySelectorAll(".provider-key-row")).toHaveLength(2)
+    expectAdvisorDraft(true)
+    expect(container.querySelector<HTMLInputElement>("#terminal-font-family")!.value).toBe(
+      fontStack,
+    )
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() => container.querySelector<HTMLButtonElement>(".model-picker-trigger")!.click())
+    expect(
+      [...container.querySelectorAll(".model-picker-option")].some((option) =>
+        option.textContent?.includes("New model"),
+      ),
+    ).toBe(true)
+    expect(loadOmpConfigMock).not.toHaveBeenCalled()
+    expect(refreshOmpConfigMock).toHaveBeenCalledOnce()
+
+    saveSettingsBundleMock.mockResolvedValueOnce(saveResult({ ...initial, advisorEnabled: true }))
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.lastCall![0]).toEqual(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          providerEnv: { OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "synthetic-new-key" },
+        }),
+        ompConfig: expect.objectContaining({ advisorEnabled: true }),
+      }),
+    )
+  })
+
+  it.each(["replace", "add", "remove"] as const)(
+    "keeps credential %s distinct from unchanged placeholders through failure and retry",
+    async (mutation) => {
+      const configured = { ...settings, providerEnvKeys: ["OPENAI_API_KEY", "KEEP_API_KEY"] }
+      const expected =
+        mutation === "replace"
+          ? { OPENAI_API_KEY: "synthetic-replacement", KEEP_API_KEY: "" }
+          : mutation === "add"
+            ? { OPENAI_API_KEY: "", KEEP_API_KEY: "", NEW_API_KEY: "synthetic-addition" }
+            : { KEEP_API_KEY: "" }
+      const savedSettings = { ...configured, providerEnvKeys: Object.keys(expected) }
+      saveSettingsBundleMock
+        .mockRejectedValueOnce(new Error("Synthetic secret write failure"))
+        .mockResolvedValueOnce(saveResult(ompConfig, runtime, savedSettings))
+      await renderPanel(runtime, configured, false, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      if (mutation === "replace") addKey("OPENAI_API_KEY", "synthetic-replacement")
+      else if (mutation === "add") addKey("NEW_API_KEY", "synthetic-addition")
+      else {
+        const row = [...container.querySelectorAll(".provider-key-row")].find(
+          (node) => node.querySelector("code")?.textContent === "OPENAI_API_KEY",
+        )!
+        act(() => row.querySelector<HTMLButtonElement>("button")!.click())
+      }
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      await act(async () => save.click())
+      expect(container.querySelector(".settings-save-error")).not.toBeNull()
+      expect(save.disabled).toBe(false)
+      expect(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv).toEqual(expected)
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toBeNull()
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv).toEqual(expected)
+      await renderPanel(runtime, savedSettings, false, ompConfig)
+      expect(save.disabled).toBe(true)
+      expect(
+        [...container.querySelectorAll(".provider-key-row code")]
+          .map((node) => node.textContent)
+          .sort(),
+      ).toEqual(Object.keys(expected).sort())
+      expect(container.textContent).not.toContain("synthetic-replacement")
+      expect(container.textContent).not.toContain("synthetic-addition")
+
+      // The accepted values become blank keep-placeholders, not repeated writes.
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+      changeField("#app-font-size", "20")
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(null, runtime, { ...savedSettings, appFontSize: 20 }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toBeNull()
+      expect(loadOmpConfigMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps newer config drafts after a verified credential-only save", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    const savedSettings = { ...settings, providerEnvKeys: ["NEW_API_KEY"] }
+    saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+    await renderPanel(runtime, settings, false, ompConfig)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    addKey("NEW_API_KEY", "synthetic-key")
+    act(() => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toBeNull()
+    expectAdvisorDraft(false)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    await act(async () => pending.resolve(saveResult(ompConfig, runtime, savedSettings)))
+    await renderPanel(runtime, savedSettings, false, ompConfig)
+    expectAdvisorDraft(true)
+    expect(container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+      false,
+    )
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult({ ...ompConfig, advisorEnabled: true }, runtime, savedSettings),
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.advisorEnabled).toBe(true)
+  })
+
+  it("verifies custom-provider removal without rewriting kept keys", async () => {
+    confirmMock.mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const configured = { ...settings, providerEnvKeys: ["KEEP_API_KEY"] }
+    const savedSnapshot = {
+      ...ompConfig,
+      credentials: ompConfig.credentials.filter((credential) => credential.provider !== "codex-lb"),
+    }
+    saveSettingsBundleMock
+      .mockRejectedValueOnce(new Error("Synthetic removal failure"))
+      .mockResolvedValueOnce(saveResult(savedSnapshot, runtime, configured))
+    await renderPanel(runtime, configured, false, ompConfig)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".provider-remove-button")!.click(),
+    )
+    expect(save.disabled).toBe(true)
+    expect(container.querySelector(".provider-remove-button")).not.toBeNull()
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".provider-remove-button")!.click(),
+    )
+    expect(container.querySelector(".provider-remove-button")).toBeNull()
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.removedCustomProviders).toEqual([
+      "codex-lb",
+    ])
+    expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+    expect(container.querySelector(".settings-save-error")).not.toBeNull()
+    expect(save.disabled).toBe(false)
+    await act(async () => save.click())
+    expect(save.disabled).toBe(true)
+    expect(
+      [...container.querySelectorAll(".provider-credential-main strong")].map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["openai"])
+  })
+
+  it.each([null, 5])("preserves explicit operational reset against baseline %s", async (value) => {
+    const snapshot: OmpConfigSnapshot = {
+      ...ompConfig,
+      operationalSettings: [
+        {
+          key: "retry.maxRetries",
+          category: "retry",
+          type: "number",
+          description: "Synthetic retry limit",
+          value,
+          choices: [],
+        },
+      ],
+    }
+    saveSettingsBundleMock.mockResolvedValueOnce(saveResult(snapshot))
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-operations")!.click())
+    act(() =>
+      container.querySelector<HTMLButtonElement>(".settings-operation-actions button")!.click(),
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.operationalChanges).toEqual({
+      "retry.maxRetries": { expectedValue: value, value: null, reset: true },
+    })
+    expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+  })
+
   it("seeds fresh drafts after switching away from a fully loaded runtime", async () => {
     await renderPanel()
     expectAdvisorDraft(false)
@@ -718,6 +1468,7 @@ describe("SettingsPanel keyboard lifecycle", () => {
       root.render(
         <StrictMode>
           <SettingsPanel
+            initialOmpConfig={null}
             onClose={onClose}
             onError={vi.fn()}
             onSaved={vi.fn()}
@@ -753,7 +1504,10 @@ describe("SettingsPanel keyboard lifecycle", () => {
     container.querySelector<HTMLElement>(".settings-header")!.hidden = true
     cancel.focus()
     press(cancel, "Tab")
-    expect(document.activeElement).toBe(container.querySelector(".runtime-card button"))
+    const wrapped = document.activeElement
+    expect(wrapped).not.toBe(cancel)
+    expect(panel.contains(wrapped)).toBe(true)
+    expect(wrapped?.matches(":disabled, [hidden], [tabindex='-1']")).toBe(false)
     press(document.activeElement as HTMLElement, "Tab", { shiftKey: true })
     expect(document.activeElement).toBe(cancel)
   })

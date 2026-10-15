@@ -21,6 +21,8 @@ import {
   importSessions,
   listCodexSessions,
   loadOmpConfig,
+  OMP_CONFIG_STALE_MS,
+  type OmpConfigRuntime,
   openSettingsFolder,
   removeWorkspace as removeWorkspaceFromList,
   renameWorkspace,
@@ -103,7 +105,6 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import {
-  extractSingleInstanceWorkspace,
   localeTag,
   mergeSessionIntoPayload,
   normalizedPath,
@@ -238,6 +239,7 @@ function App() {
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const sessionSelectionRequestRef = useRef(0)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
@@ -272,14 +274,19 @@ function App() {
   const [toastState, setToastState] = useState(createToastState)
   const [launching, setLaunching] = useState<string | null>(null)
   const launchingRef = useRef(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpenedAt, setSettingsOpenedAt] = useState<number | null>(null)
+  const settingsOpen = settingsOpenedAt !== null
   const [startupError, setStartupError] = useState<string | null>(null)
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const sessionRenameRequestRef = useRef(0)
+  const sessionRenamePendingRef = useRef<number | null>(null)
   const [renamingWorkspaceKey, setRenamingWorkspaceKey] = useState<string | null>(null)
   const [workspaceNameValue, setWorkspaceNameValue] = useState("")
+  const workspaceRenameRequestRef = useRef(0)
+  const workspaceRenamePendingRef = useRef<number | null>(null)
   const [workspaceBusyKey, setWorkspaceBusyKey] = useState<string | null>(null)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [updateInfo, setUpdateInfo] = useState<OmpUpdateInfo | null>(null)
@@ -315,8 +322,10 @@ function App() {
   const [ompConfigLoading, setOmpConfigLoading] = useState(false)
   const [ompConfigAttempt, setOmpConfigAttempt] = useState(0)
   const ompConfigRequestRef = useRef(0)
-  const acceptOmpConfig = useCallback((snapshot: OmpConfigSnapshot) => {
+  const ompConfigBaselineRef = useRef<{ runtime: OmpConfigRuntime; loadedAt: number } | null>(null)
+  const acceptOmpConfig = useCallback((snapshot: OmpConfigSnapshot, runtime: OmpConfigRuntime) => {
     ++ompConfigRequestRef.current
+    ompConfigBaselineRef.current = { runtime, loadedAt: Date.now() }
     setOmpConfig(snapshot)
     setOmpConfigError(null)
     setOmpConfigLoading(false)
@@ -339,19 +348,23 @@ function App() {
   const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
   ompVersionRef.current = payload?.runtime.ompVersion ?? null
 
+  const ompAvailable = payload?.runtime.ompAvailable
+  const ompExecutable = payload?.runtime.ompExecutable
+  const ompVersion = payload?.runtime.ompVersion
+
   useEffect(() => {
     const request = ++ompConfigRequestRef.current
     let disposed = false
     const current = () => !disposed && request === ompConfigRequestRef.current
     setOmpConfigError(null)
     setOmpConfig(null)
-    setOmpConfigLoading(Boolean(payload?.runtime.ompAvailable))
-    if (!payload?.runtime.ompAvailable) {
-      return
-    }
-    void loadOmpConfig()
+    ompConfigBaselineRef.current = null
+    setOmpConfigLoading(Boolean(ompAvailable))
+    if (!ompAvailable || ompExecutable === undefined) return
+    const runtime = { ompAvailable, ompExecutable, ompVersion: ompVersion ?? null }
+    void loadOmpConfig(runtime)
       .then((snapshot) => {
-        if (current()) acceptOmpConfig(snapshot)
+        if (current()) acceptOmpConfig(snapshot, runtime)
       })
       .catch((error) => {
         if (current()) setOmpConfigError(errorMessage(error, langRef.current))
@@ -362,13 +375,7 @@ function App() {
     return () => {
       disposed = true
     }
-  }, [
-    acceptOmpConfig,
-    ompConfigAttempt,
-    payload?.runtime.ompAvailable,
-    payload?.runtime.ompExecutable,
-    payload?.runtime.ompVersion,
-  ])
+  }, [acceptOmpConfig, ompConfigAttempt, ompAvailable, ompExecutable, ompVersion])
   const railMode = payload?.settings.railMode ?? "expanded"
   const {
     transcriptSession,
@@ -615,17 +622,22 @@ function App() {
   const handleSettingsSaved = useCallback(
     (result: SettingsSavePayload) => {
       if (result.ompConfig) {
-        acceptOmpConfig(result.ompConfig)
-      } else {
+        acceptOmpConfig(result.ompConfig, result.bootstrap.runtime)
+      } else if (
+        ompAvailable !== result.bootstrap.runtime.ompAvailable ||
+        ompExecutable !== result.bootstrap.runtime.ompExecutable ||
+        ompVersion !== result.bootstrap.runtime.ompVersion
+      ) {
         ++ompConfigRequestRef.current
         setOmpConfig(null)
+        ompConfigBaselineRef.current = null
         setOmpConfigError(null)
         setOmpConfigLoading(result.bootstrap.runtime.ompAvailable)
         setOmpConfigAttempt((attempt) => attempt + 1)
       }
       applyPayload(result.bootstrap)
     },
-    [acceptOmpConfig, applyPayload],
+    [acceptOmpConfig, applyPayload, ompAvailable, ompExecutable, ompVersion],
   )
 
   const changeRailMode = useCallback(
@@ -646,25 +658,39 @@ function App() {
   )
 
   const startWorkspaceRename = useCallback((workspace: WorkspaceSummary) => {
+    ++workspaceRenameRequestRef.current
     setRenamingWorkspaceKey(workspace.key)
     setWorkspaceNameValue(workspace.name)
+  }, [])
+
+  const changeWorkspaceName = useCallback((value: string) => {
+    ++workspaceRenameRequestRef.current
+    setWorkspaceNameValue(value)
   }, [])
 
   const submitWorkspaceRename = useCallback(
     async (workspace: WorkspaceSummary) => {
       if (renamingWorkspaceKey !== workspace.key || workspaceBusyKey === workspace.key) return
       const name = workspaceNameValue.trim()
-      setRenamingWorkspaceKey(null)
-      setWorkspaceNameValue("")
+      const request = workspaceRenameRequestRef.current
+      if (workspaceRenamePendingRef.current === request) return
       if (!name || name === workspace.name) {
+        setRenamingWorkspaceKey(null)
+        setWorkspaceNameValue("")
         return
       }
+      workspaceRenamePendingRef.current = request
       setWorkspaceBusyKey(workspace.key)
       try {
         applyPayload(await renameWorkspace(workspace.path, name))
+        if (request === workspaceRenameRequestRef.current) {
+          setRenamingWorkspaceKey(null)
+          setWorkspaceNameValue("")
+        }
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        if (workspaceRenamePendingRef.current === request) workspaceRenamePendingRef.current = null
         setWorkspaceBusyKey((current) => (current === workspace.key ? null : current))
       }
     },
@@ -675,14 +701,15 @@ function App() {
     (event: ReactKeyboardEvent<HTMLInputElement>, workspace: WorkspaceSummary) => {
       if (event.key === "Enter") {
         event.preventDefault()
-        event.currentTarget.blur()
+        void submitWorkspaceRename(workspace)
       } else if (event.key === "Escape") {
         event.preventDefault()
+        ++workspaceRenameRequestRef.current
         setRenamingWorkspaceKey(null)
         setWorkspaceNameValue(workspace.name)
       }
     },
-    [],
+    [submitWorkspaceRename],
   )
 
   const removeWorkspace = useCallback(
@@ -785,7 +812,13 @@ function App() {
     let needsReconcile = false
     void listen<SingleInstanceEvent>("single-instance", async (event) => {
       if (disposed) return
-      const requested = extractSingleInstanceWorkspace(event.payload.args)
+      if (event.payload.error) {
+        ++latestRequest
+        ++workspaceSelectionRequestRef.current
+        showError(event.payload.error)
+        return
+      }
+      const requested = event.payload.workspace
       if (requested) {
         const request = ++latestRequest
         const selectionRequest = ++workspaceSelectionRequestRef.current
@@ -888,6 +921,7 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
+      const sessionSelectionRequest = ++sessionSelectionRequestRef.current
       setSelectedSessionId(session.id)
       setSearch("")
       setTabs((current) =>
@@ -911,13 +945,19 @@ function App() {
             : tab,
         ),
       )
+      const workspaceSelectionRequest = workspaceSelectionRequestRef.current
       void loadBootstrap()
         .then((next) => {
           if (disposed) return
           const latest = discoveredSessionsRef.current.get(event.terminalId)
           if (latest && latest.id !== session.id) return
           applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
-          setSelectedSessionId(session.id)
+          if (
+            sessionSelectionRequest === sessionSelectionRequestRef.current &&
+            workspaceSelectionRequest === workspaceSelectionRequestRef.current
+          ) {
+            setSelectedSessionId(session.id)
+          }
         })
         .catch((error) => {
           if (!disposed) showError(errorMessage(error, langRef.current))
@@ -1171,6 +1211,7 @@ function App() {
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
+      ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionId) {
         setSelectedSessionId(target.sessionId)
@@ -1193,14 +1234,14 @@ function App() {
   const closeResourceHealth = useCallback(() => setResourceHealthOpen(false), [])
   const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
   const openIncidentCenter = useCallback(() => {
-    setSettingsOpen(false)
+    setSettingsOpenedAt(null)
     setCodexOpen(false)
     closeTranscript()
     setResourceHealthOpen(false)
     setIncidentCenterOpen(true)
   }, [closeTranscript])
   const openResourceHealth = useCallback(() => {
-    setSettingsOpen(false)
+    setSettingsOpenedAt(null)
     setCodexOpen(false)
     closeTranscript()
     setIncidentCenterOpen(false)
@@ -1212,6 +1253,7 @@ function App() {
 
   const selectSession = useCallback(
     (session: SessionSummary) => {
+      ++sessionSelectionRequestRef.current
       setSelectedSessionId(session.id)
       setSearch("")
       const platform = payload?.runtime.platform ?? "windows"
@@ -1262,7 +1304,7 @@ function App() {
         return
       }
       if (!payload.runtime.ompAvailable) {
-        setSettingsOpen(true)
+        setSettingsOpenedAt(Date.now())
         showError(t(lang, "requireOmp"))
         return
       }
@@ -1889,16 +1931,24 @@ function App() {
     async (session: SessionSummary, title: string | null) => {
       try {
         applyPayload(await setSessionTitlePin(session.filePath, title))
+        return true
       } catch (error) {
         showError(errorMessage(error, lang))
+        return false
       }
     },
     [applyPayload, lang, showError],
   )
 
   const startRenameSession = useCallback((session: SessionSummary) => {
+    ++sessionRenameRequestRef.current
     setRenameValue(session.title)
     setRenamingSessionId(session.id)
+  }, [])
+
+  const changeRenameValue = useCallback((value: string) => {
+    ++sessionRenameRequestRef.current
+    setRenameValue(value)
   }, [])
 
   const toggleSessionTitlePin = useCallback(
@@ -1909,11 +1959,23 @@ function App() {
   )
 
   const submitRenameSession = useCallback(
-    (session: SessionSummary) => {
+    async (session: SessionSummary) => {
       if (renamingSessionId !== session.id) return
-      setRenamingSessionId(null)
+      const request = sessionRenameRequestRef.current
+      if (sessionRenamePendingRef.current === request) return
       const trimmed = renameValue.trim()
-      if (trimmed) void updateSessionTitlePin(session, trimmed)
+      if (!trimmed) {
+        setRenamingSessionId(null)
+        return
+      }
+      sessionRenamePendingRef.current = request
+      try {
+        if (await updateSessionTitlePin(session, trimmed)) {
+          if (request === sessionRenameRequestRef.current) setRenamingSessionId(null)
+        }
+      } finally {
+        if (sessionRenamePendingRef.current === request) sessionRenamePendingRef.current = null
+      }
     },
     [renameValue, renamingSessionId, updateSessionTitlePin],
   )
@@ -1936,6 +1998,7 @@ function App() {
         submitRenameSession(session)
       } else if (event.key === "Escape") {
         event.preventDefault()
+        ++sessionRenameRequestRef.current
         setRenamingSessionId(null)
       }
     },
@@ -2125,7 +2188,10 @@ function App() {
   }
 
   return (
-    <div className="app-shell" style={{ fontFamily: payload.settings.appFontFamily }}>
+    <div
+      className={`app-shell${payload.runtime.platform === "linux" ? " is-linux" : ""}`}
+      style={{ fontFamily: payload.settings.appFontFamily }}
+    >
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}
@@ -2141,7 +2207,7 @@ function App() {
         resourceTriggerRef={resourceHealthTriggerRef}
         onOpenIncidentCenter={openIncidentCenter}
         onOpenResourceHealth={openResourceHealth}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => setSettingsOpenedAt(Date.now())}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
         refreshing={refreshing}
@@ -2239,7 +2305,7 @@ function App() {
           onRemoveWorkspace={(workspace) => void removeWorkspace(workspace)}
           onStartWorkspaceRename={startWorkspaceRename}
           onSubmitWorkspaceRename={(workspace) => void submitWorkspaceRename(workspace)}
-          onWorkspaceNameChange={setWorkspaceNameValue}
+          onWorkspaceNameChange={changeWorkspaceName}
           onWorkspaceRenameKeyDown={handleWorkspaceRenameKeyDown}
           sessionList={{
             canLaunch: payload.runtime.ompAvailable && !installingClientUpdate,
@@ -2255,7 +2321,7 @@ function App() {
             onNewSession: () => void launchSession(),
             onOpenCodex: () => void openCodexImport(),
             onRenameKeyDown: handleRenameKeyDown,
-            onRenameValueChange: setRenameValue,
+            onRenameValueChange: changeRenameValue,
             onRevealWorkspace: reveal,
             onSearchChange: setSearch,
             onSelectSession: selectSession,
@@ -2332,10 +2398,19 @@ function App() {
         />
       )}
 
-      {settingsOpen && (
+      {settingsOpenedAt !== null && (
         <SettingsPanel
-          onClose={() => setSettingsOpen(false)}
-          onConfigLoaded={acceptOmpConfig}
+          initialOmpConfig={
+            ompConfig &&
+            ompConfigBaselineRef.current?.runtime.ompAvailable === payload.runtime.ompAvailable &&
+            ompConfigBaselineRef.current.runtime.ompExecutable === payload.runtime.ompExecutable &&
+            ompConfigBaselineRef.current.runtime.ompVersion === payload.runtime.ompVersion &&
+            settingsOpenedAt - ompConfigBaselineRef.current.loadedAt < OMP_CONFIG_STALE_MS
+              ? ompConfig
+              : null
+          }
+          onClose={() => setSettingsOpenedAt(null)}
+          onConfigLoaded={(snapshot) => acceptOmpConfig(snapshot, payload.runtime)}
           onError={showError}
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}
