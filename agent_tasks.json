@@ -200189,7 +200189,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-15T20:46:09.333846Z"
+        "observed_at": "2026-10-15T20:46:09.333846Z",
+        "released_attempt_ref": "autonomous/attempt-280285f465f769fc29b0fe38"
       },
       "research_result": {
         "summary": "Investigated the requested transcript tasks. The issue with loadTranscriptPath throwing uncaught promise rejections on file read failure instead of setting the state transcriptError was verified. The scroll anchor logic in useVirtualList on oversized messages was verified via static analysis and synthetic testing to anchor implicitly to the top offset, meaning bottom content of an oversized final message remains out of view. Verified focus restoration handles ContextMenu dismissal without swallowing Esc or resetting unnecessarily. Re-tested massive regex backtracking on MARKDOWN_LINK; previous O(N^2) lockup appears resolved in the pinned base 3f542212066112284cc0e1d49096da512dd54207 (100,000 unclosed characters parses in under 2ms).",
