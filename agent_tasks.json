@@ -215821,7 +215821,7 @@
       "id": "research-diagnostics-resources-behavior-21",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -216072,16 +216072,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12223804846120006382",
         "dispatch_key": "2dd741a65e3701575120ef7c",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-2dd741a65e3701575120ef7c",
         "started_at": "2026-10-16T22:49:53.476971Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T23:21:25.663570Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -216253,13 +216253,117 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T22:49:53.476971Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T23:21:25.663570Z"
+      },
+      "research_result": {
+        "summary": "Investigated IncidentCenter, ResourceHealthPanel, and runtimeIncidents for keyboard focus bounds and incident handling saturation. Confirmed that inline focus traps incorrectly include children of collapsed details tags, and enforceIncidentBound drops unresolved primary errors under high fallback volume.",
+        "observations": [
+          {
+            "scenario": "Inline focus trap logic in IncidentCenter.tsx and ResourceHealthPanel.tsx using a jsdom test script.",
+            "evidence": "Ran a script simulating a collapsed <details> element with a hidden button child. The inline `!element.hidden` check used in both panels incorrectly included the hidden button as focusable. Using `controlAvailable` from `useModalFocus.ts` on the same element correctly excluded it.",
+            "result": "The inline focus traps in IncidentCenter and ResourceHealthPanel fail to exclude elements inside closed <details> tags."
+          },
+          {
+            "scenario": "enforceIncidentBound handling a single active error among many active fallbacks on the same terminal.",
+            "evidence": "Created a local test invoking applyRuntimeIncidentEvent with 1 modelError and 100 retryFallbackApplied events for the same terminal. The active modelError incident was dropped when enforcing the bound, leaving only 100 fallbacks.",
+            "result": "enforceIncidentBound erroneously drops the sole unresolved error incident under fallback saturation."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-16T23:21:25.663570Z",
+        "source": {
+          "activity_id": "sessions/12223804846120006382/activities/c9e285ac2cfd408f81eb6279d3a1b26e",
+          "report_sha256": "49e7badd79e4e5ac90e96e93f826b15bf51d59ebe9cfbb7d71701f7574ef8b84",
+          "activity_created_at": "2026-10-16T23:06:22.071913Z",
+          "session_id": "12223804846120006382",
+          "dispatch_key": "2dd741a65e3701575120ef7c"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-b91dce0f61224138ffbe0c4d6543bce33c2bd7e6dc32b16154e5edac12e1df01; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter focusable elements accurately, matching `useModalFocus`'s `controlAvailable` behavior.\", \"reproduction\": {\"actual\": \"Children are included in the focusable list.\", \"expected\": \"Children of the closed details element are excluded from the focusable list.\", \"steps\": [\"Render IncidentCenter with a collapsed details element containing focusable children.\", \"Query the panel with the inline logic.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab must operate on the immutable pinned base where this regression demonstrably exists, irrespective of main branch state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"While useModalFocus correctly excludes them, IncidentCenter and ResourceHealthPanel implement their own inline focus trap logic rather than using useModalFocus, and this inline logic fails to exclude them in this immutable base.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reproduction explicitly shows the inline query logic used in these panels captures the hidden elements, proving the regression exists on this specific commit.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+            ]
+          },
+          {
+            "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a; not established as a duplicate. {\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expected\": \"A fallback incident is dropped to maintain the limit, preserving the modelError.\", \"steps\": [\"Create a modelError incident for a terminal.\", \"Create 100 fallback incidents for the same terminal.\", \"Call enforceIncidentBound.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"responses\": [{\"decision_context_id\": \"fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd\", \"decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"why_previous_reason_no_longer_explains\": \"The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints.\"}, {\"decision_context_id\": \"4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936\", \"decision_task_id\": \"discovery-940b5f71f3979b02\", \"why_previous_reason_no_longer_explains\": \"Same as above. The regression is observed in the pinned base 3f542212066112284cc0e1d49096da512dd54207 which does not include the PR95 merge.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12223804846120006382/activities/c9e285ac2cfd408f81eb6279d3a1b26e",
+          "report_sha256": "49e7badd79e4e5ac90e96e93f826b15bf51d59ebe9cfbb7d71701f7574ef8b84",
+          "activity_created_at": "2026-10-16T23:06:22.071913Z",
+          "session_id": "12223804846120006382",
+          "dispatch_key": "2dd741a65e3701575120ef7c"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-b91dce0f61224138ffbe0c4d6543bce33c2bd7e6dc32b16154e5edac12e1df01"
+            },
+            {
+              "id": "discovery-c3c404bd71dbb2bb",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-b91dce0f61224138ffbe0c4d6543bce33c2bd7e6dc32b16154e5edac12e1df01; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter focusable elements accurately, matching `useModalFocus`'s `controlAvailable` behavior.\", \"reproduction\": {\"actual\": \"Children are included in the focusable list.\", \"expected\": \"Children of the closed details element are excluded from the focusable list.\", \"steps\": [\"Render IncidentCenter with a collapsed details element containing focusable children.\", \"Query the panel with the inline logic.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab must operate on the immutable pinned base where this regression demonstrably exists, irrespective of main branch state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"4b50f9e6c5bb7d29e4de4d46686fef90aa74a84a7500b1ec59591f84a0c62c28\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"While useModalFocus correctly excludes them, IncidentCenter and ResourceHealthPanel implement their own inline focus trap logic rather than using useModalFocus, and this inline logic fails to exclude them in this immutable base.\"}, {\"decision_context_id\": \"4aed8ca12fbf7c1347da015b9d228ad9d5f23d6124cd82be9384045d7611135c\", \"decision_task_id\": \"discovery-8666a6b31891895740080f96baa815074d241d21013dc5c54b34a8818f65a4fe\", \"why_previous_reason_no_longer_explains\": \"The reproduction explicitly shows the inline query logic used in these panels captures the hidden elements, proving the regression exists on this specific commit.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+              ]
+            },
+            {
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a; not established as a duplicate. {\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expected\": \"A fallback incident is dropped to maintain the limit, preserving the modelError.\", \"steps\": [\"Create a modelError incident for a terminal.\", \"Create 100 fallback incidents for the same terminal.\", \"Call enforceIncidentBound.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"responses\": [{\"decision_context_id\": \"fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd\", \"decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"why_previous_reason_no_longer_explains\": \"The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints.\"}, {\"decision_context_id\": \"4a2f007be3c86bc388fe9301e16c0d087aab26eed1e0d0a69290ac4ca3f09936\", \"decision_task_id\": \"discovery-940b5f71f3979b02\", \"why_previous_reason_no_longer_explains\": \"Same as above. The regression is observed in the pinned base 3f542212066112284cc0e1d49096da512dd54207 which does not include the PR95 merge.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T22:54:53.347344Z",
+    "last_poll_at": "2026-10-16T23:21:52.180965Z",
     "last_tick_at": "2026-10-16T22:55:06.570391Z",
     "run_id": "38977517672",
     "owner_recovery_requests": [
