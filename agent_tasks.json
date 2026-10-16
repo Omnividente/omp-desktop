@@ -203754,7 +203754,7 @@
       "id": "research-sessions-persistence-ux-21",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -203875,16 +203875,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5676046648033990390",
         "dispatch_key": "ede821e6de569a6ad10797e9",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-ede821e6de569a6ad10797e9",
         "started_at": "2026-10-15T23:39:15.928452Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T00:08:46.431241Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -204057,13 +204057,47 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-15T23:39:15.928452Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T00:08:46.431241Z"
+      },
+      "research_result": {
+        "summary": "Investigated session persistence import and component boundary checks, primarily on `ImportSessionModal`, `CodexImportModal` and `SessionControls`. Verified `ImportSessionModal` and `CodexImportModal` empty state interactions natively via `vitest` jsdom simulations and checked focus restoration on session pin toggle in `SessionControls`.",
+        "observations": [
+          {
+            "scenario": "ImportSessionModal boundary checks with an empty path",
+            "evidence": "Ran a synthetic Vitest jsdom test `test_empty_import.test.tsx` verifying the 'Import' button disabled state when the `path` prop is an empty string and `importing` is false.",
+            "result": "The 'Import' button remains enabled when the path is empty, which relies on the caller (the environment) to block rendering or importing of an empty path. This replicates the previous finding (discovery-5d2c2a7141e1fb4a) which was rejected as unnecessary defensive validation since the dialog mounts only after the OS picker returns a non-blank path."
+          },
+          {
+            "scenario": "CodexImportModal boundary checks with an empty session list",
+            "evidence": "Ran a synthetic Vitest jsdom test `test_empty_codex_import.test.tsx` verifying the 'Import selected' button disabled state when the `sessions` array is empty and `importing` is false.",
+            "result": "The 'Import selected' button correctly gets disabled natively when the session list is empty."
+          },
+          {
+            "scenario": "SessionControls primary provider pin focus restoration",
+            "evidence": "Ran a synthetic Vitest jsdom test `test_session_controls_focus.test.tsx` simulating focus lifecycle during 'primary provider' pin toggle and restart. Triggered a toggle, simulating the tab transition to `primaryProviderPinPending=true` and back to `primaryProviderPinPending=false` and `primaryProviderPinned=true`, verifying the focus state.",
+            "result": "Focus reliably shifts from the toggled pin to the controls group while the session is pending, and successfully restores back to the pin toggle once the pin status toggle operation completes."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+          "Investigate if session summaries from Codex can get out of sync if an externally modified `.jsonl` file removes lines but retains its original modified timestamp."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-16T00:08:46.431241Z",
+        "source": {
+          "activity_id": "sessions/5676046648033990390/activities/ce485b58691b4be791ab224da4a1a5bc",
+          "report_sha256": "8482efa41e7f130d9f61fdc09d278b2df57adb46194bc9f61fb6e61f30734a4b",
+          "activity_created_at": "2026-10-15T23:51:15.937856Z",
+          "session_id": "5676046648033990390",
+          "dispatch_key": "ede821e6de569a6ad10797e9"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-15T23:43:53.745568Z",
+    "last_poll_at": "2026-10-16T00:09:11.302400Z",
     "last_tick_at": "2026-10-15T23:44:08.020554Z",
     "run_id": "38824067389",
     "owner_recovery_requests": [
