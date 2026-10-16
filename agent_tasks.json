@@ -206421,7 +206421,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T03:09:11.426595Z"
+        "observed_at": "2026-10-16T03:09:11.426595Z",
+        "released_attempt_ref": "autonomous/attempt-ac6c4759c1c6e8610bc9d49a"
       },
       "research_result": {
         "summary": "Confirmed that closing all sessions leaves the focus on the document body instead of restoring focus appropriately, verified the defect in rename UI state, and verified macOS shortcuts render as Ctrl.",
