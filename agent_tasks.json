@@ -214796,6 +214796,122 @@
         "session_id": "505057129258751932",
         "dispatch_key": "fc311eacd6b7e06b196961af"
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-22",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-16T21:46:44Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated session persistence import and component boundary checks, primarily on `ImportSessionModal`, `CodexImportModal` and `SessionControls`. Verified `ImportSessionModal` and `CodexImportModal` empty state interactions natively via `vitest` jsdom simulations and checked focus restoration on session pin toggle in `SessionControls`.",
+            "observations": [
+              {
+                "scenario": "ImportSessionModal boundary checks with an empty path",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_empty_import.test.tsx` verifying the 'Import' button disabled state when the `path` prop is an empty string and `importing` is false.",
+                "result": "The 'Import' button remains enabled when the path is empty, which relies on the caller (the environment) to block rendering or importing of an empty path. This replicates the previous finding (discovery-5d2c2a7141e1fb4a) which was rejected as unnecessary defensive validation since the dialog mounts only after the OS picker returns a non-blank path."
+              },
+              {
+                "scenario": "CodexImportModal boundary checks with an empty session list",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_empty_codex_import.test.tsx` verifying the 'Import selected' button disabled state when the `sessions` array is empty and `importing` is false.",
+                "result": "The 'Import selected' button correctly gets disabled natively when the session list is empty."
+              },
+              {
+                "scenario": "SessionControls primary provider pin focus restoration",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_session_controls_focus.test.tsx` simulating focus lifecycle during 'primary provider' pin toggle and restart. Triggered a toggle, simulating the tab transition to `primaryProviderPinPending=true` and back to `primaryProviderPinPending=false` and `primaryProviderPinned=true`, verifying the focus state.",
+                "result": "Focus reliably shifts from the toggled pin to the controls group while the session is pending, and successfully restores back to the pin toggle once the pin status toggle operation completes."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+              "Investigate if session summaries from Codex can get out of sync if an externally modified `.jsonl` file removes lines but retains its original modified timestamp."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T00:08:46.431241Z",
+            "source": {
+              "activity_id": "sessions/5676046648033990390/activities/ce485b58691b4be791ab224da4a1a5bc",
+              "report_sha256": "8482efa41e7f130d9f61fdc09d278b2df57adb46194bc9f61fb6e61f30734a4b",
+              "activity_created_at": "2026-10-15T23:51:15.937856Z",
+              "session_id": "5676046648033990390",
+              "dispatch_key": "ede821e6de569a6ad10797e9"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of Codex session summary generation and synchronization when an underlying `.jsonl` file is modified externally while retaining its original modification timestamp. Verified through static analysis of the backend `list_codex_sessions` flow that there is no in-memory cache to get out of sync, and each API call reads the current file contents directly from disk.",
+            "observations": [
+              {
+                "scenario": "Codex session summaries synchronization when an underlying `.jsonl` file is truncated but its modified timestamp is preserved (static analysis)",
+                "evidence": "Reviewed `src-tauri/src/sessions.rs` around `list_codex_sessions`, `parse_codex_session_with_names`, and `read_codex_discovery_prefix`. The `list_codex_sessions` command invokes `collect_jsonl_files` to find all jsonl files, and parses each one directly from disk for every API call. There is no cache dictionary or database storing these summaries between calls.",
+                "result": "The session summary cannot get out of sync with the actual file contents (up to the prefix reading limits), because the content is read directly from disk upon every invocation. The timestamp is only used for sorting and deduplication across multiple files sharing the same ID, not for cache invalidation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+              "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T01:24:43.361164Z",
+            "source": {
+              "activity_id": "sessions/3889825610511787224/activities/2c2c532e91204dc2bc0322b1b74ec1bc",
+              "report_sha256": "f6a6b521e2a373bb88b61d1a1fd0cb1c72e291b5c674c74097a3216b4dea45fd",
+              "activity_created_at": "2026-10-16T01:13:03.171359Z",
+              "session_id": "3889825610511787224",
+              "dispatch_key": "6230996694fb6c932afef144"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated `recover_import_transaction` in `sessions.rs` to see if it properly cleans up when the backup artifact directory or target artifacts directory is read-only or locked during an interrupted import rollback. I verified through local test simulation `import_recovery_cleans_up_when_backup_is_read_only5` that if `remove_import_artifacts` fails due to a locked or read-only directory (e.g. Permission Denied), the function handles it gracefully by returning an error message containing the failure reason (e.g., 'Не удалось удалить артефакты'), propagating it to `recover_imports_in_directory`, which then safely logs the failure as a `SessionScanWarning` and correctly marks the destination as `blocked`. This confirms the previous hypothesis that the recovery safely aborts and warns instead of crashing or leaving data corrupted.",
+            "observations": [
+              {
+                "scenario": "recover_import_transaction with read-only target_artifacts during rollback",
+                "evidence": "Ran a synthetic test `import_recovery_cleans_up_when_backup_is_read_only5` that creates an interrupted import intent (`ImportTransaction::Prepared`), moves the staged artifacts into the target path, and makes the target artifacts read-only to simulate a lock or permission issue. Calling `recover_imports_in_directory` gracefully yields a `SessionScanWarning` containing 'Permission denied (os error 13)' without panicking, and correctly inserts the destination into the `blocked` set.",
+                "result": "The recovery correctly aborts the rollback when the artifact directory cannot be deleted due to permissions, yielding a warning and blocking the session instead of crashing or corrupting the directory structure."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T02:44:07.326504Z",
+            "source": {
+              "activity_id": "sessions/14408096629591518926/activities/eac1806d4f9145a096080496464b241a",
+              "report_sha256": "645241b9e3f47da8a11530f094061ad76742f5bcbe6e5471dfabad40c2709473",
+              "activity_created_at": "2026-10-16T02:17:38.622813Z",
+              "session_id": "14408096629591518926",
+              "dispatch_key": "83ca8ca2be1c69c427224ca3"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
