@@ -204588,7 +204588,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T00:33:42.895150Z"
+        "observed_at": "2026-10-16T00:33:42.895150Z",
+        "released_attempt_ref": "autonomous/attempt-29a79bf59180b8bf49b93574"
       },
       "research_result": {
         "summary": "Investigated terminal continuity handling of stale generation changes. Confirmed that a stale output event or attachment with an older generation overwrites the continuity baseline back to the older generation, causing state corruption.",
