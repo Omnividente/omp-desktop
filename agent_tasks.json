@@ -519034,6 +519034,35 @@
         "before_state_sha": "3c819ca87abbb193cdf81a77427880e9ea6c085c",
         "before_digest": "8078458172fb7a168ccedcc5fe5b9968f42a821fc82bfd397dc8abd254898232",
         "event_id": "bf5305518b47319f781b583863c48058ce1448715a81fd76f8984828a20606df"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-16T07:35:05.514609Z",
+        "decision_id": "1d110cc3cbb38bc1023a64e06a3b225bc73f76867f7b98870ec8b9c4c10a2555",
+        "executor_claim_id": "e2d3015d4e90c7b740b819a3ea474bdc89576085935e962c77169f7e67dd7e29",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "52863efaa4fb80216776cce57cbe734e4a2023a9",
+          "after_state_sha": "f3694c95c05628f1f4fdf06fe860fd006ba5bd7b",
+          "poll_observations": [
+            {
+              "task_id": "research-settings-models-behavior-21",
+              "session_id": "11713683307013093509",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-16T07:29:24Z"
+            },
+            {
+              "task_id": "research-settings-models-ux-21",
+              "session_id": "18379236416183115483",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-16T07:29:24Z"
+            }
+          ],
+          "before_digest": "8078458172fb7a168ccedcc5fe5b9968f42a821fc82bfd397dc8abd254898232",
+          "after_digest": "c3dade0e16c19002271993947ae52ebdbae3fa222e9b9d94c87efd91dd961c50"
+        },
+        "receipt_id": "2aa857b635631ed5bc0f2e96efa8f3e8325d7fffcab61d611019fa1f39a5e5fa",
+        "event_id": "92b45dcc64f03b4b635e2388cdd4cc1c070f1bb559e50d1a04d1448c87fc1d91"
       }
     ]
   }
