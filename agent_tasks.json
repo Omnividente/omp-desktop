@@ -212559,7 +212559,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T08:24:08.464114Z"
+        "observed_at": "2026-10-16T08:24:08.464114Z",
+        "released_attempt_ref": "autonomous/attempt-d9e55b1e08898cb997d2d9eb"
       },
       "research_result": {
         "summary": "Verified that in App.tsx, the SettingsRecoveryScreen traps the user when a non-settings error occurs during the startWithDefaults fallback process, because settingsRecovery state is not cleared. Other potential findings such as ModelPicker keyboard navigation focus steal and proxy overlay generation not excluding disabled providers were reviewed against the provided historical controller context. The owner previously triaged the ModelPicker behavior as intentional button-option roving focus (e.g. discovery-d9cbf8a07e35e4d1, discovery-e3f725a71e16644f, discovery-5994f186e2d442af) and the proxy generation behavior as correct since the proxy overlay only constrains retry and does not enable credentials (discovery-f7cec393fa805278). Thus, these are omitted as findings in this report, focusing solely on the App.tsx recovery UI trap.",
