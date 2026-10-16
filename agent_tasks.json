@@ -215097,7 +215097,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T22:18:40.826628Z"
+        "observed_at": "2026-10-16T22:18:40.826628Z",
+        "released_attempt_ref": "autonomous/attempt-0201a2e594d38bdb41a27190"
       },
       "research_result": {
         "summary": "Investigated the performance of session parsing on the Rust backend (`scan_sessions`) and session listing on the React frontend (`SessionList`). By crafting a temporary mock of 1000 and 10000 sessions respectively, observed that both systems scale well. However, `scan_sessions` in `src-tauri/src/sessions.rs` has no concurrent evaluation, meaning that reading 1000 sessions one-by-one from the disk synchronously takes nearly ~1 second locally, leaving room for async/rayon speedups for huge folders.",
