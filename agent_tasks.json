@@ -516882,6 +516882,35 @@
         "before_state_sha": "2774d118a7c1d6e32dd68d79f17e8e9fde7868da",
         "before_digest": "4ff5a36b76a9bd591de4feaf7c26da24aba1800c6d03e167c11327fe95aaae36",
         "event_id": "d2557c234a5461c1f8006474e1ffa82c9fd32f05c5eb22df68b494d5105aafbe"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-16T07:04:58.443839Z",
+        "decision_id": "2efb37b44d5a5429fadba6bf7ccd33ddd87b6112d61768d90c0e7d93f28ed6a1",
+        "executor_claim_id": "a2870c354d625ec6cb70b2cc7951ec0b61fbbbe225af37fe830d582b70246f10",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "7740ebbf7cfed260cd460ec9849dcad7476a637b",
+          "after_state_sha": "ee3846e4e8690467b3634b299b53d94c72db6934",
+          "poll_observations": [
+            {
+              "task_id": "research-workspace-navigation-performance-21",
+              "session_id": "10383861640053990390",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-16T06:59:17Z"
+            },
+            {
+              "task_id": "research-settings-models-behavior-21",
+              "session_id": "11713683307013093509",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-16T06:59:17Z"
+            }
+          ],
+          "before_digest": "4ff5a36b76a9bd591de4feaf7c26da24aba1800c6d03e167c11327fe95aaae36",
+          "after_digest": "8078458172fb7a168ccedcc5fe5b9968f42a821fc82bfd397dc8abd254898232"
+        },
+        "receipt_id": "79a4383db4adf63c7ef05eabdcccf1fa298d0278bd896ca3073e1284e1496a08",
+        "event_id": "93a2ffa6fc80db075709f75ac929fe2790e8c459b1b7cb7ec38ba6e890f49d24"
       }
     ]
   }
