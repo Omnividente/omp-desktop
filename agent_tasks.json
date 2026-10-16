@@ -209298,7 +209298,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T05:21:43.240318Z"
+        "observed_at": "2026-10-16T05:21:43.240318Z",
+        "released_attempt_ref": "autonomous/attempt-1a9d1a4281c193e58b009687"
       },
       "research_result": {
         "summary": "Verified that closing all sessions in TerminalWorkspace correctly mounts WorkspaceHome, but keyboard focus incorrectly drops to the document body instead of restoring focus to a reachable element. Confirmed that session/workspace rename state incorrectly resets before API confirmation. Confirmed macOS shortcut defects.",
