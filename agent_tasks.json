@@ -213333,7 +213333,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T09:16:39.916174Z"
+        "observed_at": "2026-10-16T09:16:39.916174Z",
+        "released_attempt_ref": "autonomous/attempt-a10ffeebfaba118780acbc37"
       },
       "research_result": {
         "summary": "Verified App.tsx UI trap during recovery fallback by code inspection and reviewing previous observations.",
