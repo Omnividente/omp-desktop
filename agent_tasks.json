@@ -207747,7 +207747,7 @@
       "id": "research-transcript-links-performance-20",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -208048,7 +208048,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "9914236537606670972",
         "dispatch_key": "cd92895f13b7df952eae43a6",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
@@ -208056,8 +208056,8 @@
         "started_at": "2026-10-16T04:01:13.301780Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -208228,13 +208228,37 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T04:01:13.301780Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T04:29:06.910797Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-10-16T04:29:06.910797Z",
+          "source": {
+            "activity_id": "sessions/9914236537606670972/activities/0d7b10b019b643989b96d5668716d0ce",
+            "report_sha256": "5665eddecc71f4021c47095e2f734df0e2a7678bca7e8a9ab22ae07cdbdfef12",
+            "activity_created_at": "2026-10-16T04:15:53.578798Z",
+            "session_id": "9914236537606670972",
+            "dispatch_key": "cd92895f13b7df952eae43a6"
+          }
+        },
+        "report_repair": {
+          "at": "2026-10-16T04:29:34.260913Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/9914236537606670972/activities/0d7b10b019b643989b96d5668716d0ce",
+            "report_sha256": "5665eddecc71f4021c47095e2f734df0e2a7678bca7e8a9ab22ae07cdbdfef12",
+            "activity_created_at": "2026-10-16T04:15:53.578798Z",
+            "session_id": "9914236537606670972",
+            "dispatch_key": "cd92895f13b7df952eae43a6"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T04:06:11.482719Z",
+    "last_poll_at": "2026-10-16T04:29:30.294609Z",
     "last_tick_at": "2026-10-16T04:06:26.447805Z",
     "run_id": "38847716277",
     "owner_recovery_requests": [
