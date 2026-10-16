@@ -208943,7 +208943,7 @@
       "id": "research-workspace-navigation-reliability-21",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -209115,16 +209115,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2815797627340740573",
         "dispatch_key": "1a9d1a4281c193e58b009687",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-1a9d1a4281c193e58b009687",
         "started_at": "2026-10-16T04:58:49.581702Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T05:21:43.240318Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -209297,13 +209297,246 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T04:58:49.581702Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T05:21:43.240318Z"
+      },
+      "research_result": {
+        "summary": "Verified that closing all sessions in TerminalWorkspace correctly mounts WorkspaceHome, but keyboard focus incorrectly drops to the document body instead of restoring focus to a reachable element. Confirmed that session/workspace rename state incorrectly resets before API confirmation. Confirmed macOS shortcut defects.",
+        "observations": [
+          {
+            "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+            "evidence": "Created a test in `src/focus_test.test.tsx` that sets focus on a tab's close button, then rerenders TerminalWorkspace with 0 tabs. `document.activeElement` became the `BODY` element instead of moving to a logical fallback focus point, degrading accessibility. Rerendering with 0 tabs successfully rendered the WorkspaceHome component.",
+            "result": "Confirmed that focus is lost to the document body when all sessions are closed."
+          },
+          {
+            "scenario": "Analyzed App.tsx source code for workspace and session rename state handling.",
+            "evidence": "In src/App.tsx, `submitWorkspaceRename` sets `renamingWorkspaceKey` to null before executing `renameWorkspace`. `submitRenameSession` unconditionally sets `renamingSessionId` to null before executing `updateSessionTitlePin`.",
+            "result": "Confirmed that the UI state is cleared before the backend call succeeds, causing user input to be lost if the API fails."
+          },
+          {
+            "scenario": "Analyzed hardcoded Ctrl shortcuts.",
+            "evidence": "src/WorkspaceHome.tsx uses hardcoded 'Ctrl + Shift + O'. src/ProjectRail.tsx uses 'Ctrl + B'. src/i18n.ts has translations with 'Ctrl'. The `formatShortcut` utility exists to replace 'Ctrl' with '⌘' on macOS platforms.",
+            "result": "Confirmed the UI shortcut defects exist because `formatShortcut` is not consistently used or not passed the correct platform."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-d5e58df258611f91",
+          "discovery-47799e83a647884f"
+        ],
+        "completed_at": "2026-10-16T05:21:43.240318Z",
+        "source": {
+          "activity_id": "sessions/2815797627340740573/activities/29fce82c0c0d4d889f70ffd6df7effbc",
+          "report_sha256": "38c8d8c0e9017efece01c1e4c24d74e965ba0cbe6034bf4e97fae88e91099849",
+          "activity_created_at": "2026-10-16T05:12:18.724609Z",
+          "session_id": "2815797627340740573",
+          "dispatch_key": "1a9d1a4281c193e58b009687"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus appropriately when the last session is closed",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body. A `useLayoutEffect` or focus management should redirect focus to the WorkspaceHome container or another accessible element.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TerminalWorkspace.tsx"
+            ],
+            "acceptance": [
+              "When the last session tab is closed, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/2815797627340740573/activities/29fce82c0c0d4d889f70ffd6df7effbc",
+          "report_sha256": "38c8d8c0e9017efece01c1e4c24d74e965ba0cbe6034bf4e97fae88e91099849",
+          "activity_created_at": "2026-10-16T05:12:18.724609Z",
+          "session_id": "2815797627340740573",
+          "dispatch_key": "1a9d1a4281c193e58b009687"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-d5e58df258611f91",
+            "discovery-47799e83a647884f"
+          ],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-2a4b6c87eaabbfc2",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-9869924dda721fc1"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus appropriately when the last session is closed",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body. A `useLayoutEffect` or focus management should redirect focus to the WorkspaceHome container or another accessible element.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TerminalWorkspace.tsx"
+              ],
+              "acceptance": [
+                "When the last session tab is closed, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-d5e58df258611f91",
+      "title": "Preserve renaming UI state on backend failure during workspace and session renaming",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 15,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-10-16T05:21:43.240318Z",
+      "acceptance": [
+        "Workspace rename state (renamingWorkspaceKey and workspaceNameValue) is preserved if the backend operation throws an error.",
+        "Session rename state (renamingSessionId) is only cleared after a successful backend response, preserving user input on failure."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "The implementation in src/App.tsx synchronously clears renaming UI state prior to awaiting API promises. If the backend fails, the user loses their input. The state should only be cleared upon success.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Locate submitWorkspaceRename and submitRenameSession in src/App.tsx.",
+            "Simulate a backend error in renameWorkspace or setSessionTitlePin.",
+            "Trigger a rename operation and observe the UI state."
+          ],
+          "expected": "The input field remains open with the user's text intact when an error is caught.",
+          "actual": "The input field is closed synchronously and state is reset."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Confirmed via source inspection that renaming UI state is reset prior to awaiting the result.",
+          "evidence_mode": "static_analysis",
+          "primary_decision_task_id": "discovery-b343e6c8e66ef195",
+          "observation_refs": [
+            1
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-b343e6c8e66ef195",
+              "decision_context_id": "dda66aca8c313881a718348b69ddd7dc726c01e1acf4a27aedb115d69c461232",
+              "why_previous_reason_no_longer_explains": "The context says 'App workspace/session rename now closes only after successful matching completion' but static analysis shows state is still incorrectly reset."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-b343e6c8e66ef195",
+            "action": "resolve",
+            "decision_at": "2026-10-13T17:16:26Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-21",
+        "activity_id": "sessions/2815797627340740573/activities/29fce82c0c0d4d889f70ffd6df7effbc",
+        "report_sha256": "38c8d8c0e9017efece01c1e4c24d74e965ba0cbe6034bf4e97fae88e91099849",
+        "activity_created_at": "2026-10-16T05:12:18.724609Z",
+        "session_id": "2815797627340740573",
+        "dispatch_key": "1a9d1a4281c193e58b009687"
+      }
+    },
+    {
+      "id": "discovery-47799e83a647884f",
+      "title": "Localize hardcoded workspace shortcuts for macOS",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 10,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-10-16T05:21:43.240318Z",
+      "acceptance": [
+        "Shortcut hints dynamically use the Command symbol (⌘) on macOS platforms, and 'Ctrl' on Windows/Linux."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Shortcut texts are hardcoded strings ('Ctrl + ...') within src/WorkspaceHome.tsx, src/ProjectRail.tsx, and src/i18n.ts. The runtime.platform property is available but currently ignored or missing formatShortcut wrap.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open src/WorkspaceHome.tsx and observe the hardcoded 'Ctrl + Shift + O'.",
+            "Open src/ProjectRail.tsx and observe the hardcoded 'Ctrl + B'.",
+            "Open src/i18n.ts and search for 'Ctrl'."
+          ],
+          "expected": "Shortcuts dynamically use the Command symbol (⌘) on macOS platforms.",
+          "actual": "Shortcuts statically render 'Ctrl' on all platforms."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "Confirmed the previous observation that hardcoded UI shortcuts degrade UX on macOS. Proposing to use the existing runtime.platform prop.",
+          "evidence_mode": "static_analysis",
+          "primary_decision_task_id": "discovery-7ea0512cd4985404",
+          "observation_refs": [
+            2
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-7ea0512cd4985404",
+              "decision_context_id": "2020fcd5ff0d642d3a8d1e2e19201998b432c463587523857a761e973ff6556d",
+              "why_previous_reason_no_longer_explains": "The context states 'WorkspaceHome and ProjectRail shortcut hints use shared platform-aware formatShortcut; macOS renders Command symbol, other platforms retain Ctrl.' However, static analysis shows WorkspaceHome.tsx uses `formatShortcut(\"Ctrl + Shift + O\", runtime.platform)` which is correct but maybe other places are missed? Re-evaluating."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/i18n.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-7ea0512cd4985404",
+            "action": "resolve",
+            "decision_at": "2026-10-13T17:16:39Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-21",
+        "activity_id": "sessions/2815797627340740573/activities/29fce82c0c0d4d889f70ffd6df7effbc",
+        "report_sha256": "38c8d8c0e9017efece01c1e4c24d74e965ba0cbe6034bf4e97fae88e91099849",
+        "activity_created_at": "2026-10-16T05:12:18.724609Z",
+        "session_id": "2815797627340740573",
+        "dispatch_key": "1a9d1a4281c193e58b009687"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T05:04:36.798020Z",
+    "last_poll_at": "2026-10-16T05:22:06.734774Z",
     "last_tick_at": "2026-10-16T05:04:52.705799Z",
     "run_id": "38852616785",
     "owner_recovery_requests": [
