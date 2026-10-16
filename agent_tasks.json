@@ -210292,7 +210292,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T06:59:17.190903Z"
+        "observed_at": "2026-10-16T06:59:17.190903Z",
+        "released_attempt_ref": "autonomous/attempt-4b1cd243c8d1b30d2b80551c"
       },
       "research_result": {
         "summary": "Measured ProjectRail rendering performance with a large number of workspaces, confirming a regression where rendering 1000 workspaces takes nearly 2 seconds in a synthetic test. Validated that focus drops to the document body when closing the last session tab.",
