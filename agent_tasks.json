@@ -214801,7 +214801,7 @@
       "id": "research-sessions-persistence-performance-22",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -214914,16 +214914,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "7726250843483829957",
         "dispatch_key": "0201a2e594d38bdb41a27190",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-0201a2e594d38bdb41a27190",
         "started_at": "2026-10-16T21:46:44.694384Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T22:18:40.826628Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -215096,13 +215096,104 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T21:46:44.694384Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T22:18:40.826628Z"
+      },
+      "research_result": {
+        "summary": "Investigated the performance of session parsing on the Rust backend (`scan_sessions`) and session listing on the React frontend (`SessionList`). By crafting a temporary mock of 1000 and 10000 sessions respectively, observed that both systems scale well. However, `scan_sessions` in `src-tauri/src/sessions.rs` has no concurrent evaluation, meaning that reading 1000 sessions one-by-one from the disk synchronously takes nearly ~1 second locally, leaving room for async/rayon speedups for huge folders.",
+        "observations": [
+          {
+            "scenario": "Rust backend session scanning time complexity for large lists",
+            "evidence": "Ran a synthetic test inserting 1000 mocked local sessions (a `header.json` and a 100-line `transcript.jsonl` each) in a temp directory, and measured `scan_sessions(root)`. It took around 788-965 ms to complete on the test environment.",
+            "result": "Since `scan_sessions` processes all subdirectories linearly using `std::fs::read_dir`, taking almost ~1ms per session directory file I/O locally, a very large amount of active sessions could noticeably block or delay the application on startup. Refactoring the recursive scan loop into parallel execution (e.g., using `rayon`) could dramatically reduce load times."
+          },
+          {
+            "scenario": "React frontend SessionList rendering performance for large lists",
+            "evidence": "Ran a synthetic jsdom test simulating `SessionList` rendering 10000 mocked sessions. The initial `render` took ~258ms, while `rerender` triggering a single selection update took ~34ms.",
+            "result": "The UI handles a massive session count fairly well due to virtualization via `useVirtualList`, keeping rerenders efficient. The tree-building `useMemo` blocks handle flattened 10k lists under ~30ms, meaning UI stuttering shouldn't be pronounced on large workspaces."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if converting the session parsing loop inside `scan_sessions` to use `rayon` parallel iteration would significantly speed up application startup in scenarios with 10,000+ sessions."
+        ],
+        "proposed_task_ids": [
+          "discovery-40f4b03c32eedf09"
+        ],
+        "completed_at": "2026-10-16T22:18:40.826628Z",
+        "source": {
+          "activity_id": "sessions/7726250843483829957/activities/e644347f40284118b9684083dfac070d",
+          "report_sha256": "9e2b603c2dbd92f6eb6b8626e4a5f65da9a0a3835c689e72cbe5a6ac732ed1fc",
+          "activity_created_at": "2026-10-16T22:07:30.707851Z",
+          "session_id": "7726250843483829957",
+          "dispatch_key": "0201a2e594d38bdb41a27190"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7726250843483829957/activities/e644347f40284118b9684083dfac070d",
+          "report_sha256": "9e2b603c2dbd92f6eb6b8626e4a5f65da9a0a3835c689e72cbe5a6ac732ed1fc",
+          "activity_created_at": "2026-10-16T22:07:30.707851Z",
+          "session_id": "7726250843483829957",
+          "dispatch_key": "0201a2e594d38bdb41a27190"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-40f4b03c32eedf09"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-40f4b03c32eedf09",
+      "title": "Parallelize session scanning in the backend for faster startup on large workspaces",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "medium",
+      "focus": [
+        "perf"
+      ],
+      "created_at": "2026-10-16T22:18:40.826628Z",
+      "acceptance": [
+        "The scan loop in `scan_sessions` uses parallel execution (e.g. rayon or async tasks) to process individual session directories.",
+        "A benchmark or load test with 1000+ sessions demonstrates a reduced elapsed time compared to the linear loop."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured `scan_sessions` taking ~788ms for 1000 sessions in a synthetic test because it loops over subdirectories and reads file metadata/content sequentially. For large user workspaces, this synchronous scan delay blocking startup can be minimized by parallelizing I/O across directories.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create 1000 simulated session directories with `header.json` and `transcript.jsonl` inside a temp folder.",
+            "Measure execution time of `scan_sessions(root)` on that folder."
+          ],
+          "expected": "Completion time scales sublinearly when run across multiple threads.",
+          "actual": "Completion time is bound to sequential disk I/O, scaling linearly (e.g. ~1000ms locally for 1000 sessions)."
+        }
+      },
+      "target_paths": [
+        "src-tauri/src/sessions.rs"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-22",
+        "activity_id": "sessions/7726250843483829957/activities/e644347f40284118b9684083dfac070d",
+        "report_sha256": "9e2b603c2dbd92f6eb6b8626e4a5f65da9a0a3835c689e72cbe5a6ac732ed1fc",
+        "activity_created_at": "2026-10-16T22:07:30.707851Z",
+        "session_id": "7726250843483829957",
+        "dispatch_key": "0201a2e594d38bdb41a27190"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T21:51:39.856821Z",
+    "last_poll_at": "2026-10-16T22:19:09.895461Z",
     "last_tick_at": "2026-10-16T21:51:54.370633Z",
     "run_id": "38970807286",
     "owner_recovery_requests": [
