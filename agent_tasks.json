@@ -211859,7 +211859,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T07:55:56.791269Z"
+        "observed_at": "2026-10-16T07:55:56.791269Z",
+        "released_attempt_ref": "autonomous/attempt-2a67c482eefc6b729ff9c6a1"
       },
       "research_result": {
         "summary": "Verified App.tsx UI trap, ModelPicker focus issue, and proxy provider overlays. Will not propose tasks for focus and overlays due to prior owner rejection context (design intent & separate persistence model). Will only fix App.tsx recovery screen bug.",
