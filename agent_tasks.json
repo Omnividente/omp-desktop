@@ -205568,7 +205568,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T01:54:12.049708Z"
+        "observed_at": "2026-10-16T01:54:12.049708Z",
+        "released_attempt_ref": "autonomous/attempt-b899d9e2f7ea1e521d01618c"
       },
       "research_result": {
         "summary": "Investigated the terminal UI layout resize leak, terminal output batcher data loss, and continuity generation changes. Confirmed that a scheduled requestAnimationFrame in ResizeObserver callback can fire after TerminalView is unmounted. Also verified that terminal output batcher drops pending data on dispose(), and terminal continuity overwrites a newer generation baseline if a stale output event or attachment arrives.",
