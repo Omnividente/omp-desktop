@@ -507416,6 +507416,35 @@
         "before_state_sha": "46e40fbc2da8cc45aa0b35eea001e7dd2cbb2937",
         "before_digest": "83574fe4511bab890bf2527c63e679d327722c833d38497ee43f84dc1f54d52d",
         "event_id": "3c4509e7ae3f0bd1f82141430862e320e24050c8c579ac55a490875353f3b72e"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-16T04:34:31.488029Z",
+        "decision_id": "bcac38d188dacde0b3decf63b86137bf50826c0f9c721809185dcd7d692fcaf5",
+        "executor_claim_id": "5f7039852fd99617baf5cc8dbc2ca561c2b6862f976a5939369a2ca38fcd3b82",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "85a18d179101fa5c3c127a887bf572a712d25356",
+          "after_state_sha": "2f45ffbc99241826ca400cf18cde7890809c382c",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-performance-20",
+              "session_id": "9914236537606670972",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-16T04:29:06Z"
+            },
+            {
+              "task_id": "research-terminal-input-ux-21",
+              "session_id": "17959077847080857515",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-16T04:29:06Z"
+            }
+          ],
+          "before_digest": "83574fe4511bab890bf2527c63e679d327722c833d38497ee43f84dc1f54d52d",
+          "after_digest": "fe1f50be7a756074b77038a40a030f270465e734b2f5c27f5e02f99086fade49"
+        },
+        "receipt_id": "11ee928395486cc561f5344246f25e7d5386e2f6e7a72f4297bda7c78410eca8",
+        "event_id": "f929827ca5a1000a213a9f746d9c849ddecae6dcb374b8153f02aa2e883dd2f3"
       }
     ]
   }
