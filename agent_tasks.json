@@ -204100,7 +204100,7 @@
       "id": "research-terminal-input-behavior-21",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -204404,16 +204404,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12265608988274003985",
         "dispatch_key": "29a79bf59180b8bf49b93574",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-29a79bf59180b8bf49b93574",
         "started_at": "2026-10-16T00:08:46.431241Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T00:33:42.895150Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -204587,13 +204587,133 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T00:08:46.431241Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T00:33:42.895150Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal continuity handling of stale generation changes. Confirmed that a stale output event or attachment with an older generation overwrites the continuity baseline back to the older generation, causing state corruption.",
+        "observations": [
+          {
+            "scenario": "A delayed output event with an older generation arrives while a newer generation is active.",
+            "evidence": "Ran an isolated script (test-stale-attachment.ts) calling applyTerminalAttachment with generation 2, then applyTerminalOutputEvent with generation 1.",
+            "result": "The older output event was accepted (accept: true, generationChanged: true) and overwrote the baseline to generation 1."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if terminal output events from older generations also cause UI rendering glitches before continuity handles them."
+        ],
+        "proposed_task_ids": [
+          "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+        ],
+        "completed_at": "2026-10-16T00:33:42.895150Z",
+        "source": {
+          "activity_id": "sessions/12265608988274003985/activities/65998b8982c6481a8c4fbc131eb15b80",
+          "report_sha256": "38489d0c540d83b43b75c1e93efa3f1b2de030250937fed49e1cbeb83dc53fd3",
+          "activity_created_at": "2026-10-16T00:21:59.331446Z",
+          "session_id": "12265608988274003985",
+          "dispatch_key": "29a79bf59180b8bf49b93574"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12265608988274003985/activities/65998b8982c6481a8c4fbc131eb15b80",
+          "report_sha256": "38489d0c540d83b43b75c1e93efa3f1b2de030250937fed49e1cbeb83dc53fd3",
+          "activity_created_at": "2026-10-16T00:21:59.331446Z",
+          "session_id": "12265608988274003985",
+          "dispatch_key": "29a79bf59180b8bf49b93574"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc",
+      "title": "Fix terminal continuity generation changes during failure recovery",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "reliability"
+      ],
+      "created_at": "2026-10-16T00:33:42.895150Z",
+      "acceptance": [
+        "applyTerminalOutputEvent rejects output events with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map.",
+        "applyTerminalAttachment rejects attachments with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated Node.js execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Establish a generation 2 baseline using applyTerminalAttachment.",
+            "Call applyTerminalOutputEvent with a stale output event from generation 1.",
+            "Observe the result and the internal baseline map."
+          ],
+          "expected": "The decision has accept: false, and the internal baseline remains generation 2.",
+          "actual": "The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "rationale_reassessment",
+          "difference": "The synthetic test proves that if a stale event from an older generation arrives, it downgrades the continuity baseline. This is a backward generation change (2 -> 1), not the forward change (1 -> 2) evaluated previously.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+              "decision_context_id": "2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6",
+              "why_previous_reason_no_longer_explains": "The rationale evaluated a forward generation change (1 -> 2) which correctly updates the baseline. However, the issue demonstrates a backward generation change (2 -> 1), where a delayed older event silently overwrites the newer baseline and corrupts the state machine, requiring explicit rejection of older generations."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/terminalContinuity.ts",
+        "src/terminalContinuity.test.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae",
+            "action": "reject",
+            "decision_at": "2026-09-21T20:12:25Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-terminal-input-behavior-21",
+        "activity_id": "sessions/12265608988274003985/activities/65998b8982c6481a8c4fbc131eb15b80",
+        "report_sha256": "38489d0c540d83b43b75c1e93efa3f1b2de030250937fed49e1cbeb83dc53fd3",
+        "activity_created_at": "2026-10-16T00:21:59.331446Z",
+        "session_id": "12265608988274003985",
+        "dispatch_key": "29a79bf59180b8bf49b93574"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T00:13:30.817781Z",
+    "last_poll_at": "2026-10-16T00:34:07.352230Z",
     "last_tick_at": "2026-10-16T00:13:44.663131Z",
     "run_id": "38826970540",
     "owner_recovery_requests": [
