@@ -554133,6 +554133,16 @@
           "actor": "Omnividente"
         },
         "event_id": "46180be3faba72632f38a49163ff9354793db9381ac50e3b384d57a8c7bda442"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-16T21:57:39.449916Z",
+        "decision_id": "c15287c5fbb0906c1ff9502cc0a8f3fdbeac8e5e07e55357b0cecc80d00b9aee",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-16T21:57:37.582871Z"
+        },
+        "event_id": "30d1107ad9e8fe771c2129b2c502209d37a06d324a4c53403f059a212c620d1c"
       }
     ]
   }
