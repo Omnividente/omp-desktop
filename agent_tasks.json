@@ -525930,6 +525930,35 @@
         "before_state_sha": "e9ec8f2eab859c6915c4281196e260c97f6498f7",
         "before_digest": "b8e96bb2e0f684945cb2f08abbbb3ca8fc6acef842541318f83152a165020540",
         "event_id": "81637e31f47c8450ea4341c443a445c36640eccaa24959f7bfd03aebe485b363"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-16T09:22:45.864288Z",
+        "decision_id": "16d1949d978e44971d80683487fd32bdd4db6befef74bd2f2de4a8b392211c93",
+        "executor_claim_id": "515d0e05d86ba55afbd9d745199a6b55c27affb893982ff17eb3d43c143a0d38",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "bf8c84481fcb3f2c196175d815e1a4248186c11f",
+          "after_state_sha": "f6285775f5611984c470a602e5955d6d60a99c28",
+          "poll_observations": [
+            {
+              "task_id": "research-settings-models-performance-21",
+              "session_id": "3089899846742931300",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-16T09:16:39Z"
+            },
+            {
+              "task_id": "research-transcript-links-reliability-21",
+              "session_id": "15370071525434480938",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-16T09:16:39Z"
+            }
+          ],
+          "before_digest": "b8e96bb2e0f684945cb2f08abbbb3ca8fc6acef842541318f83152a165020540",
+          "after_digest": "badf1730abd7315fc87fd8c98bd29b0ec87f632cb296b65f1de2f3b0d03f93a8"
+        },
+        "receipt_id": "ed1e3f3ed28925ee53a1f382fc648669eecd0f88ff1aed40bc0c9037d18ea03a",
+        "event_id": "297312f7630920f817ac71a0b0b3748947993962e1165005725cf88c56a9f218"
       }
     ]
   }
