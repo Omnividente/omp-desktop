@@ -216254,7 +216254,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T23:21:25.663570Z"
+        "observed_at": "2026-10-16T23:21:25.663570Z",
+        "released_attempt_ref": "autonomous/attempt-2dd741a65e3701575120ef7c"
       },
       "research_result": {
         "summary": "Investigated IncidentCenter, ResourceHealthPanel, and runtimeIncidents for keyboard focus bounds and incident handling saturation. Confirmed that inline focus traps incorrectly include children of collapsed details tags, and enforceIncidentBound drops unresolved primary errors under high fallback volume.",
