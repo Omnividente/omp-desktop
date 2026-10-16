@@ -205709,6 +205709,128 @@
         "session_id": "1378984091277568626",
         "dispatch_key": "b899d9e2f7ea1e521d01618c"
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-21",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-16T01:54:12Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 21,
+        "previous_reports": [
+          {
+            "summary": "Investigated performance of session list rendering and session discovery with a large number of sessions (10,000). On the frontend, rendering 10,000 mock sessions initially took ~240ms, and search filtering took ~100ms in jsdom, demonstrating O(N) linear work bounded within reasonable desktop interaction limits without catastrophic UI blocking. On the backend, rust benchmark tests showed 10k session scan taking ~310ms cold and ~157ms warm on release mode, remaining well within the 3-second hard limit.",
+            "observations": [
+              {
+                "scenario": "SessionList component rendering 10,000 sessions in jsdom",
+                "evidence": "Ran a synthetic Vitest test simulating 10,000 sessions passed into SessionList. Measured initial render taking ~240ms. Filtering by a query '999' resulted in ~100ms update. No memoization bugs or exponential UI hangs observed.",
+                "result": "UI handles 10,000 item renders in ~240ms, which scales linearly and avoids exponential layout blocking."
+              },
+              {
+                "scenario": "Backend rust session discovery cold/warm scan of 10,000 sessions",
+                "evidence": "Ran the existing manual 10k-session discovery benchmark via 'cargo test --release ten_thousand_session_discovery_meets_cold_and_warm_budgets -- --ignored'.",
+                "result": "Cold scan took ~310ms and warm scan took ~157ms. This is far below the benchmark's built-in assertion bounds of 10s and 3s respectively."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if virtualized list scrolling performance in browser environments experiences latency spikes during continuous scroll of 10,000 sessions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-15T21:36:07.609164Z",
+            "source": {
+              "activity_id": "sessions/12608675356537081758/activities/4b587080cb0f48e6844da3bd2c447383",
+              "report_sha256": "edc532d8b88cfbf20f5d14b1ca90e6a95d5ed77bb183c96e912b3a83f067b658",
+              "activity_created_at": "2026-10-15T21:14:51.957778Z",
+              "session_id": "12608675356537081758",
+              "dispatch_key": "e03f6d54a1ad76d7187bcfb0"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated session persistence import and component boundary checks, primarily on `ImportSessionModal`, `CodexImportModal` and `SessionControls`. Verified `ImportSessionModal` and `CodexImportModal` empty state interactions natively via `vitest` jsdom simulations and checked focus restoration on session pin toggle in `SessionControls`.",
+            "observations": [
+              {
+                "scenario": "ImportSessionModal boundary checks with an empty path",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_empty_import.test.tsx` verifying the 'Import' button disabled state when the `path` prop is an empty string and `importing` is false.",
+                "result": "The 'Import' button remains enabled when the path is empty, which relies on the caller (the environment) to block rendering or importing of an empty path. This replicates the previous finding (discovery-5d2c2a7141e1fb4a) which was rejected as unnecessary defensive validation since the dialog mounts only after the OS picker returns a non-blank path."
+              },
+              {
+                "scenario": "CodexImportModal boundary checks with an empty session list",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_empty_codex_import.test.tsx` verifying the 'Import selected' button disabled state when the `sessions` array is empty and `importing` is false.",
+                "result": "The 'Import selected' button correctly gets disabled natively when the session list is empty."
+              },
+              {
+                "scenario": "SessionControls primary provider pin focus restoration",
+                "evidence": "Ran a synthetic Vitest jsdom test `test_session_controls_focus.test.tsx` simulating focus lifecycle during 'primary provider' pin toggle and restart. Triggered a toggle, simulating the tab transition to `primaryProviderPinPending=true` and back to `primaryProviderPinPending=false` and `primaryProviderPinned=true`, verifying the focus state.",
+                "result": "Focus reliably shifts from the toggled pin to the controls group while the session is pending, and successfully restores back to the pin toggle once the pin status toggle operation completes."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+              "Investigate if session summaries from Codex can get out of sync if an externally modified `.jsonl` file removes lines but retains its original modified timestamp."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T00:08:46.431241Z",
+            "source": {
+              "activity_id": "sessions/5676046648033990390/activities/ce485b58691b4be791ab224da4a1a5bc",
+              "report_sha256": "8482efa41e7f130d9f61fdc09d278b2df57adb46194bc9f61fb6e61f30734a4b",
+              "activity_created_at": "2026-10-15T23:51:15.937856Z",
+              "session_id": "5676046648033990390",
+              "dispatch_key": "ede821e6de569a6ad10797e9"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the behavior of Codex session summary generation and synchronization when an underlying `.jsonl` file is modified externally while retaining its original modification timestamp. Verified through static analysis of the backend `list_codex_sessions` flow that there is no in-memory cache to get out of sync, and each API call reads the current file contents directly from disk.",
+            "observations": [
+              {
+                "scenario": "Codex session summaries synchronization when an underlying `.jsonl` file is truncated but its modified timestamp is preserved (static analysis)",
+                "evidence": "Reviewed `src-tauri/src/sessions.rs` around `list_codex_sessions`, `parse_codex_session_with_names`, and `read_codex_discovery_prefix`. The `list_codex_sessions` command invokes `collect_jsonl_files` to find all jsonl files, and parses each one directly from disk for every API call. There is no cache dictionary or database storing these summaries between calls.",
+                "result": "The session summary cannot get out of sync with the actual file contents (up to the prefix reading limits), because the content is read directly from disk upon every invocation. The timestamp is only used for sorting and deduplication across multiple files sharing the same ID, not for cache invalidation."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+              "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T01:24:43.361164Z",
+            "source": {
+              "activity_id": "sessions/3889825610511787224/activities/2c2c532e91204dc2bc0322b1b74ec1bc",
+              "report_sha256": "f6a6b521e2a373bb88b61d1a1fd0cb1c72e291b5c674c74097a3216b4dea45fd",
+              "activity_created_at": "2026-10-16T01:13:03.171359Z",
+              "session_id": "3889825610511787224",
+              "dispatch_key": "6230996694fb6c932afef144"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
