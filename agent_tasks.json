@@ -216072,8 +216072,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "12223804846120006382",
         "dispatch_key": "2dd741a65e3701575120ef7c",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-2dd741a65e3701575120ef7c",
