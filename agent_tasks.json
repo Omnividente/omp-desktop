@@ -210900,7 +210900,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T07:29:24.780135Z"
+        "observed_at": "2026-10-16T07:29:24.780135Z",
+        "released_attempt_ref": "autonomous/attempt-2b24e219fa2a2793ed831ebe"
       },
       "research_result": {
         "summary": "Verified three findings: App.tsx traps user on recovery screen during fallback errors; ModelPicker keyboard navigation interrupts typing due to manual focus(); proxy-providers.yml overlay does not filter out disabled providers.",
