@@ -204716,7 +204716,7 @@
       "id": "research-sessions-persistence-behavior-21",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -204840,16 +204840,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "3889825610511787224",
         "dispatch_key": "6230996694fb6c932afef144",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-6230996694fb6c932afef144",
         "started_at": "2026-10-16T00:33:42.895150Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T01:24:43.361164Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -205022,13 +205022,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-16T01:00:19.527163Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T01:24:43.361164Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of Codex session summary generation and synchronization when an underlying `.jsonl` file is modified externally while retaining its original modification timestamp. Verified through static analysis of the backend `list_codex_sessions` flow that there is no in-memory cache to get out of sync, and each API call reads the current file contents directly from disk.",
+        "observations": [
+          {
+            "scenario": "Codex session summaries synchronization when an underlying `.jsonl` file is truncated but its modified timestamp is preserved (static analysis)",
+            "evidence": "Reviewed `src-tauri/src/sessions.rs` around `list_codex_sessions`, `parse_codex_session_with_names`, and `read_codex_discovery_prefix`. The `list_codex_sessions` command invokes `collect_jsonl_files` to find all jsonl files, and parses each one directly from disk for every API call. There is no cache dictionary or database storing these summaries between calls.",
+            "result": "The session summary cannot get out of sync with the actual file contents (up to the prefix reading limits), because the content is read directly from disk upon every invocation. The timestamp is only used for sorting and deduplication across multiple files sharing the same ID, not for cache invalidation."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if `recover_import_transaction` in sessions.rs properly cleans up when the backup artifact directory is read-only or locked by another process during an interrupted import rollback.",
+          "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-16T01:24:43.361164Z",
+        "source": {
+          "activity_id": "sessions/3889825610511787224/activities/2c2c532e91204dc2bc0322b1b74ec1bc",
+          "report_sha256": "f6a6b521e2a373bb88b61d1a1fd0cb1c72e291b5c674c74097a3216b4dea45fd",
+          "activity_created_at": "2026-10-16T01:13:03.171359Z",
+          "session_id": "3889825610511787224",
+          "dispatch_key": "6230996694fb6c932afef144"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T01:00:51.376240Z",
+    "last_poll_at": "2026-10-16T01:25:14.379136Z",
     "last_tick_at": "2026-10-16T01:01:07.060935Z",
     "run_id": "38831924754",
     "owner_recovery_requests": [
