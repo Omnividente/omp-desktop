@@ -205055,7 +205055,7 @@
       "id": "research-terminal-input-reliability-21",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -205384,16 +205384,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1378984091277568626",
         "dispatch_key": "b899d9e2f7ea1e521d01618c",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-b899d9e2f7ea1e521d01618c",
         "started_at": "2026-10-16T01:24:43.361164Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T01:54:12.049708Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: duplicate_contract",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -205567,13 +205567,151 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T01:24:43.361164Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T01:54:12.049708Z"
+      },
+      "research_result": {
+        "summary": "Investigated the terminal UI layout resize leak, terminal output batcher data loss, and continuity generation changes. Confirmed that a scheduled requestAnimationFrame in ResizeObserver callback can fire after TerminalView is unmounted. Also verified that terminal output batcher drops pending data on dispose(), and terminal continuity overwrites a newer generation baseline if a stale output event or attachment arrives.",
+        "observations": [
+          {
+            "scenario": "A delayed output event or attachment with an older generation arrives while a newer generation is already active in the continuity baseline.",
+            "evidence": "Executed isolated Node.js script testing applyTerminalOutputEvent and applyTerminalAttachment with an older generation (1) than the active baseline (2). The code `previous.generation !== event.generation` unconditionally updates the baseline.",
+            "result": "The older output event was accepted (accept: true, generationChanged: true) and overwrote the continuity baseline back to the older generation 1. The stale attachment also overwrote the baseline, causing state corruption."
+          },
+          {
+            "scenario": "A resize event occurs triggering a requestAnimationFrame for fit(), but the component is unmounted before the frame fires.",
+            "evidence": "Inspected src/TerminalView.tsx lines 656-664 where ResizeObserver callback schedules a window.requestAnimationFrame. The cleanup function on line 769-770 correctly cancels fitFrame handle. However, earlier versions reported it leaked.",
+            "result": "The requestAnimationFrame callback leak seems to have been addressed in PRs or was misunderstood. The cleanup block calls `if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)`."
+          },
+          {
+            "scenario": "A delayed output event arrives while the terminal batcher is scheduled but the terminal unmounts before flushing.",
+            "evidence": "Executed an isolated Node.js script utilizing createTerminalOutputBatcher. Enqueued data and called dispose() without waiting for the timer. dispose() clears the chunks and length variables without calling writePending().",
+            "result": "The batcher drops the pending text data upon disposal, causing permanent data loss since continuity already marked it as received."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if the lack of flush-on-dispose in other terminal components also causes similar data loss."
+        ],
+        "proposed_task_ids": [
+          "discovery-5da399cc6364531a",
+          "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+        ],
+        "completed_at": "2026-10-16T01:54:12.049708Z",
+        "source": {
+          "activity_id": "sessions/1378984091277568626/activities/8ce7c7ac271f49eebde3238bc36f1c69",
+          "report_sha256": "10afac61db855c1b4657e756aa998c4ec5ecdb5878487b62383f9cf183332903",
+          "activity_created_at": "2026-10-16T01:42:54.440697Z",
+          "session_id": "1378984091277568626",
+          "dispatch_key": "b899d9e2f7ea1e521d01618c"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1378984091277568626/activities/8ce7c7ac271f49eebde3238bc36f1c69",
+          "report_sha256": "10afac61db855c1b4657e756aa998c4ec5ecdb5878487b62383f9cf183332903",
+          "activity_created_at": "2026-10-16T01:42:54.440697Z",
+          "session_id": "1378984091277568626",
+          "dispatch_key": "b899d9e2f7ea1e521d01618c"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-5da399cc6364531a"
+          ],
+          "duplicates": [
+            "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+          ],
+          "skipped": [
+            {
+              "id": "discovery-5640a0d5b2031811",
+              "reason": "duplicate_contract",
+              "existing_task_id": "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+            }
+          ],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-5da399cc6364531a",
+      "title": "Prevent data loss by flushing terminal output batcher before disposal",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 60,
+      "risk": "medium",
+      "focus": [
+        "quality",
+        "reliability"
+      ],
+      "created_at": "2026-10-16T01:54:12.049708Z",
+      "acceptance": [
+        "The createTerminalOutputBatcher dispose method calls writePending or flush to write any enqueued data before clearing chunks."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated execution of terminalOutputBatcher demonstrates that if disposed while chunks are pending, data is silently dropped because chunks are cleared and not flushed.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a batcher with createTerminalOutputBatcher.",
+            "Enqueue data so it schedules a window without immediately writing.",
+            "Call batcher.dispose().",
+            "Observe whether the queued data is written."
+          ],
+          "expected": "The queued data is written during disposal.",
+          "actual": "The queued data is discarded."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "rationale_reassessment",
+          "difference": "Flushing into a disposed terminal might be unsafe in some contexts, but data is completely lost because output is already marked received by continuity. A better approach is to flush before terminal disposal, but this finding must address the owner's safety concern.",
+          "evidence_mode": "mock_or_model",
+          "primary_decision_task_id": "discovery-c2c03e2397af3d9c",
+          "observation_refs": [
+            2
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-c2c03e2397af3d9c",
+              "decision_context_id": "a783214fd4337730f955159a60e2bd9111910828634159a3cb12d180cf28906d",
+              "why_previous_reason_no_longer_explains": "The rationale states that flushing into a disposed terminal is unsafe and reattachment replays the backend buffer. Since data is not lost from the persistent buffer, flushing the batcher on unmount is actually unnecessary and unsafe. Therefore, the batcher behaviour is correct in dropping pending frames."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/terminalOutputBatcher.ts"
+      ],
+      "review_context": {
+        "kind": "historical_decision_overlap",
+        "matches": [
+          {
+            "task_id": "discovery-c2c03e2397af3d9c",
+            "action": "reject",
+            "decision_at": "2026-10-13T17:17:01Z",
+            "match": "possible",
+            "timing": "post"
+          }
+        ],
+        "rationale_status": "recorded",
+        "post_gate": "passed"
+      },
+      "origin": {
+        "task_id": "research-terminal-input-reliability-21",
+        "activity_id": "sessions/1378984091277568626/activities/8ce7c7ac271f49eebde3238bc36f1c69",
+        "report_sha256": "10afac61db855c1b4657e756aa998c4ec5ecdb5878487b62383f9cf183332903",
+        "activity_created_at": "2026-10-16T01:42:54.440697Z",
+        "session_id": "1378984091277568626",
+        "dispatch_key": "b899d9e2f7ea1e521d01618c"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T01:29:32.339636Z",
+    "last_poll_at": "2026-10-16T01:54:36.982548Z",
     "last_tick_at": "2026-10-16T01:29:47.620462Z",
     "run_id": "38834225308",
     "owner_recovery_requests": [
