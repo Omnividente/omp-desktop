@@ -212046,6 +212046,335 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-settings-models-reliability-21",
+      "title": "Investigate Settings recovery and model selection: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SettingsPanel.tsx",
+        "src/SettingsRecoveryScreen.tsx",
+        "src/ModelPicker.tsx",
+        "src-tauri/src/settings.rs",
+        "src-tauri/src/models.rs"
+      ],
+      "created_at": "2026-10-16T07:55:56Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "settings-models",
+        "perspective_id": "reliability",
+        "fingerprint": "038c87e2e6ce0bf27245cc4142d716e58bf0e0c1f1c8b2b63f8514c66301b5e4",
+        "cycle": 21,
+        "previous_reports": [
+          {
+            "summary": "Verified three findings: App.tsx traps user on recovery screen during fallback errors; ModelPicker keyboard navigation interrupts typing due to manual focus(); proxy-providers.yml overlay does not filter out disabled providers.",
+            "observations": [
+              {
+                "scenario": "Simulating a non-settings error during startWithDefaults fallback in App.tsx",
+                "evidence": "Source code review of `src/App.tsx` (lines 780-798, 875-890). If `startWithDefaults()` throws an error and `settingsUnavailableDetails(error)` returns null (indicating a non-settings error, like a network issue), it calls `showError()` but does not reset `settingsRecovery` to null. The user remains stuck in the `SettingsRecoveryScreen`.",
+                "result": "The recovery screen does not clear its state when a non-settings error occurs during the fallback process, trapping the user."
+              },
+              {
+                "scenario": "Reviewing keyboard navigation implementation in ModelPicker.tsx",
+                "evidence": "Source code review of `src/ModelPicker.tsx`. In `handleListboxKeyDown` (lines 197-219), when ArrowDown/ArrowUp are pressed, it calculates `nextIndex` and calls `optionRefs.current[nextIndex]?.focus({ preventScroll: true })`. This physically moves DOM focus from the `<input>` element to the option `<button>`, meaning typing cannot continue.",
+                "result": "Arrow key navigation moves DOM focus away from the search input to option buttons, interrupting typing."
+              },
+              {
+                "scenario": "Checking how proxy overlays are generated in terminal.rs",
+                "evidence": "Source code review of `src-tauri/src/terminal.rs` (lines 1115-1116, 1236). It calls `ensure_proxy_provider_overlay(&app, &settings.proxy_providers)` directly using the proxy providers list from `AppSettings`. It does not cross-reference this with `OmpConfigSnapshot` to exclude `disabled_providers` before generation.",
+                "result": "Disabled proxy providers are still passed to the overlay generator, bypassing their disabled state."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-f4a49ed47e689960"
+            ],
+            "completed_at": "2026-10-16T07:29:24.780135Z",
+            "source": {
+              "activity_id": "sessions/11713683307013093509/activities/570725fd44ed433d9482bf7b96a81f71",
+              "report_sha256": "8bb380ddf9b73e01007dd139cb10e407fc895320d07228cb6cadbeca7e75ce8d",
+              "activity_created_at": "2026-10-16T07:13:52.835490Z",
+              "session_id": "11713683307013093509",
+              "dispatch_key": "2b24e219fa2a2793ed831ebe"
+            },
+            "deferred_findings": [
+              {
+                "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+                ],
+                "deferred_id": "751e07a83bbb55f4975f64f76c5ab070475284ff22b8e084b7861d71b57cea57",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+                  "risk": "medium",
+                  "priority": 70,
+                  "focus": [
+                    "bugfix",
+                    "quality",
+                    "tests"
+                  ],
+                  "target_paths": [
+                    "src/App.tsx"
+                  ],
+                  "acceptance": [
+                    "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Trigger a settings parse error to enter the SettingsRecoveryScreen.",
+                        "Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults."
+                      ],
+                      "expected": "The recovery screen is dismissed (state cleared) and the generic error is displayed.",
+                      "actual": "The generic error is displayed but the recovery screen remains."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-31392473c06b5573",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:22Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-settings-models-behavior-21",
+                  "activity_id": "sessions/11713683307013093509/activities/570725fd44ed433d9482bf7b96a81f71",
+                  "report_sha256": "8bb380ddf9b73e01007dd139cb10e407fc895320d07228cb6cadbeca7e75ce8d",
+                  "activity_created_at": "2026-10-16T07:13:52.835490Z",
+                  "session_id": "11713683307013093509",
+                  "dispatch_key": "2b24e219fa2a2793ed831ebe"
+                }
+              },
+              {
+                "title": "Fix ModelPicker to keep focus on input during keyboard navigation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Review of ModelPicker.tsx reveals that handleListboxKeyDown calls .focus() on the list options, stealing focus from the search input while aria-activedescendant is already correctly used.\", \"reproduction\": {\"actual\": \"DOM focus moves to the listbox option button, interrupting typing.\", \"expected\": \"Focus remains on the input and continuous typing works while aria-activedescendant tracks the highlighted option.\", \"steps\": [\"Open ModelPicker and click the search input.\", \"Type part of a model name.\", \"Press ArrowDown to highlight an option.\", \"Type another character.\"]}, \"revisit\": {\"change_kind\": \"code_change\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Previous proposals attempted to add a combobox role to ModelPicker which was rejected due to lack of the complete combobox contract. This proposal utilizes the existing aria-activedescendant attribute without changing ARIA roles and simply removes the focus() call to prevent typing interruption.\", \"evidence_mode\": \"static_analysis\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-e3f725a71e16644f\", \"responses\": [{\"decision_context_id\": \"bc6c9170697975fcb80926a5acdaaed0edbca8704c21c334967e62e5dc8c00bf\", \"decision_task_id\": \"discovery-e3f725a71e16644f\", \"why_previous_reason_no_longer_explains\": \"The owner's rejection highlighted that the existing ModelPicker intentionally uses roving focus among button options. We are not proposing to change it to combobox, just reporting that it interrupts continuous typing.\"}, {\"decision_context_id\": \"1b18b2eb395d439c3ed614a5a3a9d0bba7506c7b1b47a4cde32fc2df5e74c542\", \"decision_task_id\": \"discovery-5994f186e2d442af\", \"why_previous_reason_no_longer_explains\": \"The owner's rejection explicitly stated that the current roving focus is intentional, not accidental focus loss. Thus, this finding may actually be obsolete or duplicate based on owner's stated intent, but we report it to track it again.\"}, {\"decision_context_id\": \"0db7ee0e7de86d25a0689fd59b1f7077eb825a8f4c8660e9785029a7378bcf23\", \"decision_task_id\": \"discovery-d9cbf8a07e35e4d1\", \"why_previous_reason_no_longer_explains\": \"The owner has rejected this three times now. The current button-option keyboard navigation remains accessible and intentional. The finding is a direct challenge to the owner's design choice and might need a product discussion.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/ModelPicker.tsx"
+                ],
+                "acceptance": [
+                  "Arrow keys navigate the list without removing DOM focus from the search input.",
+                  "Continuous typing after arrow navigation works."
+                ],
+                "deferred_id": "153c78cbb9222d92ee925d46cb5302cc1b57ddda5bee6676b9e7a7dd6c3ff632",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix ModelPicker to keep focus on input during keyboard navigation",
+                  "risk": "low",
+                  "priority": 80,
+                  "focus": [
+                    "bugfix",
+                    "quality",
+                    "compat"
+                  ],
+                  "target_paths": [
+                    "src/ModelPicker.tsx"
+                  ],
+                  "acceptance": [
+                    "Arrow keys navigate the list without removing DOM focus from the search input.",
+                    "Continuous typing after arrow navigation works."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Review of ModelPicker.tsx reveals that handleListboxKeyDown calls .focus() on the list options, stealing focus from the search input while aria-activedescendant is already correctly used.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Open ModelPicker and click the search input.",
+                        "Type part of a model name.",
+                        "Press ArrowDown to highlight an option.",
+                        "Type another character."
+                      ],
+                      "expected": "Focus remains on the input and continuous typing works while aria-activedescendant tracks the highlighted option.",
+                      "actual": "DOM focus moves to the listbox option button, interrupting typing."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "code_change",
+                      "difference": "Previous proposals attempted to add a combobox role to ModelPicker which was rejected due to lack of the complete combobox contract. This proposal utilizes the existing aria-activedescendant attribute without changing ARIA roles and simply removes the focus() call to prevent typing interruption.",
+                      "evidence_mode": "static_analysis",
+                      "primary_decision_task_id": "discovery-e3f725a71e16644f",
+                      "observation_refs": [
+                        1
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-e3f725a71e16644f",
+                          "decision_context_id": "bc6c9170697975fcb80926a5acdaaed0edbca8704c21c334967e62e5dc8c00bf",
+                          "why_previous_reason_no_longer_explains": "The owner's rejection highlighted that the existing ModelPicker intentionally uses roving focus among button options. We are not proposing to change it to combobox, just reporting that it interrupts continuous typing."
+                        },
+                        {
+                          "decision_task_id": "discovery-5994f186e2d442af",
+                          "decision_context_id": "1b18b2eb395d439c3ed614a5a3a9d0bba7506c7b1b47a4cde32fc2df5e74c542",
+                          "why_previous_reason_no_longer_explains": "The owner's rejection explicitly stated that the current roving focus is intentional, not accidental focus loss. Thus, this finding may actually be obsolete or duplicate based on owner's stated intent, but we report it to track it again."
+                        },
+                        {
+                          "decision_task_id": "discovery-d9cbf8a07e35e4d1",
+                          "decision_context_id": "0db7ee0e7de86d25a0689fd59b1f7077eb825a8f4c8660e9785029a7378bcf23",
+                          "why_previous_reason_no_longer_explains": "The owner has rejected this three times now. The current button-option keyboard navigation remains accessible and intentional. The finding is a direct challenge to the owner's design choice and might need a product discussion."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-d9cbf8a07e35e4d1",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:44Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-e3f725a71e16644f",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:21Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-settings-models-behavior-21",
+                  "activity_id": "sessions/11713683307013093509/activities/570725fd44ed433d9482bf7b96a81f71",
+                  "report_sha256": "8bb380ddf9b73e01007dd139cb10e407fc895320d07228cb6cadbeca7e75ce8d",
+                  "activity_created_at": "2026-10-16T07:13:52.835490Z",
+                  "session_id": "11713683307013093509",
+                  "dispatch_key": "2b24e219fa2a2793ed831ebe"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Verified App.tsx UI trap, ModelPicker focus issue, and proxy provider overlays. Will not propose tasks for focus and overlays due to prior owner rejection context (design intent & separate persistence model). Will only fix App.tsx recovery screen bug.",
+            "observations": [
+              {
+                "scenario": "Simulating a non-settings error during startWithDefaults fallback in App.tsx",
+                "evidence": "Source code review of src/App.tsx shows `recoverSettingsWithDefaults` calls `showError` but doesn't set `settingsRecovery` to `null` on generic non-settings errors, keeping the user stuck on the recovery UI. This matches `discovery-31392473c06b5573`.",
+                "result": "The recovery screen does not clear its state when a non-settings error occurs during the fallback process, trapping the user."
+              },
+              {
+                "scenario": "Testing keyboard navigation in ModelPicker.tsx",
+                "evidence": "Review of src/ModelPicker.tsx shows `handleListboxKeyDown` calls `.focus()` on option elements. Previous tasks like `discovery-e3f725a71e16644f` and `discovery-d9cbf8a07e35e4d1` reported this, but owner triaged as intentional design choice.",
+                "result": "Arrow keys move DOM focus away from the search input. This is intentional per owner triage, so no change will be proposed."
+              },
+              {
+                "scenario": "Checking proxy-providers.yml overlay in terminal.rs",
+                "evidence": "Review of `ensure_proxy_provider_overlay` usage in `src-tauri/src/terminal.rs`. Disabled providers are not excluded. This matches `discovery-f7cec393fa805278`, which the owner rejected because 'proxy overlay only constrains retry... it never defines or clears disabledProviders'.",
+                "result": "Disabled proxy providers are still passed to the overlay generator. Owner considers this correct."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T07:55:56.791269Z",
+            "source": {
+              "activity_id": "sessions/18379236416183115483/activities/a63ac53f516f4590924e9ed9819eab61",
+              "report_sha256": "ca46177dd344ea592f3dc02753546eec8b8e429d7082c64f839e99ed4d4a0b8f",
+              "activity_created_at": "2026-10-16T07:45:22.301969Z",
+              "session_id": "18379236416183115483",
+              "dispatch_key": "2a67c482eefc6b729ff9c6a1"
+            },
+            "deferred_findings": [
+              {
+                "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+                ],
+                "deferred_id": "b2d2b40d393b58158d76fe745891a6153d346e5cd0d6389f2a499810f3e89052",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+                  "risk": "low",
+                  "priority": 70,
+                  "focus": [
+                    "bugfix",
+                    "quality"
+                  ],
+                  "target_paths": [
+                    "src/App.tsx"
+                  ],
+                  "acceptance": [
+                    "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Trigger a settings parse error to enter the SettingsRecoveryScreen.",
+                        "Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults."
+                      ],
+                      "expected": "The recovery screen is dismissed (state cleared) and the generic error is displayed.",
+                      "actual": "The generic error is displayed but the recovery screen remains."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-31392473c06b5573",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:22Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-settings-models-ux-21",
+                  "activity_id": "sessions/18379236416183115483/activities/a63ac53f516f4590924e9ed9819eab61",
+                  "report_sha256": "ca46177dd344ea592f3dc02753546eec8b8e429d7082c64f839e99ed4d4a0b8f",
+                  "activity_created_at": "2026-10-16T07:45:22.301969Z",
+                  "session_id": "18379236416183115483",
+                  "dispatch_key": "2a67c482eefc6b729ff9c6a1"
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
