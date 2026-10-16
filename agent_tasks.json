@@ -208826,7 +208826,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T04:58:49.581702Z"
+        "observed_at": "2026-10-16T04:58:49.581702Z",
+        "released_attempt_ref": "autonomous/attempt-055ae8eefa9677eb9eca5924"
       },
       "research_result": {
         "summary": "Investigated the terminal continuity generation baseline and terminal output batcher disposal issues.",
