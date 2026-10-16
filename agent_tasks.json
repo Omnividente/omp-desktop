@@ -206936,7 +206936,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T03:32:25.569026Z"
+        "observed_at": "2026-10-16T03:32:25.569026Z",
+        "released_attempt_ref": "autonomous/attempt-23ed53f09c4d4520febfe087"
       },
       "research_result": {
         "summary": "Investigated the transcript rendering and scrolling behavior. The MARKDOWN_LINK regex backtracking issue is not reproducible on the pinned base. The loadTranscriptPath error handling bug and the useVirtualList 'Latest message' bottom-content scrolling issue have both been verified to still exist. The 'Latest message' button correctly navigates to the end but scrollToIndex inherently anchors at the top, leaving oversized newest content hidden.",
