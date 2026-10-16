@@ -209961,6 +209961,152 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-21",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-16T06:09:28Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "fc6076e085a8453c50f9ddc6ef445087c30081adf591abdd77f76a20e76ebaf5",
+        "cycle": 21,
+        "previous_reports": [
+          {
+            "summary": "Confirmed that closing all sessions leaves the focus on the document body instead of restoring focus appropriately, verified the defect in rename UI state, and verified macOS shortcuts render as Ctrl.",
+            "observations": [
+              {
+                "scenario": "Analyzed App.tsx source code for workspace and session rename.",
+                "evidence": "In src/App.tsx, `submitWorkspaceRename` sets `renamingWorkspaceKey` to null before the try/catch block executing `renameWorkspace`. `submitRenameSession` similarly sets `renamingSessionId` to null unconditionally before executing `updateSessionTitlePin`. Even though `updateSessionTitlePin` catches the error, the local state is already cleared.",
+                "result": "Confirmed the defect exists. The state should only be cleared on success."
+              },
+              {
+                "scenario": "Analyzed hardcoded Ctrl shortcuts.",
+                "evidence": "src/WorkspaceHome.tsx uses hardcoded 'Ctrl + Shift + O'. src/ProjectRail.tsx uses 'Ctrl + B'. src/i18n.ts has translations with 'Ctrl'. The `runtime.platform` parameter is available via `payload?.runtime.platform` in App.tsx but needs to be passed down or utilized to display '⌘' on macOS.",
+                "result": "Confirmed the defect exists."
+              },
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+                "evidence": "Created a test in `src/focus_test.test.tsx` that sets focus on a tab's close button, then rerenders TerminalWorkspace with 0 tabs. `document.activeElement` became the `BODY` element.",
+                "result": "Confirmed that focus is lost to the document body when all sessions are closed, which degrades keyboard accessibility."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-9869924dda721fc1"
+            ],
+            "completed_at": "2026-10-16T03:09:11.426595Z",
+            "source": {
+              "activity_id": "sessions/8632232431682828690/activities/0761233bf2a34680ab09a504c0835eb5",
+              "report_sha256": "d9bc24aa47488be0cdb28ae7433db709773ee99cc0552623ae6198252809e7a4",
+              "activity_created_at": "2026-10-16T02:57:36.562599Z",
+              "session_id": "8632232431682828690",
+              "dispatch_key": "ac6c4759c1c6e8610bc9d49a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Verified that closing all sessions in TerminalWorkspace correctly mounts WorkspaceHome, but keyboard focus incorrectly drops to the document body instead of restoring focus to a reachable element. Confirmed that session/workspace rename state incorrectly resets before API confirmation. Confirmed macOS shortcut defects.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+                "evidence": "Created a test in `src/focus_test.test.tsx` that sets focus on a tab's close button, then rerenders TerminalWorkspace with 0 tabs. `document.activeElement` became the `BODY` element instead of moving to a logical fallback focus point, degrading accessibility. Rerendering with 0 tabs successfully rendered the WorkspaceHome component.",
+                "result": "Confirmed that focus is lost to the document body when all sessions are closed."
+              },
+              {
+                "scenario": "Analyzed App.tsx source code for workspace and session rename state handling.",
+                "evidence": "In src/App.tsx, `submitWorkspaceRename` sets `renamingWorkspaceKey` to null before executing `renameWorkspace`. `submitRenameSession` unconditionally sets `renamingSessionId` to null before executing `updateSessionTitlePin`.",
+                "result": "Confirmed that the UI state is cleared before the backend call succeeds, causing user input to be lost if the API fails."
+              },
+              {
+                "scenario": "Analyzed hardcoded Ctrl shortcuts.",
+                "evidence": "src/WorkspaceHome.tsx uses hardcoded 'Ctrl + Shift + O'. src/ProjectRail.tsx uses 'Ctrl + B'. src/i18n.ts has translations with 'Ctrl'. The `formatShortcut` utility exists to replace 'Ctrl' with '⌘' on macOS platforms.",
+                "result": "Confirmed the UI shortcut defects exist because `formatShortcut` is not consistently used or not passed the correct platform."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-d5e58df258611f91",
+              "discovery-47799e83a647884f"
+            ],
+            "completed_at": "2026-10-16T05:21:43.240318Z",
+            "source": {
+              "activity_id": "sessions/2815797627340740573/activities/29fce82c0c0d4d889f70ffd6df7effbc",
+              "report_sha256": "38c8d8c0e9017efece01c1e4c24d74e965ba0cbe6034bf4e97fae88e91099849",
+              "activity_created_at": "2026-10-16T05:12:18.724609Z",
+              "session_id": "2815797627340740573",
+              "dispatch_key": "1a9d1a4281c193e58b009687"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus appropriately when the last session is closed",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body. A `useLayoutEffect` or focus management should redirect focus to the WorkspaceHome container or another accessible element.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TerminalWorkspace.tsx"
+                ],
+                "acceptance": [
+                  "When the last session tab is closed, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified that focus is not properly restored when closing the last session tab. Examined historical decision context regarding workspace/session rename state and hardcoded shortcuts.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+                "evidence": "Created a component test simulating the last tab closing in TerminalWorkspace. When focus was on the close button and the tabs list was emptied, `document.activeElement` fell back to `BODY`. TerminalWorkspace correctly mounted `WorkspaceHome` for the empty state, but no active element was automatically focused to restore user accessibility context.",
+                "result": "Confirmed that focus drops to the document body when all sessions are closed, which degrades keyboard accessibility."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T06:09:28.550012Z",
+            "source": {
+              "activity_id": "sessions/8609622966353196508/activities/9d23d2a2915f402993a080c98cc80a7e",
+              "report_sha256": "d8949ee29459bbb106e0cb4f6271d0ec15380b49928ef6531f41bdf64987773d",
+              "activity_created_at": "2026-10-16T05:44:22.018075Z",
+              "session_id": "8609622966353196508",
+              "dispatch_key": "a61b48a3b97c95f752fe5e83"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus appropriately when the last session is closed",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body. A component like WorkspaceHome should claim focus or a wrapper should handle it.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TerminalWorkspace.tsx",
+                  "src/WorkspaceHome.tsx"
+                ],
+                "acceptance": [
+                  "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
