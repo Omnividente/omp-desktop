@@ -207628,7 +207628,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T04:01:13.301780Z"
+        "observed_at": "2026-10-16T04:01:13.301780Z",
+        "released_attempt_ref": "autonomous/attempt-33b663196bc04bf7ee5d0f27"
       },
       "research_result": {
         "summary": "Investigated terminal continuity handling of stale generation changes and output batcher behavior during teardown.",
