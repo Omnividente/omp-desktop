@@ -205023,7 +205023,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T01:24:43.361164Z"
+        "observed_at": "2026-10-16T01:24:43.361164Z",
+        "released_attempt_ref": "autonomous/attempt-6230996694fb6c932afef144"
       },
       "research_result": {
         "summary": "Investigated the behavior of Codex session summary generation and synchronization when an underlying `.jsonl` file is modified externally while retaining its original modification timestamp. Verified through static analysis of the backend `list_codex_sessions` flow that there is no in-memory cache to get out of sync, and each API call reads the current file contents directly from disk.",
