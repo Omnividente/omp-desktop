@@ -206047,7 +206047,7 @@
       "id": "research-workspace-navigation-behavior-21",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -206238,16 +206238,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8632232431682828690",
         "dispatch_key": "ac6c4759c1c6e8610bc9d49a",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-ac6c4759c1c6e8610bc9d49a",
         "started_at": "2026-10-16T02:44:07.326504Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T03:09:11.426595Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -206420,13 +206420,108 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-16T02:44:07.326504Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T03:09:11.426595Z"
+      },
+      "research_result": {
+        "summary": "Confirmed that closing all sessions leaves the focus on the document body instead of restoring focus appropriately, verified the defect in rename UI state, and verified macOS shortcuts render as Ctrl.",
+        "observations": [
+          {
+            "scenario": "Analyzed App.tsx source code for workspace and session rename.",
+            "evidence": "In src/App.tsx, `submitWorkspaceRename` sets `renamingWorkspaceKey` to null before the try/catch block executing `renameWorkspace`. `submitRenameSession` similarly sets `renamingSessionId` to null unconditionally before executing `updateSessionTitlePin`. Even though `updateSessionTitlePin` catches the error, the local state is already cleared.",
+            "result": "Confirmed the defect exists. The state should only be cleared on success."
+          },
+          {
+            "scenario": "Analyzed hardcoded Ctrl shortcuts.",
+            "evidence": "src/WorkspaceHome.tsx uses hardcoded 'Ctrl + Shift + O'. src/ProjectRail.tsx uses 'Ctrl + B'. src/i18n.ts has translations with 'Ctrl'. The `runtime.platform` parameter is available via `payload?.runtime.platform` in App.tsx but needs to be passed down or utilized to display '⌘' on macOS.",
+            "result": "Confirmed the defect exists."
+          },
+          {
+            "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+            "evidence": "Created a test in `src/focus_test.test.tsx` that sets focus on a tab's close button, then rerenders TerminalWorkspace with 0 tabs. `document.activeElement` became the `BODY` element.",
+            "result": "Confirmed that focus is lost to the document body when all sessions are closed, which degrades keyboard accessibility."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-9869924dda721fc1"
+        ],
+        "completed_at": "2026-10-16T03:09:11.426595Z",
+        "source": {
+          "activity_id": "sessions/8632232431682828690/activities/0761233bf2a34680ab09a504c0835eb5",
+          "report_sha256": "d9bc24aa47488be0cdb28ae7433db709773ee99cc0552623ae6198252809e7a4",
+          "activity_created_at": "2026-10-16T02:57:36.562599Z",
+          "session_id": "8632232431682828690",
+          "dispatch_key": "ac6c4759c1c6e8610bc9d49a"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8632232431682828690/activities/0761233bf2a34680ab09a504c0835eb5",
+          "report_sha256": "d9bc24aa47488be0cdb28ae7433db709773ee99cc0552623ae6198252809e7a4",
+          "activity_created_at": "2026-10-16T02:57:36.562599Z",
+          "session_id": "8632232431682828690",
+          "dispatch_key": "ac6c4759c1c6e8610bc9d49a"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-9869924dda721fc1"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-9869924dda721fc1",
+      "title": "Restore focus appropriately when all sessions are closed",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 15,
+      "risk": "low",
+      "focus": [
+        "accessibility",
+        "bugfix"
+      ],
+      "created_at": "2026-10-16T03:09:11.426595Z",
+      "acceptance": [
+        "When the last terminal tab is closed and focus was within the tab UI, focus is redirected to the WorkspaceHome 'New Session' button or a suitable fallback."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "When the last terminal tab is closed, focus is left on the document body because the closed button is unmounted. It should fallback to a logical element in WorkspaceHome, such as the 'New Session' button.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Focus the 'Close' button of the only open session.",
+            "Close the session.",
+            "Observe `document.activeElement`."
+          ],
+          "expected": "Focus moves to a logical element like the 'New Session' button.",
+          "actual": "Focus moves to the document body."
+        }
+      },
+      "target_paths": [
+        "src/TerminalWorkspace.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-behavior-21",
+        "activity_id": "sessions/8632232431682828690/activities/0761233bf2a34680ab09a504c0835eb5",
+        "report_sha256": "d9bc24aa47488be0cdb28ae7433db709773ee99cc0552623ae6198252809e7a4",
+        "activity_created_at": "2026-10-16T02:57:36.562599Z",
+        "session_id": "8632232431682828690",
+        "dispatch_key": "ac6c4759c1c6e8610bc9d49a"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T02:48:58.127463Z",
+    "last_poll_at": "2026-10-16T03:09:36.468248Z",
     "last_tick_at": "2026-10-16T02:49:12.554664Z",
     "run_id": "38841358892",
     "owner_recovery_requests": [
