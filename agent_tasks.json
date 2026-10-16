@@ -552592,6 +552592,15 @@
         },
         "receipt_id": "3c91e455322175647f82c36fe38d695e82a940fb3a25214effed1fc86b26cf9a",
         "event_id": "c18e5e11d524b401a9e5681b8da5eab14df1358901ee737ddf4b84841a4dc8cc"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-16T21:26:57.103102Z",
+        "decision_id": "8d30ee9d0d9386f446d141936c1366f9bfc871e493599ca100b6a5ee47163a21",
+        "executor_claim_id": "f949859f6d368941ec913e1bd9da7d63f5fa6bbbea888143742ce95e919b820f",
+        "receipt_id": "3c91e455322175647f82c36fe38d695e82a940fb3a25214effed1fc86b26cf9a",
+        "frontier_seq": 708,
+        "event_id": "b2ea927eac740a4df2bd02ac3a0990ee2446f1bf7440957a9c9c25bffbf1e0ac"
       }
     ]
   }
