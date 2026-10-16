@@ -206016,7 +206016,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T02:44:07.326504Z"
+        "observed_at": "2026-10-16T02:44:07.326504Z",
+        "released_attempt_ref": "autonomous/attempt-83ca8ca2be1c69c427224ca3"
       },
       "research_result": {
         "summary": "Investigated `recover_import_transaction` in `sessions.rs` to see if it properly cleans up when the backup artifact directory or target artifacts directory is read-only or locked during an interrupted import rollback. I verified through local test simulation `import_recovery_cleans_up_when_backup_is_read_only5` that if `remove_import_artifacts` fails due to a locked or read-only directory (e.g. Permission Denied), the function handles it gracefully by returning an error message containing the failure reason (e.g., 'Не удалось удалить артефакты'), propagating it to `recover_imports_in_directory`, which then safely logs the failure as a `SessionScanWarning` and correctly marks the destination as `blocked`. This confirms the previous hypothesis that the recovery safely aborts and warns instead of crashing or leaving data corrupted.",
