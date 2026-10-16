@@ -561300,6 +561300,16 @@
           "actor": "Omnividente"
         },
         "event_id": "b6b4f3e9bb33daa25d71a4c8af8553c62395faef8f6b31058fe66940320eae0d"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-16T23:58:39.023648Z",
+        "decision_id": "325c93c92ad02d11b20e521c472e655d2824ff1e83585c14dd8b3a5a85347bb5",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-16T23:58:37.408615Z"
+        },
+        "event_id": "46ba83c62a217983ccaa92166468f6c685415a85cbf0daf5e0460a4a80f4d922"
       }
     ]
   }
