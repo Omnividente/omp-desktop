@@ -205714,7 +205714,7 @@
       "id": "research-sessions-persistence-reliability-21",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -205833,16 +205833,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14408096629591518926",
         "dispatch_key": "83ca8ca2be1c69c427224ca3",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-83ca8ca2be1c69c427224ca3",
         "started_at": "2026-10-16T01:54:12.049708Z",
-        "finished_at": "",
+        "finished_at": "2026-10-16T02:44:07.326504Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -206015,13 +206015,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-16T02:21:03.543394Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-16T02:44:07.326504Z"
+      },
+      "research_result": {
+        "summary": "Investigated `recover_import_transaction` in `sessions.rs` to see if it properly cleans up when the backup artifact directory or target artifacts directory is read-only or locked during an interrupted import rollback. I verified through local test simulation `import_recovery_cleans_up_when_backup_is_read_only5` that if `remove_import_artifacts` fails due to a locked or read-only directory (e.g. Permission Denied), the function handles it gracefully by returning an error message containing the failure reason (e.g., 'Не удалось удалить артефакты'), propagating it to `recover_imports_in_directory`, which then safely logs the failure as a `SessionScanWarning` and correctly marks the destination as `blocked`. This confirms the previous hypothesis that the recovery safely aborts and warns instead of crashing or leaving data corrupted.",
+        "observations": [
+          {
+            "scenario": "recover_import_transaction with read-only target_artifacts during rollback",
+            "evidence": "Ran a synthetic test `import_recovery_cleans_up_when_backup_is_read_only5` that creates an interrupted import intent (`ImportTransaction::Prepared`), moves the staged artifacts into the target path, and makes the target artifacts read-only to simulate a lock or permission issue. Calling `recover_imports_in_directory` gracefully yields a `SessionScanWarning` containing 'Permission denied (os error 13)' without panicking, and correctly inserts the destination into the `blocked` set.",
+            "result": "The recovery correctly aborts the rollback when the artifact directory cannot be deleted due to permissions, yielding a warning and blocking the session instead of crashing or corrupting the directory structure."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-16T02:44:07.326504Z",
+        "source": {
+          "activity_id": "sessions/14408096629591518926/activities/eac1806d4f9145a096080496464b241a",
+          "report_sha256": "645241b9e3f47da8a11530f094061ad76742f5bcbe6e5471dfabad40c2709473",
+          "activity_created_at": "2026-10-16T02:17:38.622813Z",
+          "session_id": "14408096629591518926",
+          "dispatch_key": "83ca8ca2be1c69c427224ca3"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-16T02:21:33.761942Z",
+    "last_poll_at": "2026-10-16T02:44:35.958326Z",
     "last_tick_at": "2026-10-16T02:21:48.239340Z",
     "run_id": "38839252768",
     "owner_recovery_requests": [
