@@ -209886,7 +209886,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T06:09:28.550012Z"
+        "observed_at": "2026-10-16T06:09:28.550012Z",
+        "released_attempt_ref": "autonomous/attempt-a61b48a3b97c95f752fe5e83"
       },
       "research_result": {
         "summary": "Verified that focus is not properly restored when closing the last session tab. Examined historical decision context regarding workspace/session rename state and hardcoded shortcuts.",
