@@ -208241,7 +208241,8 @@
             "session_id": "9914236537606670972",
             "dispatch_key": "cd92895f13b7df952eae43a6"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-cd92895f13b7df952eae43a6"
       },
       "research_result": {
         "summary": "Investigated the transcript rendering and scrolling behavior on the pinned base. The useVirtualList scrollToIndex implicitly anchors to the top offset, which leaves the bottom content of oversized final messages out of view. Verified loadTranscriptPath unhandled rejection behavior is intentional for App deep-link handler logic.",
