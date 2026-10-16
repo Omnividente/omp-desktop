@@ -214700,7 +214700,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T21:20:38.775069Z"
+        "observed_at": "2026-10-16T21:20:38.775069Z",
+        "released_attempt_ref": "autonomous/attempt-fc311eacd6b7e06b196961af"
       },
       "research_result": {
         "summary": "Investigated the transcript rendering and interactions. Discovered that the clear search button in TranscriptModal successfully clears the search using `onClearSearch()` but attempts to restore focus to the search input via a ref `searchRef` that is never populated. As a result, clicking 'Clear search' inside the modal empty state resets the query but drops keyboard focus instead of keeping the user in the search flow.",
