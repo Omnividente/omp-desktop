@@ -498879,6 +498879,29 @@
         "before_state_sha": "0b483410e4347c76c3607fdd902b559f4e959ef0",
         "before_digest": "befae976c800f7a2548673ebbb3c146fed8234776b239ffc5928b7f931686d33",
         "event_id": "e2e064781b159610030222a8db0979d7570099a36fd38ae9ab10a5c0b0453a70"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-16T02:22:09.381003Z",
+        "decision_id": "86e8f064bd8ff72748bda0e9b4574d4bd5e46709737211a5e6ccb2be795a7cbc",
+        "executor_claim_id": "c0816f468e538ea3a5331c424bce4907a9b2e3edf239245dbfc39dea4d81ee15",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "6b29df7b0cf5de63c58f2a9677a7038b4b470f6c",
+          "after_state_sha": "d01275588f242243c2dc061a1cba15b52f1cb0db",
+          "poll_observations": [
+            {
+              "task_id": "research-sessions-persistence-reliability-21",
+              "session_id": "14408096629591518926",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-16T02:21:03Z"
+            }
+          ],
+          "before_digest": "befae976c800f7a2548673ebbb3c146fed8234776b239ffc5928b7f931686d33",
+          "after_digest": "27c57d7dae9b8c312074729c2b56619bd04cf67ef2baa691a86b665ea8b2c114"
+        },
+        "receipt_id": "db5c84e8f4bf01e86c68969f30806640711cd6949392cb6fc63cfca043353a07",
+        "event_id": "88f657b6a143712dcf8760790b2be9448b07fa3a8f903f39a5c1b88924de5e58"
       }
     ]
   }
