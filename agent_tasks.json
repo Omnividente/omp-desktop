@@ -204058,7 +204058,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-16T00:08:46.431241Z"
+        "observed_at": "2026-10-16T00:08:46.431241Z",
+        "released_attempt_ref": "autonomous/attempt-ede821e6de569a6ad10797e9"
       },
       "research_result": {
         "summary": "Investigated session persistence import and component boundary checks, primarily on `ImportSessionModal`, `CodexImportModal` and `SessionControls`. Verified `ImportSessionModal` and `CodexImportModal` empty state interactions natively via `vitest` jsdom simulations and checked focus restoration on session pin toggle in `SessionControls`.",
