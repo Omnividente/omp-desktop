@@ -218785,7 +218785,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T02:08:16.247703Z"
+        "observed_at": "2026-10-17T02:08:16.247703Z",
+        "released_attempt_ref": "autonomous/attempt-acdc7ff3120865804446edfc"
       },
       "research_result": {
         "summary": "Investigated the session recovery UI focus restoration in `SessionControls`. Verified that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus resets to the document body when the recovery interface is removed due to a state update. Added a tracking mechanism (`recoveryFocusRequestedRef`) that restores focus to the parent container (`.session-controls`) when the switch recovery panel unmounts, fixing the accessibility issue and meeting the findings of the previous report.",
