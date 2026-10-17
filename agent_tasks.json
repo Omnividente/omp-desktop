@@ -222088,7 +222088,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T07:02:57.986526Z"
+        "observed_at": "2026-10-17T07:02:57.986526Z",
+        "released_attempt_ref": "autonomous/attempt-b484bbfd9ea51b154a104fb4"
       },
       "research_result": {
         "summary": "Investigated performance and behavior of transcript rendering and scrolling, specifically around `useVirtualList` rendering scale and `contentLinks` regex latency. Measured `useVirtualList` layout calculations for 100,000 items (rendering in ~11ms initially) and `contentLinks` scanning of dense regex inputs (completing in ~65ms for 100 iterations of heavily nested strings). No new regressions were discovered. The previously identified 'Latest message' scroll anchoring issue remains deferred.",
