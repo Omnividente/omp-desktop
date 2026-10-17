@@ -218005,6 +218005,189 @@
         "session_id": "4805255857781358427",
         "dispatch_key": "4268292daac6ef6d964b4f1a"
       }
+    },
+    {
+      "id": "research-terminal-input-behavior-22",
+      "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-10-17T01:08:10Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "behavior",
+        "fingerprint": "2b3ce7db2736a707ee3c9b59d6d7958baa9bdbb5e51faa4cdf2efba7b6b6f47e",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated the terminal UI layout resize leak, terminal output batcher data loss, and continuity generation changes. Confirmed that a scheduled requestAnimationFrame in ResizeObserver callback can fire after TerminalView is unmounted. Also verified that terminal output batcher drops pending data on dispose(), and terminal continuity overwrites a newer generation baseline if a stale output event or attachment arrives.",
+            "observations": [
+              {
+                "scenario": "A delayed output event or attachment with an older generation arrives while a newer generation is already active in the continuity baseline.",
+                "evidence": "Executed isolated Node.js script testing applyTerminalOutputEvent and applyTerminalAttachment with an older generation (1) than the active baseline (2). The code `previous.generation !== event.generation` unconditionally updates the baseline.",
+                "result": "The older output event was accepted (accept: true, generationChanged: true) and overwrote the continuity baseline back to the older generation 1. The stale attachment also overwrote the baseline, causing state corruption."
+              },
+              {
+                "scenario": "A resize event occurs triggering a requestAnimationFrame for fit(), but the component is unmounted before the frame fires.",
+                "evidence": "Inspected src/TerminalView.tsx lines 656-664 where ResizeObserver callback schedules a window.requestAnimationFrame. The cleanup function on line 769-770 correctly cancels fitFrame handle. However, earlier versions reported it leaked.",
+                "result": "The requestAnimationFrame callback leak seems to have been addressed in PRs or was misunderstood. The cleanup block calls `if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)`."
+              },
+              {
+                "scenario": "A delayed output event arrives while the terminal batcher is scheduled but the terminal unmounts before flushing.",
+                "evidence": "Executed an isolated Node.js script utilizing createTerminalOutputBatcher. Enqueued data and called dispose() without waiting for the timer. dispose() clears the chunks and length variables without calling writePending().",
+                "result": "The batcher drops the pending text data upon disposal, causing permanent data loss since continuity already marked it as received."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the lack of flush-on-dispose in other terminal components also causes similar data loss."
+            ],
+            "proposed_task_ids": [
+              "discovery-5da399cc6364531a",
+              "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc"
+            ],
+            "completed_at": "2026-10-16T01:54:12.049708Z",
+            "source": {
+              "activity_id": "sessions/1378984091277568626/activities/8ce7c7ac271f49eebde3238bc36f1c69",
+              "report_sha256": "10afac61db855c1b4657e756aa998c4ec5ecdb5878487b62383f9cf183332903",
+              "activity_created_at": "2026-10-16T01:42:54.440697Z",
+              "session_id": "1378984091277568626",
+              "dispatch_key": "b899d9e2f7ea1e521d01618c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal continuity handling of stale generation changes and output batcher behavior during teardown.",
+            "observations": [
+              {
+                "scenario": "A stale terminal output event from an older generation arrives while a newer generation is already active.",
+                "evidence": "Executed an isolated Node.js script calling `applyTerminalAttachment` with generation 2 followed by `applyTerminalOutputEvent` with generation 1.",
+                "result": "The stale event from the older generation overwrote the internal baseline, downgrading it to generation 1 and setting generationChanged to true. A subsequent valid event from generation 2 was also marked as generationChanged."
+              },
+              {
+                "scenario": "A stale terminal attachment from an older generation arrives while a newer generation is already active.",
+                "evidence": "Executed an isolated Node.js script calling `applyTerminalAttachment` with generation 2 followed by `applyTerminalAttachment` with generation 1.",
+                "result": "The older attachment downgraded the internal baseline from generation 2 to generation 1 without indicating a reset or rejecting the change."
+              },
+              {
+                "scenario": "The terminal output batcher is disposed while chunks are pending in the queue.",
+                "evidence": "Executed an isolated Node.js script enqueuing data to `createTerminalOutputBatcher` and immediately calling `dispose()` before the scheduler fired.",
+                "result": "The pending data was silently dropped, and no writes occurred upon disposal."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if terminal continuity baseline downgrade can cause memory leaks in tracking unseen lines."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T04:01:13.301780Z",
+            "source": {
+              "activity_id": "sessions/13185653709378735967/activities/299940ba1d5e498db1f14a0babde650f",
+              "report_sha256": "a1d471daa8bcc23653d02a9d490df1248973931891f107dd1ce0588e44d1e1a2",
+              "activity_created_at": "2026-10-16T03:48:08.876697Z",
+              "session_id": "13185653709378735967",
+              "dispatch_key": "33b663196bc04bf7ee5d0f27"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc; not established as a duplicate. {\"detail\": \"Isolated Node.js execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment.\", \"Call applyTerminalOutputEvent with a stale output event from generation 1.\", \"Observe the result and the internal baseline map.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0, 1], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalContinuity.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map.",
+                  "applyTerminalAttachment rejects attachments with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map."
+                ]
+              },
+              {
+                "title": "Prevent data loss by flushing terminal output batcher before disposal",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-5da399cc6364531a; not established as a duplicate. {\"detail\": \"Isolated execution of terminalOutputBatcher demonstrates that if disposed while chunks are pending, data is silently dropped because chunks are cleared and not flushed.\", \"reproduction\": {\"actual\": \"The queued data is discarded.\", \"expected\": \"The queued data is written during disposal.\", \"steps\": [\"Create a batcher with createTerminalOutputBatcher.\", \"Enqueue data so it schedules a window without immediately writing.\", \"Call batcher.dispose().\", \"Observe whether the queued data is written.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The synthetic test proves that disposing the output batcher drops any pending data because chunks are cleared without flushing them.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-c2c03e2397af3d9c\", \"responses\": [{\"decision_context_id\": \"a783214fd4337730f955159a60e2bd9111910828634159a3cb12d180cf28906d\", \"decision_task_id\": \"discovery-c2c03e2397af3d9c\", \"why_previous_reason_no_longer_explains\": \"The rationale asserts flushing into a disposed terminal is unsafe, but dropping the text is also unsafe because the terminal is persisting data.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalOutputBatcher.ts"
+                ],
+                "acceptance": [
+                  "The createTerminalOutputBatcher dispose method writes any enqueued data before clearing chunks."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the terminal continuity generation baseline and terminal output batcher disposal issues.",
+            "observations": [
+              {
+                "scenario": "A delayed output event with an older generation arrives while a newer generation is active.",
+                "evidence": "Ran an isolated script calling applyTerminalAttachment with generation 2, then applyTerminalOutputEvent with generation 1.",
+                "result": "The older output event was accepted (accept: true, generationChanged: true) and overwrote the baseline to generation 1."
+              },
+              {
+                "scenario": "A delayed terminal attachment with an older generation arrives while a newer generation is active.",
+                "evidence": "Observed that applyTerminalAttachment also blindly overwrites the generation if it differs from the previous one, thus allowing downgrade.",
+                "result": "Downgrading the continuity baseline leads to corrupted continuity state, causing later valid generation events to be evaluated against the downgraded expectedSeq."
+              },
+              {
+                "scenario": "The terminal output batcher is disposed while there are pending queued writes.",
+                "evidence": "Ran an isolated script using createTerminalOutputBatcher with a mock scheduler, enqueued data, and called dispose().",
+                "result": "The batcher cleared its pending chunks without flushing them to the terminal, resulting in silent data loss."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T04:58:49.581702Z",
+            "source": {
+              "activity_id": "sessions/17959077847080857515/activities/831b79c6afe04965bf4cb96501b98f9f",
+              "report_sha256": "4f9efc4823b6651669b3ba2d43df5f1f1681e95770520e332efbfaafb0deef0a",
+              "activity_created_at": "2026-10-16T04:43:35.896139Z",
+              "session_id": "17959077847080857515",
+              "dispatch_key": "055ae8eefa9677eb9eca5924"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix terminal continuity generation changes during failure recovery",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc; not established as a duplicate. {\"detail\": \"Isolated Node.js execution demonstrated that applyTerminalOutputEvent and applyTerminalAttachment accept generation changes from older generations and corrupt the internal baselines map.\", \"reproduction\": {\"actual\": \"The decision has accept: true, generationChanged: true, and the internal baseline is corrupted back to generation 1.\", \"expected\": \"The decision has accept: false, and the internal baseline remains generation 2.\", \"steps\": [\"Establish a generation 2 baseline using applyTerminalAttachment.\", \"Call applyTerminalOutputEvent with a stale output event from generation 1.\", \"Observe the result and the internal baseline map.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The synthetic test proves that if a stale event does arrive, it downgrades the continuity baseline and corrupts the state machine, requiring an explicit rejection of older generations without modifying the baseline.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0, 1], \"primary_decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"responses\": [{\"decision_context_id\": \"2ea648cfd4ed9c32f44bd4b6cf6a62bbaae993747b75e147c96ef292b7f279e6\", \"decision_task_id\": \"discovery-2e3581a94b0a870e18cd3f46a67fb053bf834d7deaa52b3586964322b55559ae\", \"why_previous_reason_no_longer_explains\": \"The rationale focused on the absence of an exception, which is true, but didn't address the silent state corruption where an older event overwrites the newer baseline and gets enqueued.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalContinuity.ts"
+                ],
+                "acceptance": [
+                  "applyTerminalOutputEvent rejects output events with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map.",
+                  "applyTerminalAttachment rejects attachments with a generation strictly older than the current baseline without overwriting the newer generation in the baselines map."
+                ]
+              },
+              {
+                "title": "Prevent data loss by flushing terminal output batcher before disposal",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-5da399cc6364531a; not established as a duplicate. {\"detail\": \"Isolated execution of terminalOutputBatcher demonstrates that if disposed while chunks are pending, data is silently dropped because chunks are cleared and not flushed.\", \"reproduction\": {\"actual\": \"The queued data is discarded.\", \"expected\": \"The queued data is written during disposal.\", \"steps\": [\"Create a batcher with createTerminalOutputBatcher.\", \"Enqueue data so it schedules a window without immediately writing.\", \"Call batcher.dispose().\", \"Observe whether the queued data is written.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The synthetic test proves that disposing the output batcher drops any pending data because chunks are cleared without flushing them.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-c2c03e2397af3d9c\", \"responses\": [{\"decision_context_id\": \"a783214fd4337730f955159a60e2bd9111910828634159a3cb12d180cf28906d\", \"decision_task_id\": \"discovery-c2c03e2397af3d9c\", \"why_previous_reason_no_longer_explains\": \"The rationale asserts flushing into a disposed terminal is unsafe, but dropping the text is also unsafe because the terminal is persisting data.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalOutputBatcher.ts"
+                ],
+                "acceptance": [
+                  "The createTerminalOutputBatcher dispose method writes any enqueued data before clearing chunks."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
