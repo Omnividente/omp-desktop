@@ -565651,6 +565651,35 @@
         "before_state_sha": "9e47fbb3333a65e38b4264f9a4ee10b1da188e5f",
         "before_digest": "b0cc3bbdb65847161d3a474100de0485e5259d53adbf7dfa4b2379da99d85ecc",
         "event_id": "3c46d842a1c37dc63cc6608e889672a62549eda49d23337d1220e4b37aed593d"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-17T01:13:39.934019Z",
+        "decision_id": "eaf20afd794e46a0f3f6c4b938c827dff4a4ffbac00edfafa1691e11793fc889",
+        "executor_claim_id": "84b579eed14ad481d95ba9c8bda8d6fd5a48beb88395471839c7ce537d814a5f",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "34563d9e3ca0ba7c53c11f85c92a09a44c9cc039",
+          "after_state_sha": "2dcc0eede1cfb5f1b23137e1e198f580d982fd5a",
+          "poll_observations": [
+            {
+              "task_id": "research-sessions-persistence-ux-22",
+              "session_id": "4805255857781358427",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-17T01:08:10Z"
+            },
+            {
+              "task_id": "research-terminal-input-behavior-22",
+              "session_id": "3564065293379296463",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-17T01:08:10Z"
+            }
+          ],
+          "before_digest": "b0cc3bbdb65847161d3a474100de0485e5259d53adbf7dfa4b2379da99d85ecc",
+          "after_digest": "3bc63955a15973de1efaf3768aa87aeb0725541eeab82be655ce501a6803d0ea"
+        },
+        "receipt_id": "e45ccb0db85f11657b1430ef69597cdb4c923eb9b2d672fa6d4a66f3dcd5a5fe",
+        "event_id": "8ecf69d385c0df757f01cdfecad81fc8c27a607c2eab9682231357d8928476b3"
       }
     ]
   }
