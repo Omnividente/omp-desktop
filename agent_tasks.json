@@ -217910,12 +217910,14 @@
               ]
             }
           ]
-        }
+        },
+        "session_state": "QUEUED",
+        "observed_at": "2026-10-17T00:17:45.081124Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T00:18:17.578034Z",
+    "last_poll_at": "2026-10-17T00:23:14.917506Z",
     "last_tick_at": "2026-10-16T23:52:58.153451Z",
     "run_id": "38982634624",
     "owner_recovery_requests": [
